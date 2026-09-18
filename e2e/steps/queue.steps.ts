@@ -28,8 +28,8 @@ const QUEUE_TIMEOUT = 90 * 1000
  * the scenario just did rather than on anything it says.
  */
 When('I go to the queue', async ({ page }) => {
-  // The camera has one way out and no tabs on it since #316, so from there the
-  // queue is out to the first screen and then the tab.
+  // The camera has one way out and no tabs on it, so from there the queue is
+  // out to the first screen and then the tab.
   await leaveTheCamera(page)
 
   for (const entry of [
@@ -45,18 +45,13 @@ When('I go to the queue', async ({ page }) => {
 })
 
 /**
- * Open the book waiting in the queue.
+ * The row itself is the control: there is no separate button to aim at.
  *
- * The row itself is the control since #120: there is no "Shelve" button to
- * aim at any more, because there was no reason for somebody holding a book to
- * have to hit a target smaller than the line the book is on.
- *
- * The wait is on the row becoming available, which happens when the background
- * worker has finished reading the photographs. Tapping before then does
- * nothing at all by design, so without the wait this would click into silence
- * and fail later for the wrong reason. `aria-disabled` rather than `disabled`
- * is what says so: the row must keep receiving pointer events while it is
- * pending, since those are what the discard swipe is made of.
+ * The wait is on the row becoming available, which happens when the
+ * background worker has finished reading the photographs; tapping before then
+ * does nothing at all by design. `aria-disabled` rather than `disabled` is
+ * what says so: the row must keep receiving pointer events while pending,
+ * since those are what the discard swipe is made of.
  */
 When('I open the queued book', async ({ page }) => {
   const row = page.locator('.queue__row').first()
@@ -66,24 +61,11 @@ When('I open the queued book', async ({ page }) => {
   await expect(reviewScreen(page)).toBeVisible()
 })
 
-/**
- * Leave the book in the queue rather than shelving it.
- *
- * This is the moment the work used to be lost: nothing had been saved, because
- * nothing could be until the book became a catalogued book.
- */
 When('I put the book down without shelving it', async ({ page }) => {
   await page.getByRole('button', { name: 'Leave it in the queue' }).click()
   await expect(page.locator('.queue__row').first()).toBeVisible()
 })
 
-/**
- * Leave the book by the header nav rather than by a button on the page.
- *
- * This is the way out that used to send nothing at all: no write of what had
- * been typed, and no release, so the book stayed claimed by somebody who had
- * walked away for the whole five minutes of the lease (#150).
- */
 When('I leave by the {string} tab', async ({ page }, tab: string) => {
   // Two chromes: a converted screen wears the design system's tab bar and an
   // unconverted one wears the app's header nav. Which is on screen depends on
@@ -124,8 +106,6 @@ Then('the queued book should be held by nobody', async ({ catalogue }) => {
 })
 
 /**
- * A second person, on the same queue.
- *
  * The device name is what a claim is recorded under and what lets a browser
  * reclaim its own work after a refresh, so clearing it is what makes the
  * reload a different person rather than the same one coming back.
@@ -137,10 +117,9 @@ When('I come back as somebody else', async ({ page, webUrl }) => {
 })
 
 /*
- * The name is `.wf-queued__title` rather than `.queue__title` because the row's
- * inside is the design system's own, called by the wireframe and by the app
- * (#363). The row itself is still this screen's: the swipe and the undo live
- * there and the drawing does not have them.
+ * `.wf-queued__title` rather than `.queue__title`: the row's inside is the
+ * design system's own, shared by the wireframe and the app. The row itself is
+ * still this screen's: the swipe and the undo live there.
  */
 Then('the queued book should be listed as {string}', async ({ page }, title: string) => {
   await expect(page.locator('.queue__row').first().locator('.wf-queued__title'))
@@ -152,23 +131,18 @@ Then('the queue should hold one book', async ({ catalogue }) => {
 })
 
 /**
- * A count, for the scenario where more than one row is the correct answer.
- *
- * Two copies of one book genuinely turn up, so a person who says the app has
- * the wrong book keeps what they photographed. Asserting the row is still
- * there is the whole of that claim: the warning must not be a refusal wearing
- * softer words (#146).
+ * A count, for the scenario where more than one row is the correct answer:
+ * two copies of one book genuinely turning up, so a person who says the app
+ * has the wrong book keeps what they photographed. The warning must not be a
+ * refusal wearing softer words.
  */
 Then('the queue should hold {int} books', async ({ catalogue }, count: number) => {
   expect(await catalogue.captureCount(), `the queue does not hold ${count} books`).toBe(count)
 })
 
 /**
- * The capture row itself, not the screen.
- *
- * The whole claim of #65 is about what reaches the database while a book is
- * still in the queue, so a screen-only assertion would pass on exactly the
- * behaviour that was broken: work held in a browser and never written down.
+ * The capture row itself, not the screen: a screen-only assertion would pass
+ * on work held in a browser and never written down.
  */
 Then('the queued book should be recorded as:', async ({ catalogue }, table: DataTable) => {
   const captures = await catalogue.captures()

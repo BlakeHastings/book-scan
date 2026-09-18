@@ -21,27 +21,19 @@ describe('the fiction flag as a tag', () => {
       .toEqual({ slug: NON_FICTION, confidence: 'weak' })
     expect(FICTION.value).toBe('genre/fiction')
     expect(NON_FICTION.value).toBe('genre/non-fiction')
-    // The two strings the wire carries are the two slugs and not a second
-    // spelling of them. See the note on FICTION_SLUG.
+    // The wire strings are the slugs themselves, not a second spelling of them.
     expect([FICTION_SLUG, NON_FICTION_SLUG]).toEqual([FICTION.value, NON_FICTION.value])
   })
 })
 
 describe('a catalogue that stated no genre', () => {
   it('claims no genre tag, rather than the one nobody chose', () => {
-    /*
-     * #304. The genre claim used to be the first entry unconditionally, built
-     * from a slug the classifier's last rung invented when it had nothing to
-     * reason from. A book nobody classified was written as non-fiction and
-     * reported as filed.
-     */
+    // A book nobody classified must not be written as non-fiction and reported as filed.
     expect(claimsFrom({ genre: null, confidence: 'unknown' })).toEqual([])
   })
 
   it('still claims the headings the catalogue did send', () => {
-    // The one thing nobody said is the one thing not written. A catalogue that
-    // listed subjects and no usable genre said those subjects, and they are
-    // worth exactly what they were worth before.
+    // Subjects the catalogue did send are still claimed, even with no usable genre.
     const claims = claimsFrom({
       genre: null,
       confidence: 'unknown',
@@ -65,8 +57,7 @@ describe('subject headings from a catalogue', () => {
   })
 
   it('files three spellings of one subject as one tag', () => {
-    // The failure this prevents is silent: three rows, and a rule matching one
-    // of them claiming a third of the books.
+    // Prevents three rows for one subject, each matched by only a fraction of the rules that should catch it.
     const claims = claimsFrom({
       genre: FICTION_SLUG,
       confidence: 'high',

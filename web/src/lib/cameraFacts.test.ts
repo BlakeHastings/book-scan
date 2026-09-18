@@ -1,10 +1,4 @@
-/**
- * The readable camera report.
- *
- * It exists to be read on a phone nobody here owns, which is exactly why it is
- * tested: the only feedback available is somebody reading a screen out loud,
- * so a line that says the wrong thing is worse than no line at all.
- */
+/** This exists to be read on a phone nobody here owns: the only feedback available is somebody reading a screen out loud. */
 
 import { describe, expect, it } from 'vitest'
 import { cameraFacts, cameraFactsText } from './scanner'
@@ -31,8 +25,7 @@ describe('cameraFacts', () => {
     facts.find((fact) => fact.label === label)?.value
 
   it('reports the size and speed the camera actually granted', () => {
-    // Not what was asked for. The whole point is to find out whether asking
-    // for 4K got 4K, and at what frame rate, which sets the exposure ceiling.
+    // Not what was asked for: the point is to find out whether asking for 4K actually got 4K.
     const facts = cameraFacts(fakeStream({
       settings: { width: 2160, height: 3840, frameRate: 30 },
     }))
@@ -53,8 +46,7 @@ describe('cameraFacts', () => {
   })
 
   it('gives the minimum focus distance in centimetres, not metres', () => {
-    // Reported in metres by the browser. Somebody holding a book at arm's
-    // length does not think in metres, and 0.12 reads like a mistake.
+    // The browser reports this in metres, and 0.12 reads like a mistake to somebody holding a book at arm's length.
     const facts = cameraFacts(fakeStream({ capabilities: { focusDistance: { min: 0.12 } } }))
     expect(say(facts, 'Closest it can focus')).toBe('12 cm')
   })
@@ -68,9 +60,7 @@ describe('cameraFacts', () => {
   })
 
   it('counts the pixels the spine crop will actually reach the OCR with', () => {
-    // The number that reframed this whole issue. A 2160x3840 portrait frame in
-    // a 390x844 viewport leaves the spine strip only a few hundred pixels
-    // across, which is why blur ruins that shot in particular.
+    // A 2160x3840 portrait frame in a 390x844 viewport leaves the spine strip only a few hundred pixels across, which is why blur ruins that shot in particular.
     const video = {
       videoWidth: 2160, videoHeight: 3840, clientWidth: 390, clientHeight: 844,
     } as HTMLVideoElement

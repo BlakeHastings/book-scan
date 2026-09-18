@@ -1,26 +1,11 @@
-// Holds `deploy/contract.json` to the code it describes.
+// Holds `deploy/contract.json` to the code it describes, in both directions: a
+// variable read and not declared is one a deployer was never told about, and a
+// variable declared and no longer read is one they set for nothing.
 //
-// WHY THIS EXISTS
-// The contract is the thing a private repository deploys from without reading
-// this one's source. That is only worth anything while it is true, and a
-// document describing an environment surface is exactly the kind of file that
-// stops being true silently: somebody adds `process.env.BOOKSCAN_SOMETHING`,
-// the app works on their machine, and the deployer finds out at runtime that
-// there is a variable nobody told them about. Both directions matter — a
-// variable declared and no longer read is a deployer setting something that
-// does nothing, which is the failure this project keeps finding.
-//
-// This project has form here, which is why the contract is checked rather than
-// reviewed: a guard that never loaded, a check whose only reader was a log
-// line, a build CI had never run. A contract nobody verifies is the same shape.
-//
-// It also holds the facts a deployer trips over to the files that decide
-// them: the port and the mount to the Dockerfile, the bind to
-// `web/server/bind.ts` and to the listen call it feeds, and the Postgres major
-// to `postgres-version.json`, which is the one place that version is written.
-//
-// Usage, from a workflow step or by hand at the repository root:
-//   node scripts/check-deploy-contract.mjs
+// It also holds the facts a deployer trips over to the files that decide them:
+// the port and the mount to the Dockerfile, the bind to `web/server/bind.ts`
+// and the listen call it feeds, and the Postgres major to
+// `postgres-version.json`.
 
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -31,10 +16,9 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)))
 /**
  * Where a deployment's environment can be read from.
  *
- * The client is not here on purpose: it reads no environment at run time, and
- * cannot — Vite inlines `import.meta.env` at build time and there is no
- * `process` in a browser. `web/vite.config.ts` reads two variables and both
- * configure the dev server, which no deployment runs.
+ * The client is not here on purpose: it reads no environment at run time and
+ * cannot, because Vite inlines `import.meta.env` at build time and there is no
+ * `process` in a browser.
  */
 const SCANNED = [
   join('web', 'server'),
@@ -47,13 +31,9 @@ const SCANNED = [
 ]
 
 /**
- * Read at run time and deliberately not part of a deployment's surface.
- *
- * Each one is a tool or a harness rather than the server, and each is here with
- * the reason rather than as a bare name, because the next person to add one has
- * to make the same argument. `docs/deployment-survey.md` calls these the blast
- * radius: they are not configuration a deployment sets, and an ambient value
- * can still point one of them somewhere it should not go.
+ * Read at run time and deliberately not part of a deployment's surface. Each is
+ * a tool or a harness rather than the server, and each carries its reason rather
+ * than sitting here as a bare name.
  */
 export const NOT_A_DEPLOYMENT_SURFACE = new Map([
   ['BOOKSCAN_TEST_DATABASE_URL', 'the test harness only, and the only connection variable it reads'],
@@ -74,10 +54,9 @@ export function withoutComments(text) {
 /**
  * Every environment variable name a file reads.
  *
- * Four shapes, because this codebase uses four. The last one is what catches
- * `web/server/auth/providers.ts`, which names its variables once as exported
- * constants and then indexes an environment with them, so a scan for
- * `process.env.` alone would miss the whole sign-in surface.
+ * The last shape is what catches `web/server/auth/providers.ts`, which names its
+ * variables once as exported constants and then indexes an environment with
+ * them, so a scan for `process.env.` alone would miss the sign-in surface.
  */
 export function envNamesIn(source) {
   const text = withoutComments(source)
@@ -112,12 +91,7 @@ function sourceFiles(path) {
   return found
 }
 
-/**
- * The two directions, as a pure function so the tests can drive both.
- *
- * `read` is a Map of name to the files that read it; `declared` is the
- * contract's environment array.
- */
+/** `read` is a Map of name to the files that read it. */
 export function compare(read, declared) {
   const problems = []
   const byName = new Map(declared.map((one) => [one.name, one]))
@@ -151,25 +125,16 @@ export function compare(read, declared) {
   return problems
 }
 
-/**
- * The facts a deployer meets first, checked against the files that decide them
- * rather than against the last person to edit the contract.
- */
 export function factProblems({ contract, dockerfile, serverIndex, serverBind, postgres }) {
   const problems = []
   const say = (claim, ok) => { if (!ok) problems.push(claim) }
 
   /*
-   * The bind, which is a choice with a default since #539 rather than an address
-   * written into the listen call. Four things have to agree, and the contract is
-   * describing a server somebody else's deployment does not have if any of them
-   * drifts: which variable decides it, what each word means, which word is the
-   * default, and that the listen call takes the address those produced rather
-   * than one of its own.
-   *
-   * The last of the four is the one worth having. Everything above it could be
-   * right while `app.listen` still carried a literal, and the contract would be
-   * documenting a variable that does nothing.
+   * Four things have to agree about the bind: which variable decides it, what
+   * each word means, which word is the default, and that the listen call takes
+   * the address those produced rather than one of its own. The last is the one
+   * worth having, because everything above it could be right while `app.listen`
+   * still carried a literal.
    */
   say(
     `the contract says ${contract.network.bindVariable} chooses the bind, and web/server/bind.ts reads a different name`,
@@ -241,16 +206,11 @@ export function factProblems({ contract, dockerfile, serverIndex, serverBind, po
 }
 
 /**
- * Nothing in the contract may name a place. The whole point of publishing it is
- * that the repository consuming it never has to tell this one anything, and the
- * exposure runs both ways: a hostname that arrives here is a hostname that is
- * public forever.
+ * Nothing in the contract may name a place: a hostname that arrives here is a
+ * hostname that is public forever.
  *
- * Deliberately crude. It looks for the shape of a host rather than for a list
- * of known-bad strings. The exceptions are named one by one: the five public
- * catalogue origins this app talks to, which are already in its source, and the
- * registry the image is published to, which is a property of this repository
- * rather than of anywhere it runs.
+ * Deliberately crude. It looks for the shape of a host rather than for a list of
+ * known-bad strings, and every exception is named one by one.
  */
 export function siteSpecificProblems(contract, allowedHosts) {
   const problems = []
@@ -302,25 +262,16 @@ function main() {
     ...siteSpecificProblems(contract, [
       ...contract.dependencies.outboundHttps.hosts.map((one) => one.host),
       /*
-       * The identity providers' own hosts (#537). Excused on exactly the same
-       * terms as the catalogue origins above, and for the same reason: a host is
-       * allowed to appear in this contract only because the contract also
-       * declares that a deployment must be able to reach it. Nothing is excused
-       * by being written into this script.
-       *
-       * This became load-bearing rather than tidy when Microsoft arrived.
-       * `login.microsoftonline.com` is the one host this repository does write
-       * down, because a discovery document is only worth reading on account of
-       * where it was fetched from, and a deployment that cannot reach it can
-       * sign nobody in through that door.
+       * A host is allowed to appear in this contract only because the contract
+       * also declares that a deployment must be able to reach it. Nothing is
+       * excused by being written into this script.
        */
       ...contract.dependencies.outboundHttps.signInHosts.map((one) => one.host),
       contract.image.registry,
     ]),
   ]
 
-  // A check that passes because it found nothing is the failure this file is
-  // about, so say what it read.
+  // A check that passes because it found nothing proves nothing.
   if (read.size === 0) {
     problems.push('no environment variables were found in the scanned source at all, so this check proved nothing')
   }

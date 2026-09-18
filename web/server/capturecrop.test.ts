@@ -250,9 +250,8 @@ describe('the worker does it, so nobody waits', () => {
 
   it('hands back a crop whose capture was discarded while it was being written', async () => {
     // The window the deferred discard opens (src/lib/discardWindow.ts): the
-    // delete arrives ten seconds after the swipe, so it can land in the second
-    // this pass spends cropping. It sweeps the crops the row named at the
-    // time, which is none, and the file lands afterwards pointing at nothing.
+    // delete can land in the second this pass spends cropping, sweeping the
+    // crops the row named at the time, which is none.
     vi.mocked(identify).mockResolvedValue({
       isbn13: '', isbn10: '', source: '' as const, barcodes: [], titleGuess: '',
       coverLines: [], isbnCandidates: [], text: '', notes: [],
@@ -260,14 +259,9 @@ describe('the worker does it, so nobody waits', () => {
     const io = memory({ 'p_front.jpg': await photograph(11) })
     const orphaned: string[][] = []
     /**
-     * The discard, fired at the worst possible moment: mid-write.
-     *
-     * Awaited by the writer rather than floated, so the swipe has landed by the
-     * time the pass looks at the state. Floating it left the outcome to
-     * whatever else the pass happened to await next, which is how much work
-     * this test is not about: it passed while the hash came after the crops and
-     * stopped passing when it came before them, without the window it is about
-     * having changed at all.
+     * The discard, fired at the worst possible moment: mid-write. Awaited
+     * by the writer rather than floated, so the swipe has landed by the
+     * time the pass looks at the state.
      */
     let discard: (() => Promise<void>) | null = null
 
@@ -281,8 +275,8 @@ describe('the worker does it, so nobody waits', () => {
     discard = () => queue.discard(capture.id)
     await queue.drain()
 
-    // The row is still there. A discard is a state now, not a delete (#183),
-    // so what says the scan went is the state rather than the absence of a row.
+    // The row is still there: a discard is a state, not a delete, so what
+    // says the scan went is the state rather than the absence of a row.
     expect((await queue.get(capture.id))?.status).toBe('done')
     // Named to the caller's own sweep rather than deleted here, so the check
     // that a shelved book does not still want the file is the same one.
@@ -363,14 +357,9 @@ describe('backfilling the captures already queued', () => {
 })
 
 /**
- * The hash is what stops the catalogue growing a second copy of a book (#237),
- * so the ways it can fail to be written are the subject here rather than a
+ * The hash is what stops the catalogue growing a second copy of a book, so
+ * the ways it can fail to be written are the subject here rather than a
  * detail of the pass that writes it.
- *
- * Every test below makes the hash fail on purpose, in a way that had left the
- * capture with an empty hash forever: nothing retried it, nothing said so, and
- * `waiting()` leaves an unhashed capture out, so holding the book up again
- * found nothing at all.
  */
 describe('a capture is hashed whatever else goes wrong', () => {
   /** A shape the queue is happy to write crops to, and this one refuses. */

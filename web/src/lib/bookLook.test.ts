@@ -7,10 +7,7 @@ describe('how thick the catalogue says a book is', () => {
     expect(pagesOf({ pages: '320' })).toBe(320)
   })
 
-  /*
-   * A catalogue answers "320 pages" often enough that dropping those would
-   * quietly move a chunk of the shelf onto the fallback width.
-   */
+  /* A catalogue answers "320 pages" often enough that dropping those would quietly move a chunk of the shelf onto the fallback width. */
   it('reads a count out of what a catalogue actually returns', () => {
     expect(pagesOf({ pages: '320 pages' })).toBe(320)
   })
@@ -22,11 +19,6 @@ describe('how thick the catalogue says a book is', () => {
     expect(pagesOf({ pages: '0' })).toBeUndefined()
   })
 
-  /*
-   * The pinned rule, reaching real data. A width comes off the book or it comes
-   * off the median of the books that have one, and there is no third answer for
-   * a `pages` column holding a word.
-   */
   it('draws a book the catalogue cannot answer for at the median', () => {
     expect(spineWidth(pagesOf({ pages: '' }))).toBe(spineWidth(MEDIAN_PAGES))
     expect(spineWidth(pagesOf({ pages: '900' }))).toBeGreaterThan(spineWidth(MEDIAN_PAGES))

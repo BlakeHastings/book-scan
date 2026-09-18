@@ -1,31 +1,22 @@
 /**
- * A catalogue made to fail on purpose, and what the other one still does (#348).
+ * Two real HTTP servers stand in for Open Library and Google Books, pointed
+ * at through `BOOKSCAN_OPENLIBRARY_URL` and `BOOKSCAN_GOOGLE_BOOKS_URL`,
+ * which are the variables `lookup.ts` already reads so a test run can take
+ * the lookups off the network. Real servers rather than a stubbed `fetch`,
+ * because the thing under test is what `lookup.ts` makes of a status code,
+ * an abort and a dropped socket, and a stub would be this file asserting
+ * against its own idea of those.
  *
- * Two real HTTP servers stand in for Open Library and Google Books, pointed at
- * through `BOOKSCAN_OPENLIBRARY_URL` and `BOOKSCAN_GOOGLE_BOOKS_URL`, which are
- * the variables `lookup.ts` already reads so a test run can take the lookups off
- * the network. Real servers rather than a stubbed `fetch`, because the thing
- * under test is what `lookup.ts` makes of a status code, an abort and a dropped
- * socket, and a stub would be this file asserting against its own idea of those.
+ * What has to hold at once: the lookup still succeeds from the other
+ * source, since a catalogue being down must not stop somebody cataloguing a
+ * book; what a successful lookup returns does not change; and the silence
+ * is recorded, in the log and on `/api/health`, with the API key in
+ * neither.
  *
- * The failure being reproduced is the one in the real catalogue:
- * `docs/catalogue-sources.md` found `lookup_source` reading
- * `Open Library + Google Books` for zero of 238 books, because Google Books has
- * answered 429 to every request ever made to it and the failure was absorbed.
- *
- * Three things have to hold at once and each has a test below:
- *
- * 1. **The lookup still succeeds from the other source.** A catalogue being
- *    down must not stop somebody cataloguing a book.
- * 2. **What a successful lookup returns does not change.** Every screen and
- *    every save path was built against it.
- * 3. **The silence is recorded**, in the log and on `/api/health`, and the API
- *    key is in neither.
- *
- * `lookup.ts` reads both origins as it is imported, so it is imported here only
- * after the servers are listening. That is also why `source-watch` is imported
- * at the top and the module registry is never reset: both files have to be
- * looking at the same tally.
+ * `lookup.ts` reads both origins as it is imported, so it is imported here
+ * only after the servers are listening. That is also why `source-watch` is
+ * imported at the top and the module registry is never reset: both files
+ * have to be looking at the same tally.
  */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
@@ -42,11 +33,9 @@ const ISBN = '9780441013593'
 /**
  * What each stub does with the next request. Set per test.
  *
- * `quota` and `breaks` are both a status code and neither is an answer, and
- * they are separate on purpose: 429 is a catalogue refusing to serve, which a
- * key answers, and 500 is a catalogue failing, which nothing anybody types
- * answers. The report has to tell them apart, so the stubs have to be able to
- * produce them apart.
+ * `quota` and `breaks` are separate on purpose: 429 is a catalogue refusing
+ * to serve, which a key answers, and 500 is a catalogue failing, which
+ * nothing anybody types answers. The report has to tell them apart.
  */
 type Behaviour = 'answers' | 'has no record' | 'quota' | 'breaks' | 'hangs' | 'drops'
 let openLibraryDoes: Behaviour = 'answers'
@@ -194,7 +183,7 @@ describe('when both catalogues answer', () => {
   it('is the answer it has always been, and both are recorded as answering', async () => {
     const found = await lookupIsbn(ISBN, { googleApiKey: API_KEY })
 
-    // The shape #348 must not disturb. Two sources named, joined the one way.
+    // Two sources named, joined the one way.
     expect(found.found).toBe(true)
     expect(found.source).toBe('Open Library + Google Books')
     expect(found.title).toBe('Dune')
@@ -208,8 +197,8 @@ describe('when both catalogues answer', () => {
   })
 
   it('does not count a catalogue with no record of the book as a failure', async () => {
-    // The ordinary case, and the reason #305 exists. Google Books answered; it
-    // has never heard of this book. That is not silence.
+    // Google Books answered; it has never heard of this book. That is not
+    // silence.
     googleDoes = 'has no record'
 
     const found = await lookupIsbn(ISBN, { googleApiKey: API_KEY })
@@ -318,19 +307,14 @@ describe('the other ways a catalogue goes quiet', () => {
 })
 
 /**
- * The bar this issue actually sets, put to a real server five times.
- *
  * "A source that silently answers nothing looks exactly like a source that
- * answered and found nothing" is the sentence the whole issue turns on, and
- * there are five of those look-alikes rather than two. Each case below is a
- * server really behaving that way, and the last test is the one that matters:
- * it asserts the five reports are five different reports, so a future change
- * that folds two of them back together fails here rather than going quiet
- * again, which is the failure mode this file exists to stop.
+ * answered and found nothing" is what this turns on, and there are five of
+ * those look-alikes rather than two. The last test asserts the five reports
+ * are five different reports, so a future change that folds two of them
+ * back together fails here.
  *
- * `supplement: false` throughout, so Library of Congress and K10plus are not
- * consulted. That is not only about staying off the network: it is what makes
- * them the "never asked" case.
+ * `supplement: false` throughout, so Library of Congress and K10plus are
+ * not consulted, which is what makes them the "never asked" case.
  */
 describe('the five things that can happen to a catalogue, told apart', () => {
   /** Google Books' standing after the stub behaved one way for one lookup. */
@@ -359,9 +343,9 @@ describe('the five things that can happen to a catalogue, told apart', () => {
   })
 
   it('asked and it genuinely has no record is an answer, not a failure', async () => {
-    // Open Library has no record of six of the 238 books in the real
-    // catalogue. Those six are a fact about the books, and filing them as
-    // outages would make the report useless for finding a real one.
+    // A book a catalogue genuinely has no record of is a fact about the
+    // book, not an outage, and filing it as one would make the report
+    // useless for finding a real one.
     expect(await after('has no record')).toMatchObject({
       asked: 1, answered: 1, held: 0, noRecord: 1, silent: 0, declined: 0, failed: 0,
     })
@@ -388,11 +372,9 @@ describe('the five things that can happen to a catalogue, told apart', () => {
 
   it('reports all five differently, which is the whole of what was wrong', async () => {
     /*
-     * Before this, `answered` covered the second and third and `silent` covered
-     * the fourth and fifth, so five afternoons produced three reports. The
-     * counters and the timestamp are dropped from the comparison: the timestamp
-     * differs between any two runs and would make this pass for the wrong
-     * reason.
+     * The counters and the timestamp are dropped from the comparison: the
+     * timestamp differs between any two runs and would make this pass for
+     * the wrong reason.
      */
     const said = (standing: object) =>
       JSON.stringify({ ...standing, source: '', lastSilentAt: '' })

@@ -1,178 +1,59 @@
 // SessionStart check: say out loud when the catalogue's backup has stopped.
 //
-// WHAT THIS DETECTS
-// On 2026-08-24 the newest dump was **5.8 days old** and the newest cover was
-// **16.9 days old**, and nobody knew. `install-backup-task.ps1` registers a
-// version-pinned `pwsh` path, and PowerShell updated to 7.6.5, so the task ran
-// and died in under a second every night (#454).
+// It reports and repairs nothing: it starts no task and opens no connection to
+// the catalogue. `web/server/backup-watch.ts`, over `GET /api/backup`, asks the
+// same question of the same disk; where the two disagree that file is right and
+// this is the copy to fix.
 //
-// Nothing was broken in a way anything watched. The task existed, the schedule
-// fired, the directory was there with fourteen dumps in it, and the most recent
-// one restored and verified clean. Every question except "when" had a healthy
-// answer.
+// The dumps and the covers are measured differently. The covers are mirrored
+// with `robocopy /E /XO`, whose default `/COPY:DAT` preserves source timestamps,
+// so the newest file in the destination is the newest file at the source, and
+// its age says how long since somebody photographed a book rather than how long
+// since the mirror ran. The covers are therefore checked by comparison: the
+// mirror is current when the destination's newest is at least as new as the
+// source's, whatever age that is. Where the source cannot be read, that is said
+// rather than falling back to an age.
 //
-// THIS IS NOT A SECOND ANSWER TO A QUESTION ALREADY ANSWERED
-// `web/server/backup-watch.ts`, over `GET /api/backup`, already asks the right
-// question and asks it better than a process check could: is there a dump less
-// than about a day old whose manifest says a verification restored it and found
-// no differences? Its runbook explains why the *result* rather than the job —
-// the job ran on both of the nights nobody found out about.
+// It reports what the manifest's `verified` block says and does not second-guess
+// it, so a backup that is fresh and wrong in a way the verification does not
+// test passes here.
 //
-// **The gap was never a missing check. It was that nothing carried an existing
-// check's answer to a person.** That check needs the server running and someone
-// to ask it. This reads the same two facts off the same disk and puts them
-// where somebody will see them without asking: the start of a session.
+// Silent at session start when there is nothing to say, because a line printed
+// every session is a line nobody reads. `--status` is a question somebody asked,
+// so that answers.
 //
-// Deriving one answer in two places is this project's most expensive defect
-// family — five defects and counting — so the duplication is deliberate, narrow,
-// and worth naming. What is duplicated is the *question*, not the catalogue's
-// state: this opens no connection and reads no database. If the two ever
-// disagree, `backup-watch.ts` is right and this is the copy to fix.
-//
-// WHY TWO CLOCKS, AND WHY THEY ARE NOT THE SAME KIND OF CLOCK
-// The dumps and the covers stopped eleven days apart, so watching only one would
-// have reported healthy through most of the gap. But they must be measured
-// differently, and getting that wrong is a defect this file shipped once.
-//
-// **A dump is produced by the run** — one new file a night — so its age is the
-// time since the last successful run, and an age is the right question.
-//
-// **The covers are mirrored with `robocopy /E /XO`**, whose default `/COPY:DAT`
-// preserves source timestamps. So the newest file in the destination is the
-// newest file *at the source*, and its age measures how long since somebody
-// photographed a book, not how long since the mirror ran. Verified on
-// 2026-08-25: 1541 files on each side, newest identical at
-// `2026-08-08T04:21:01.189Z`, and destination mtimes spread over thirteen
-// distinct hours instead of clustering at the 03:30 schedule.
-//
-// The first version of this file aged the covers destination and reported "the
-// newest backed-up cover is 16.9 days old". A real number about the wrong thing:
-// the mirror was current and nobody had scanned for seventeen days. On a quiet
-// week it would cry wolf over a sync that ran perfectly every night, which is
-// the failure this file exists to argue against. It was caught in review, not by
-// me, and it is written here because the plausible-looking number is what made
-// it survive being run.
-//
-// So the covers are checked by **comparison**: the mirror is current when the
-// destination's newest is at least as new as the source's, whatever age that is.
-// True on a quiet week, false the moment a copy is missed. Where the source
-// cannot be read, that is said rather than falling back to an age, because the
-// age is the answer that looked right and was not.
-//
-// WHY IT SAYS THE NUMBER
-// "The backup is stale" gets normalised and then ignored. "The newest backup is
-// 5.8 days old" is a fact somebody acts on. And it stays **silent when things
-// are fine**, because a line that prints every session is a line nobody reads,
-// which is how six days went by.
-//
-// WHAT THIS DOES NOT COVER
-// Repair. It reports and does nothing else — it starts no task, touches no
-// scheduled job, and opens no connection to the catalogue. #454 is the repair
-// and it belongs to whoever the owner asks.
-//
-// Nor does it cover a backup that is fresh and wrong in a way the verification
-// does not test. The manifest's `verified` block is only as good as what
-// `backup-catalogue.ts` compares, and the runbook is explicit that row counts do
-// not move when a collation breaks. This reports what that block says; it does
-// not second-guess it.
-//
-// And it cannot watch what it has not been told about. Where neither the
-// environment nor the machine record names a directory, it says so rather than
-// passing quietly, because a watcher that is silently watching nothing is the
-// same defect this file exists to catch.
-//
-// EXCEPT ON A MACHINE THAT HOLDS NO CATALOGUE, WHICH IS NOT THE SAME THING
-// That paragraph was written on the machine with the collection on it. On the
-// Linux devbox this loop now runs on there is no catalogue, no photographs and
-// no dumps (AGENTS.md puts all three on the Windows desktop and out of bounds),
-// and so this check fired at every session start, under a heading saying the
-// catalogue needs attention, about a machine that has nothing to attend to
-// (#567). Two situations produce that one observation and they want opposite
-// answers: a backup that has stopped, and a machine that never had one.
-//
-// **Nothing on the machine tells them apart, and the near misses are worth
-// naming because each looks like it would.** Probing for the catalogue itself
-// (the `book-scan-live-pg` container, the volume, the covers directory) answers
-// "no catalogue here" on the desktop too whenever the container is down, which
-// AGENTS.md records it has been since 2026-09-02. That is the machine that most
-// needs the alarm, at its worst moment, and it is also a connection this file
-// promises above never to open. The platform is no better: Linux means no
-// catalogue for this operator today and nothing at all tomorrow.
-//
-// So it has to be recorded, and **the direction of the record matters more
-// than where it lives**. #567 suggests recording that a machine *is* expected
-// to hold a catalogue. That makes an absent record mean silence, and the
-// machine holding the catalogue today has no such record: losing one file
-// would retire the alarm, which is #454 happening again with the watcher in on
-// it. Recorded the other way, the quiet case is the one somebody had to write
-// down, and every machine that has written nothing is as loud as it ever was.
-//
-// The statement is `"catalogue": "elsewhere"` in
-// `.git/factory/backup-dirs.json`, beside the paths and read in the same pass,
-// because deriving one answer from two reads of one file is how this project
-// gets its defects. **It holds only while nothing is configured.** A machine
-// that names even one directory has something here claiming to be watched, and
-// it is watched and complained about exactly as before, so the desktop's own
-// record, which names three paths, can never silence anything.
-//
-// What it says when it is quiet is nothing, at session start, for the same
-// reason the healthy case says nothing: a line printed every session is a line
-// nobody reads. `--status` is a question somebody asked, so that answers.
+// Where neither the environment nor the machine record names a directory, it
+// says so rather than passing quietly. The exception is a machine that records
+// `"catalogue": "elsewhere"` in `.git/factory/backup-dirs.json`, and that holds
+// only while nothing is configured: a machine naming even one directory has
+// something here claiming to be watched and is complained about as before. The
+// record is worded that way round on purpose. Recorded the other way, as a
+// machine that expects to hold a catalogue, losing one file would silently
+// retire the alarm on the machine that most needs it.
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 
 /**
- * THE AGE OF A DUMP IS NOT A QUESTION HERE, AND THIS FILE ASKED IT TWICE.
+ * The age of a dump is not a question here. There is no nightly schedule: a
+ * backup is taken before any operation that touches the catalogue, by whoever is
+ * doing the operation, so there is no clock for an age to be late against.
  *
- * The first version aged the dumps against a 36 hour threshold, on the
- * assumption that a nightly schedule produces one every night. **There is no
- * nightly schedule.** #241 retired it on 2026-08-12 and replaced it with a rule:
- * a backup is taken before any operation that touches the catalogue, by whoever
- * is doing the operation.
- *
- * Measured, which is what settled it: all fourteen dumps on the disk were
- * written at irregular local times — 16:14, 10:47, 13:14, 22:32, 08:28, 00:05,
- * 20:21 — and **not one at 03:30**. They are people backing up before work, and
- * that is #241's model doing exactly what it says.
- *
- * (A task called `book-scan catalogue backup` does still fire at 03:30 and fail
- * with `ERROR_FILE_NOT_FOUND` every night. It is a leftover from before #241 and
- * it has never written a dump to that directory. Removing it is #454.)
- *
- * So under the rule that actually exists, an age says nothing. There is no
- * schedule for it to be late against, and complaining that the newest dump is
- * five days old on a week when nobody touched the catalogue is the third time
- * this file would have cried wolf about a backup that was fine.
- *
- * WHAT THE DISK CAN ACTUALLY PROVE
- * Two things, and they are the two things below: that scanning has happened
- * since the last dump, and that the last dump verified.
- *
- * **WHAT IT CANNOT PROVE, WHICH MATTERS MORE THAN IT LOOKS.** Covers are only
- * written when somebody photographs a book. Editing a record, moving a book,
- * lending one, running a repair — none of them leave a file. So this is silent
- * through a week of edits, and under #241 the only thing covering that is the
- * person doing the operation taking a dump first. That is a procedural
- * guarantee and nothing here can detect its absence. It is written down rather
- * than implied, because a check that looks like it watches the catalogue and
- * only watches the camera is precisely the shape of thing this project keeps
- * finding.
+ * What the disk can prove is the two things below: that scanning has happened
+ * since the last dump, and that the last dump verified. Covers are only written
+ * when somebody photographs a book, so editing a record, moving a book or
+ * running a repair leaves no file and nothing here can see it.
  */
 
 /**
  * Where the backups live, from the environment first and the machine record
- * second, and, from the record only, whether this machine expects to have any.
+ * second. `catalogue` comes from the record only, and is `'elsewhere'` just
+ * where the record says so in those words, `null` for every machine that has not
+ * said it, including one with no record at all.
  *
- * These are machine facts: which disk this operator keeps backups on, and
- * whether the collection is on this box at all. So they are never committed.
- * `.git/factory/` is where this project already puts that kind of state: inside
- * the git common directory, shared by every worktree and inherited by no clone.
- *
- * `catalogue` is `'elsewhere'` only where the record says so in those words,
- * and `null` for every machine that has not said it, including a machine with
- * no record at all. See the header for why the silent case is the one that has
- * to be written down rather than the loud one.
+ * The record sits in `.git/factory/`, inside the git common directory, shared by
+ * every worktree and inherited by no clone: these are machine facts and are
+ * never committed.
  */
 export function directories(env = process.env, factoryDir = null) {
   const fromEnv = {
@@ -195,8 +76,7 @@ export function directories(env = process.env, factoryDir = null) {
         catalogue: said.catalogue === 'elsewhere' ? 'elsewhere' : null,
       }
     } catch {
-      // A malformed record is the same as no record, and saying so is the
-      // caller's job rather than this function's.
+      // A malformed record is the same as no record.
     }
   }
   return fromEnv
@@ -213,7 +93,6 @@ function commonDir() {
   }
 }
 
-/** The newest entry in a directory, by modification time, or null. */
 function newestIn(dir, ending = '') {
   let entries
   try {
@@ -239,25 +118,15 @@ function newestIn(dir, ending = '') {
 const hoursSince = (at, now) => (now - at) / 3_600_000
 const days = (hours) => (hours / 24).toFixed(1)
 
-/**
- * Whether this machine has said the collection is not on it.
- *
- * Both halves matter and they are written once because two copies of a rule is
- * how this project gets its defects: the record has to say it in those words,
- * and it is believed only while nothing here is claiming to be watched. See
- * the header, including why the statement cannot be inferred (#567).
- */
+/** Believed only while nothing here is claiming to be watched. See the header. */
 function holdsNoCatalogue(dirs) {
   return dirs.catalogue === 'elsewhere' && !dirs.dumps && !dirs.covers && !dirs.coversSource
 }
 
 /**
- * What the verification beside a dump says about it.
- *
- * Absent or unreadable is reported as unknown rather than as failure: a dump
- * whose manifest cannot be read is a different problem from a dump that failed
- * to restore, and calling them the same thing would make the loud case
- * unbelievable.
+ * What the verification beside a dump says about it. Absent or unreadable is
+ * reported as unknown rather than as failure: a dump whose manifest cannot be
+ * read is a different problem from a dump that failed to restore.
  */
 function verificationOf(dir, dumpName) {
   const manifest = join(dir, dumpName.replace(/\.dump$/, '.json'))
@@ -274,17 +143,11 @@ function verificationOf(dir, dumpName) {
   }
 }
 
-/**
- * Everything worth saying, or an empty list when there is nothing to say.
- *
- * Returned rather than printed so the test can ask the question without
- * reading stdout, and so the two clocks are visibly independent.
- */
 export function complaints(dirs, now = Date.now()) {
   const said = []
 
-  // Not a machine left unconfigured: a machine configured with nothing, which
-  // is correct here, and there is no complaint to make about it.
+  // A machine configured with nothing, which is correct here, rather than a
+  // machine left unconfigured.
   if (holdsNoCatalogue(dirs)) return said
 
   const missing = [
@@ -319,11 +182,8 @@ export function complaints(dirs, now = Date.now()) {
     }
   }
 
-  // The one thing about timing the disk can actually prove: somebody has
-  // photographed a book since the last dump was taken, so there is work no
-  // backup holds. An age would say nothing here, because #241 replaced the
-  // schedule with "back up before the operation" and there is no clock to be
-  // late against. See the header, including what this cannot see.
+  // The one thing about timing the disk can prove: somebody has photographed a
+  // book since the last dump was taken, so there is work no backup holds.
   if (newestDump && dirs.coversSource) {
     const scanned = newestIn(dirs.coversSource)
     if (scanned && scanned.at > newestDump.at) {
@@ -336,9 +196,7 @@ export function complaints(dirs, now = Date.now()) {
     }
   }
 
-  // The covers are a comparison rather than an age. See the header: robocopy
-  // preserves source timestamps, so the destination's newest file is the
-  // source's newest file and its age says nothing about when the mirror ran.
+  // A comparison rather than an age. See the header on robocopy timestamps.
   if (dirs.covers && dirs.coversSource) {
     const copied = newestIn(dirs.covers)
     const source = newestIn(dirs.coversSource)
@@ -370,8 +228,6 @@ if (process.argv[1]?.endsWith('check-backup-freshness.mjs')) {
     console.log(`covers: ${dirs.covers ?? '(not configured)'}`)
     console.log('')
     if (holdsNoCatalogue(dirs)) {
-      // Asked directly, so it answers: silence at session start is the right
-      // amount to say unprompted, and the wrong amount to say to a question.
       console.log('This machine records that the catalogue is elsewhere, in'
         + '\n.git/factory/backup-dirs.json, so there is nothing here to watch and'
         + '\nnothing to say at the start of a session. Take that line out and this is'
@@ -384,8 +240,6 @@ if (process.argv[1]?.endsWith('check-backup-freshness.mjs')) {
     process.exit(0)
   }
 
-  // Silent when there is nothing to say. A line printed every session is a line
-  // nobody reads, and that is how six days went by unnoticed.
   if (said.length) {
     console.log('The catalogue backup needs attention.')
     console.log('')
@@ -395,7 +249,7 @@ if (process.argv[1]?.endsWith('check-backup-freshness.mjs')) {
     console.log('See docs/backup-runbook.md. This check only reports; it repairs nothing.')
   }
 
-  // Never non-zero: this is a notice at the start of a session, not a gate, and
-  // a SessionStart hook that fails is a session that starts badly.
+  // Never non-zero: a SessionStart hook that fails is a session that starts
+  // badly, and this is a notice rather than a gate.
   process.exit(0)
 }

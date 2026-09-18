@@ -2,22 +2,11 @@
  * The furniture routes, driven over real HTTP against a catalogue with books in
  * it.
  *
- * **Books in it is the point.** Every route here has an easy answer on an empty
- * database and a real one on the owner's, so every test builds a room with books
- * on the shelves and then rearranges it. A suite that only proved a fixture
- * could be created and deleted would prove nothing about the day somebody
- * actually uses this.
- *
- * Two of them build his own room, fifty non-fiction books cut 8, 20 and 22 across
- * bookcase 4, and the rest build the same shape three planks smaller. See
- * `buildWorld`: what is being proved is the arithmetic, and fifty saves seventeen
- * times over is a minute of every CI run spent proving it again.
- *
  * The app is built with `createApp()` and started on an ephemeral port, the same
- * way `index.test.ts` and `tags.routes.test.ts` do it, because there is no
- * supertest in this project and this suite must not add one. Nothing here
- * touches the network: the world is built through `Store` and the handlers, the
- * way `relocate-run.test.ts` builds it, so no lookup is ever made.
+ * way `index.test.ts` and `tags.routes.test.ts` do it; this suite must not add
+ * supertest. The world itself is built through `Store` and the handlers
+ * directly, the way `relocate-run.test.ts` builds it, so no network call is made
+ * setting it up.
  */
 
 import type { AddressInfo } from 'node:net'
@@ -77,18 +66,11 @@ const draft = (at: number, genre = NON_FICTION_SLUG): DraftBook => ({
 })
 
 /**
- * A room with books in it: non-fiction on bookcase 4, cut into three planks, and
- * fiction elsewhere.
+ * The same world `relocate-run.test.ts` builds, in the same order: the
+ * dividers go in around books that were already there.
  *
- * The same world `relocate-run.test.ts` builds and the same order the room
- * happened in: the dividers go in around books that were already there.
- *
- * **The size is a parameter and the default is small on purpose.** What every
- * test here needs is a catalogue that is not empty, because every one of these
- * routes has an easy answer on an empty database and a real one on the owner's.
- * What only one of them needs is his actual fifty, and building fifty books
- * seventeen times over costs most of a minute of every CI run to re-prove the
- * same arithmetic.
+ * The size is a parameter, default small, because building the owner's actual
+ * fifty seventeen times over would cost most of a minute of every CI run.
  */
 async function buildWorld(books = 6, cuts = [2, 4]): Promise<number[]> {
   const ids: number[] = []
@@ -116,22 +98,9 @@ async function buildWorld(books = 6, cuts = [2, 4]): Promise<number[]> {
 }
 
 /**
- * The owner's own room: fifty non-fiction books cut 8, 20 and 22.
- *
- * Built once, in the `beforeAll` below, and put back by the two tests that want
- * it (#343). Fifty saves through the whole path is about 250 sequential round
- * trips, and on a machine running this suite beside another one those two tests
- * measured 24 seconds against a twenty second budget and took the run red.
- * Putting a kept copy back costs one round trip and gives them the same room.
- */
-/**
- * The owner's fifty, put back.
- *
- * The session is made again on the other side, and that is not incidental.
- * `openTestDatabase` puts **every** table back (#343), and since #521 that
- * includes `user` and `session`, so restoring a catalogue kept in `beforeAll`
- * throws away the session this test was handed in `beforeEach` and every request
- * afterwards is refused `401`. Found by watching exactly that happen here.
+ * A kept snapshot of the owner's fifty, restored rather than rebuilt each
+ * time, for the tests that need it. `openTestDatabase` also restores the
+ * session table, so the caller must sign in again afterward.
  */
 const buildTheWorld = async () => {
   const restored = await openTestDatabase('the_owners_room')
@@ -151,8 +120,7 @@ async function call(method: string, path: string, body?: unknown): Promise<Answe
     ...(body === undefined
       ? {}
       : { body: JSON.stringify(body) }),
-    // The suite arrives holding a session, because every route under /api is
-    // behind the gate since #521 and a request without one is refused 401.
+    // Every route under /api requires a session; a request without one is refused 401.
     headers: {
       cookie,
       ...(body === undefined ? {} : { 'content-type': 'application/json' }),
@@ -178,11 +146,8 @@ async function everyPlacement(): Promise<{ id: number; area_id: number | null }[
 }
 
 /**
- * What somebody said they did, which no furniture edit may ever rewrite.
- *
- * Split out of `everyPlacement` by #491: a renumber writes `assigned` rows now,
- * so "the whole ledger is unchanged" stopped being the way to say "nothing a
- * person recorded was touched" and started hiding the thing that was missing.
+ * Excludes `assigned` rows: a renumber legitimately writes those now, so
+ * "unchanged" here means what a person recorded, not the whole ledger.
  */
 async function placedRows(): Promise<{ id: number; area_id: number | null }[]> {
   return db.all(
@@ -197,20 +162,7 @@ async function assignedRows(): Promise<{ area_id: number | null; reason: string 
   )
 }
 
-/**
- * This file used to capture the furniture in its first `beforeEach` and write
- * it back in every later one, because `openTestDatabase` restored the *shape*
- * of the seeded furniture and nothing else, and this is the file that renames a
- * bookcase, renumbers one, switches a rule off (#341) and reorders the whole
- * house (#350). Each of those arrived as another column to remember, and each
- * one was found the same way: by a test in this file handing the next one a
- * room it did not expect.
- *
- * That is gone, and not because it stopped mattering. `openTestDatabase` copies
- * every table in the catalogue and puts every table back (#343), so there is
- * nothing left for a file to remember on its own, and the next column somebody
- * adds is covered by existing rather than by being listed here.
- */
+/** openTestDatabase restores every table in the catalogue between tests, so this file does not need to snapshot and restore the furniture itself. */
 beforeAll(async () => {
   scratch = scratchRoot('furniture')
 
@@ -245,8 +197,7 @@ afterEach(async () => {
 
 afterAll(async () => {
   await closeTestDatabase()
-  // The per-test cover directories go in `afterEach`; this is the root they were
-  // made in, and it belongs to this file alone (#297).
+  // The per-test cover directories go in `afterEach`; this is the root they were made in.
   removeScratchRoot(scratch)
 })
 
@@ -272,17 +223,9 @@ describe('reading the room', () => {
   })
 
   /**
-   * The screens draw "what belongs here" on every piece and every area, and a
-   * furniture screen that could say how many books stand somewhere and nothing
-   * about why they are there would be missing the question it exists to answer.
-   *
-   * Two things are checked and the second is the one that will break first. A
-   * rule points at a *piece*, so only the first area on it is where the run
-   * begins and the rest are that run carrying on; a change that answered "Non-
-   * fiction starts here" on all three would read plausibly and be wrong about
-   * where a book lands. And **a tag is named by its label**: `genre/non-fiction`
-   * is an identity, and it is the shape of thing that reaches a screen by
-   * accident.
+   * A rule points at a piece, so only the first area on it is where the run
+   * begins; the rest are that run carrying on. `genre/non-fiction` is an
+   * internal identity and must never reach a screen in place of its label.
    */
   it('says what files onto each piece and each area, in words and never in slugs',
     async () => {
@@ -327,17 +270,10 @@ describe('reading the room', () => {
 })
 
 /**
- * The two routes somebody walks between while standing at the shelf, asked
- * about the same planks in the same breath.
- *
- * This is #447 and it is the last of the family #356 opened. `/api/fixtures`
- * names a plank from the furniture, through `labelFor`; `/api/shelves` named it
- * from the ordinals the boundary walk counts, through `locationLabel`. Two
- * renderings of one place, and naming the piece is all it takes to part them.
- *
- * The piece is a **crate** because the invented word is half the defect: the
- * shelves screen worked its heading out of the label with a regular expression
- * that says "Bookcase" whatever the owner actually owns.
+ * `/api/fixtures` names a plank through `labelFor`; `/api/shelves` names it
+ * through `locationLabel`. These are two independent renderings of one place,
+ * and using a crate rather than a bookcase catches a screen that worked its
+ * heading out of the label by assuming the word "Bookcase".
  */
 describe('the shelf and the furniture, asked about one piece', () => {
   it('names a plank the same way on both routes', async () => {
@@ -352,8 +288,6 @@ describe('the shelf and the furniture, asked about one piece', () => {
     const shelved = (await get('/api/shelves?range=nonfiction')).body
       .groups.map((one: { label: string }) => one.label)
 
-    // Written out rather than only compared, so what each route says is on the
-    // page: the shelves screen answered `4A`, `4B`, `4C` here.
     expect(furniture).toEqual(['Hall shelf · A', 'Hall shelf · B', 'Hall shelf · C'])
     expect(shelved).toEqual(furniture)
   })
@@ -370,22 +304,6 @@ describe('the shelf and the furniture, asked about one piece', () => {
   })
 })
 
-/**
- * The one settable thing about the collection itself (#350).
- *
- * `collection.default_sort_strategy` has been a real column since the furniture
- * became rows, and two screens have read it out loud since #313: an area says
- * it is ordered "the way bookcase 2 does" and the ordering screen says that is
- * "by the author". Nothing anywhere could change it, and the settings screen
- * the corner opens is where it is now asked for.
- *
- * So what is proved here is that changing it **changes something**, which is
- * the whole difference between a setting and a switch that does nothing: the
- * value comes back off the read, and every area that inherits is ordered
- * differently afterwards. The two refusals are checked in the same breath,
- * because a screen that offered either would be offering a button the server
- * answers 400 to.
- */
 describe('how the whole collection is ordered', () => {
   it('writes it, and every area that inherits is ordered by it afterwards', async () => {
     await buildWorld()
@@ -406,9 +324,8 @@ describe('how the whole collection is ordered', () => {
   })
 
   /**
-   * An area that has been given an order of its own is not touched by this, and
-   * that is the point of the cascade rather than an accident of it: a run is
-   * only ever reordered by somebody changing that run.
+   * An area given an order of its own is deliberately not touched by this: a
+   * run is only ever reordered by somebody changing that run.
    */
   it('leaves an area that has chosen for itself exactly where it was', async () => {
     await buildWorld()
@@ -431,11 +348,8 @@ describe('how the whole collection is ordered', () => {
   })
 
   /*
-   * By tag orders a run by its first tag slug, which is a sensible thing to ask
-   * of one area and files a whole house by an accident of the vocabulary. The
-   * seed row for it has said "Never the collection default" since the table was
-   * written, and until something offered the choice that was a note nobody
-   * could enforce.
+   * Ordering by tag is sensible for one area but files a whole house by an
+   * accident of the vocabulary, which is why it is refused as a collection default.
    */
   it('refuses tag, which is a way to order one area and not a house', async () => {
     await buildWorld()
@@ -473,7 +387,6 @@ describe('describing a piece of furniture that has never existed', () => {
     expect(body.fixture.areas.map((one: { label: string }) => one.label)).toEqual([
       'By the window · A', 'By the window · Cookery', 'By the window · C',
     ])
-    // Nothing about the catalogue that already existed moved.
     expect((await nonFiction()).books).toBe(6)
   })
 
@@ -498,19 +411,11 @@ describe('describing a piece of furniture that has never existed', () => {
   })
 
   /**
-   * **This case used to be called "renumbers a piece without moving a book" and
-   * the claim was false** (#491). It asserted that the whole of `book_placement`
-   * was byte-for-byte what it had been, which is two claims at once: that
-   * nothing a person recorded was rewritten, and that the renumber cost nobody
-   * anything. The first is true and is why the assertion is now on the `placed`
-   * rows alone. The second was the defect: the run walks the room in
-   * `fixture.position` order, so standing this piece on number 1 hands its
-   * planks to the piece already standing there and every book on it derives
-   * somewhere else. The review said so and the ledger said nothing, which is the
-   * shape of #458.
-   *
-   * The test passing was what made the defect invisible, which is the reason it
-   * is rewritten here rather than deleted: a green suite is not a specification.
+   * Standing this piece on a taken position hands its planks to the piece
+   * already there, since the run walks in `fixture.position` order, so every
+   * book on it derives somewhere else. `placedRows` checks what a person
+   * recorded stays unchanged; `assignedRows` below checks what the renumber
+   * itself writes.
    */
   it('renumbers a piece, records where that put its books, and says who else is on that number',
     async () => {
@@ -526,21 +431,17 @@ describe('describing a piece of furniture that has never existed', () => {
         { from: '4C', to: '1C' },
       ])
 
-      // Nothing a person put on a shelf was rewritten. That half always held and
-      // is the half worth keeping: the recorded location is the record of where
-      // the book physically is.
+      // The recorded location is where the book physically is; nothing a
+      // person put on a shelf was rewritten by the renumber.
       expect(await placedRows()).toEqual(before)
 
-      // And the other half, which nothing wrote before. Every non-fiction book
-      // now derives onto a plank of the piece that was already standing at 1,
-      // so every one of them has an assignment saying so.
+      // Every non-fiction book now derives onto a plank of the piece already
+      // standing at 1, so each one gets an assignment.
       const assigned = await assignedRows()
       expect(assigned).toHaveLength(6)
       expect(new Set(assigned.map((row) => row.reason))).toEqual(new Set(['4 was renumbered']))
 
-      // Bookcase 1 is where fiction already stands, and two pieces on one number
-      // is an arrangement this catalogue has to be able to record rather than
-      // one to refuse. It is reported instead.
+      // Two pieces standing on one number is recorded, not refused; `sharing` reports it.
       expect(moved.body.fixture.sharing).toHaveLength(1)
     })
 
@@ -552,22 +453,16 @@ describe('describing a piece of furniture that has never existed', () => {
     const renamed = await patch(`/api/fixtures/${bookcase.id}`, { name: 'Hall shelf' })
     expect(renamed.status).toBe(200)
 
-    // The whole ledger this time, assignments included: a name is read by no
-    // derivation, so there is nothing for the comparison to find and the
-    // snapshot is not even taken.
+    // The whole ledger, assignments included: a rename is read by no
+    // derivation, so there is nothing here for the comparison to find.
     expect(await everyPlacement()).toEqual(before)
   })
 })
 
 /**
- * The write behind the dead button in #367.
- *
- * A new area is a boundary and a boundary is a book, so the screen asks which
- * book the new area starts at. A run with nothing standing in it has no such
- * book, and the screen now adds the area anchored where that run is anchored.
- * Two anchors equal is allowed on purpose: it is what a boundary move that
- * empties an area already leaves behind, and it is the only anchor that both
- * ascends and takes no book off anybody.
+ * A boundary is a book, so a run with nothing standing in it has no book to
+ * anchor a new area on; it opens on the same anchor as the run itself. Two
+ * anchors being equal is allowed on purpose: it takes no book off anybody.
  */
 describe('cutting an area into a run with nothing standing in it', () => {
   it('adds it to a piece nothing has ever been filed onto', async () => {
@@ -585,10 +480,8 @@ describe('cutting an area into a run with nothing standing in it', () => {
   })
 
   /**
-   * The harder half, and the one the empty case is really about: a piece with
-   * books on it whose last area is empty. The new area opens on the same anchor
-   * as the one it follows, which is a face the server has to accept rather than
-   * refuse for running backwards, and no book moves.
+   * The new area opens on the same anchor as the one it follows, which the
+   * server must accept rather than refuse as running backwards.
    */
   it('adds it after an empty area on a bookcase that is full, and moves no book', async () => {
     await buildWorld()
@@ -615,9 +508,8 @@ describe('cutting an area into a run with nothing standing in it', () => {
   })
 
   /**
-   * And the refusal that is still a refusal. An area cannot open before the one
-   * in front of it, which is why the empty case takes its neighbour's anchor
-   * rather than the beginning.
+   * This is why the empty case above takes its neighbour's anchor rather than
+   * the beginning: an area cannot open before the one in front of it.
    */
   it('still refuses an area that opens before the one in front of it', async () => {
     await buildWorld()
@@ -629,19 +521,10 @@ describe('cutting an area into a run with nothing standing in it', () => {
 })
 
 /**
- * Adding an area with nothing said about where it opens, which is #381 and is
- * now the only way the app does it.
- *
- * > Whenever we're on the fixture screen and we can click "add an area to this
- * > fixture", it should just add the area, and we should just continue the
- * > lettering.
- *
- * The whole reason that is safe without a screen is what these check. **It
- * relabels nothing**, on a piece whose areas are lettered and on one whose areas
- * are named, because a label comes from an ordinal nothing else has. **It moves
- * no book**, which is the anchor's job: the empty string would be refused, and
- * the anchor of the area it follows would quietly claim every book that area
- * holds, so it opens past them.
+ * A label comes from an ordinal nothing else has, so adding an area this way
+ * relabels nothing. It opens anchored past every book already on the piece,
+ * since anchoring at the empty string or at the area it follows would each
+ * claim books that belong elsewhere.
  */
 describe('adding an area with no question asked', () => {
   it('lands at the end, holding nothing, and moves no book', async () => {
@@ -660,12 +543,6 @@ describe('adding an area with no question asked', () => {
     expect(await everyPlacement()).toEqual(before)
   })
 
-  /**
-   * The reason there is no screen in front of it. A label is worked out from a
-   * piece's number and name and an area's ordinal and name, so an area taking an
-   * ordinal nothing else has changes nothing anybody reads, and the answer says
-   * so by having nothing in `becomes`.
-   */
   it('changes no label at all, and says so', async () => {
     await buildWorld()
     const bookcase = await nonFiction()
@@ -702,9 +579,8 @@ describe('adding an area with no question asked', () => {
   })
 
   /**
-   * Twice in a row, which is the case the anchor arithmetic gets wrong if it
-   * only ever looks at books: the second one follows an area that is already
-   * past every book, so it has to take that anchor rather than one below it.
+   * The second press follows an area already anchored past every book, so the
+   * anchor arithmetic has to take that anchor rather than one below it.
    */
   it('can be pressed twice, and the second one is refused by nothing', async () => {
     await buildWorld()
@@ -721,14 +597,9 @@ describe('adding an area with no question asked', () => {
   })
 
   /**
-   * A piece nothing has ever been filed onto, twice, and the case the anchor
-   * exists for.
-   *
-   * A new piece stands at the end of the room, which puts it at the end of
-   * whatever stretch of books reaches it: nothing enters a run there, so the
-   * books already on the piece before it flow on. Opening the new area at the
-   * beginning would therefore hand it every one of them, which is why the
-   * server works the anchor out rather than defaulting to it.
+   * A new piece stands at the end of the room, so books already on the piece
+   * before it would flow onto a naively-anchored new area; the anchor has to
+   * be worked out rather than defaulted.
    */
   it('takes no book off the piece before it on a brand new piece', async () => {
     await buildWorld()
@@ -817,7 +688,6 @@ describe('reordering the areas on a piece', () => {
     expect(refused.status).toBe(409)
     expect(refused.body.error).toContain('cannot start before')
 
-    // And nothing moved.
     expect((await nonFiction()).areas.map((one: { label: string }) => one.label))
       .toEqual(['4A', '4B', '4C'])
   })
@@ -857,8 +727,6 @@ describe('removing an area from a bookcase that is not empty', () => {
       expect(removed.status).toBe(200)
       expect(removed.body.plan.joining).toBe(20)
 
-      // Every row that existed is still there, and the twenty new ones are
-      // assignments naming the area that took the books in.
       const after = await everyPlacement()
       expect(after.slice(0, before.length)).toEqual(before)
       expect(after).toHaveLength(before.length + 20)
@@ -877,7 +745,6 @@ describe('removing an area from a bookcase that is not empty', () => {
       )
       expect(Number(retired!.position)).toBeLessThan(0)
 
-      // The face is two planks now, and the third has shuffled up into 4B.
       const face = await nonFiction()
       expect(face.areas.map((one: { id: number; label: string }) => [one.id, one.label]))
         .toEqual([[into, '4A'], [bookcase.areas[2].id, '4B']])
@@ -908,7 +775,6 @@ describe('removing an area from a bookcase that is not empty', () => {
     const removed = await remove(`/api/areas/${going}`)
     expect(removed.body.plan.skipped).toEqual([{ reason: 'pinned', books: 1 }])
 
-    // The pin still stands, and still names the plank it was made on.
     const rows = await new DrizzlePlacementLedger(db).forBooks([pinned!.id])
     expect(rows.filter((row) => row.kind === 'assigned')).toEqual([])
     expect(rows[rows.length - 1]!.kind).toBe('pinned')
@@ -931,8 +797,8 @@ describe('removing an area from a bookcase that is not empty', () => {
 
     expect((await remove(`/api/areas/${going}`)).status).toBe(200)
 
-    // The area coming forward took over the removed one's anchor, which is what
-    // opens it at the beginning of the run rather than a third of the way in.
+    // The area coming forward took over the removed one's anchor, opening it
+    // at the beginning of the run rather than a third of the way in.
     const anchor = await db.get<{ starts_at: string }>(
       'SELECT starts_at FROM area WHERE id = ?', [into],
     )
@@ -989,11 +855,8 @@ describe('removing a piece of furniture', () => {
   })
 
   /**
-   * #484. The refusal counted `books.current_area_id`, which follows only what
-   * somebody has said they carried, so a piece holding nothing but work the
-   * carry list had not been walked yet passed it: every plank was retired and
-   * the assignment left naming one that is off every face, which is the trip the
-   * list goes on offering.
+   * A piece can look empty by `books.current_area_id` alone while the carry
+   * list still has outstanding work for it; the refusal must account for both.
    */
   it('refuses while the carry list is still sending books to it', async () => {
     await buildWorld()
@@ -1022,16 +885,10 @@ describe('removing a piece of furniture', () => {
     expect(refused.status).toBe(409)
     expect(refused.body.error).toBe('The carry list is still sending 1 book to it.')
 
-    // Nothing was written on the refusal, so the trip still leads somewhere.
     expect((await get(`/api/fixtures/${id}`)).body.fixture.areas).toHaveLength(1)
     expect((await get('/api/carry')).body.moving).toBe(1)
   })
 
-  /**
-   * The other half of #484: `retires` was true of the sentence and not of the
-   * rows, so a piece somebody had just deleted stood in the room with an empty
-   * face, still taking a number and still inside every range's band.
-   */
   it('takes a piece its history keeps off the floor, and it still names its number',
     async () => {
       await buildWorld()
@@ -1060,8 +917,6 @@ describe('removing a piece of furniture', () => {
       expect((await get('/api/fixtures')).body.fixtures
         .some((one: { id: number }) => one.id === id)).toBe(false)
 
-      // And what the book's history says about where it was still reads as the
-      // bookcase somebody was standing in front of.
       const been = (await get(`/api/books/${book}/placements`)).body.been
       expect(been.map((row: { location: string }) => row.location)).toContain(`${position}A`)
     })
@@ -1079,16 +934,8 @@ describe('giving an area an order of its own', () => {
     expect(refused.body.effect.selfContained).toBe(true)
     expect(refused.body.effect.affected).toEqual(['4B', '4C'])
 
-    /*
-     * And it says it in words a person uses. This sentence is not a log line:
-     * it is shown, and since #381 it is shown on the area's own page rather
-     * than on a screen somebody went to on purpose. It used to end "leave the
-     * run they are in", and "run" is the word the owner named the whole
-     * no-jargon rule about.
-     */
     expect(refused.body.error).not.toMatch(/\bruns?\b/i)
 
-    // Nothing was written on the refusal.
     expect((await nonFiction()).areas[1].sortStrategy).toBe('inherit')
 
     const agreed = await patch(`/api/areas/${middle}`, {
@@ -1114,14 +961,9 @@ describe('giving an area an order of its own', () => {
 })
 
 /**
- * The two routes #318 said were missing, and the workaround one of them killed.
- *
- * The first is "what is standing in this area", which cutting an area in two
- * needs and which nothing answered: #313 asked for both stretches of shelving
- * and matched an area up by its **label**. A label is worked out at read time
- * from four things, any of which a person can change, so the test that matters
- * is not that the list is right today: it is that the list is still right after
- * the rename that would have broken the match.
+ * A label is worked out at read time from several things a person can change,
+ * so what matters is that this stays right after a rename that would break a
+ * match on the label alone.
  */
 describe('what is standing in an area', () => {
   it('lists its books in the order they stand, by identity', async () => {
@@ -1139,15 +981,10 @@ describe('what is standing in an area', () => {
   })
 
   /**
-   * And every component an ordering reads, which is #381: the area's page shows
-   * what its sort rule does to these books rather than only naming the rule,
-   * and it orders them with the function the collection is ordered by. Each of
-   * these is one of that function's four keys, so a read that dropped one would
-   * silently order by an empty string.
-   *
-   * **The tags travel twice, as slugs and as labels.** A slug is an identity and
-   * never reaches a screen, so a page saying what the tag ordering files a book
-   * under has to be handed the label with it.
+   * Each of these fields is one of the ordering function's four keys, so
+   * dropping one would silently order by an empty string rather than fail.
+   * Tags travel twice, as slugs and as labels: a slug is an identity that must
+   * never reach a screen on its own.
    */
   it('carries what every ordering reads, with tags said both ways', async () => {
     await buildWorld()
@@ -1164,12 +1001,8 @@ describe('what is standing in an area', () => {
   })
 
   /**
-   * The workaround's own failure, made to happen.
-   *
-   * Renaming the bookcase relabels every plank on it: `4B` becomes
-   * `Hall shelf · B`. A screen matching on the label would find no group at all
-   * and silently offer nothing to cut. The row is unchanged, so this still
-   * answers the same two books.
+   * Renaming the bookcase relabels every plank on it (`4B` becomes
+   * `Hall shelf · B`); a screen matching by label alone would find no group to cut.
    */
   it('is unmoved by a rename that would have broken a match on labels', async () => {
     await buildWorld()
@@ -1188,10 +1021,9 @@ describe('what is standing in an area', () => {
   })
 
   /**
-   * A book nothing claims is invisible from every count on these screens, and
-   * it is a real state since #304: no source states a genre, no tag is written,
-   * and no rule matches it. It stands where somebody put it and no plan will
-   * ever move it, so the area says so.
+   * A book no rule claims is a real, reachable state: no source stated a
+   * genre, so no tag was written and nothing matches it. It stands where
+   * somebody put it and no plan will move it.
    */
   it('says which of its books no rule claims at all', async () => {
     await buildWorld()
@@ -1211,21 +1043,6 @@ describe('what is standing in an area', () => {
       .every((one: { claimedBy: string }) => one.claimedBy === 'Non-fiction')).toBe(true)
   })
 
-  /**
-   * The books in an area are drawn standing on a board since #405, and a board
-   * is made of photographs and thicknesses.
-   *
-   * > At the bottom where we say "standing on Bookshelf X" and we show all the
-   * > books that are in the area: let's switch that to a shelf view instead of
-   * > a list.
-   *
-   * This read never asked for either, so every book on the one page in the app
-   * about a physical row of books would have come out as a uniform block of
-   * dyed cloth, which is what a book **nobody has photographed** is drawn as.
-   * The same defect `server/carry.ts` was fixed for, and it is worth a test on
-   * each read because the cause both times was a read nobody thought of as a
-   * drawing.
-   */
   it('answers a spine and a thickness for each book, so a board can be drawn', async () => {
     await buildWorld()
     const bookcase = await nonFiction()
@@ -1241,8 +1058,7 @@ describe('what is standing in an area', () => {
     const { body } = await get(`/api/areas/${area}/books`)
     const found = body.books.find((one: { id: number }) => one.id === first!.id)
 
-    // The crop of the face that was picked, which is what a spine two
-    // centimetres wide has to be drawn from.
+    // The crop, not the raw photograph: that is what a spine has to be drawn from.
     expect(found.spine).toBe('edge-1-crop.jpg')
     expect(found.spineSlot).toBe('edge')
     expect(found.pages).toBe('320')
@@ -1286,11 +1102,9 @@ describe('what is standing in an area', () => {
 })
 
 /**
- * The same read one place up, which a piece's own page needs (#381).
- *
  * How a piece is ordered is a fact about the whole face, so the books it is
- * shown against are the whole face's. Asked area by area it would be one request
- * per plank and a screen stitching them back into an order it does not own.
+ * shown against are the whole face's, not one request per plank stitched back
+ * together by a screen.
  */
 describe('what is standing on a piece of furniture', () => {
   it('lists every book on its face, in the order they stand', async () => {
@@ -1323,14 +1137,6 @@ describe('what is standing on a piece of furniture', () => {
   })
 })
 
-/**
- * Why one book is here, which is the screen that makes the rules legible to
- * somebody who did not write them.
- *
- * **The losers are the point.** A book that lands somewhere surprising is the
- * moment the whole idea either explains itself or turns into magic, and the
- * explanation is which rules asked for it and why one beat the other.
- */
 describe('why a book is here', () => {
   /** The book at the top of the non-fiction, which every test here is about. */
   async function first(): Promise<number> {
@@ -1365,11 +1171,7 @@ describe('why a book is here', () => {
     expect(JSON.stringify(body)).not.toMatch(/genre\//)
   })
 
-  /**
-   * Two rules wanting one book is not hypothetical: a book corrected before
-   * #201 can carry two genre tags, and `priority` is what settles it. What the
-   * screen owes is both of them, in the order the decision was made.
-   */
+  /** A book can carry two genre tags at once; `priority` is what settles which rule wins. */
   it('lists every rule that wanted it, the winner first, with the loser said', async () => {
     await buildWorld()
     const id = await first()
@@ -1384,9 +1186,8 @@ describe('why a book is here', () => {
   })
 
   /**
-   * The state #304 made real: nothing states a genre, no tag is written, and no
-   * rule claims the book. Guessing a place for it would file it somewhere
-   * nobody asked for and report nothing, so the answer is empty and honest.
+   * Guessing a place for an unclaimed book would file it somewhere nobody
+   * asked for and report nothing wrong; empty and honest is the correct answer here.
    */
   it('survives a book no rule claims at all', async () => {
     await buildWorld()
@@ -1398,7 +1199,6 @@ describe('why a book is here', () => {
     expect(body.claim.claims).toEqual([])
     expect(body.claim.wanted).toBeNull()
     expect(body.claim.tags).toEqual([])
-    // It is still standing where somebody put it, which is the point.
     expect(body.claim.standing.label).toBe('4A')
   })
 
@@ -1434,13 +1234,9 @@ describe('why a book is here', () => {
 })
 
 /**
- * Every book no rule claims, which is the list #341 says nothing could answer.
- *
- * The two states are the point. A book carrying no tag at all is what #304 made
- * real, and a book carrying a tag no rule asks for is a different thing that
- * lands in the same place: both are unclaimed, both stand where they were left
- * for good, and the SQL this replaces could only see the first, because it asked
- * `NOT EXISTS` against two hard-coded slugs.
+ * Two distinct reasons land a book here: no tag at all (`untagged`), or a tag
+ * no rule asks for (`unmatched`). Both are unclaimed and both stand where they
+ * were left.
  */
 describe('the books no rule claims', () => {
   /** The book at the top of the non-fiction, claimed until a test says otherwise. */
@@ -1461,11 +1257,6 @@ describe('the books no rule claims', () => {
     expect(body.total).toBe(0)
   })
 
-  /**
-   * The #304 state: nothing stated a genre, so no tag was written. The book is
-   * still standing where somebody put it, and saying so is what lets a person
-   * walk to it and pick it up.
-   */
   it('names a book carrying no tag at all, and says that is why', async () => {
     await buildWorld()
     const id = await first()
@@ -1480,11 +1271,6 @@ describe('the books no rule claims', () => {
     expect(body.books[0].standing.label).toBe('4A')
   })
 
-  /**
-   * The other state, and the one the old inlined SQL could not see: the book
-   * carries a tag, so a check for a missing genre tag finds nothing wrong with
-   * it, and no rule in this room asks for what it carries.
-   */
   it('names a book carrying a tag no rule asks for, and says that is why', async () => {
     await buildWorld()
     const id = await first()
@@ -1512,13 +1298,9 @@ describe('the books no rule claims', () => {
   })
 
   /**
-   * A rule somebody switched off files nothing today, so its books are in here.
-   *
-   * Deliberately the opposite of what `GET /api/books/:id/claim` does with the
-   * switch. Explaining one book, "a rule wants it and you turned it off" is
-   * worth saying, so a disabled rule is still listed there. Answering which
-   * books nothing files, a rule that is off is a rule that files nothing, and
-   * `claim` is what says so in both places.
+   * Deliberately the opposite of what `GET /api/books/:id/claim` does with a
+   * disabled rule: a rule that is off is a rule that files nothing, so its
+   * books count as unmatched here.
    */
   it('holds every book of a rule somebody switched off', async () => {
     const ids = await buildWorld()
@@ -1530,11 +1312,7 @@ describe('the books no rule claims', () => {
     expect(body.books.every((one: { why: string }) => one.why === 'unmatched')).toBe(true)
   })
 
-  /**
-   * A book that has left the collection is not work. No rule places a withdrawn
-   * book by design, which the claim screen already says out loud, so counting
-   * one here would be a number that trains somebody to ignore the list.
-   */
+  /** No rule places a withdrawn book, by design; counting it here would make this list untrustworthy. */
   it('leaves out a book that has left the collection', async () => {
     await buildWorld()
     const id = await first()

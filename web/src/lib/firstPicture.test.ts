@@ -43,9 +43,7 @@ describe('what each answer is called', () => {
   })
 
   it('calls it what the book page calls it, which is downloaded', () => {
-    // The dot under that picture is named "Downloaded" and the empty box says
-    // the same. A setting that called it the catalogue cover would be a third
-    // word for one thing, and the only one nobody would recognise.
+    // The internal value is `catalogue`, but the book page's dot under that picture is labelled "Downloaded".
     expect(FIRST_PICTURE_WORD.catalogue).toMatch(/downloaded/i)
     expect(FIRST_PICTURE_WORD.catalogue).not.toMatch(/catalogue/i)
   })

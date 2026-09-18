@@ -2,35 +2,23 @@ name: End to end
 
 # This gates pull requests, and also runs nightly.
 #
-# It used to be nightly and on demand only, on the reasoning that the Aspire
-# CLI, a browser and two npm trees do not belong on the fast path. That
-# reasoning cost more than it saved: #99 merged green while breaking browser
-# scenarios and nobody knew until the next morning's run, and the alternative
-# was a human running the suite by hand before shipping, which is the manual
-# step this repository exists to not have.
-#
-# It is deliberately NOT filtered by path, and must not be. `scripts/merge-pr.mjs`
-# treats a required check that never ran as a refusal, so a `paths:` filter that
-# skipped this job on a docs-only pull request would block every such pull
-# request instead of speeding it up. A job-level `if:` is no better: a skipped
-# job reports SKIPPED, and the guard accepts only SUCCESS or NEUTRAL.
-#
-# The job therefore always runs and always reports as `browser journeys`, and
-# asks `scripts/ci-scope.mjs` whether the steps inside it are worth doing. On a
-# documentation only change it starts, finds nothing to prove, and finishes
-# green in seconds. See the top of that script for the whole argument.
+# It is deliberately NOT filtered by path, and must not be.
+# `scripts/merge-pr.mjs` treats a required check that never ran as a refusal, so
+# a `paths:` filter that skipped this job on a docs-only pull request would
+# block every such pull request instead of speeding it up. A job-level `if:` is
+# no better: a skipped job reports SKIPPED, and the guard accepts only SUCCESS
+# or NEUTRAL. The job therefore always runs and always reports as
+# `browser journeys`, and asks `scripts/ci-scope.mjs` whether the steps inside
+# it are worth doing.
 on:
   pull_request:
   workflow_dispatch:
   schedule:
-    # 04:00 UTC, so a broken journey is waiting in the morning.
     - cron: '0 4 * * *'
 
 # `ci-scope.mjs` asks the API which files this pull request touches, and the
 # default token cannot read pull requests unless it is asked to. Without this it
-# gets `403 Forbidden`, falls back to "run everything" and quietly costs the
-# full five minutes on a README change. Measured, not guessed: run 30966770067
-# did exactly that. Kept to the two scopes actually used.
+# gets `403 Forbidden` and falls back to running everything.
 permissions:
   contents: read
   pull-requests: read
@@ -48,8 +36,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Runs on the runner's preinstalled node, before anything is installed, so
-      # a documentation only pull request pays for a checkout and nothing else.
+      # Runs on the runner's preinstalled node, before anything is installed.
       # Every non-pull-request trigger above, the nightly schedule and a manual
       # dispatch, is answered "full run" by the script, so the nightly cannot be
       # hollowed out by this.
@@ -65,16 +52,9 @@ jobs:
         with:
           node-version: 22
 
-      # Covers the three npm trees this job installs: the app, the AppHost at
-      # the repository root, and the suite. By hand rather than through
-      # setup-node's `cache: npm`, for the `restore-keys` fallback. Worth
-      # slightly more here than in `ci.yml`, because this workflow reaches the
-      # default branch only through the nightly schedule, so the shared entry
-      # every pull request reads is refreshed once a day at best.
-      #
-      # Read the note in `ci.yml` before quoting a saving for this: the measured
-      # difference between a warm and a cold `npm ci` here is a few seconds, not
-      # a billed minute.
+      # Covers the three npm trees this job installs: the app, the AppHost at the
+      # repository root, and the suite. By hand rather than through setup-node's
+      # `cache: npm`, for the `restore-keys` fallback.
       - name: Cache the npm downloads
         if: steps.scope.outputs.docs_only != 'true'
         uses: actions/cache@v4
@@ -84,10 +64,8 @@ jobs:
           restore-keys: |
             npm-e2e-${{ runner.os }}-
 
-      # Chrome for Testing is around a hundred megabytes and the download is
-      # the second largest step here after the run itself. Keyed on the suite's
-      # lock file, so a Playwright bump fetches the browser that version wants
-      # rather than reusing the previous one.
+      # Keyed on the suite's lock file, so a Playwright bump fetches the browser
+      # that version wants rather than reusing the previous one.
       - name: Cache the browser
         id: browser-cache
         if: steps.scope.outputs.docs_only != 'true'
@@ -96,68 +74,25 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('e2e/package-lock.json') }}
 
-      # Two decisions live in this step. They are written out separately
-      # because for months they were one comment, and the second one had never
-      # actually been made. #535.
-      #
-      # NOT CACHED, a decision about wall clock and billed minutes. The
-      # download takes about four seconds, and caching it saves nothing
-      # measurable: see the note above "Run the journeys", where restoring 719M
-      # of Aspire and NuGet came out a second slower than a cold run and both
-      # runs were billed three minutes. Nothing in this job waits on it.
-      #
-      # PINNED, a decision about reproducibility, and a different question
-      # entirely. The caching note above used to be the only comment here, and
-      # it left the version floating as a side effect. Read a year later it
-      # looks like somebody decided the version should float. Nobody did.
-      #
-      # **This pin is not what fixed #535, and it must not be read as the fix.**
-      # The failure there was the AppHost start budget, not the CLI, and it is
-      # fixed in `e2e/support/aspire.ts`. Measured on this runner at one tree
-      # rather than argued (run 33833840718): 13.4.2, 13.4.6 and 13.5.3 all
-      # failed identically, and the one job that passed differed only in giving
-      # the CLI longer to start.
-      #
-      # What the pin is for is the hour that experiment cost. When the gate went
-      # red on every branch with no commit between, the first question anybody
-      # asked was "did the CLI version move", and no job log anywhere could
-      # answer it, so it had to be answered by installing three versions and
-      # watching. A merge gate whose toolchain can change without a commit
-      # cannot say what it proved, and the version is the cheapest half of that
-      # to nail down.
-      #
-      # An exact version usually costs somebody the job of moving it, and a pin
-      # nobody moves rots into a version that can no longer be reproduced. This
-      # one costs nothing, because it is not a second number: it is read out of
-      # `aspire.config.json`, which is already the file that says which Aspire
-      # this repository is, and which `aspire update` already maintains. There
-      # is nothing here to keep in step by hand and nothing to forget.
+      # Pinned so a merge gate cannot change toolchain without a commit, and
+      # pinned to `aspire.config.json` rather than to a second number here, so
+      # there is nothing to keep in step by hand. Not cached: the download takes
+      # about four seconds and nothing in this job waits on it.
       - name: Install the Aspire CLI
         if: steps.scope.outputs.docs_only != 'true'
         run: |
           version="$(node -p "require('./aspire.config.json').sdk.version")"
           curl -sSL https://aspire.dev/install.sh | bash -s -- --version "$version"
           echo "$HOME/.aspire/bin" >> "$GITHUB_PATH"
-          # Printed because it never was, which is the whole reason the first
-          # question could not be answered from the evidence. One line, every
-          # run, so next time it is a grep rather than an experiment.
           "$HOME/.aspire/bin/aspire" --version
 
       # `scripts/npm-install.mjs` runs `npm ci` and retries it a bounded number
       # of times, but only when the failure looks like a connection that timed
-      # out rather than a dependency that genuinely cannot be installed (#342).
-      # `web`'s onnxruntime-node fetches its own binary during install, from a
-      # host the runner sometimes cannot reach; the same failure can happen
-      # again below, in "Run the journeys", as the AppHost's own install of the
-      # same tree (covered in apphost.mts by the same script), which is why a
-      # fix only here would not have been enough.
+      # out rather than a dependency that genuinely cannot be installed.
       #
       # These three are the installs that do the work. The AppHost's run of the
       # same script minutes later finds `web/node_modules` already matching the
-      # lock file this step installed from and does nothing (#561), which is
-      # what a job wants and is arrived at by asking rather than by a flag that
-      # says "this is CI". A developer's second `aspire start` gets the same
-      # answer for the same reason.
+      # lock file this step installed from and does nothing.
       - name: Install the app
         if: steps.scope.outputs.docs_only != 'true'
         working-directory: web
@@ -187,57 +122,22 @@ jobs:
 
       # The camera is a generated video file and the catalogue lookups are
       # answered by a stub the suite starts itself, so this needs no network
-      # beyond the installs above and never reaches real scan data: the
-      # AppHost puts the database in web/data/e2e/<run id>.
-      #
-      # The Aspire bundle this pulls down is NOT cached. That was measured on
-      # wall clock once and re-measured on billed minutes for #126, and the
-      # answer got firmer rather than closer.
-      #
-      # The experiment: cache `~/.aspire/versions` and `~/.nuget/packages`, run
-      # this workflow twice on the same branch, once to populate and once to
-      # hit. Run 30966851528, everything cold, took 2m36s. Run 30967066322,
-      # 719M restored in 6s, took 2m37s. The scenarios step was 1m25s cold and
-      # 1m36s warm, so the difference is noise and points the wrong way. Both
-      # runs are billed 3 minutes. There is no minute here to save.
-      #
-      # If you revisit it, the thing to beat is 2m37s, and the boundary that
-      # would actually pay is 2m00s.
+      # beyond the installs above and never reaches real scan data: the AppHost
+      # puts the database in web/data/e2e/<run id>.
       - name: Run the journeys
         if: steps.scope.outputs.docs_only != 'true'
         working-directory: e2e
         run: npm test
 
-      # The backstop for #277, and the reason it is a second capture rather than
-      # the only one: the suite itself prints every resource's state and console
-      # output when `aspire wait` is what failed, which is the shape that flake
-      # took, and it can print nothing at all if the harness never reached that
-      # line. An `aspire start` that fails, a crash in the camera fixture, a
-      # cancelled step: this asks the AppHost directly, whatever went wrong.
+      # This cannot fail the job: the failure it is explaining has already been
+      # reported by the step above.
       #
-      # It cannot fail the job. The failure it is explaining has already been
-      # reported by the step above, and diagnostics that turn a red run into a
-      # differently red one are worse than none. If the run got as far as global
-      # teardown the AppHost has been stopped, and this says there is nothing
-      # running, which is itself an answer.
-      #
-      # THE CLI'S OWN LOGS ARE THE THIRD CAPTURE, and #535 is why. Both commands
-      # above ask a *running* AppHost, so when `aspire start` is what failed
-      # they both answer "No running AppHost found" and the job log says nothing
-      # else. That is exactly the failure that took the merge gate down: every
-      # red run printed a path to `~/.aspire/logs/`, and then the runner was
-      # thrown away with the only account of what happened still on it. Nobody
-      # had ever read one.
-      #
-      # They are worth reading. The file for the failing run says, in order,
-      # that the CLI spawned `npm install` for the TypeScript AppHost, that it
-      # was still running 113 seconds later, and that the certificate warning
-      # everybody was chasing was logged *after* the timeout rather than before
-      # it. That is the diagnosis, and it was one `tail` away for a day.
-      #
-      # Bounded to the tail, because a run that restores several hundred NuGet
-      # packages writes megabytes of "PackageSignatureVerificationLog" that
-      # would bury the twenty lines worth having.
+      # `aspire ps` and `aspire logs` both ask a running AppHost, so when
+      # `aspire start` is what failed they answer "No running AppHost found" and
+      # the CLI's own files under `~/.aspire/logs/` are the only account of what
+      # happened. They are bounded to the tail, because a run that restores
+      # several hundred NuGet packages writes megabytes of
+      # "PackageSignatureVerificationLog".
       - name: What the AppHost said, if anything failed
         if: failure() && steps.scope.outputs.docs_only != 'true'
         continue-on-error: true

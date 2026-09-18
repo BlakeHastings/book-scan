@@ -1,29 +1,12 @@
 name: Provenance
 
-# Detection, not prevention.
+# Detection, not prevention. The ruleset at GitHub's end and
+# `scripts/guard-merge.mjs` locally both refuse a direct push to master, and
+# both are silent if they are switched off. This runs on the result, which a
+# bypass cannot avoid producing: for every new commit on master it asks GitHub
+# which pull requests that commit belongs to, and fails when the answer is none.
 #
-# This used to say branch protection needed a paid plan on a private repo, so
-# nothing at GitHub's end refused a direct push to master or a merge taken with
-# CI pending. The repository is public and always was, so #540 added a ruleset
-# and GitHub now refuses both.
-#
-# `scripts/guard-merge.mjs` refuses them locally too, but a guard that runs on
-# one machine is silent the moment somebody works from another one, or turns it
-# off — and a ruleset is silent the moment somebody disables it, which is two
-# clicks and appears in no diff. This job is what notices either.
-#
-# This runs on the result, which is the one thing a bypass cannot avoid
-# producing: for every new commit on master it asks GitHub which pull requests
-# that commit belongs to, and fails when the answer is none.
-#
-# It cannot undo the push. It makes the push visible, which is the difference
-# between a rule and a control.
-#
-# This is now the only workflow that runs on a push to master. `ci.yml` lost its
-# push trigger in #126, because it re-proved the tree the pull request had
-# already proved. The scan data check below rides along in a minute that is
-# already being billed, so master keeps a post-merge control on the one rule
-# that matters most here, at no extra cost.
+# It is the only workflow that runs on a push to master.
 
 on:
   push:
@@ -31,9 +14,7 @@ on:
 
 # The check asks the API which pull requests a commit belongs to, and the
 # default token cannot read pull requests unless it is asked to. Without this
-# the run fails with `Resource not accessible by integration (HTTP 403)`, which
-# reads like the script is broken rather than like it was never allowed to
-# look. Kept to the two scopes it actually uses.
+# the run fails with `Resource not accessible by integration (HTTP 403)`.
 permissions:
   contents: read
   pull-requests: read
@@ -50,11 +31,8 @@ jobs:
           # on a history it cannot see.
           fetch-depth: 0
 
-      # Free, in billed terms: this job takes about eleven seconds and is
-      # charged a whole minute either way. It repeats on the merged result what
-      # `ci.yml` checked on the pull request, which is worth doing precisely
-      # because a direct push is the case this workflow exists to catch, and a
-      # direct push never saw `ci.yml` at all.
+      # Repeated on the merged result because a direct push, the case this
+      # workflow exists to catch, never saw `ci.yml` at all.
       - name: No production data committed
         run: bash scripts/check-no-scan-data.sh
 

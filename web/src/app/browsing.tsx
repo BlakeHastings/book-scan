@@ -1,20 +1,16 @@
 /**
  * What somebody is looking at in the library, and which book they opened.
  *
- * Three screens share this and none of them can hold it: choosing a tag happens
- * on the tags screen, the books it narrows are drawn on the library screen, and
- * opening one unmounts both. That is the same reason the library's return anchor
- * lives in `navigation.tsx` rather than in `ShelfView`.
+ * Three screens share this and none of them can hold it: choosing a tag
+ * happens on the tags screen, the books it narrows are drawn on the
+ * library screen, and opening one unmounts both.
  *
- * It is a provider of its own rather than four more fields on navigation,
- * because it is about the collection rather than about which screen is on, and
- * because navigation is a file four screens are being built against at once.
+ * A provider of its own rather than four more fields on navigation, since
+ * it is about the collection rather than about which screen is on.
  *
- * **Nothing here is persisted except the way of looking**, which has its own
- * home in `lib/libraryView.ts` and has had since #82. A filter is a question
- * somebody is asking now; being handed yesterday's narrowed library on a fresh
- * morning is the complaint that made the view persist in the first place, said
- * the other way round.
+ * Nothing here is persisted except the way of looking, which has its own
+ * home in `lib/libraryView.ts`: a filter is a question somebody is asking
+ * now, not something to hand back on a fresh morning.
  */
 
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'
@@ -24,11 +20,9 @@ import type { BookState } from '../../domain/books/state'
 import { useNavigation } from './navigation'
 
 /**
- * The stored answer and the drawn one are the same three views under two sets of
- * names, and the stored ones are older than the design system.
- *
- * Translated rather than renamed, so somebody who chose a view before this
- * screen was converted opens on the view they chose.
+ * The stored answer and the drawn one are the same three views under two
+ * sets of names. Translated rather than renamed, so somebody who chose a
+ * view before this screen was converted opens on the view they chose.
  */
 const LOOK_OF: Record<LibraryView, Look> = {
   shelf: 'spines',
@@ -59,34 +53,24 @@ export interface Browsing {
   readonly setNarrowing: (tags: readonly Narrowing[]) => void
   /**
    * Which state of book the library is showing, or null for all of them.
+   * Carried from the press to the screen: the screen that presses is
+   * unmounted before the library mounts, which is why this and every
+   * other field on this provider live here rather than on the screen.
    *
-   * **A count is a promise about what you will see** (#459). "2 checked out" on
-   * the first screen and "27 catalogued" beside it opened the same unfiltered
-   * library, so pressing the smaller number produced the larger list and
-   * nothing on the screen said what had happened. This is the answer carried
-   * from the press to the screen, which is why it is here rather than in
-   * `LibraryPane`: the screen that presses is unmounted before the library
-   * mounts, which is the reason every other field on this provider is here.
-   *
-   * A narrowing beside the tags rather than one of them. A tag is something
-   * somebody said about a book; being out of the house is something that
-   * happened to it, and #395 settles that lending is not a tag.
+   * A narrowing beside the tags rather than one of them: a tag is
+   * something somebody said about a book, while being out of the house is
+   * something that happened to it.
    */
   readonly showing: BookState | null
   readonly setShowing: (state: BookState | null) => void
   /**
    * Open the library on the books a count was about, or on all of them.
+   * Both in one call, since setting the route and forgetting the
+   * narrowing separately is how a count stops keeping its promise.
    *
-   * Both in one call, because the two apart is how "2 checked out" opened the
-   * library on 27: a caller that sets the route and forgets the narrowing is a
-   * count that does not keep its promise. `openQueueOn` in `navigation.tsx` is
-   * the same shape for the same reason, and #436 is what taught it.
-   *
-   * Unlike the queue's, the answer is **not** consumed on the way in. It is a
-   * narrowing beside the tags and it survives opening a book and coming back,
-   * exactly as a chosen tag does, because coming back to the whole collection
-   * every time is what "narrowed" would then mean for one screen and not the
-   * other. Whichever press wants the whole library says so by passing null.
+   * Unlike the queue's, the answer is not consumed on the way in: it
+   * survives opening a book and coming back, exactly as a chosen tag
+   * does. Whichever press wants the whole library says so by passing null.
    */
   readonly openLibraryShowing: (state: BookState | null) => void
   /** The book whose own page is open, if one is. */
@@ -100,8 +84,8 @@ export interface Browsing {
 const Context = createContext<Browsing | null>(null)
 
 export function BrowsingProvider({ children }: { children: ReactNode }) {
-  // Navigation is the provider outside this one, which is what lets a narrowing
-  // and the route it is for be set together. See `openLibraryShowing`.
+  // Navigation is the provider outside this one, which is what lets a
+  // narrowing and the route it is for be set together.
   const { setRoute } = useNavigation()
   const [look, setStoredLook] = useState<Look>(() => LOOK_OF[rememberedView()])
   const [narrowing, setNarrowing] = useState<readonly Narrowing[]>([])

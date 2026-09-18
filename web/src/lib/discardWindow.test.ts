@@ -1,14 +1,7 @@
 /**
- * That an undo actually prevents the delete.
- *
- * The claim this file exists to check is a negative one, which is exactly the
- * kind nothing else will catch: while a discard is held, no request has been
- * made. Not "the request was made and then reversed", which is not something
- * this application can do, because a delete takes photographs off disk and the
- * book they photographed has usually gone back on the pile.
- *
- * So the last test here does not look at the window at all. It stubs `fetch`
- * and asserts that undoing means nothing was ever sent.
+ * The claim this file exists to check is a negative one: while a discard is held, no request
+ * has been made, not "the request was made and then reversed", which this application cannot
+ * do since a delete takes photographs off disk.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -53,7 +46,6 @@ describe('holding a discard open', () => {
     window_.hold(4)
     vi.advanceTimersByTime(UNDO_WINDOW_MS - 1)
     expect(window_.release(4)).toBe(true)
-    // Long past when it would have gone. Nothing is waiting to fire late.
     vi.advanceTimersByTime(UNDO_WINDOW_MS * 10)
 
     expect(deleted).toEqual([])
@@ -67,9 +59,7 @@ describe('holding a discard open', () => {
     window_.hold(4)
     vi.advanceTimersByTime(UNDO_WINDOW_MS)
 
-    // The row is gone by then, so this is defensive rather than reachable, but
-    // the answer has to be "no" or a caller would report an undo that did not
-    // happen.
+    // The row is gone by then, so this is defensive rather than reachable, but the answer must be "no" or a caller would report an undo that did not happen.
     expect(window_.release(4)).toBe(false)
   })
 
@@ -99,12 +89,6 @@ describe('holding a discard open', () => {
     expect(deleted).toEqual([1])
   })
 
-  /*
-   * The pane going away mid-window: navigated off, tab closed, the phone
-   * dropping the page because the camera app was opened. Nothing is deleted.
-   * A capture that survives costs one more swipe; a capture deleted because
-   * somebody walked away costs a trip back to the shelf and the camera.
-   */
   it('deletes nothing when the page goes away mid-window', () => {
     vi.useFakeTimers()
     const deleted: number[] = []
@@ -160,11 +144,7 @@ describe('what actually reaches the server', () => {
     expect(calls).toEqual([])
   })
 
-  /*
-   * The other half of the pair. Without this, the two tests above would pass
-   * just as happily against a window that never deleted anything, which is a
-   * different bug and not a better one.
-   */
+  /* Without this, the two tests above would pass just as happily against a window that never deleted anything. */
   it('sends the delete once the window has closed', async () => {
     vi.useFakeTimers()
     const calls = watchFetch()

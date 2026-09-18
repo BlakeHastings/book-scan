@@ -1,46 +1,25 @@
 /**
- * Changing what belongs where: point a rule at other furniture, see every book
- * that would move, apply it.
+ * Changing what belongs where: point a rule at other furniture, see every
+ * book that would move, apply it.
  *
- * **There is one of these and this is it.** #244 built it, reached from the
- * library, because the stretch of books somebody wants to move is the one they
- * are looking at. #323 gave the rule itself a way here, because somebody
- * standing in front of a bookcase looks at the rule rather than at the library.
- * Both are the same journey and there is deliberately no second screen for the
- * second way in: a rule change is a plan and an apply, and building a second one
- * beside this would be two answers to where the books go.
+ * One screen, reached both from the library (about the stretch of books
+ * being looked at) and from a rule itself (about the furniture being stood
+ * in front of): a rule change is a plan and an apply, and a second screen
+ * for the second way in would be a second answer to where the books go.
  *
- * Backing out lands on whichever screen offered the change, which is
- * `leaveArranging`. From the library that is the library's own return anchor, so
- * it lands on the stretch of books this screen was about: landing on Fiction
- * after moving non-fiction reads as the apply having done nothing.
+ * Backing out lands on whichever screen offered the change (`leaveArranging`),
+ * so it returns to the stretch of books this screen was about. Applying
+ * lands on the carry flow instead, since applying writes down where the
+ * rules want each book and moves nothing.
  *
- * **Applying lands on the carry flow instead**, since #314 built it. Applying
- * writes down where the rules want each book and moves nothing, so the honest
- * next thing is the trips somebody would walk.
+ * This file owns the two requests and the state; `MoveRunPane` owns what is
+ * drawn and holds nothing itself.
  *
- * ## The state is here and the drawing is in the pane
- *
- * #326 converted the screen to the design system, and the split is the one every
- * converted screen makes: this file owns the two requests and the four pieces of
- * state, `MoveRunPane` owns what is drawn, and the pane holds nothing so what it
- * says can be held to a claim in a test.
- *
- * ## Two reads before anything is planned, and neither is a guess
- *
- * What this run is comes from the server, as `runMoveOffer`: where it lives,
- * what it is cut into, and whether a move may pick it up at all. Which bookcases
- * it can be sent to comes from the furniture, because a destination that already
- * has areas on it is refused by the server and offering it would be a button
+ * What the run is (where it lives, what it is cut into, whether it may be
+ * moved at all) comes from the server, as `runMoveOffer`. Which bookcases it
+ * can be sent to comes from the furniture: a destination that already has
+ * areas on it is refused by the server, so offering it would be a button
  * that exists to say no.
- *
- * **It used to ask the books all three questions and it was wrong about two of
- * them.** Where a run lives was the bookcase of the first group of books, which
- * is where the first book happens to be standing rather than where the rule
- * points, and those are two bookcases the moment the leading one is empty
- * (#500). Whether the run could be moved was not asked at all until somebody had
- * chosen a destination, so the screen described a run, offered three bookcases
- * and refused whichever was picked (#486). Both are one read now.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -59,20 +38,16 @@ const NAMED: Record<ShelfRange, string> = {
 /**
  * The bookcases this move could land on.
  *
- * Every number a piece of furniture already stands on, plus the first free one
- * after the highest, minus the ones that have areas on them and are not this
- * stretch's own: a bookcase holds one stretch of books, and the server refuses a
- * destination with areas already on it rather than merging two.
+ * Every number a piece of furniture already stands on, plus the first free
+ * one after the highest, minus the ones that already have areas or books on
+ * them and are not this stretch's own: a bookcase holds one stretch of
+ * books, and the server refuses a destination with areas already on it.
  *
- * **A piece with books still standing on it is taken too**, even with nothing on
- * its face (#401). That is exactly the bookcase a stretch of books was moved off
- * and nobody has carried yet: its areas are gone and forty-six books are on it,
- * and offering it as "Nothing on it yet" would send a second stretch of books to
- * a bookcase that is full.
+ * A piece with books still standing on it counts as taken too, even with
+ * no areas on its face: that is exactly the bookcase a stretch of books was
+ * moved off and nobody has carried yet.
  *
- * The one it is on now is offered, and is where the picker starts. Choosing it
- * is a real answer, and the plan says so in words rather than the screen hiding
- * the option and leaving somebody to wonder where it went.
+ * The one it is on now is always offered, and is where the picker starts.
  */
 export function destinationsFor(
   pieces: readonly { position: number; areas: readonly unknown[]; books: number }[],
@@ -125,19 +100,10 @@ export function ArrangeScreen() {
       .then((answer) => {
         setOffer(answer)
         /*
-         * The picker *starts* where the run lives, and "starts" is the whole of
-         * it.
-         *
-         * This read and the room's are two requests, and the destinations are
-         * drawn from the room's, so the buttons are pressable while this one is
-         * still in the air. Written flat, a late answer took back a choice
-         * somebody had already made and the screen then planned a move to the
-         * bookcase the books were already on. Found by a browser journey losing
-         * a press to it, twice, on the step that presses and then checks the
-         * choice stuck (#433).
-         *
-         * Zero is the value nobody can choose, so it is the one that means
-         * nobody has.
+         * The picker starts where the run lives, and only starts: this
+         * read and the room's are two separate requests, so a late answer
+         * here must not overwrite a choice already made. Zero is the value
+         * nobody can choose, so it is the one that means nobody has.
          */
         setBookcase((chosen) => chosen || answer.from || 1)
       })
@@ -161,10 +127,9 @@ export function ArrangeScreen() {
         setPlan(await api.planRunMove(arranging, bookcase))
         setApplied(null)
         /*
-         * What is already outstanding, so the number this screen reports and the
-         * number the next one shows can be read together. Asked for beside the
-         * plan rather than with it: a plan is the answer this screen is for, and
-         * it should not wait on a second request to be drawn.
+         * What is already outstanding, fetched beside the plan rather than
+         * with it, so the plan does not wait on a second request to be
+         * drawn.
          */
         api.carry()
           .then((work) => setWaiting(work.moving))

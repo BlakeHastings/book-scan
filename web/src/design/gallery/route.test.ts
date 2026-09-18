@@ -1,12 +1,3 @@
-/**
- * The one thing in the wireframe that can break the working app.
- *
- * Everything else here is static markup behind a lazy import. This function
- * decides whether the app renders itself or the gallery, so the case worth
- * pinning is the negative one: an ordinary hash, an empty hash, and a hash
- * that merely starts with the same letters must all leave the app alone.
- */
-
 import { describe, expect, it } from 'vitest'
 import { galleryRoute, hashFor } from './route'
 

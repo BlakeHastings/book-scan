@@ -4,45 +4,32 @@ import type { PlacementStrip } from './api'
  * The stack of books a full plank leaves somebody holding.
  *
  * Saying a plank is full takes its last book off and sends it to the plank
- * after it. Whether it fits there is not computable, because capacity is not
- * modelled and never will be (`docs/shelving.md`, decision 2): books are
- * different thicknesses, so a thin paperback coming off the end does not
- * necessarily open room for the hardback going in. Only the person standing
- * at the shelf can say.
+ * after it. Whether it fits there is not computable, since capacity is not
+ * modelled: only the person standing at the shelf can say. See
+ * `docs/shelving.md`, decision 2.
  *
- * That makes every rung a question in its own right, on the way down AND on
- * the way back up. #80 settled the whole chain on one yes at the deepest
- * point, reasoning that each rung above was only waiting for room below. True
- * of an abstract slot model, false of physical books, and #110 is the owner
- * reporting it from the room: placing the fourth book took them straight back
- * to the first, past two moves nobody had looked at.
+ * So it is a stack, unwound one frame at a time: a yes pops one frame and
+ * hands the question to the frame under it, and a no on the way out pushes a
+ * fresh frame exactly the way the first no did.
  *
- * So it is a stack, and it unwinds one frame at a time. A yes pops one frame
- * and hands the question to the frame under it. A no on the way out pushes a
- * fresh frame exactly the way the first no did, because it is the same
- * physical event and two code paths for it would drift apart.
+ * Three things are kept apart:
  *
- * Three things are kept apart here that this flow used to run together:
- *
- *   asking    a frame on the stack. A question, nothing more.
- *   applying  what a yes does to the shelves, one frame at a time (#111).
+ *   asking    a frame on the stack, a question and nothing more.
+ *   applying  what a yes does to the shelves, one frame at a time.
  *   recording where a book physically ended up, written as it is confirmed.
  *
- * Which is why a frame carries a *proposal* rather than a fact. The proposal
- * is re-read from the server whenever the frame becomes the question again,
- * because moves made deeper down have changed the plank it is about, and an
- * answer given against a picture that predates the last move is #106.
+ * A frame carries a proposal rather than a fact, and the proposal is re-read
+ * from the server whenever the frame becomes the question again, since moves
+ * made deeper down may have changed the plank it is about.
  */
 
 /** The plank somebody said would not take another book. */
 export interface Frame {
   /**
-   * The plank that is full, which is what the server is asked about.
-   *
-   * The id and not the label (#359). Every rung of a cascade asks a write route
-   * to move a real book, and a label is a rendering: it changes the moment
-   * somebody names the bookcase, and on a named one it is not even the string
-   * the layout numbers the plank with. `from` is that plank said for a person.
+   * The plank that is full, which is what the server is asked about. The
+   * id, not the label: a label is a rendering and changes the moment
+   * somebody names the bookcase. `from` is that same plank said for a
+   * person.
    */
   fromAreaId: number
   from: string
@@ -62,11 +49,9 @@ export interface Proposal {
   /** The plank it goes on, as the person reads it. */
   to: string
   /**
-   * That same plank, said as the plank.
-   *
-   * Null while the plank is one the proposal would make, which is the state in
-   * which there is nothing to record a book on. A frame is asked again against
-   * the shelves before it is confirmed, and the plank exists by then.
+   * That same plank, said as the plank. Null while the plank is one the
+   * proposal would make; a frame is asked again against the shelves before
+   * it is confirmed, by which point the plank exists.
    */
   toAreaId: number | null
   /** That plank drawn, with the gap where the book goes. */
@@ -80,12 +65,10 @@ export interface Done {
   from: string
   to: string
   /**
-   * The book being placed moved on, rather than a shelved one being displaced.
-   *
-   * Nothing to confirm and nothing to record: the book is still in your hand,
-   * and where it lands is written when it is saved. So it never joins the
-   * stack. It is listed anyway, because a screen that silently renamed the
-   * plank in the question reads as a tap that did nothing.
+   * The book being placed moved on, rather than a shelved one being
+   * displaced. Nothing to confirm and nothing to record, so it never joins
+   * the stack; it is listed anyway, since a screen that silently renamed
+   * the plank in the question would read as a tap that did nothing.
    */
   inHand?: boolean
 }
@@ -103,19 +86,15 @@ export interface Cascade {
 
 export const emptyCascade: Cascade = { done: [], stack: [] }
 
-/**
- * A plank said to be full, with the move that would open it. The only way a
- * frame is ever made, whether the no came from the book in hand or from a
- * frame being asked again on the way out.
- */
+/** A plank said to be full, with the move that would open it. */
 export function pushFrame(cascade: Cascade, frame: Frame): Cascade {
   return { done: cascade.done, stack: [...cascade.stack, frame] }
 }
 
 /**
  * The book in hand went on to the next plank instead, and nothing already
- * shelved moved (#77). Done the moment it is asked for: there is no question
- * to put to anybody, because the book never left their hand.
+ * shelved moved. Done the moment it is asked for: there is no question to
+ * put to anybody, since the book never left their hand.
  */
 export function pushCarry(cascade: Cascade, done: Omit<Done, 'inHand'>): Cascade {
   return { done: [...cascade.done, { ...done, inHand: true }], stack: cascade.stack }
@@ -128,24 +107,17 @@ export function asking(cascade: Cascade): Frame | null {
 
 /**
  * The person says that one fitted, so it joins what has happened and comes
- * off the stack.
- *
- * Exactly one frame. The question then belongs to whatever is under it, which
- * is a book that was moved earlier and has not been asked about since the
- * plank it is going on changed. Only when nothing is left does the question go
- * back to the book in hand.
+ * off the stack. The question then belongs to whatever is under it; only
+ * when nothing is left does it go back to the book in hand.
  */
 export function confirm(cascade: Cascade, done: Done): Cascade {
   return { done: [...cascade.done, done], stack: cascade.stack.slice(0, -1) }
 }
 
 /**
- * The frame that has just become the question again, re-read from the shelves.
- *
- * Its proposal was drawn before the moves underneath it were made, so the
- * plank in the picture has lost a book since. Replacing it is the #106 rule
- * one level in: never answer against an arrangement that predates the last
- * move.
+ * The frame that has just become the question again, re-read from the
+ * shelves: its proposal was drawn before the moves underneath it were made,
+ * so the plank in the picture may have lost a book since.
  */
 export function repropose(cascade: Cascade, proposal: Proposal): Cascade {
   const top = asking(cascade)
@@ -157,24 +129,12 @@ export function repropose(cascade: Cascade, proposal: Proposal): Cascade {
 }
 
 /**
- * The shuffle as it stands after somebody leaves the shelving step (#432).
+ * The shuffle as it stands after somebody leaves the shelving step. `done`
+ * survives; only the open questions are dropped, since a frame is a
+ * proposal and nothing on the shelves has moved for it.
  *
- * Two halves with opposite answers, which is why this is a function and not a
- * reset. **What was carried survives**: `done` is append only because a book
- * that was physically carried was physically carried, and every rung was
- * written to the catalogue as it was confirmed. Losing the list of them left
- * the person at the bookcase with no record of what they had already done while
- * the database quietly held all of it.
- *
- * **What was only asked does not.** A frame is a proposal, and a proposal is not
- * an observation (#111): nothing on the shelves has moved for it, and nobody has
- * looked at those shelves since it was drawn. Answering it later is the stale
- * answer #106 is about, one level in. So the way back in is the placing question
- * again, asked about the shelves as they now are, with the record of the carried
- * books still under it.
- *
- * The same cascade rather than a new one when there was nothing open, so a route
- * change that had no shuffle to tidy costs no render.
+ * Returns the same cascade when there was nothing open, so a route change
+ * with no shuffle to tidy costs no render.
  */
 export function walkedAway(cascade: Cascade): Cascade {
   return cascade.stack.length ? { done: cascade.done, stack: [] } : cascade
@@ -191,12 +151,8 @@ export function started(cascade: Cascade): boolean {
 }
 
 /**
- * Where you are, said out loud.
- *
- * Four planks deep with a re-descent in it is disorienting, and the sentence
- * on screen otherwise names two planks and leaves you to work out how many
- * books are still stacked up behind the one in your hands. So it says which
- * book is being placed, how far in that is, and what is still to come.
+ * Where you are, said out loud: which book is being placed, how far in that
+ * is, and what is still to come.
  */
 export function whereYouAre(cascade: Cascade, inHand: string): string {
   const frame = asking(cascade)
@@ -213,26 +169,3 @@ export function whereYouAre(cascade: Cascade, inHand: string): string {
     `${above} ${above === 1 ? 'book' : 'books'} to check again after this, ` +
     `then ${inHand}.`
 }
-
-/*
- * There used to be a `spreadOf` here, drawn above the list as `1B → 2A → 1A`
- * under the heading "Shuffle, in the order it happened". It is gone rather
- * than fixed (#149), because there is no one thing it could have said.
- *
- * A cascade has two true orders and they are not the same. The order the
- * person carried books is the order `done` is in, deepest first: they empty
- * 1B on to 2A before they can empty 1A on to 1B. The order the displacement
- * propagated is the reverse of that, 1A to 1B to 2A. An arrow between two
- * plank names asserts one of them and cannot say which, so two people read the
- * same line and disagree about what happened, which is how the summary and the
- * list came to contradict each other in front of somebody holding the books.
- *
- * Deduplicating made it a third thing that is neither. A plank can legitimately
- * be revisited (a book off 1A can come back to 1A later in the same unwind), so
- * collapsing repeats invents a route nobody walked.
- *
- * The list underneath carries every fact the line did and names the book with
- * each move, which is what a person at the shelves is matching against. A
- * second rendering of the same record has to be kept in step with it forever,
- * and this is what it cost the one time it was not.
- */

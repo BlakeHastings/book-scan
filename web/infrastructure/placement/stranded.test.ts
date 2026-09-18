@@ -1,21 +1,19 @@
 /**
- * The third opinion, put through the acts that made #518 necessary.
+ * The third opinion, put through the acts that made it necessary.
  *
- * Every test here builds the state out of rows and then asks **both** checks,
- * because the claim being made is a claim about the pair: the projection agrees
- * with the ledger, and the two of them are wrong about the furniture together.
- * A test of this check alone would prove it says something without proving the
- * thing it is for, which is that the check beside it says nothing.
+ * Every test here builds the state out of rows and then asks both checks,
+ * because the claim being made is a claim about the pair: the projection
+ * agrees with the ledger, and the two of them are wrong about the
+ * furniture together. A test of this check alone would prove it says
+ * something without proving the thing it is for, which is that the check
+ * beside it says nothing.
  *
- * The two shapes below are the two 2026-09-02 defects this can catch. #487 and
- * #491 are not here and their absence is a decision rather than a gap: both move
- * a book **within** a run that still exists, so the plank the ledger names is
- * still on the face and this check is right to stay quiet. That comparison is
- * `Shelves.review`, it already has a screen, and the header of `stranded.ts`
- * says why repeating it here would be wrong.
+ * A book moved within a run that still exists is deliberately not tested
+ * here: the plank the ledger names is still on the face, so this check is
+ * right to stay quiet. That comparison is `Shelves.review`, and the header
+ * of `stranded.ts` says why repeating it here would be wrong.
  *
- * Nothing in this file connects to anything but a scratch database it made, and
- * nothing here reads, writes or deletes a cover file.
+ * Nothing in this file connects to anything but a scratch database it made.
  */
 
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
@@ -57,11 +55,9 @@ async function aPlank(fixtureId: number, position: number, name = ''): Promise<n
 }
 
 /**
- * A book somebody put on that plank and recorded properly.
- *
- * Both halves written, because the state this file is about is the one where
- * **both are right and both are stale**. A fixture that wrote only one of them
- * would be reproducing #505's defect instead of #518's.
+ * A book somebody put on that plank and recorded properly. Both halves
+ * written, because the state this file is about is the one where both are
+ * right and both are stale.
  */
 async function aBookOn(areaId: number, title: string, kind = 'placed'): Promise<number> {
   const book = await db.get<{ id: number }>(
@@ -100,9 +96,8 @@ describe('the plank a book is recorded on, asked of the furniture', () => {
     await aBookOn(plank, 'A Book On A Plank That Went')
     await retirePlank(plank, 2)
 
-    // The point of the whole issue, asserted before anything else: the check
-    // that exists for this family is looking straight at it and reports healthy,
-    // because the act wrote to neither side it compares.
+    // The check that exists for this family looks straight at it and
+    // reports healthy, because the act wrote to neither side it compares.
     expect(await countProjectionDisagreements(db)).toBe(0)
 
     expect(await countStrandedBooks(db)).toBe(1)
@@ -110,9 +105,9 @@ describe('the plank a book is recorded on, asked of the furniture', () => {
       bookId: expect.any(Number),
       title: 'A Book On A Plank That Went',
       areaId: plank,
-      // `7C`, not `7@`. A retired plank still names the plank it was, and the
-      // stored position is `-(plank + 1)`; reading the negative straight would
-      // give an address about a book somebody can go and find.
+      // `7C`, not `7@`: the stored position is `-(plank + 1)`, and reading
+      // the negative straight would give an address about a book somebody
+      // can go and find.
       recorded: '7C',
       why: 'plank-off-the-face',
     }])
@@ -126,9 +121,8 @@ describe('the plank a book is recorded on, asked of the furniture', () => {
 
     expect(await countProjectionDisagreements(db)).toBe(0)
 
-    // The plank's own position is untouched, which is what `retireFixture`
-    // leaves: it is the floor under it that went. Asking the plank first would
-    // report the coarser fact as the finer one.
+    // The plank's own position is untouched: `retireFixture` leaves it be,
+    // since it is the floor under it that went.
     const found = await strandedBooks(db)
     expect(found).toHaveLength(1)
     expect(found[0]!.why).toBe('piece-off-the-floor')
@@ -145,12 +139,9 @@ describe('the plank a book is recorded on, asked of the furniture', () => {
   })
 
   it('says nothing about a book the ledger has taken off every plank', async () => {
-    /*
-     * A checked-out book is nowhere, so there is no plank for it to be stranded
-     * on. That falls out of the fold rather than being special-cased here, and
-     * it is worth asserting: a check that counted a book in somebody's bag would
-     * report the collection unwell every time anybody borrowed anything.
-     */
+    // A checked-out book is nowhere, so there is no plank for it to be
+    // stranded on. That falls out of the fold rather than being
+    // special-cased here.
     const piece = await aPiece(7)
     const plank = await aPlank(piece, 2)
     const book = await aBookOn(plank, 'A Book In Somebody Bag')
@@ -167,9 +158,9 @@ describe('the plank a book is recorded on, asked of the furniture', () => {
   })
 
   it('says nothing about an `assigned` row, which is where a book is wanted', async () => {
-    // `assigned` is the rules asking for a book to be moved and is never where
-    // the book is, so a rule pointing at a retired plank is #420's defect and
-    // not this one. The fold walks past it; this proves the walk-past.
+    // `assigned` is the rules asking for a book to be moved and is never
+    // where the book is, so a rule pointing at a retired plank is a
+    // different defect. The fold walks past it; this proves the walk-past.
     const piece = await aPiece(7)
     const plank = await aPlank(piece, 2)
     const book = await aBookOn(plank, 'A Book Wanted Somewhere Else')
@@ -193,9 +184,8 @@ describe('the plank a book is recorded on, asked of the furniture', () => {
     await strandedBooks(db)
     await countStrandedBooks(db)
 
-    // Both sides exactly as they were. #485's diagnosis depended on a broken
-    // state surviving restarts, and a check that quietly put the plank back or
-    // moved the book would have hidden a three-week-old defect indefinitely.
+    // Both sides exactly as they were: a check that quietly put the plank
+    // back or moved the book would have hidden the defect indefinitely.
     expect(await db.get<{ position: number }>(
       'SELECT position FROM area WHERE id = ?', [plank],
     )).toEqual({ position: -3 })
@@ -231,21 +221,17 @@ describe('the plank a book is recorded on, asked of the furniture', () => {
 })
 
 /**
- * The `SET NULL` / `RESTRICT` asymmetry #518 asks to be mapped before any SQL.
- *
- * The question it decides is whether this is one check or two: does a book whose
- * area is gone leave the two halves saying different things? **It cannot, and
- * these are the rows that say so** rather than the reasoning in `stranded.ts`'s
- * header saying so on its own.
+ * The `SET NULL` / `RESTRICT` asymmetry mapped in rows rather than only
+ * reasoned about: does a book whose area is gone leave the two halves
+ * saying different things? It cannot, and these are the rows that say so.
  */
 describe('what the two foreign keys actually allow', () => {
   /**
-   * Postgres's own words, quoted rather than paraphrased.
-   *
-   * It names the setting as well as the constraint, which is the half that
-   * matters here: the argument in `stranded.ts` turns on `RESTRICT` being what
-   * refuses, and a message naming only the key would be satisfied by a
-   * `NO ACTION` deferring to the end of the transaction instead.
+   * Postgres's own words, quoted rather than paraphrased. It names the
+   * setting as well as the constraint: the argument in `stranded.ts` turns
+   * on `RESTRICT` being what refuses, and a message naming only the key
+   * would be satisfied by a `NO ACTION` deferring to the end of the
+   * transaction instead.
    */
   const RESTRICT_REFUSES =
     /violates RESTRICT setting of foreign key constraint "book_placement_area_id_fkey"/
@@ -256,32 +242,26 @@ describe('what the two foreign keys actually allow', () => {
     const book = await aBookOn(plank, 'A Book Pinning Its Own Plank')
 
     // `book_placement_area_id_fkey` is ON DELETE RESTRICT, and this is the
-    // refusal itself rather than a description of it. For the two halves to
-    // agree at all, the area they agree on is named by a ledger row, so this
-    // refusal stands over exactly the books this check is about.
+    // refusal itself rather than a description of it.
     await expect(db.run('DELETE FROM area WHERE id = ?', [plank]))
       .rejects.toThrow(RESTRICT_REFUSES)
 
-    // And the cascade from the piece runs into the same refusal, which is why
+    // The cascade from the piece runs into the same refusal, which is why
     // `retireFixture` exists rather than a delete.
     await expect(db.run('DELETE FROM fixture WHERE id = ?', [piece]))
       .rejects.toThrow(RESTRICT_REFUSES)
 
-    // Untouched by either attempt, so `books.current_area_id`'s ON DELETE SET
-    // NULL has nothing to fire on. That is the whole of why this is one check.
+    // Untouched by either attempt, so `books.current_area_id`'s ON DELETE
+    // SET NULL has nothing to fire on.
     expect(await db.get<{ current_area_id: number }>(
       'SELECT current_area_id FROM books WHERE id = ?', [book],
     )).toEqual({ current_area_id: plank })
   })
 
   it('nulls the column only for a book with no ledger row, which is nowhere anyway', async () => {
-    /*
-     * The one way SET NULL can be reached: a projection naming an area no ledger
-     * row does. That is #505's defect, not this one — the two halves disagree,
-     * `projectionDisagreements` names the book, and after the delete they agree
-     * again on nothing. Either way this check has nothing to fold and stays
-     * quiet, because a book with no placement row is not recorded anywhere.
-     */
+    // The one way SET NULL can be reached: a projection naming an area no
+    // ledger row does. Either way this check has nothing to fold and stays
+    // quiet, since a book with no placement row is not recorded anywhere.
     const piece = await aPiece(7)
     const plank = await aPlank(piece, 2)
     await db.run(

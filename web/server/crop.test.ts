@@ -132,9 +132,9 @@ describe('cropPhotos', () => {
     expect(io.files['b_front_crop.jpg']).toBeUndefined()
 
     const book = (await s.getBook(id))!
-    // Looked at, found nothing. Different from never looked at, and it is the
-    // difference that lets the detail view say "shown whole" about this photo
-    // without saying it about every photo taken before any of this existed.
+    // Looked at, found nothing: different from never looked at, which is the
+    // distinction that lets the detail view say "shown whole" about this
+    // photo without saying it about every other one.
     expect(book.front_crop).toBe('')
     expect(book.cropped).toBe('front')
   })
@@ -247,14 +247,10 @@ describe('cropCatalogue', () => {
   })
 
   /*
-   * The CLI half of #200. `crop-books.ts` is argument parsing and a file reader
-   * around exactly the call below, and it is the tool that walks the whole
-   * catalogue, so a decision that reached `books.cropped` and not the
-   * photograph is the drift at its largest.
-   *
-   * Both outcomes, because the distinction is the one #192 built the table
-   * around: examined with a crop and examined without one are different facts,
-   * and neither is "nobody looked".
+   * `crop-books.ts` is argument parsing and a file reader around exactly the
+   * call below, and it is the tool that walks the whole catalogue. Examined
+   * with a crop and examined without one are different facts, and neither is
+   * "nobody looked".
    */
   it('records what the detector decided on the photograph, both ways', async () => {
     const s = await store()

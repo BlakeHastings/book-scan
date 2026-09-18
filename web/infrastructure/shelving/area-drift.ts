@@ -1,70 +1,41 @@
 /**
  * The check that lets one set of rows decide where every book goes.
  *
- * **This is #184's book-by-book comparison, and it has now outlived both the
- * things it was written to compare.** #184 placed every one of 236 books twice,
- * once by `separators` and once by the areas `0013` derived from them, and
- * proved the two answers identical at the moment of the backfill. #213 made that
- * continuous, because the first boundary somebody moved, the claim was about a
- * catalogue that no longer existed. #232 dropped `separators`, and the question
- * is what a comparison with one model left is worth.
+ * There were never two models here: there are two ways of asking one set
+ * of rows where a book goes.
  *
- * **It is worth what it always was, because there were never two models here:
- * there were two ways of asking one set of rows where a book goes, and both of
- * them survive the drop.**
- *
- * - `underTheLayout` is what the app draws. It takes the range off
- *   `books.shelf_range`, reads that range's band, turns the areas in it back
- *   into a boundary list and walks it with `layoutRange`, which is exactly the
+ * - `underTheLayout` is what the app draws: it takes the range off
+ *   `books.shelf_range`, reads that range's band, turns the areas in it
+ *   back into a boundary list and walks it with `layoutRange`, the exact
  *   sequence `Shelves.layout` performs.
- * - `underRules` is what the model says. It takes no notice of `shelf_range`: it
- *   asks which `placement_rule` claims the book by the tags it carries, follows
- *   that rule's run through `slotsInOrder`, and lands the book by its sort key.
+ * - `underRules` is what the model says: it takes no notice of
+ *   `shelf_range`, asks which `placement_rule` claims the book by the tags
+ *   it carries, follows that rule's run through `slotsInOrder`, and lands
+ *   the book by its sort key.
  *
- * The inputs are different all the way down. One is a column and a walk over a
- * derived boundary list; the other is `book_tag`, the rules and the sequence of
- * areas. They agree only when the range a book's genre settled on is the range
- * the rules claim it into, and when the boundary list really is the inverse of
- * the areas it was derived from. Both of those are things that can be wrong, and
- * both of them are wrong in the way that matters: silently, and about a shelf in
- * somebody's house.
+ * They agree only when the range a book's genre settled on is the range
+ * the rules claim it into, and when the boundary list really is the
+ * inverse of the areas it was derived from. Both of those can be wrong
+ * silently, about a shelf in somebody's house.
  *
- * What it stopped being able to catch is a boundary written into `separators`
- * without an area beside it, and that is because there is no `separators`.
+ * Nothing here re-implements a placement: `underTheLayout` calls
+ * `layoutRange`, the same function `Shelves.layout` calls, and `underRules`
+ * calls `placementOf` over `slotsInOrder`, the whole of the model. It is
+ * also deliberately not the derivation `areas.ts` writes with: a writer
+ * checked by its own arithmetic only proves it is self-consistent.
  *
- * ## Two readings, neither of them this file's own
+ * It compares area ids, not labels. The two readings render a label with
+ * different functions: `layoutRange` renders from ordinals, the rules
+ * render through `labelFor`, which is the name a person gave the piece.
+ * Comparing the rendered strings would disagree on every correctly
+ * shelved book the moment a bookcase is given a name, since one side says
+ * `2A` and the other `Hall shelf · A` about the same plank. `areaOfKey`
+ * turns the layout's walk into the row it landed on, the same reader
+ * `Shelves` answers "where does this book belong" with.
  *
- * Nothing here re-implements a placement. `underTheLayout` calls `layoutRange`,
- * which is what `Shelves.layout` calls; `underRules` calls `placementOf` over
- * `slotsInOrder`, which is the whole of the model. A check that walked the areas
- * itself would agree with whichever of the two it was written from and say
- * nothing about the other.
- *
- * It is deliberately not the derivation `areas.ts` writes with, either. A writer
- * checked by its own arithmetic proves that it is self-consistent, which is the
- * one thing that was never in doubt.
- *
- * ## What it compares is the plank, not what the plank is called (#356)
- *
- * The two readings render a label with different functions, and they have to:
- * `layoutRange` renders from ordinals and the rules render through `labelFor`,
- * which says the name a person gave the piece. While nothing was named the two
- * strings matched and comparing them looked right. **The moment a bookcase is
- * given a name, every correctly shelved book on it disagrees**, because one side
- * says `2A` and the other says `Hall shelf · A` about the one plank, and this
- * check would have printed the whole collection on every start.
- *
- * So it compares area ids and prints labels. `areaOfKey` is what turns the
- * layout's walk into the row it landed on, it is the same reader `Shelves`
- * answers "where does this book belong" with, and `shelves.test.ts` proves it
- * lands each key on the very plank `layoutRange` draws it on.
- *
- * ## Reported, not repaired
- *
- * Nothing here writes. Repairing on sight would destroy the evidence of how a
- * disagreement happened, which is the only question one actually asks, in the
- * same way `rebuildProjection` is a decision somebody makes having read the
- * report (#185).
+ * Nothing here writes. Repairing on sight would destroy the evidence of
+ * how a disagreement happened, which is the only question one actually
+ * asks.
  */
 
 import { labelFor } from '../../domain/placement/geography'
@@ -97,12 +68,11 @@ interface BookRow {
 }
 
 /**
- * Where the app draws every shelved book, range by range.
- *
- * The three reads are `Shelves.startOf`, `Shelves.booksIn` and
- * `DrizzleSeparatorRepository.inRange` spelled out, in that order and with those
- * orderings, because the order the boundaries come back in is what decides where
- * two sharing an anchor are stepped over.
+ * Where the app draws every shelved book, range by range. The three reads
+ * are `Shelves.startOf`, `Shelves.booksIn` and
+ * `DrizzleSeparatorRepository.inRange` spelled out, in that order: the
+ * order boundaries come back in decides where two sharing an anchor are
+ * stepped over.
  */
 async function underTheLayout(
   db: Db,
@@ -119,10 +89,9 @@ async function underTheLayout(
       [range],
     )
 
-    // One read of the run, used both ways: the boundary list the layout walks is
-    // derived from these rows, so the plank a book lands on and the plank the
-    // walk draws it on are two readings of one sequence rather than two reads
-    // that have to agree.
+    // One read of the run, used both ways: the boundary list the layout
+    // walks is derived from these rows, so the plank a book lands on and
+    // the plank drawn are two readings of one sequence.
     const run = await runAreasOf(db, range)
     const layout = layoutRange(
       books.map((row) => ({ id: row.id, title: row.title, sortKey: row.sort_key })),
@@ -171,10 +140,8 @@ async function underRules(
 
 /**
  * Every shelved book the layout and the rules put in different places.
- *
- * Ordered by id, which is the order the backfill tests already read, and
- * unbounded: the caller decides how many to say out loud, because the total is
- * the number that matters and the names are the ones that explain it.
+ * Ordered by id and unbounded: the caller decides how many to say out
+ * loud, since the total is the number that matters.
  */
 export async function areaDisagreements(db: Db): Promise<AreaDisagreement[]> {
   const [layout, rules] = await Promise.all([underTheLayout(db), underRules(db)])
@@ -182,7 +149,7 @@ export async function areaDisagreements(db: Db): Promise<AreaDisagreement[]> {
   const found: AreaDisagreement[] = []
   for (const [bookId, { title, label, areaId }] of layout) {
     const claimed = rules.get(bookId) ?? { label: '', areaId: null }
-    // The plank, not what it is called. See the note above about #356.
+    // The plank, not what it is called.
     if (areaId === null || claimed.areaId !== areaId) {
       found.push({ bookId, title, fromLayout: label, fromRules: claimed.label })
     }

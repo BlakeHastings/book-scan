@@ -27,7 +27,7 @@ let store: Store
 let shelves: Shelves
 let db: Db
 
-// Both databases, since stage F. Nothing below knows which. See testdb.ts.
+// openTestDatabase may return either backing database; nothing below knows which.
 beforeEach(async () => {
   db = await openTestDatabase()
   store = new Store(db, new DrizzleAuthorRepository(db))
@@ -36,21 +36,13 @@ beforeEach(async () => {
 
 afterAll(closeTestDatabase)
 
-/**
- * The plank an address names, which is what a route works out from the area id a
- * screen sends before it asks for anything (#359). Written out here so a test
- * can go on saying `1A` while the code it drives takes the plank.
- */
+/** Lets a test say `1A` while the code it drives takes the plank the label resolves to. */
 const plank = (label: string): PlankAt => plankAt(label)!
 
 /** Authors chosen so alphabetical order matches the argument order. */
 const add = async (author: string, title = 'Book') =>
   (await store.addBook({ title, authors: [author], genre: FICTION_SLUG })).id
 
-/**
- * Where a draft would go, and saving an edit, filed under the genre the draft
- * states. The range arrives beside the draft since #223; see `store.test.ts`.
- */
 /** The range the draft's own genre files it into. A draft here always states one. */
 const rangeOf = (of: DraftBook): ShelfRange => {
   const { range } = genreStatedBy(of)
@@ -67,12 +59,8 @@ const updateBook = (id: number, of: DraftBook) =>
 const labels = async () => (await shelves.layout('fiction')).map((p) => p.label)
 
 /**
- * Which way a book can be carried, as the two planks read.
- *
- * `boundaryOptions` answers a plank each way rather than a label each way
- * (#359), and most of these tests are about whether a direction is open at all.
- * The tests that are about identity, which is the ones with a named bookcase in
- * them, read `areaId` off the row instead.
+ * Reduces `boundaryOptions`' plank answers to labels, for tests that only care
+ * whether a direction is open; tests about identity read `areaId` off the row instead.
  */
 const offered = async (bookId: number, range: ShelfRange = 'fiction') => {
   const options = await shelves.boundaryOptions(range, bookId)
@@ -106,9 +94,8 @@ describe('saying a shelf is full', () => {
       id: bob, from: '1A', to: '1B',
       fromAt: { shelf: 1, area: 0 }, toAt: { shelf: 1, area: 1 },
     }])
-    // The plank beside the name for it, and it is the plank the layout now puts
-    // the displaced book on. That is what the person records when they say they
-    // have carried it, and a name could not have said it (#359).
+    // What the person records as carried is the plank id, not just the label;
+    // a label alone could not identify it.
     expect(result.planks?.to.label).toBe('1B')
     expect(result.planks?.to.areaId).toBe(await shelves.areaOf('fiction', bob))
   })
@@ -120,14 +107,7 @@ describe('saying a shelf is full', () => {
     expect(await labels()).toEqual(['1A', '2A'])
   })
 
-  /*
-   * It used to refuse this, saying the plank held only one book and that moving
-   * it along would empty the shelf (#432). Emptying it is the point: the person
-   * needs a gap on the plank the book in their hand belongs on, and on a plank
-   * holding one book the gap is the whole plank. `docs/shelving.md` allows the
-   * only book in an area to leave it, and says the cascade and a boundary moved
-   * by hand write the same thing.
-   */
+  /* Emptying a plank is the point: leaving one bare is allowed, not a bug. */
   it('takes the only book off a shelf, leaving that shelf bare', async () => {
     const ann = await add('Ann Author')
     const result = await shelves.overflow('fiction', plank('1A'), 'area')
@@ -136,7 +116,7 @@ describe('saying a shelf is full', () => {
     expect(result.step?.from).toBe('1A')
     expect(result.step?.to).toBe('1B')
     // 1A is bare, so it has no books to name it and drops out of the layout
-    // until something lands on it. Which is what the person is about to do.
+    // until something lands on it.
     expect(await labels()).toEqual(['1B'])
   })
 
@@ -147,7 +127,6 @@ describe('saying a shelf is full', () => {
     await shelves.overflow('fiction', plank('1A'), 'area')      // Cal to A2
     expect(await labels()).toEqual(['1A', '1A', '1B'])
 
-    // A1 still will not do; say so again.
     const second = await shelves.overflow('fiction', plank('1A'), 'area')
     expect(second.step?.moved.id).toBe(bob)
     expect(await labels()).toEqual(['1A', '1B', '1B'])
@@ -155,13 +134,7 @@ describe('saying a shelf is full', () => {
   })
 })
 
-/**
- * The move offered before anybody has made it.
- *
- * The boundary used to shift the moment a step was proposed, so the book left
- * the plank the person was still standing at, and stayed gone if they walked
- * away (#111). A proposal is not an observation about the room.
- */
+/** A proposal is not an observation about the room: it must move nothing. */
 describe('proposing the move without making it', () => {
   it('names the same book the answer would move, and moves nothing', async () => {
     await add('Ann Author')
@@ -172,7 +145,6 @@ describe('proposing the move without making it', () => {
     expect(plan.step?.moved.id).toBe(bob)
     expect(plan.step?.to).toBe('1B')
 
-    // The shelf is exactly as it was, and so is the furniture.
     expect(await labels()).toEqual(['1A', '1A'])
     expect(await shelves.list('fiction')).toHaveLength(0)
   })
@@ -205,8 +177,6 @@ describe('proposing the move without making it', () => {
 
   it('reports the one refusal rather than pretending a move is available', async () => {
     await add('Ann Author')
-    // A plank this run does not have is the only thing left to refuse (#432),
-    // and the sentence says which planks it does have.
     const refused = await shelves.proposeOverflow('fiction', plank('9Z'), 'area')
     expect(refused.ok).toBe(false)
     expect(refused.error).toContain('There is no shelf 9Z')
@@ -214,29 +184,20 @@ describe('proposing the move without making it', () => {
   })
 })
 
-/**
- * A cascade confirms its outermost move last (#110), so a proposal can be
- * several answers old by the time somebody says they carried it out. Applying
- * it to whatever book happens to be on the end by then is the stale answer
- * #106 fixed, one level in.
- */
 describe('confirming a move that was proposed a while ago', () => {
   it('refuses when the plank no longer ends with the book named', async () => {
     await add('Ann Author')
     await add('Bob Baker')
     const cal = await add('Cal Church')
 
-    // What the person was told to move, before anything else happened.
     const plan = await shelves.proposeOverflow('fiction', plank('1A'), 'area')
     expect(plan.step?.moved.id).toBe(cal)
 
-    // Somebody else takes Cal off 1A in the meantime.
     await shelves.overflow('fiction', plank('1A'), 'area')
 
     const applied = await shelves.overflow('fiction', plank('1A'), 'area', '', cal)
     expect(applied.ok).toBe(false)
     expect(applied.error).toContain('changed')
-    // And it changed nothing on the way to saying so.
     expect(await labels()).toEqual(['1A', '1A', '1B'])
   })
 
@@ -263,9 +224,8 @@ describe('placing a book on a shelf that is full', () => {
     (await placementFor({ title, authors: [author], genre: FICTION_SLUG } as never)).sortKey
 
   it('sends the book in hand on when nothing on the shelf follows it', async () => {
-    // The bug in #77. Ann and Bob fill 1A, Cal is on 1B, and the book being
-    // placed is Baxter, who sorts after Bob and before Cal. Saying 1A is full
-    // used to take Bob off the shelf and carry him to 1B for no reason.
+    // Ann and Bob fill 1A, Cal is on 1B, and Baxter, the book being placed,
+    // sorts after Bob and before Cal.
     const ann = await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
     const cal = await shelve('Cal Church')
@@ -276,7 +236,6 @@ describe('placing a book on a shelf that is full', () => {
     const result = await shelves.overflow('fiction', plank('1A'), 'area', await keyFor('Bob Baxter'))
     expect(result.ok).toBe(true)
     expect(result.carry).toMatchObject({ from: '1A', to: '1B' })
-    // Nobody was displaced, and no book already on a shelf changed shelf.
     expect(result.step).toBeUndefined()
     expect(result.moves).toEqual([])
     expect(await labels()).toEqual(['1A', '1A', '1B'])
@@ -298,8 +257,6 @@ describe('placing a book on a shelf that is full', () => {
   })
 
   it('still displaces a book when the gap is in the middle', async () => {
-    // The cascade is not weakened. Something genuinely has to move to open a
-    // gap here, and it is the last book on the shelf that moves.
     await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
     const cal = await shelve('Cal Church')
@@ -315,8 +272,6 @@ describe('placing a book on a shelf that is full', () => {
   })
 
   it('makes a shelf at the end of the run rather than displacing anything', async () => {
-    // The last area of the last bookcase. Nothing follows the book anywhere,
-    // so there is nothing to displace and the plank it goes on gets made.
     await shelve('Ann Author')
     await shelve('Bob Baker')
 
@@ -342,10 +297,8 @@ describe('placing a book on a shelf that is full', () => {
   })
 
   it('is preferred to the cascade on a shelf with one book on it', async () => {
-    // Both answers exist here since #432: the cascade would take Author off 1A
-    // and 1A would be bare. It is still the wrong one when the book in hand
-    // goes at the end of the plank, because then it moves and nothing shelved
-    // does, which is #77.
+    // The cascade would take Author off 1A, leaving it bare; carrying the book
+    // in hand instead is preferred because then nothing already shelved moves.
     await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
     await shelves.overflow('fiction', plank('1A'), 'area')
@@ -363,9 +316,8 @@ describe('placing a book on a shelf that is full', () => {
   })
 
   it('ignores the book in hand while the chain walks other shelves', async () => {
-    // The key is passed on every rung, and the special case only fires for the
-    // shelf the book is actually going on. A rung about some other shelf still
-    // gets the cascade.
+    // The special case only fires for the shelf the book is actually going on;
+    // a rung about some other shelf still gets the cascade.
     const ids: number[] = []
     for (const a of ['Ann Author', 'Bob Baker', 'Cal Church', 'Dot Downs']) ids.push(await shelve(a))
     await shelves.overflow('fiction', plank('1A'), 'area')
@@ -374,8 +326,6 @@ describe('placing a book on a shelf that is full', () => {
 
     const result = await shelves.overflow('fiction', plank('1B'), 'area', await keyFor('Ann Baxter'))
     expect(result.carry).toBeUndefined()
-    // 1B holds one book, and it gives that one up like any other plank (#432):
-    // Downs goes on to 1C and 1B is left bare for the book coming off 1A.
     expect(result.ok).toBe(true)
     expect(result.step?.moved.id).toBe(ids[3])
     expect(result.step?.from).toBe('1B')
@@ -384,12 +334,6 @@ describe('placing a book on a shelf that is full', () => {
 
   it('walks the whole chain through a plank that holds one book', async () => {
     /*
-     * The case #432 reported. A person is handed a book off the end of 1A, they
-     * carry it to 1B, and 1B holds one book and will not take it. The app used
-     * to answer "1B holds only one book, so moving it along would just empty the
-     * shelf. Put the new book on the next shelf instead", which is a sentence
-     * with no button behind it and the wrong instruction besides.
-     *
      * Walked here the way the screen walks it: propose, descend on a no, and
      * confirm the outer move last, recording where each book physically went.
      */
@@ -402,19 +346,19 @@ describe('placing a book on a shelf that is full', () => {
     // Baxter files between Baker and Church, so the gap is in the middle of 1A.
     const placing = await keyFor('Ann Baxter')
 
-    // Down one: 1A is full, so Church comes off its end and is offered to 1B.
+    // 1A is full, so Church comes off its end and is offered to 1B.
     const first = await shelves.proposeOverflow('fiction', plank('1A'), 'area', placing)
     expect(first.step?.moved.id).toBe(ids[2])
     expect(first.step).toMatchObject({ from: '1A', to: '1B' })
 
-    // Down two: 1B will not take Church, so Downs goes on to a 1C that is made
-    // for him. Nothing about 1A has been decided yet.
+    // 1B will not take Church, so Downs goes on to a 1C made for him; nothing
+    // about 1A is decided yet.
     const second = await shelves.overflow('fiction', plank('1B'), 'area', placing, ids[3])
     expect(second.ok).toBe(true)
     expect(second.step).toMatchObject({ from: '1B', to: '1C' })
     await store.setLocationIn(ids[3]!, second.planks!.to.areaId!)
 
-    // Up one: Church goes on the plank Downs has just left.
+    // Church goes on the plank Downs just left.
     const back = await shelves.overflow('fiction', plank('1A'), 'area', placing, ids[2])
     expect(back.ok).toBe(true)
     expect(back.step).toMatchObject({ from: '1A', to: '1B' })
@@ -426,12 +370,10 @@ describe('placing a book on a shelf that is full', () => {
     await store.setLocation(baxter, '1A')
 
     expect(await labels()).toEqual(['1A', '1A', '1A', '1B', '1C'])
-    // Every book went where the app said, so the record and the room agree.
     expect((await shelves.review('fiction')).misfiles).toEqual([])
   })
 
   it('leaves nothing needing attention once the book is saved', async () => {
-    // It went where the app said, so the record and the room agree.
     await shelve('Ann Author')
     await shelve('Bob Baker')
     const cal = await shelve('Cal Church')
@@ -450,8 +392,6 @@ describe('placing a book on a shelf that is full', () => {
 
 describe('a book inserted into a shelf', () => {
   it('is allowed to simply fit, without displacing anyone', async () => {
-    // A thin book may well fit, and only a person can say otherwise, so
-    // nothing moves on its own.
     await add('Bob Baker')
     await add('Cal Church')
     await shelves.overflow('fiction', plank('1A'), 'area')
@@ -497,9 +437,8 @@ describe('ranges are independent', () => {
 
 describe('every catalogued book has a shelf', () => {
   /**
-   * The property behind dropping the "unshelved" count. A shelf is derived,
-   * so being in the catalogue and being on a shelf are the same fact. If this
-   * ever fails, an unshelved state exists again and needs reporting somewhere.
+   * A shelf is derived, so being catalogued and being shelved are the same
+   * fact: this is the property that let the "unshelved" count be dropped.
    */
   it('places every book exactly once, whatever the boundaries', async () => {
     const ids: number[] = []
@@ -515,12 +454,11 @@ describe('every catalogued book has a shelf', () => {
     const placed = await shelves.layout('fiction')
     expect(placed).toHaveLength(ids.length)
     expect(new Set(placed.map((p) => p.book.id))).toEqual(new Set(ids))
-    // And every one of them names a real shelf.
     expect(placed.every((p) => /^\d+[A-Z]+$/.test(p.label))).toBe(true)
   })
 
   it('places a book saved without ever touching the location column', async () => {
-    // Which is every book saved since locations became derived.
+    // Locations are derived; the location column stays empty for every book saved this way.
     const id = await add('Zola, Émile')
     const placed = await shelves.layout('fiction')
     expect(placed.find((p) => p.book.id === id)?.label).toBe('1A')
@@ -529,15 +467,10 @@ describe('every catalogued book has a shelf', () => {
 })
 
 /**
- * #332's finding 1, which is a performance fix and therefore has to be a
- * behaviour test: the fast answer must be the slow answer.
- *
- * `GET /api/shelves` asked `shelfForSortKey` once per checked-out book, and each
- * call laid the whole run out. `shelvesForSortKeys` lays it out once for all of
- * them, on the reasoning that where a key lands is decided by the boundaries it
- * has passed and by nothing about the other books. This compares the two
- * directly: `theSlowWay` is the old method written out, laying the whole run out
- * with one newcomer merged in and picking it back out again.
+ * A performance fix, verified behaviourally: the fast batch answer must match
+ * the slow one-at-a-time answer, since where a key lands depends only on the
+ * boundaries it has passed, not on the other books. `theSlowWay` is the old
+ * method, written out for comparison.
  */
 describe('the shelf a sort key lands on', () => {
   /** The old `layoutWith`, in full, so the comparison is against the algorithm. */
@@ -546,8 +479,8 @@ describe('the shelf a sort key lands on', () => {
       .map((p) => ({ id: p.book.id, sortKey: p.book.sortKey }))
     const merged = [...books, { id: NEWCOMER_ID, sortKey }]
       .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0))
-    // Fiction begins at 1A in a database standing as the migrations leave it,
-    // which is what every other expectation in this file assumes too.
+    // Fiction begins at 1A in a freshly migrated database, which every
+    // expectation in this file assumes.
     return layoutRange(merged, await shelves.list('fiction'), { shelf: 1, area: 0 })
       .find((p) => p.book.id === NEWCOMER_ID)!.label
   }
@@ -568,9 +501,8 @@ describe('the shelf a sort key lands on', () => {
 
     /*
      * Every book's own key, every gap between two of them, and a key below and
-     * above the whole run. The gaps are the interesting ones: a checked-out book
-     * is absent from the layout, so its key is being asked about a run that does
-     * not contain it, which is exactly this case.
+     * above the whole run. The gaps matter: a checked-out book is absent from
+     * the layout, so its key is asked about a run that does not contain it.
      */
     const keys = shelved.map((p) => p.book.sortKey)
     const asked = [
@@ -594,12 +526,9 @@ describe('the shelf a sort key lands on', () => {
   })
 
   /**
-   * The proof that the area a key lands in is the plank the layout draws it on.
-   *
    * `areasForSortKeys` walks the run as rows and `shelvesForSortKeys` walks the
-   * boundaries derived from those rows, and the misfile check believes they are
-   * two readings of one sequence. So it is checked rather than argued: every
-   * key, every gap, both ends, plank for plank.
+   * boundaries derived from those rows; the misfile check assumes they are two
+   * readings of one sequence, so this checks that directly.
    */
   it('lands a key in the very area the layout draws it on', async () => {
     for (const author of [
@@ -625,10 +554,6 @@ describe('the shelf a sort key lands on', () => {
     }
   })
 
-  /**
-   * And it goes on landing there once the piece has a name, which is the whole
-   * of #356 said about one function.
-   */
   it('lands a key in the same area after the bookcase is named', async () => {
     await add('Austen, Jane')
     await add('Zola, Émile')
@@ -667,8 +592,7 @@ describe('a book taken off the shelf', () => {
   })
 
   it('is never offered as a neighbour to file against', async () => {
-    // The reason the column exists. A book in a pile on the table is not
-    // something to put another book beside.
+    // A book in a pile on the table is not something to put another book beside.
     await add('Jane Austen')
     const middle = await add('Emily Bronte')
     await add('Angela Carter')
@@ -713,32 +637,21 @@ describe('a book taken off the shelf', () => {
 })
 
 /**
- * The risk #183 is designed against, asserted rather than argued about.
+ * `shelved_books` is what keeps a catalogued row that is not on a shelf out of
+ * the layout, now that `books` drives both shelf ordering and misfile
+ * detection in one table.
  *
- * `books` drives shelf ordering and misfile detection, and the two tables were
- * kept apart so that half-identified rows could never reach either. They are one
- * table now, so a row that is in the catalogue and not on a shelf has to be kept
- * out of the layout by something. That something is `shelved_books`, and these
- * are the questions somebody standing at a bookcase actually asks.
- *
- * Written straight into `books` on purpose, and this is the harder version of
- * the row rather than the one the app produces. A book the queue makes has no
- * shelf range and no sort key, so it is kept off a shelf twice over and a test
- * of it would prove the weaker protection. This one is given a range and a key
- * that file it exactly between two real books, so the state is the only thing
- * standing between it and somebody's bookcase, which is the property worth
- * asserting.
- *
- * Before #204 these rows could not exist at all. `queue.add` makes one now, and
- * the last test here is that one, made the way the app makes it.
+ * Written straight into `books` on purpose: a book the queue makes lacks a
+ * shelf range and sort key too, so testing that would prove weaker protection.
+ * This row is given a range and key that file it exactly between two real
+ * books, so its state is the only thing keeping it off a shelf, which is the
+ * harder property worth asserting.
  */
 describe('a book in the catalogue that is not on a shelf', () => {
   /**
-   * A row filed exactly where a real book would be filed, and not on a shelf.
-   *
-   * The key comes from `resolveKey`, which is what a save uses, so this lands
-   * between two real books by the ordering the app itself computes rather than
-   * by a string chosen to look plausible.
+   * The key comes from `resolveKey`, the same one a save uses, so this lands
+   * between two real books by the app's own ordering rather than a
+   * plausible-looking string.
    */
   const unidentified = async (author: string, location = '') => {
     const key = await store.resolveKey({
@@ -751,11 +664,8 @@ describe('a book in the catalogue that is not on a shelf', () => {
        RETURNING id`,
       [key.sortKey],
     )
-    // The row is written in, and where it sits is not: there is no
-    // `books.location` to write since #232, so the placement goes through the
-    // one route that records one. That is the app's own route, which makes the
-    // fixture no gentler: what is being kept off a shelf is a row that is
-    // filed, placed, and only kept out by its state.
+    // Location, unlike the row itself, goes through the app's own route:
+    // there is no `books.location` column to write directly.
     if (location) await store.setLocation(row!.id, location)
   }
 
@@ -774,8 +684,7 @@ describe('a book in the catalogue that is not on a shelf', () => {
     await add('Cathy Clark', 'Nights at the Circus')
     await unidentified('Bob Baker')
 
-    // Baxter files after Baker and before Clark, so a leak here is somebody
-    // sent to a bookcase to find a book that is not on it.
+    // Baxter files after Baker and before Clark, between the unidentified row and Clark.
     const placement = await placementFor({
       title: 'Middle', authors: ['Bob Baxter'], genre: FICTION_SLUG,
     })
@@ -786,11 +695,9 @@ describe('a book in the catalogue that is not on a shelf', () => {
   it('is not judged by the misfile check, nor set aside by it', async () => {
     const ann = await add('Ann Author', 'On a shelf')
     await store.setLocation(ann, '1A')
-    // A location on the row, so a leak cannot hide as "never placed". `4A`
-    // rather than the `3C` this used to write, because a recorded location has
-    // to name a plank the collection actually has now (`UnknownPlank`), and
-    // non-fiction's own is the one real plank this row would not be derived
-    // onto: a leak would read as a book at 4A that belongs at 1A.
+    // The location must name a real plank (`UnknownPlank`), and 4A is
+    // non-fiction's own, so a leak here would read as a book wrongly placed at
+    // 4A rather than simply missing from 1A.
     await unidentified('Bob Baker', '4A')
 
     const review = await shelves.review('fiction')
@@ -819,27 +726,13 @@ describe('a book in the catalogue that is not on a shelf', () => {
     await unidentified('Bob Baker')
     await shelves.overflow('fiction', plank('1A'), 'area')
 
-    // Two books either side of one boundary, so Ann has somewhere to go. A
-    // third row in the layout would change which plank holds what and could
+    // A third row in the layout would change which plank holds what and could
     // make the offer describe a move nobody can carry out.
     expect(await offered(ann)).toEqual({
       next: '1B', previous: null,
     })
   })
 
-  /**
-   * **The answer to the question #204 left open at `Store.listRange`.**
-   *
-   * It asked what `GET /api/books` should say about a book that has been
-   * scanned and not identified, and said the question only has an answer once
-   * such a row can exist. It exists now, and the answer is nothing: the row has
-   * no title, no author and nothing anybody can do to it from a library
-   * listing. It is not missing from the app, it is in the queue, which is the
-   * one screen built to show it and act on it, and the test below is that it is
-   * there.
-   *
-   * This assertion is the reverse of the one #204 left here, deliberately.
-   */
   it('is not listed as part of the catalogue', async () => {
     await add('Ann Author')
     await unidentified('Bob Baker')
@@ -849,8 +742,7 @@ describe('a book in the catalogue that is not on a shelf', () => {
   })
 
   it('is in the queue, which is the one place it belongs', async () => {
-    // Made the way the app makes one, rather than written in. A photograph
-    // arrives and a book exists, in `scanned`, with nothing read yet.
+    // Made the way the app makes one, rather than written in directly.
     const queue = new CaptureQueue(db, () => null)
     await add('Ann Author')
     const scanned = await queue.add({ front: 'f.jpg' })
@@ -870,13 +762,9 @@ describe('moving a book across an area boundary', () => {
   }
 
   /**
-   * The move, followed by the person saying the book is on the new plank.
-   *
-   * `theAreaGoes` is what somebody being asked looks like from here (#433): a
-   * move that leaves an area with no books on it takes the area off the piece,
-   * and the write path refuses to do that for a caller that has not said it
-   * knows. Passed by the tests whose subject is the move rather than the
-   * question, and pinned on its own below.
+   * `theAreaGoes` is the caller's assent that emptying an area is fine; the
+   * write path refuses without it. Tests about the move itself pass it; the
+   * assent question is pinned on its own below.
    */
   const carry = async (
     id: number,
@@ -952,20 +840,9 @@ describe('moving a book across an area boundary', () => {
   })
 
   /**
-   * The one boundary move that removes furniture, and the stop in front of it.
-   *
-   * A book alone in an area is both the first and the last book of it, so
-   * `boundaryOptions` answers both directions open, which docs/shelving.md
-   * allows on purpose under "The only book in an area". What it never said was
-   * that either direction leaves the area with no books to name, and an area
-   * with no books on it comes off the piece: one press retired a recorded area
-   * with nothing asked and nothing said (#433).
-   *
-   * #281 settled that removing an area says what it will do and asks first.
-   * This is the second path that removes one, so the rule lives on the write
-   * path rather than in the screen, for exactly the reason the edge rule does:
-   * a control that only appears after a dialog is one caller away from being
-   * lost, and the caller after that deletes furniture in silence.
+   * This is one of two paths that can remove an area, so the rule lives on the
+   * write path rather than in a screen's confirmation dialog: a caller reached
+   * another way would otherwise delete furniture in silence.
    */
   it('refuses to empty an area for a caller that has not been told', async () => {
     const ann = await shelve('Ann Author')
@@ -981,9 +858,6 @@ describe('moving a book across an area boundary', () => {
     expect(result.error).toContain('off the furniture')
     expect(result.error).toContain('Nothing has been changed')
 
-    // And the room is exactly as it was, which is the half of this the old path
-    // could not offer: by the time it could have said anything the area was
-    // already gone.
     expect(await labels()).toEqual(['1A', '1B'])
     expect(await shelves.list('fiction')).toHaveLength(1)
     expect((await store.getBook(ann))?.location).toBe('1A')
@@ -1005,12 +879,9 @@ describe('moving a book across an area boundary', () => {
   })
 
   /**
-   * The offer carries what it costs, because a screen cannot ask about
-   * something the offer does not mention.
-   *
-   * Read off the same outcome the write path enforces rather than worked out a
-   * second time: two readings of one room is the disagreement
-   * `areaDisagreements` exists to catch, at the scale of a button.
+   * The offer carries what it costs so a screen need not compute it
+   * separately; drift between the offer and what the write path enforces is
+   * exactly the disagreement `areaDisagreements` exists to catch.
    */
   it('says which area a move would empty, and nothing for one that empties none', async () => {
     const ann = await shelve('Ann Author')
@@ -1029,21 +900,14 @@ describe('moving a book across an area boundary', () => {
     expect(back?.label).toBe('1A')
     expect(back?.empties?.areas).toEqual(['1B'])
 
-    // A book in the middle of its area is offered neither way, so there is
-    // nothing for either direction to cost.
     expect(await shelves.boundaryOptions('fiction', ann))
       .toEqual({ next: null, previous: null })
   })
 
   /**
-   * And every label that reads differently afterwards, which is #281's argument
-   * rather than a new one: removing an area renumbers the areas after it, and a
-   * sentence claiming that is worth less than the rows showing it.
-   *
-   * The area after the emptied one is reached exactly as the owner reaches it,
-   * which is the press that adds one to a piece (#381). Its anchor sits above
-   * every book standing in the run, so it is not one of the boundaries the move
-   * removes: it survives the move and comes forward a place.
+   * The bare 1C is added the same way an owner would add one. Its anchor sits
+   * above every book in the run, so the move does not remove it: it survives
+   * and comes forward a place.
    */
   it('names the labels that read differently once the area is gone', async () => {
     await shelve('Ann Author')
@@ -1059,20 +923,13 @@ describe('moving a book across an area boundary', () => {
   })
 
   /**
-   * **The last line of this used to assert the other half of #457.**
-   *
-   * It read `['1A', '1C']`, and the comment under it said "a bare plank has no
-   * books to name". That is the layout's rule and it still holds, on the line
-   * above: `docs/shelving.md` under "The only book in an area" says an empty
-   * area "disappears from the layout until something lands on it again", and
-   * `labels()` is the layout. `groups` is not. It is what the screen that
-   * manages the areas draws, and a plank the room still has, with a boundary
-   * somebody can still press Remove on, has to be on it. Leaving it out is what
-   * put the wrong Remove under a thumb and relocated five books.
+   * `labels()` is the layout, where an empty area disappears until something
+   * lands on it again. `groups` is not: it is what the area-management screen
+   * draws, and a plank the room still has, with a boundary somebody can still
+   * press Remove on, must be on it.
    */
   it('lets the only book in an area leave it, and empties the area', async () => {
-    // Capacity is not modelled, so nothing here says an area must hold a
-    // book. The plank is simply bare, and a bare plank has no books to name.
+    // Capacity is not modelled: a bare plank simply has no books to name.
     await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
     const cal = await shelve('Cal Church')
@@ -1103,8 +960,6 @@ describe('moving a book across an area boundary', () => {
   })
 
   it('does not undo an overflow, and is not undone by one', async () => {
-    // The manual bounce and the automatic shuffle solve the same physical
-    // problem two ways, so they must compose rather than fight.
     const ids: number[] = []
     for (const a of ['Ann Author', 'Bob Baker', 'Cal Church', 'Dot Downs']) ids.push(await shelve(a))
     await shelves.overflow('fiction', plank('1A'), 'area')
@@ -1114,15 +969,12 @@ describe('moving a book across an area boundary', () => {
     await carry(ids[2]!, 'next')                          // Cal joins Dot on 1B
     expect(await labels()).toEqual(['1A', '1A', '1B', '1B'])
 
-    // 1B will not take the pair after all: its last book goes on to 1C.
     const step = await shelves.overflow('fiction', plank('1B'), 'area')
     expect(step.step?.moved.id).toBe(ids[3])
     expect(await labels()).toEqual(['1A', '1A', '1B', '1C'])
   })
 
   it('leaves the misfile list empty once the person has said the book moved', async () => {
-    // The failure this is most likely to have: a legitimate move reported
-    // straight back as a book to go and move.
     const ids: number[] = []
     for (const a of ['Ann Author', 'Bob Baker', 'Cal Church']) ids.push(await shelve(a))
     await shelves.overflow('fiction', plank('1A'), 'area')
@@ -1137,8 +989,8 @@ describe('moving a book across an area boundary', () => {
   })
 
   it('does not write a location itself', async () => {
-    // The boundary is furniture; where a book physically is was observed by a
-    // person and is written through the one route that takes an observation.
+    // The boundary move is furniture; where a book physically is has to come
+    // from a person's observation, written through `store.setLocation`.
     await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
     const cal = await shelve('Cal Church')
@@ -1147,18 +999,16 @@ describe('moving a book across an area boundary', () => {
 
     await shelves.moveAcrossBoundary('fiction', bob, 'next')
     expect((await store.getBook(bob))?.location).toBe('1A')
-    // And so it now reads as a book to move, which is correct until somebody
-    // says otherwise.
     expect((await shelves.review('fiction')).misfiles.map((m) => [m.from, m.to]))
       .toEqual([['1A', '1B']])
   })
 
   it('sends the first book of a bookcase back to the last area of the one before', async () => {
     /*
-     * #79. Within a range the areas are one continuous sequence and a bookcase
-     * break is only where it crosses furniture, so this is the same move. It
-     * is the bookcase break that gets re-anchored, which is why the books past
-     * it stay on the bookcase they were on.
+     * Within a range the areas are one continuous sequence; a bookcase break is
+     * only where it crosses furniture, so this is the same move as any other
+     * boundary crossing. The bookcase break gets re-anchored, which is why the
+     * books past it stay on the bookcase they were on.
      */
     const ann = await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
@@ -1175,7 +1025,6 @@ describe('moving a book across an area boundary', () => {
     expect(result.move?.from).toBe('2A')
     expect(result.move?.to).toBe('1A')
     expect(await labels()).toEqual(['1A', '1A', '2A'])
-    // Cal did not follow him back, and Ann never moved.
     expect((await store.getBook(cal))?.location).toBe('2A')
     expect((await store.getBook(ann))?.location).toBe('1A')
     expect(result.moves).toEqual([])
@@ -1197,8 +1046,8 @@ describe('moving a book across an area boundary', () => {
   })
 
   it('keeps refusing at the ends of the range, bookcases or not', async () => {
-    // Making new furniture is what declaring a plank full is for. That holds
-    // at the two ends of the run and nowhere else.
+    // Making new furniture is what declaring a plank full (`overflow`) is for;
+    // moving across a boundary never does, at either end of the run.
     const ann = await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
     await shelves.overflow('fiction', plank('1A'), 'shelf')
@@ -1222,11 +1071,9 @@ describe('moving a book across an area boundary', () => {
   })
 
   /**
-   * `boundaryOptions` is the read-only half of this rule, read by the detail
-   * view to decide whether to offer the button at all (#96). It has to agree
-   * with `moveAcrossBoundary` exactly, or a book the preview says can move
-   * would hit a refusal on the tap, or one it says cannot would silently offer
-   * nothing where a move was actually possible.
+   * `boundaryOptions` is the read-only half of this rule; it has to agree with
+   * `moveAcrossBoundary` exactly, or a preview could offer a move that then
+   * refuses, or hide one that would have worked.
    */
   it('previews exactly what the move itself would allow, book by book', async () => {
     const ann = await shelve('Ann Author')
@@ -1250,13 +1097,10 @@ describe('moving a book across an area boundary', () => {
   })
 
   /**
-   * #359, reproduced before anything was changed.
-   *
-   * The button on a book's own page said `Move it on to 1B` while the same
-   * page's recorded location said `Hall shelf · B`: two names for one plank, on
-   * one screen. The move is offered and the location is written from the same
-   * plank, so they are named by the same `labelFor` now, and the id travels
-   * beside the name because only the id says whether two places are one place.
+   * The move offered and the location written must be named by the same
+   * `labelFor`, or the same plank could read as two different names on one
+   * screen; the id travels beside the name because only the id says whether
+   * two places are one place.
    */
   it('offers a move to the plank by the name the book\'s own page uses', async () => {
     await shelve('Ann Author')
@@ -1272,7 +1116,6 @@ describe('moving a book across an area boundary', () => {
 
     const onto = (await shelves.boundaryOptions('fiction', bob)).next
     expect(onto?.label).toBe('Hall shelf · B')
-    // The same plank the catalogue records Cal on, and said so by id.
     expect(onto?.areaId).toBe((await store.getBook(cal))?.area_id)
 
     const back = (await shelves.boundaryOptions('fiction', cal)).previous
@@ -1281,13 +1124,8 @@ describe('moving a book across an area boundary', () => {
   })
 
   /**
-   * The refusals name the plank the same way, which is the half a rename could
-   * quietly change without anything failing.
-   *
-   * A refusal is read by whoever just tapped the button, standing at the piece
-   * they named. `Only the first or last book of 1A` sends them to look for a
-   * plank the app has stopped calling that anywhere else, and there is nothing
-   * to check it against: the move did not happen either way.
+   * A rename could quietly desync a refusal's wording from the plank's real
+   * name, with nothing to catch it since the move never happens either way.
    */
   it('names the plank in a refusal the way the shelves name it', async () => {
     const ann = await shelve('Ann Author')
@@ -1310,22 +1148,14 @@ describe('moving a book across an area boundary', () => {
     expect(on.ok).toBe(false)
     expect(on.error).toContain('first or last book of Hall shelf · A')
 
-    // Nothing moved for either refusal, which is what a refusal is.
     expect(await labels()).toEqual(['1A', '1A', '1B'])
   })
 })
 
 /**
- * The other way out of the shelving step (#196).
- *
- * docs/shelving.md has always said backing out of it leaves the move
- * outstanding "and the same list offers the move back". Until this existed only
- * the first half did, and the only route back was to tap "Moved it", asserting a
- * walk that never happened, and then move the book again.
- *
- * What these are really checking is that taking a move back is not the opposite
- * move. Two of them are cases where the opposite move exists, is allowed, and
- * lands the book somewhere else.
+ * What these check is that taking a move back is not the same as making the
+ * opposite move; some cases land the book where the opposite move would too,
+ * but that is not what is being asserted.
  */
 describe('taking a boundary move back', () => {
   const shelve = async (author: string, title = 'Book') => {
@@ -1354,16 +1184,13 @@ describe('taking a boundary move back', () => {
     expect(back.ok).toBe(true)
     expect(back.move).toEqual({ from: '1B', to: '1A' })
     expect(await labels()).toEqual(['1A', '1A', '1B'])
-    // Nobody else ended up anywhere new, which is the whole claim.
     expect(back.moves).toEqual([])
   })
 
   it('writes no location, because nobody carried anything', async () => {
     /*
-     * The reason this exists at all. Undoing by recording a placement and then
-     * moving again puts two statements about the room into the catalogue that
-     * nobody made, and the catalogue's whole value is that it records what a
-     * person actually did.
+     * Recording a placement and then moving again would put two statements
+     * about the room into the catalogue that nobody actually made.
      */
     await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
@@ -1413,11 +1240,7 @@ describe('taking a boundary move back', () => {
     expect(await locations(ann, bob, cal)).toEqual(['1A', '1B', '1C'])
   })
 
-  /**
-   * The other end of the same problem. A move that leaves nothing for a
-   * boundary to start at removes it, and there is then no opposite move at all:
-   * `boundaryMove` refuses, because there is no area past the end of the run.
-   */
+  /** Here there is no opposite move at all: nothing offers past the end of the run. */
   it('makes again a boundary the move took out', async () => {
     const ann = await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
@@ -1439,17 +1262,10 @@ describe('taking a boundary move back', () => {
   })
 
   /**
-   * The half of the undo that #465 made necessary.
-   *
-   * A move that empties an area takes it off the furniture, which is the act
-   * `dropArea` performs, and that act writes an `assigned` row per book naming
-   * the plank that took them in — because those books really do have to be
-   * carried. Putting the plank back means they do not, so the retraction has to
-   * take the assignment back as well as the boundary. Left standing it is a trip
-   * on the carry list for a move that was taken back, which is the same defect
-   * #465 is about seen from the other end.
-   *
-   * Before #465 the removal wrote nothing, so this was symmetric by accident.
+   * A move that empties an area takes it off the furniture (`dropArea`), which
+   * writes an `assigned` row per book naming where they now belong. Retracting
+   * the move has to take that assignment back too, or the carry list would keep
+   * a trip nobody needs to make.
    */
   it('takes the assignment back too, so nothing is left on the carry list', async () => {
     await shelve('Ann Author')
@@ -1458,41 +1274,19 @@ describe('taking a boundary move back', () => {
     await store.setLocation(bob, '1B')
 
     await shelves.moveAcrossBoundary('fiction', bob, 'previous', { theAreaGoes: true })
-    // The act recorded where Bob now belongs, which is the fix in #465.
     expect(needsAttention(standingOf(await placementsOf(bob)))).toBe(true)
 
     expect((await shelves.retractMove('fiction', bob)).ok).toBe(true)
 
-    // And the retraction took it back: Bob is on the plank the catalogue
-    // records him on, and no rule is asking for him anywhere else.
     expect(await labels()).toEqual(['1A', '1B'])
     expect(needsAttention(standingOf(await placementsOf(bob)))).toBe(false)
     expect((await shelves.review('fiction')).misfiles).toEqual([])
   })
 
   /**
-   * #468 predicted this was broken and it is not, so here is the proof rather
-   * than a fix.
-   *
-   * The check above `outstanding.clear` compares `landed.label` with
-   * `receipt.from`, which reads like the family's signature: a label compared
-   * against a label. It is not. Both strings are `locationLabel(shelf, area)`,
-   * rendered by the pure arithmetic in shared/layout.ts, which knows ordinals
-   * and has never heard of a piece's name — `receipt.from` is `move.from`, and
-   * `move.from` is `placed.label`. So naming a bookcase moves neither side, and
-   * the comparison is "is the arrangement back as it was", asked in the one
-   * vocabulary the arrangement is expressed in.
-   *
-   * That is different from `GET /api/misfiles`, whose *other* side is an area
-   * id: it used to read the receipt's labels back through
-   * `areaOfRecordedLocation` and now reads the ids the receipt records (#481).
-   * Converting here would convert through the same position arithmetic and close
-   * nothing, which is why #481 left this line alone: the receipt's ids exist
-   * beside it and this check does not read them.
-   *
-   * This test is what says so. It was written expecting a failure, passed
-   * against the unchanged code, and is kept so that the next reader of that
-   * line does not have to work it out twice.
+   * `landed.label` and `receipt.from` are both `locationLabel(shelf, area)`,
+   * pure ordinal arithmetic that has never heard of a piece's name; naming a
+   * bookcase moves neither side, so the comparison still holds after a rename.
    */
   it('takes a move back on a piece somebody has named since the move', async () => {
     await shelve('Ann Author')
@@ -1513,13 +1307,7 @@ describe('taking a boundary move back', () => {
     const back = await shelves.retractMove('fiction', bob)
     expect(back.ok, back.error).toBe(true)
     expect(back.planks?.to.label).toBe('Hall shelf · A')
-    // The arrangement is back where it was. `labels` is the ordinal form the
-    // layout arithmetic works in, which a name does not touch; what the name
-    // changes is `planks.to.label` above, and that is what the check compared.
     expect(await labels()).toEqual(['1A', '1A', '1B'])
-    // The receipt's own labels are left as they were written, which is what
-    // `/api/misfiles` also refuses to rewrite. This is the pair the check
-    // compares, and neither half moved when the piece got its name.
     expect(back.move).toEqual({ from: '1B', to: '1A' })
   })
 
@@ -1532,8 +1320,6 @@ describe('taking a boundary move back', () => {
   })
 
   it('has nothing left to take back once a person says where the book is', async () => {
-    // Whatever they say. The move was outstanding on an observation, and this
-    // is the observation, so the receipt has been answered.
     await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
     const cal = await shelve('Cal Church')
@@ -1563,11 +1349,9 @@ describe('taking a boundary move back', () => {
 
   it('takes a second move back to where the book actually is, in one go', async () => {
     /*
-     * The screens do not offer a second move while one is outstanding, but the
-     * route does not know that, and a receipt that recorded only the last one
-     * would undo half a journey and call it an undo. Merging keeps the older
-     * anchor, so what is stored stays "where things were when this book and its
-     * shelf last agreed".
+     * The route does not prevent a second move while one is outstanding, even
+     * though the screens do; merging keeps the older anchor, so the receipt
+     * still reflects where things were when the book and its shelf last agreed.
      */
     const ann = await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
@@ -1595,25 +1379,10 @@ describe('taking a boundary move back', () => {
 })
 
 /**
- * Which planks a receipt is about, as against what they were called (#481).
- *
- * `outstanding_move` said where a move went as an ordinal address, `4B`, so
- * every reader parsed it back into a plank. That was the residue #447 left
- * behind, and it is a smaller claim than #356's: no name can reach these
- * strings, because the layout arithmetic that writes them has never heard of a
- * piece's name, and `parseLocation` answers null on the named form anyway.
- *
- * **The claim that is true is about position, not about names.** An address is a
- * statement about where a plank stands, and where a plank stands is exactly what
- * a boundary write changes. Two rows can read as one address — the code that
- * used to do the reading said so itself, ordering a plank on the face above one
- * retired from the same position — and a reader parsing the address gets
- * whichever row answers to it today.
- *
- * So the receipt records which planks, beside what they were called. These are
- * the tests for the "which", and the pair either side of them is the point: the
- * ids go on naming the same two rows through a retirement and a renumbering that
- * both move the addresses.
+ * An address like `4B` is a statement about where a plank stands, not which
+ * row it is: a retirement and a renumbering can leave a different row
+ * answering to the same address later. So the receipt records which planks by
+ * id, beside what they were called; these tests are for that "which".
  */
 describe('what a move receipt says about where the move went', () => {
   const shelve = async (author: string, title = 'Book') => {
@@ -1655,21 +1424,10 @@ describe('what a move receipt says about where the move went', () => {
   })
 
   /**
-   * The case `areaForRecordedLabel` was written for, asked the other way round.
-   *
-   * A move that takes the only book off the last plank of a run takes that
-   * plank off the furniture with it, and the plank is retired rather than
-   * deleted because the catalogue still records Cal on it. That much was already
-   * handled: the reading that used to happen here reached a retired plank on
-   * purpose, "because the move that wrote the receipt is the thing that retired
-   * it".
-   *
-   * What it could not handle is somebody adding a plank back. There are then two
-   * rows on that piece reading `1B`, the retired one the receipt is about and a
-   * live one that has never held anything, and the reading preferred the live
-   * one — a plank on the face won over one retired from the same position, which
-   * it had to, since that is the ordinary way a label is read. So the receipt
-   * said `1B` and `1B` meant somewhere else.
+   * A plank taken empty off the end of a run is retired, not deleted, since the
+   * catalogue still records a book on it. Adding a new plank back can then make
+   * two rows answer to the same label, one retired and one live: the reading
+   * prefers the live one, so the receipt's own label can point elsewhere.
    *
    * The id does not move. It is the same row before and after, retired or not.
    */
@@ -1698,20 +1456,15 @@ describe('what a move receipt says about where the move went', () => {
     expect(reading).toHaveLength(2)
     expect(reading).toContain(wasOn)
 
-    // Two rows, one address, and the receipt is unambiguous about which of them
-    // the move was about. That is the whole of #481.
     const receipt = await receiptFor(cal)
     expect(receipt?.from).toBe('1B')
     expect(receipt?.fromArea).toBe(wasOn)
   })
 
   /**
-   * A second move keeps the older `from`, and the id has to travel with it.
-   *
-   * `merged` says why the older one wins: the receipt describes the arrangement
-   * as it stood the last time this book and its shelf agreed. A receipt whose
-   * address came from one moment and whose id came from another would name two
-   * places, which is a worse answer than the one field it replaced.
+   * The address and its id must come from the same moment: a receipt whose
+   * address came from one merge and whose id came from another would name two
+   * different places.
    */
   it('keeps the older plank and the older address together when a move is merged', async () => {
     const ann = await shelve('Ann Author')
@@ -1740,22 +1493,10 @@ describe('what a move receipt says about where the move went', () => {
 })
 
 /**
- * What a boundary write owes the ledger (#487, the other half of #458).
- *
- * Three acts move a boundary and they wrote three different things down.
- * Removing one wrote an `assigned` row (#465); moving one wrote only its own
- * receipt, which names no area and which nothing that counts work reads;
- * overflow wrote nothing at all. So a book could be on the needs-attention list
- * and absent from the carry list at the same time, which is the sentence #458 is
- * made of, and `docs/shelving.md` had already forbidden it: the manual move and
- * the automatic shuffle "answer the same physical question, and if they wrote
- * different things down one would quietly undo the other".
- *
- * These read the carry list itself rather than the ledger, because the claim is
- * about the two screens and an assertion about rows is one step short of it.
- * And they compare the **delta** the act adds to each list, the way #465's do:
- * the two lists answer different questions and only what an act adds has to
- * match.
+ * All three acts that move a boundary (remove, move, overflow) must write the
+ * same thing to the ledger, or a book could show as needing attention without
+ * appearing on the carry list. These compare the delta each act adds to both
+ * lists, since the lists answer different questions and only the delta has to match.
  */
 describe('what a boundary write records', () => {
   const shelve = async (author: string, title = 'Book') => {
@@ -1778,20 +1519,12 @@ describe('what a boundary write records', () => {
 
     await shelves.overflow('fiction', plank('1A'), 'area')
 
-    // The review named Bob and the carry list said there was nothing to do.
     expect(await bothLists()).toEqual({ review: [bob], carry: [bob] })
     const trip = (await outstandingWork(db)).trips[0]
     expect([trip?.from, trip?.to]).toEqual(['1A', '1B'])
   })
 
-  /**
-   * And the assignment names the plank rather than the letter over it.
-   *
-   * The row has to point at the area the run now puts the book on, because that
-   * is what a person is sent to and what `PATCH .../location` is checked
-   * against. Read off `planks` rather than off the label for the reason #356
-   * exists.
-   */
+  /** The assignment names the plank by id, not by label: that is what `PATCH .../location` is checked against. */
   it('names the plank the run now puts the book on', async () => {
     await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
@@ -1810,19 +1543,14 @@ describe('what a boundary write records', () => {
 
     await shelves.overflow('fiction', plank('1A'), 'area')
 
-    // Ann never left 1A, so there is nothing about her to write down and
-    // nothing for anybody to carry.
     expect(needsAttention(standingOf(await new DrizzlePlacementLedger(db).forBooks([ann]))))
       .toBe(false)
   })
 
   /**
-   * The answer where nothing already shelved moves is still nothing written.
-   *
-   * `carryOn` sends the book in the person's hand on to the next plank instead
-   * of displacing one, so no shelved book crosses a boundary and no assignment
-   * is due. The recording is on the write rather than on the caller precisely so
-   * this case cannot be got wrong by remembering it separately.
+   * No shelved book crosses a boundary here, since the book in hand goes on
+   * instead of displacing one, so no assignment is due. Recording happens on
+   * the write path rather than the caller, so this case cannot be forgotten separately.
    */
   it('records nothing when the book in hand is the one that moves', async () => {
     const ann = await shelve('Ann Author')
@@ -1841,12 +1569,8 @@ describe('what a boundary write records', () => {
   })
 
   /**
-   * The sibling act, made to write the same thing down.
-   *
-   * It wrote only the receipt, so a boundary move produced exactly the
-   * disagreement #458 reports: one on the review, nought to carry. The receipt
-   * stays, because it answers a different question, and both are now true of a
-   * move.
+   * The receipt stays alongside the new ledger write: it answers a different
+   * question, letting the move be taken back, and both are true of a move now.
    */
   it('reaches the carry list when a book is carried across a boundary', async () => {
     await shelve('Ann Author')
@@ -1860,18 +1584,13 @@ describe('what a boundary write records', () => {
     await shelves.moveAcrossBoundary('fiction', bob, 'next')
 
     expect(await bothLists()).toEqual({ review: [bob], carry: [bob] })
-    // The receipt is still written, because taking the move back still needs it.
     expect((await shelves.outstandingMoves('fiction')).map((m) => m.bookId)).toEqual([bob])
   })
 
   /**
-   * And the undo takes both back.
-   *
-   * `takeTheAssignmentsBack` was scoped to the planks a retraction brought back,
-   * which was complete while a move wrote nothing of its own. A plain re-anchor
-   * brings no plank back, so that reading would leave the assignment standing
-   * and the carry list holding a trip for a move somebody had taken back, which
-   * is #465's defect arriving from the other end a second time.
+   * A plain re-anchor brings no plank back, so scoping the ledger cleanup to
+   * planks a retraction brings back would miss this case and leave a stale
+   * assignment on the carry list.
    */
   it('takes the assignment back when a plain re-anchor is retracted', async () => {
     await shelve('Ann Author')
@@ -1889,7 +1608,6 @@ describe('what a boundary write records', () => {
     expect(await bothLists()).toEqual({ review: [], carry: [] })
   })
 
-  /** The helper the cases above share, kept beside them. */
   const keyFor = async (author: string, title = 'Book') =>
     (await placementFor({ title, authors: [author], genre: FICTION_SLUG } as never)).sortKey
 
@@ -1936,9 +1654,7 @@ describe('misfile detection', () => {
   })
 
   it('never rewrites a location to make the disagreement go away', async () => {
-    // The whole constraint in one assertion. Running the check twice must
-    // leave the row exactly as it was, or the record of where the book really
-    // is has been destroyed by the thing that only meant to notice.
+    // Running the check twice must leave the row exactly as it was.
     await shelve('Ann Author')
     const bob = await shelve('Bob Baker')
     await shelves.overflow('fiction', plank('1A'), 'area')
@@ -1998,23 +1714,13 @@ describe('misfile detection', () => {
 
     expect((await shelves.review('fiction')).misfiles).toEqual([])
     expect((await shelves.review('nonfiction')).misfiles).toEqual([])
-    // And each range only ever reports its own books.
     expect((await shelves.review('nonfiction')).excluded.map((e) => e.book.id)).toEqual([])
   })
 
   /**
-   * Genuinely a different behaviour since #232, and the assertion says the new
-   * one.
-   *
-   * A recorded location used to be a string in a column, so `in the loft` went
-   * in and the review had to set the book aside rather than guess where that
-   * was. A recorded location is a plank now, so there is nothing to hold a
-   * label naming no plank: the write refuses it (`UnknownPlank`) and the
+   * A location that cannot be read is refused at the write (`UnknownPlank`)
+   * rather than recorded and set aside by the review, so the
    * `unreadable-location` exclusion is not reachable from here any more.
-   *
-   * So the claim moved from the review to the write, and it is the stronger
-   * half of the same one: the state the review existed to notice cannot be
-   * arrived at, and what the person last said is still standing afterwards.
    */
   it('refuses a label it cannot read rather than recording one to set aside', async () => {
     const id = await shelve('Ann Author')
@@ -2028,13 +1734,9 @@ describe('misfile detection', () => {
   })
 
   /**
-   * #356, and the reason the check compares ids rather than labels.
-   *
-   * Naming a bookcase is what the furniture screens are for, and it changes
-   * nothing about where any book is: every area keeps its id, every placement
-   * keeps the area it names, and the only thing that reads differently is the
-   * label, which is derived. So a review taken either side of a rename has to
-   * say exactly the same thing about exactly the same books.
+   * Naming a bookcase changes nothing about where any book is; only the label,
+   * which is derived, reads differently. So a review taken either side of a
+   * rename must say exactly the same thing about exactly the same books.
    */
   it('says the same thing about the same books once a bookcase is named', async () => {
     await shelve('Ann Author')
@@ -2053,16 +1755,6 @@ describe('misfile detection', () => {
     expect(review.misfiles.map((m) => m.book.id)).toEqual([bob])
   })
 
-  /**
-   * The write side of the same defect, and the one that loses work rather than
-   * hiding it.
-   *
-   * A save records where the book landed by handing the label the layout drew
-   * straight back to the ledger, and the layout draws `1A` whatever the piece is
-   * called. `areaForLabel` used to match only unnamed furniture, so naming a
-   * bookcase made every one of those labels name no plank: the save refused, and
-   * the book had no recorded position at all.
-   */
   it('records a book put on a bookcase that has a name', async () => {
     const fixture = await db.get<{ id: number }>(
       'SELECT id FROM fixture WHERE position = 1 ORDER BY id LIMIT 1',
@@ -2077,13 +1769,6 @@ describe('misfile detection', () => {
     expect(review.excluded).toEqual([])
   })
 
-  /**
-   * The other half of the same claim: a settled collection stays settled.
-   *
-   * Comparing labels reported nothing here too, which is what made the defect
-   * invisible. What said it was wrong was the count of books the check had set
-   * aside, so that is what this asserts.
-   */
   it('does not set a single book aside because its bookcase has a name', async () => {
     await shelve('Ann Author')
     await shelve('Bob Baker')
@@ -2100,21 +1785,14 @@ describe('misfile detection', () => {
 })
 
 /**
- * The other comparison of two readings, and it had the same defect (#356).
- *
  * `areaDisagreements` places every shelved book twice, once as the app draws it
- * and once as the rules claim it, and `applySchema` runs it on every start. Its
- * two readings render a label with different functions, so naming a bookcase
- * would have had it report every correctly shelved book on that piece: the
- * opposite symptom of the misfile list's, out of one cause.
+ * and once as the rules claim it; `applySchema` runs it on every start.
  */
 describe('the drift check the app makes about itself on every start', () => {
   /**
-   * A book with the tag its range comes from, which is what a rule reads.
-   *
-   * `store.addBook` writes the range; the tag is written beside it by
-   * `settleGenre` in the save route, and this check asks the rules rather than
-   * the column, so a book with no tag is claimed by nothing.
+   * `areaDisagreements` asks the rules (the book's tag) rather than the
+   * `shelf_range` column, and `store.addBook` alone does not write a tag, so
+   * this inserts one directly.
    */
   const tagged = async (author: string) => {
     const id = await add(author)
@@ -2142,18 +1820,9 @@ describe('the drift check the app makes about itself on every start', () => {
 })
 
 /**
- * Renumbering a piece of furniture, which is the fourth door onto #458 (#491).
- *
- * The file this drives said, above the function, "renumbering a piece is
- * renaming it, and it moves nothing". Every clause of that is true of
- * `book_placement` and false of the derivation: `runAreasOf` walks the run in
- * `fixture.position` order, so a piece standing at a different number puts its
- * planks somewhere else in the walk, and where a second piece already stands
- * there it takes one of them out of the run altogether. Six books derived
- * elsewhere and the ledger said nothing.
- *
- * `bothLists` is the instrument, because the two lists disagreeing is the whole
- * defect: the review derives its answer and the carry list reads the ledger.
+ * `runAreasOf` walks the run in `fixture.position` order, so renumbering a
+ * piece puts its planks somewhere else in the walk, even though renumbering is
+ * documented elsewhere as a rename that moves nothing.
  */
 describe('what renumbering a piece of furniture records', () => {
   const shelve = async (author: string, title = 'Book') => {
@@ -2182,12 +1851,9 @@ describe('what renumbering a piece of furniture records', () => {
   }
 
   /**
-   * The issue's own shape: a run over two pieces, and the second one stood on
-   * the first one's number.
-   *
-   * Bookcase 2 stops being part of the walk, because the run keeps one fixture
-   * per position and bookcase 1 was there first, so the book on it derives back
-   * onto bookcase 1.
+   * The run keeps one fixture per position; bookcase 1 was there first, so
+   * bookcase 2 (now sharing its number) drops out of the walk and its book
+   * derives back onto bookcase 1.
    */
   it("reaches the carry list when a piece is stood on another piece's number", async () => {
     const bob = await twoPieces()
@@ -2196,17 +1862,12 @@ describe('what renumbering a piece of furniture records', () => {
     const renumbered = await editFixture(db, await pieceAt(2), { position: 1 })
     expect(renumbered.ok).toBe(true)
 
-    // Before this, the review named Bob and the carry list said there was
-    // nothing to do, which is #458's sentence.
     expect(await bothLists()).toEqual({ review: [bob], carry: [bob] })
   })
 
   /**
-   * And the row names the plank rather than the letter over it.
-   *
-   * This is the case #356 was always going to bite last: two pieces standing at
-   * one number draw two planks reading `1A`, so an answer taken in labels would
-   * have said the book had not moved.
+   * Two pieces standing at one number draw two planks that both read `1A`, so
+   * comparing by label rather than id would say the book had not moved.
    */
   it('names the plank the run now puts the book on, not the letter', async () => {
     const bob = await twoPieces()
@@ -2232,16 +1893,11 @@ describe('what renumbering a piece of furniture records', () => {
   })
 
   /**
-   * The whole room reordered one call at a time, which is what the two screens
-   * that offer this actually send.
-   *
-   * `FurnitureScreen.saveOrder` and `FixtureScreen` both loop
-   * `api.editFixture(one.id, { position })`, so the intermediate states are
-   * rooms with two pieces on one number. Each step records what it moved and the
-   * last step records the answer that stands, because `assignmentFor` compares
-   * against the standing assignment rather than against the placement: a book
-   * that ends where it began has its assignment written back and stops needing
-   * attention.
+   * The intermediate states have two pieces on one number, matching how
+   * `FurnitureScreen.saveOrder` and `FixtureScreen` actually reorder: one
+   * `editFixture` call at a time. `assignmentFor` compares against the standing
+   * assignment rather than the placement, so a book that ends where it began
+   * stops needing attention.
    */
   it('leaves both lists empty when a reorder puts every piece back', async () => {
     await twoPieces()

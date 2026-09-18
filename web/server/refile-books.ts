@@ -1,19 +1,10 @@
 /**
- * Command line front end for refileBooks. Run it from web/:
+ * Command line front end for refileBooks. Run with `--help` for usage.
  *
- *     npx tsx server/refile-books.ts            # dry run, writes nothing
- *     npx tsx server/refile-books.ts --apply    # write the recomputed keys
- *
- * It reads ConnectionStrings__bookscan exactly as the server does, so the
- * operator chooses the catalogue and nothing here has a default of its own.
- * Because that catalogue is somebody's real book collection, and because what
- * this writes decides where books physically go, it is a dry run unless told
- * otherwise, it prints the database it resolved before it touches anything, and
- * it waits before a write so a wrong target can be interrupted. The same shape
- * as server/rehash-covers.ts, for the same reasons.
- *
- * A dry run is also the answer to "which books did #195 file under nobody",
- * because a book with a wrong stored key is exactly a book this reports.
+ * The same shape as `server/rehash-covers.ts`, for the same reasons: a dry
+ * run by default, since what this writes decides where books physically go.
+ * A dry run also answers which books are filed under nobody, since a book
+ * with a wrong stored key is exactly a book this reports.
  */
 
 import { catalogueConnection, describeConnection, openPostgres } from './db.pg'

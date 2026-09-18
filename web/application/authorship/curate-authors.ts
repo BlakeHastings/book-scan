@@ -1,13 +1,10 @@
 /**
- * The two things a person does to the vocabulary of names: file one differently,
- * and say that two of them are the same person.
+ * The two things a person does to the vocabulary of names: file one
+ * differently, and say that two of them are the same person.
  *
- * **Both exist because the backfill deliberately did neither.** #180's migration
- * gave every distinct printed name an author of its own and took each filing
- * name from the book row that already used it, because merging two people later
- * is one statement and splitting one that swallowed two is not recoverable at
- * all. These are that later statement, and the reason the conservatism was safe
- * rather than merely cautious.
+ * Both exist because the initial migration deliberately gave every distinct
+ * printed name its own author: merging later is one statement, but splitting
+ * one that wrongly swallowed two is not recoverable.
  */
 
 import { Author } from '../../domain/authorship/authors'
@@ -20,12 +17,9 @@ export interface FileAlias {
 }
 
 /**
- * The override table's whole job, as a command.
- *
- * `author_filing` existed because no heuristic gets `García Márquez` and
- * `Le Guin` both right, and a corrected filing name had to be stored once and
- * reused. It is stored on the alias now, so this writes the fact rather than an
- * exception to a rule applied on the way past.
+ * `author_filing` exists because no heuristic gets `García Márquez` and
+ * `Le Guin` both right. Stored on the alias, as a fact rather than an
+ * exception applied on the way past.
  */
 export class FileAliasHandler {
   constructor(private readonly authors: AuthorRepository) {}
@@ -50,10 +44,8 @@ export class MergeAuthorsHandler {
 
   /**
    * Answers the author that results, so a caller can show what it now covers.
-   *
-   * The domain decides what merging means, and it is asked before the store is
-   * told: `Author.absorbing` is what says every alias keeps its own printed and
-   * filing name, which is what makes this move no book on any shelf.
+   * `Author.absorbing` decides the merge before the store is told: every
+   * alias keeps its own printed and filing name, so no book moves on the shelf.
    */
   async handle(command: MergeAuthors): Promise<Author> {
     if (command.intoId === command.fromId) {

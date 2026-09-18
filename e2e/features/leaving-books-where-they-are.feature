@@ -1,12 +1,5 @@
 Feature: Saying never mind to a move leaves every book exactly where it stands
 
-  The owner tidied up his shelves, applied a plan, and ended with forty-six books
-  the app wanted him to walk across a room. He was not going to. "I can't say
-  'don't move them, put them back'. I just need to reset the locations of the
-  books back to their shelves." There was no way to withdraw the intention, so
-  the list asked forever and the only exits were to carry them or to look at it
-  (#402).
-
   Applying a plan writes what the rules want and moves nothing. Withdrawing is
   the other half of that sentence, and it moves nothing either: it says the
   rules' answer is not one this person is going to act on. Every book stays on
@@ -41,9 +34,6 @@ Feature: Saying never mind to a move leaves every book exactly where it stands
     Given I note where every book stands
     When I leave them where they are
 
-    # The list empties, and says who emptied it. "Every book is where the rules
-    # want it" would be the rules agreeing; this is a person having answered
-    # them, and the card underneath says what was answered and by which rule.
     Then the carry list should say:
       | Nothing is waiting to be carried |
       | Left where they are              |
@@ -52,8 +42,6 @@ Feature: Saying never mind to a move leaves every book exactly where it stands
       | Put them back on the list        |
     And the carry list should not say "Every book is where the rules want it"
 
-    # In the database, because this is the half a screen cannot answer: a list
-    # that emptied by moving books draws exactly like one that emptied honestly.
     And every book should still stand where it stood
 
   Scenario: A book already carried keeps the shelf it was carried to
@@ -63,8 +51,6 @@ Feature: Saying never mind to a move leaves every book exactly where it stands
     And I ask to move these books to bookcase 3
     And I apply the plan
 
-    # Partly carried is the normal case: he walked one of them across before he
-    # changed his mind.
     Given I have already carried "Dune" to "3A"
     And I note where every book stands
 
@@ -89,9 +75,6 @@ Feature: Saying never mind to a move leaves every book exactly where it stands
     When I leave them where they are
     And I put them back on the list
 
-    # Back on the list it left, off the same plank, going to the same one. A
-    # withdrawal somebody could not withdraw would be the one-way door this
-    # whole change exists to remove, one door along.
     Then the carry list should say:
       | 4A      |
       | 3A      |

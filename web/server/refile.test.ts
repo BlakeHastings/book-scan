@@ -1,12 +1,12 @@
 /**
  * The repair pass for rows that were derived by older code, against a real
- * database. The row it exists for is the one #195 wrote: a book whose author is
- * in a script with no `A-Z` in it, saved with an empty filing name and a sort
- * key that puts it ahead of everything in its range.
+ * database: a book whose author is in a script with no `A-Z` in it, saved
+ * with an empty filing name and a sort key that puts it ahead of everything
+ * in its range.
  *
- * A row like that cannot be produced by saving a book any more, so the fixture
- * below writes one the way an adopted catalogue holds it: with the columns as
- * the old derivation left them.
+ * A row like that cannot be produced by saving a book any more, so the
+ * fixture below writes one the way an adopted catalogue holds it: with the
+ * columns as the old derivation left them.
  */
 
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
@@ -20,11 +20,9 @@ import { refileBooks } from './refile'
 import { FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
 /**
- * `1A` throughout, because it is the only plank fiction has here.
- *
- * A test database stands as migration `0013` leaves it: one area per run, and
- * since #232 a book cannot be recorded at a plank the furniture does not have.
- * Nothing below asserts a location, so the fixtures name the plank that exists
+ * `1A` throughout, because it is the only plank fiction has here: a test
+ * database stands as migration `0013` leaves it, one area per run. Nothing
+ * below asserts a location, so the fixtures name the plank that exists
  * rather than building bookcases these tests would never look at.
  */
 function draft(over: Partial<DraftBook> & { title: string; authors: string[] }): DraftBook {
@@ -42,12 +40,9 @@ beforeEach(async () => {
 afterAll(closeTestDatabase)
 
 /**
- * Put the key back the way the pre-#195 derivation left it.
- *
- * One column where this used to write two: #227 dropped `books.author_filing`,
- * so the whole of what a row still holds about where it files is the first
- * component of its sort key. That is what the old derivation got wrong and what
- * a refile has to put right.
+ * Put the key back the way the old derivation left it: the whole of what a
+ * row still holds about where it files is the first component of its sort
+ * key, which is what a refile has to put right.
  */
 async function asOldCodeSavedIt(id: number, authorFiling: string): Promise<void> {
   const row = await store.getBook(id)
@@ -124,7 +119,6 @@ describe('recomputing the keys of books saved by older code', () => {
       draft({ title: 'Norwegian Wood', authors: ['村上春樹'], location: '1A' }),
     )
     await asOldCodeSavedIt(id, '')
-    // What the override table used to hold, on the alias it moved to (#227).
     const authors = new DrizzleAuthorRepository(db)
     const alias = await authors.introduce(PrintedName.of('村上春樹'), 'Murakami, Haruki')
     await authors.file(alias.id, 'Murakami, Haruki')

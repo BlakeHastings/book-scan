@@ -1,55 +1,9 @@
 /**
- * The parts a book's own page is made of.
- *
- * These exist because the book screen stopped being a location widget. The
- * owner read the old one and named what was wrong with it:
- *
- * > This is the detailed view for a book. Where it is, is one part of that.
- * > It's not the whole picture.
- *
- * So the page answers "what do I know about this book, and what can I do with
- * it", and where it sits is one section of several. Everything here is a thing
- * the catalogue actually holds: the photographs, the two forms of an author's
- * name, the tags and who said each one, and the rows behind where a book is.
- *
- * ## Doing comes before knowing, which is the order of the whole page
- *
- * > We should have the actions available to the user the moment they get to
- * > this detail view, so they can do whatever it is that they intend to do. And
- * > then if they don't intend to take action, when they scroll down they see
- * > the current shelving view, and that shows them where it is, which might be
- * > what they're here for.
- *
- * Somebody arriving at a book either wants to **do** something or wants to
- * **know** where it is, and the second of those is what they scroll to anyway.
- * So the top of the page is the book, its facts, its tags and what can be done
- * about it, and everything that answers "where" is below the fold: where it
- * sits, why it sits there, and what else is here by the same author. Putting
- * the doing first costs the knowing nothing.
- *
- * The screens are where that order lives, in `gallery/screens.tsx`, because it
- * is an arrangement of sections rather than a property of any one of them.
- *
- * ## Round eight took most of the headings off
- *
- * > And "what you can do", we don't need that text there either. We should just
- * > enable them to take action on a book with a series of buttons.
- *
- * Three headings went and none of their contents did. The tags moved up beside
- * the picture, under the publisher and the ISBN, and read as facts about the
- * book; the actions are a row of buttons with nothing over them, because a
- * button says what pressing it does; the board draws where the book is without
- * being introduced. `Part` is still here and still has a heading, because one
- * section left on the page genuinely needs announcing: what else there is by
- * the same author is not visible from anything else on the screen.
- *
- * ## Nothing here is a table of fields
- *
- * The queue's review screen is the reference, and what it does is say the
- * facts in a sentence: "Ishiguro, Kazuo, Faber, 2005, 288 pages". A phone is
- * 414 wide and a label column eats half of it to repeat words a reader can
- * already see the shape of, so publisher, year and length read as one line and
- * the label is dropped.
+ * The parts a book's own page is made of. The page answers "what do I know
+ * about this book, and what can I do with it" first; where it sits is one
+ * section among several, below the fold. That ordering lives in
+ * `gallery/screens.tsx` as an arrangement of sections rather than a property
+ * of any one of them.
  */
 
 import type { ReactNode } from 'react'
@@ -58,11 +12,7 @@ import { Shots, type FirstPicture, type Shot } from './Shots'
 
 /**
  * A section of the page: a title, an optional count beside it, and content.
- *
- * Not a card. Five cards down a scroll is five outlines competing with each
- * other, and the thing this screen needed most was room, so a section is a
- * heading and the content under it. Cards are kept for the two places on this
- * page where something really is a box: a thing that is not there yet, and a
+ * Not a card; cards are kept only for a thing that is not there yet, and a
  * question the app cannot answer.
  */
 export function Part({
@@ -90,44 +40,15 @@ export function Part({
  * The top of the page: the book, and what it is.
  *
  * The title is here as well as in the top bar because the bar truncates on one
- * line, and a title is the one thing a page about a book may not lose. The
- * author is the name as printed on the cover; where it files is a fact about
- * the author rather than about this copy, so it is said in the section that is
- * about the author.
+ * line. The author is the name as printed on the cover; where it files is a
+ * fact about the author rather than about this copy, so it is said in the
+ * section about the author.
  *
- * ## The photographs are the book, and there is no rail under them
- *
- * This used to be a cover here and a rail of every photograph beneath it, and
- * the owner rejected both halves of that in one sentence: the spine belongs
- * against the front, cropped to the sliver a spine photograph really is, and
- * the others belong behind the front where a swipe reaches them. `Shots` in
- * `mode="book"` is that arrangement, and it is the same component the camera
- * and the review draw, because a second one is what this file already learned
- * not to have.
- *
- * ## Tapping one opens it whole (#373)
- *
- * > It should be possible that if we just tap the image of the spine or of the
- * > book, that we get a full screen view of it that can be exited out of, or
- * > you can swipe on to go see any of the other images.
- *
- * `Shots` does all of it and this asks for it, which is the whole of the wiring:
- * `full` turns each drawn picture into a target and brings the view with it.
- * This is the only thing in the design system that asks, and that is deliberate
- * rather than incidental. The other place a book is drawn this way is a queue
- * row, which is one whole button and cannot hold another, so the way that row
- * is protected is by nobody asking on its behalf.
- *
- * ## It fills the width, which it did not
- *
- * > It seems like the upper area doesn't actually fully expand to fill the
- * > entire space. There's a big gap on the right side.
- *
- * Two faults, one on each side of that gap. The rail underneath was four
- * fixed boxes in a row, so it stopped a third of the way short of the right
- * edge whatever the phone was; that rail is gone. And this row's text was a
- * flex item at its natural width, so on a short title or a thin record it
- * stopped short too. It is `flex: 1` now and reaches the edge.
+ * `Shots` in `mode="book"` draws the photographs, the same component the
+ * camera and the review use. This is the only caller in the design system
+ * that passes `full`, turning each picture into a target that opens the full
+ * view: a queue row draws a book the same way but is itself one whole button,
+ * so it never asks for that.
  */
 export function Head({
   title,
@@ -144,18 +65,7 @@ export function Head({
   shots: Shot[]
   /** One line each: publisher and year, the series, the ISBN. */
   facts: string[]
-  /**
-   * What the book is about, under the publisher and the ISBN and beside the
-   * picture, which is where the owner put it:
-   *
-   * > The tags should be underneath where we show the publisher and the ISBN,
-   * > next to the picture. We should just have the tags get listed there and
-   * > wrapped, rather than "what it is about" as a separate header.
-   *
-   * A heading of its own said nothing the chips do not, and it cost a section
-   * on a page whose whole complaint was that it had too many. What a book is
-   * about is a fact about the book, so it reads with the other facts.
-   */
+  /** What the book is about, read as a fact beside the other facts rather than under its own heading. */
   tags?: ReactNode
   /** Which picture the book opens on. See `FirstPicture`. */
   first?: FirstPicture
@@ -178,29 +88,13 @@ export function Head({
 }
 
 /**
- * A tag, drawn as firmly as whoever said it.
- *
- * **This is the one thing on the page that is not decoration.** A tag carries
- * a source and a confidence everywhere else in this product: a person deciding,
- * a catalogue claiming, or this app inferring over what a catalogue said. Only
- * a person's is safe from an automatic rewrite, and the whole placement story
- * rests on that difference, so it has to be visible where somebody reads their
- * tags rather than only in the rules that consume them.
- *
- * It used to be said twice, in the outline and in a sentence beside it, and
- * the owner cut the sentence:
- *
- * > We don't need to tell them who says so right here. Just show them.
- *
- * So the difference stays and the sentence goes, which means the drawing has
- * to carry all of it. Three steps of firmness, which is an order rather than
- * three unrelated treatments: a person's answer is filled and ringed, a
- * catalogue's is the ordinary chip, and this app's own guess is a dashed
- * outline, which is what a dashed edge already means everywhere here.
- *
- * `who` is still a required word for it, on the element rather than beside it.
- * A screen reader gets the whole sentence and so does anybody resting on the
- * chip, and neither costs a line of the page.
+ * A tag, drawn as firmly as whoever said it. A person's tag is filled and
+ * ringed, a catalogue's is the ordinary chip, and this app's own guess is a
+ * dashed outline, the same meaning a dashed edge carries everywhere else here.
+ * Only a person's tag is safe from an automatic rewrite, so this difference
+ * has to be visible where somebody reads their tags, not only in the rules
+ * that consume them. `who` is carried on the element rather than drawn beside
+ * it.
  */
 export function Tagged({
   word,
@@ -226,20 +120,10 @@ export function Tagging({ children }: { children: ReactNode }) {
 }
 
 /**
- * What you can do, small, side by side, left.
- *
- * A section is a grid, so a button dropped straight into one stretches the
- * width of the phone and reads as the thing the screen is for. Nothing on this
- * page is: the whole point of it is that a book has several sections and none
- * of them owns the screen. So every action here is in one of these rows, and
- * the only full-width button a book's page has is the one it does not have.
- *
- * **The row moved up and did not grow**, which is the harder half of what was
- * asked for. Actions now sit under the tags, above everything about where the
- * book is, and a row that is the first thing a thumb reaches is exactly the row
- * that fills up with every verb the model can spell. Three is what the rich
- * book gets and two is what the thin one gets; the screens say which and say
- * what was kept out.
+ * What you can do, small, side by side, left. A button dropped straight into
+ * a section stretches full width and reads as the thing the screen is for,
+ * which nothing on a book's page is meant to be, so every action here sits in
+ * one of these rows instead.
  */
 export function Actions({ children }: { children: ReactNode }) {
   return <div className="wf-actions">{children}</div>
@@ -247,50 +131,12 @@ export function Actions({ children }: { children: ReactNode }) {
 
 /**
  * A book the order wants somewhere else, said in one sentence and pressed.
- *
- * ## It is a door, and that is the whole of it
- *
- * > Instead of "moved it, there is an option", we should remove any button
- * > there, but let the user click on the needs-attention pop up to take them to
- * > the shelving step for that book, where we have them take it off a shelf and
- * > put it on the correct spot.
- *
- * So there is no button on it and no answer to give it. The notice itself is
- * the target, and what it opens is the screen a newly scanned book is placed
- * on: the same run drawn with the gap in it, the same "it fits", the same
- * cascade when the plank will not take it. Saying "I moved it" without going
- * anywhere is the one thing this used to offer and no longer does, because the
- * screen it opens is where somebody says that, standing at the bookcase.
- *
- * ## One sentence, and it is a call to action rather than a location report
- *
- * > Instead of "needs attention" explaining that it was last seen on a bookcase
- * > and now needs to be put on a different one, we can just have a message like
- * > "book is supposed to be moved" or something. A little less intense, taking
- * > up so much of the screen.
- *
- * A book screen is about the book rather than about where it sits, which is a
- * pinned rule, and a notice reciting two places was that rule being strained by
- * the one thing on the page allowed to break it. **This survives the rule by
- * being an instruction rather than a report.** Both places are still true and
- * both are still on the screen: the board below draws the gap the book belongs
- * in, and the step this opens names the plank. A notice does not have to recite
- * them to be understood.
- *
- * That is also why the sentence is fixed here rather than passed in. There is
- * one thing this says, it says it about every book that is out of place, and a
- * caller free to write its own is a caller free to write the paragraph back.
- *
- * ## The colour is emphasis and never the message
- *
- * He asked for "a little bit more colour, maybe orange-ish", and the two things
- * that constrains are not negotiable. There is no coloured rail down the side
- * of anything, because that mark was named as machine-made and rejected; the
- * warmth is a wash across the whole of it, inside one hairline on all four
- * sides. And nothing here is told by the colour: the sentence says what is
- * wrong, the glyph is a book with the way it has to go beside it, and the
- * chevron says pressing it leads somewhere. Take the colour out entirely and
- * every one of those still reads, which is the test that was actually run.
+ * The notice itself is the only target: pressing it opens the same shelving
+ * step a newly scanned book is placed on, rather than offering an "I moved
+ * it" answer inline. The sentence is fixed here rather than passed in, since
+ * it says the same thing about every book that is out of place. Colour here
+ * is emphasis only: every element also reads correctly with the colour
+ * removed.
  */
 export function Amiss({ onPress }: { onPress?: () => void }) {
   return (
@@ -306,51 +152,12 @@ export function Amiss({ onPress }: { onPress?: () => void }) {
   )
 }
 
-/*
- * There was a `Here` here, and it is gone.
- *
- * It drew where the book is as a sentence and a date, over the drawing of the
- * board that says the same thing: "On bookcase 1, where it should be. Last
- * confirmed there on 4 August." The owner cut it on sight, and named the rule
- * rather than the sentence:
- *
- * > We can remove all of that. Literally the view we have below that shows it.
- * > We don't need to explain it verbally with words.
- *
- * That is #262's rule reaching the last place it had survived: a sentence that
- * says what the screen already draws is not a summary, it is a second thing to
- * keep true. What was left of the component after the sentence went was a
- * wrapper around `Place`, so the screen that still needs a label wears `Place`
- * itself and there is nothing in between.
- *
- * A book that is **not** on a bookcase still gets that label, because "Out" is
- * an answer and there is no board drawn for it to be read off. A book that is
- * on one gets none: the board beside it carries its own.
- */
-
 /**
- * Where the book stands, drawn and not announced.
- *
- * > And instead of "where it is", once again, we don't need that text there.
- * > Looking at this tells them where it is.
- *
- * So this is a `Part` with the heading taken off it, and it is a component of
- * its own rather than a flag on that one because the argument for the missing
- * heading has to live somewhere. **The section is still named**, on the
- * element: a sighted reader has the board in front of them and a screen reader
- * has a run of spines with no sentence anywhere saying what it is a run of.
- * The name is the same words the heading used, so nothing is renamed, only
- * unwritten. That is #262's rule reaching this heading: the drawing says it,
- * and a line of text over the drawing is a second thing to keep true.
- *
- * ## It stays below everything about the book, and it stays one section
- *
- * The pinned rule is that a book screen is about the book rather than about
- * where it sits, and this round takes material off this section rather than
- * adding any: the ledger of where it has been is gone entirely and the heading
- * with it. What is left is the board, and the one question a person asks after
- * looking at it, which is why a rule put the book there. That is a fact about
- * the book.
+ * Where the book stands, drawn and not announced: a `Part` with the heading
+ * taken off. The section is still named on the element for a screen reader, in
+ * the same words the heading used. A book not on a bookcase still gets that
+ * label ("Out"), since there is no board to read it off; a book on one gets
+ * none, since the board beside it carries its own.
  */
 export function Where({ children }: { children: ReactNode }) {
   return (
@@ -359,20 +166,3 @@ export function Where({ children }: { children: ReactNode }) {
     </section>
   )
 }
-
-/*
- * There was a `Been` here, and it is gone with the section it drew.
- *
- * It listed every move a book had made, newest first, and the owner had said
- * twice that he liked it. He then read the page again and cut it:
- *
- * > I think we can get rid of "where it has been" as well [...] Actually, I
- * > think we just get rid of the "where it has been" section.
- *
- * Nothing replaced it and nothing shorter was written in its place, which is
- * the trap #262 names. The moves themselves are untouched: they are the same
- * rows the app reads to say where a book is, `/api/books/:id/placements` still
- * answers with them, and the misfile list still rests on the difference
- * between the app assigning a book and somebody carrying one. What is gone is
- * a screen that read them out.
- */

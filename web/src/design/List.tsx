@@ -44,24 +44,10 @@ export function Row({
   photo?: string
   /** Where it lives: `2C`. Tabular, so a column of them lines up. */
   place?: string
-  /**
-   * A word instead of a place: "Checked out", "Needs an ISBN".
-   *
-   * More than one where a row genuinely has more than one thing to say at its
-   * end, which is why this takes nodes rather than a string. The rule was
-   * already a stacking grid ending at the right margin, because a place and a
-   * word have always been able to appear together; the shortlist a cover match
-   * produces is the first caller with three, and the alternative was folding
-   * them into `sub`, which is one line and ellipsised.
-   */
+  /** A word instead of a place: "Checked out", "Needs an ISBN". Takes nodes rather than a string since a row can have more than one at its end. */
   meta?: ReactNode
   onward?: boolean
-  /**
-   * Drawn, and not pressable yet. The same word `Button` and `Choice` use for
-   * the same thing, faded the same amount: a row that is present and
-   * unchoosable is not the same as one that is absent, and a list that empties
-   * itself while somebody is reading it is worse than one that dims.
-   */
+  /** Drawn, and not pressable yet. A row that is present and unchoosable is not the same as one that is absent. */
   off?: boolean
   /** What the row says for anybody who cannot see it, where the words on it are not enough. */
   label?: string
@@ -85,9 +71,6 @@ export function Row({
       </span>
       <span className="wf-row__meta">
         {place && <span className="wf-row__place">{place}</span>}
-        {/* A word arrives as a word and is boxed here, the way it always was.
-            Anything else is already the spans it wants to be, and wrapping
-            them would make three lines one. */}
         {typeof meta === 'string' ? <span>{meta}</span> : meta}
         {onward && !place && !meta && <IconOnward size={18} />}
       </span>
@@ -96,28 +79,12 @@ export function Row({
 }
 
 /**
- * A word, boxed. The word carries the meaning and the tint says one thing only.
- *
- * **There is no tint for a particular tag any more.** Fiction was green and
- * non-fiction was blue, which was the two-way split wearing a coat: a person
- * keeping twenty tags would have had two of them painted and eighteen plain,
- * and nothing in the model says those two are different from the rest. The one
- * tone left says a tag is *doing something right now*, which is a fact about
- * the screen rather than about the tag.
- *
- * Given an `onPress` it becomes a target rather than a label, which is what a
- * tag is on any screen where the tags are the thing being edited.
- *
- * ## The second tone, and why it is not the split coming back
- *
- * `wants` is a book saying it needs a person: the queue's diagnosis, which is
- * #148 and is the one thing on that screen somebody acts on. That is the same
- * kind of fact `on` is, about what is true on the screen right now, and not the
- * kind the tint was taken off for: fiction and non-fiction were painted because
- * of which tag they were, so a person keeping twenty tags had two of them lit
- * for no reason anybody could act on. Nothing here is ever tinted for being a
- * particular tag, and nothing is ever told by the tint alone: every one of
- * these carries its word, which `design.test.tsx` checks on every screen.
+ * A word, boxed. There is no tint for a particular tag: the one tone left
+ * (`on`) says a tag is doing something right now, a fact about the screen
+ * rather than about the tag, and `wants` is the same kind of fact for a book
+ * that needs a person. Nothing is ever told by the tint alone: every one of
+ * these carries its word, which `design.test.tsx` checks. Given an `onPress`
+ * it becomes a target rather than a label.
  */
 export function Tag({
   children,
@@ -161,14 +128,7 @@ export function AddTag({ children, onPress }: { children: ReactNode; onPress?: (
   )
 }
 
-/**
- * A row of them, wrapping.
- *
- * A span rather than a div, for the reason the book's own arrangement is one: a
- * queue row is a single button and a `<div>` inside a `<button>` is not
- * phrasing content. The rule sets `display: flex` itself, so the row is the row
- * it always was.
- */
+/** A row of them, wrapping. A span rather than a div: a queue row is a single button, and a div inside a button is not phrasing content. */
 export function Tags({ children }: { children: ReactNode }) {
   return <span className="wf-tags">{children}</span>
 }
@@ -179,51 +139,17 @@ export function Place({ children, quiet = false }: { children: ReactNode; quiet?
 }
 
 /**
- * The counts, three across and wrapping.
+ * The counts, three across and wrapping. A count with an `onPress` is a
+ * target rather than a label: a metric nobody can act on is decoration. Its
+ * accessible name is the number and the word together.
  *
- * **A count with an `onPress` is a target rather than a label**, and on the
- * first screen every one of them has one. The owner asked for that screen to
- * be metrics and nothing else, and a metric nobody can act on is decoration:
- * six ready to shelve opens the queue, three to carry opens the carry list. Its
- * accessible name is the number and the word together, which is what somebody
- * would say out loud.
+ * Three across, wrapping rather than a fixed grid, so a count the catalogue
+ * has not answered yet leaves the others sharing the width instead of a hole.
  *
- * ## Five of them, ungrouped, since #361
- *
- * > So we get rid of the collection, and we get rid of "needs you", and instead
- * > we just have those numbers there: catalogued, checked out, ready to shelve,
- * > to carry, stuck.
- *
- * Three is still the width, because a fourth column at 414 wide puts a word
- * like "ready to shelve" into 93px; what changed is that they now wrap, so five
- * counts are three and two rather than a heading and a heading. The row used to
- * flow as a single line of columns so that a count the catalogue had not
- * answered yet left two sharing the width instead of a hole, and wrapping keeps
- * that: a missing count closes up.
- *
- * ## The cat is only here on a screen with nothing under him (#427)
- *
- * > We still should have the cat icon on this screen though, because it's cute.
- *
- * He closed this run from #361, in the sixth cell of a five-count grid, and
- * #410 stretched him across it in the `lying` pose with his tail reaching down
- * behind the buttons. The owner looked at that on his phone and said what was
- * wrong with it:
- *
- * > This is the cat. It is supposed to be sleeping on the actions, not as part
- * > of the metrics grid.
- *
- * So the cat a screen with things to do draws is not this one. He lies on the
- * doors, which is where #427 put him: `Doors` in `Controls.tsx` draws him and
- * this row is five counts and nothing else, three and two, with the sixth cell
- * empty the way it is empty whenever a count has not answered.
- *
- * **What is left here is the bookend, and it is what a screen with no doors
- * gets.** The first evening is the whole of that: five zeros, no door for a
- * tail to go behind, and a cat asleep saying the collection is new rather than
- * broken at no cost in words. That is round eight's distinction and it has not
- * moved. He is drawn here rather than handed in so the gallery and the app
- * cannot end up with two cats at two sizes.
+ * The cat here is only ever the bookend (`sitting` or `sleeping`), never the
+ * animated `lying` pose: that one lies on the doors instead, drawn by `Doors`
+ * in `Controls.tsx`. He is drawn here rather than handed in so the gallery
+ * and the app cannot end up with two cats at two sizes.
  */
 const CAT_ON_STATS: Record<'sitting' | 'sleeping', { size: number }> = {
   sitting: { size: 58 },
@@ -235,13 +161,7 @@ export function Stats({
   cat,
 }: {
   items: { n: string; word: string; onPress?: () => void }[]
-  /**
-   * The bookend, still, and inside the cell after the last count.
-   *
-   * `sitting` on an ordinary run of numbers and `sleeping` where there is
-   * nothing at all. The cat who lies down and sweeps his tail belongs to the
-   * things you can do rather than to the numbers, and `Doors` draws him.
-   */
+  /** The bookend, in the cell after the last count. `sitting` on an ordinary run of numbers, `sleeping` where there is nothing at all. */
   cat?: 'sitting' | 'sleeping'
 }) {
   const how = cat ? CAT_ON_STATS[cat] : undefined

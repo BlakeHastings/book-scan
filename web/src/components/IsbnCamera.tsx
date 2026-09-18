@@ -13,34 +13,14 @@ interface Props {
 }
 
 /**
- * Point the camera at an ISBN rather than copying it digit by digit.
- *
- * Reads a barcode if one is in shot and falls back to reading the printed
- * number as text, which is the case that matters: the books this gets used on
- * are the ones whose barcode would not scan, and plenty of older books have an
- * ISBN printed on the copyright page with no barcode anywhere.
- *
- * The result fills the field rather than submitting it. OCR misreads digits,
- * and a wrong ISBN silently fetches a different book, so a person still gets
- * to look at the number before it is used.
- *
- * ## What #408 changed here, and what it did not
- *
- * The chrome, and only the chrome. It is `Viewfinder` now, the frame both the
- * other cameras wear, so the picture is the whole screen. **Nothing about
- * taking a photograph moved**: the same single still rather than a burst,
- * because an ISBN is read from a page held still and close and the burst buys
- * nothing there; the same lens pinning, for the reason the comment below
- * gives; the same near-focus hints; the same one call to `identifyIsbn`,
- * straight off the shutter with nothing in front of it.
- *
- * ## It is not either of the two cameras, and does not pretend to be
- *
- * It is a way of answering one field, opened from that field and handing an
- * answer back to it, which is why it is the only one of the three whose way
- * out is called Cancel and whose shutter is named for digits rather than for a
- * book. It keeps nothing, so like the camera that finds a book in your hand it
- * draws no rail of photographs.
+ * Falls back to reading the printed number as text when no barcode is in
+ * shot: the books this gets used on are often ones whose barcode will not
+ * scan, and older books may have no barcode printed at all. The result fills
+ * the field rather than submitting it, since OCR can misread a digit and a
+ * wrong ISBN would silently fetch a different book. Named Cancel and "Read
+ * the ISBN" rather than the other cameras' words, and keeps no rail of
+ * photographs, since this only answers one field rather than acting as a
+ * camera in its own right.
  */
 export function IsbnCamera({ onRead, onCancel }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -51,8 +31,7 @@ export function IsbnCamera({ onRead, onCancel }: Props) {
   /** Read once, and asked for on the settings screen. See `ScanCamera`. */
   const [hand] = useState<Hand>(rememberedHand)
 
-  // Fills the screen, so the page under it must not scroll. It came free from
-  // a fixed overlay before #408 and is asked for here.
+  // Fills the screen, so the page underneath must not scroll while this is open.
   useEffect(() => {
     document.body.classList.add('body--locked')
     return () => document.body.classList.remove('body--locked')
@@ -65,9 +44,8 @@ export function IsbnCamera({ onRead, onCancel }: Props) {
       try {
         let stream = await openCamera(rememberedLens())
         if (!rememberedLens()) {
-          // Same reason as the main camera: the virtual multi-lens device
-          // swaps lens mid-shot, which is fatal when you are holding a page
-          // still and close.
+          // The virtual multi-lens device can swap lens mid-shot, which is
+          // fatal when you are holding a page still and close.
           const lenses = await listLenses()
           const pick = preferredLens(lenses)
           if (pick && lenses.length > 1) {
@@ -133,12 +111,9 @@ export function IsbnCamera({ onRead, onCancel }: Props) {
     }
   }
 
-  /*
-   * Fixed, because this camera is opened from a screen rather than routed to.
-   * The other two are the whole page already; this one arrives through the
-   * same slot a dialog does and has to leave that screen the way a dialog
-   * does.
-   */
+  // Fixed, because this camera is opened from a screen rather than routed
+  // to: it arrives through the same slot a dialog does and has to leave that
+  // screen the way a dialog does.
   return (
     <div className="wf wf-screen wf-screen--camera wf-screen--over">
       <Viewfinder
@@ -156,13 +131,7 @@ export function IsbnCamera({ onRead, onCancel }: Props) {
         done="Cancel"
         shutterName="Read the ISBN"
         onShutter={() => void shoot()}
-        /* Unchanged from before #408: the request this shutter started, and a
-           stream that never opened. Nothing else is ever in front of it. */
         shutterOff={reading || Boolean(error)}
-        /* The same line in the same place as the other two cameras', and it is
-           the long one: "9780441013593 is not in the library yet. Add it first."
-           is what `--wide` existed for. In the bar since #554, so it is as wide
-           as the bar and as far up as the controls happen to be. */
         said={miss && !error ? <p className="wf-view__found">{miss}</p> : undefined}
         over={error ? <div className="cam__error">{error}</div> : undefined}
       />

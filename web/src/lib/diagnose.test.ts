@@ -1,9 +1,3 @@
-/**
- * The #60 repro: a second phone got "no camera devices" with no way forward.
- * These pin the three cases the issue asks to be told apart, plus the
- * fallback when the browser will not even say which one it is.
- */
-
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { currentOrigin, diagnoseCameraFailure } from './scanner'
 
@@ -32,9 +26,7 @@ describe('currentOrigin', () => {
 
 describe('diagnoseCameraFailure', () => {
   it('reports an insecure context ahead of anything else', async () => {
-    // A phone that reached the plain-HTTP address is refused a camera before
-    // getUserMedia even runs, so this must win regardless of what error (if
-    // any) is passed in.
+    // A phone that reached the plain-HTTP address is refused a camera before getUserMedia even runs.
     vi.stubGlobal('window', { isSecureContext: false })
     vi.stubGlobal('location', { protocol: 'http:', host: '192.168.1.20:5173' })
 
@@ -45,8 +37,7 @@ describe('diagnoseCameraFailure', () => {
   })
 
   it('distinguishes a denied permission using permissions.query alone', async () => {
-    // No error was even thrown, which is the enumerate-yields-nothing path:
-    // permissions.query can say the site is blocked before a tap happens.
+    // No error was even thrown: permissions.query can say the site is blocked before a tap happens.
     vi.stubGlobal('window', { isSecureContext: true })
     vi.stubGlobal('location', { protocol: 'https:', host: 'lvh.me:5173' })
     vi.stubGlobal('navigator', {
@@ -65,7 +56,7 @@ describe('diagnoseCameraFailure', () => {
     vi.stubGlobal('location', { protocol: 'https:', host: '10.0.0.5:5173' })
     vi.stubGlobal('navigator', {
       mediaDevices: { getUserMedia: vi.fn() },
-      // No `permissions` at all: some engines never had it for camera.
+      // Some engines never had `permissions` at all for camera.
     })
 
     const result = await diagnoseCameraFailure(notAllowedError())

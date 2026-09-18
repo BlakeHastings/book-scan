@@ -1,110 +1,22 @@
 /**
- * The shelf, which is the signature of this app.
+ * The shelf: a board drawn end on, with the books standing on it, the gap
+ * where the book in your hand goes, and the cat as the bookend that closes it.
  *
- * A board drawn end on, with the books standing on it, the gap where the book
- * in your hand goes, and the cat as the bookend that closes it.
+ * One board is one area; nothing divides it, since nothing here knows which
+ * areas share a plank. The board has one edge, the bottom border of
+ * `.wf-shelf__board`; there must not be a second bar under it. It scrolls
+ * inside itself and the page does not, using native overflow rather than a
+ * drag handler; see `src/components/ShelfStrip.tsx`.
  *
- * **One board is one area, and nothing divides it.** There used to be a
- * `divider` item, a post drawn between two spines to say that one area ended
- * there and the next began. The owner read it on the library screen and named
- * what was wrong:
+ * The catalogue holds no height, only `pages` (thickness), so a book's drawn
+ * width comes from its page count and every spine is drawn at one uniform
+ * height. A book with no page count is drawn at the median rather than a
+ * visibly different width, deliberately: see `spineWidth`.
  *
- * > A is an area itself, so it really would be bookcase one, 1A, and then
- * > underneath that would be another row that's 1B. You wouldn't have this
- * > actual physical split like you have there.
- *
- * An area is the unit. A row of books is one area, the next area is the next
- * row, and a split partway along a row labelled `1A` claimed that `1A` holds
- * areas. Nothing here has ever known which areas share a plank, so there was
- * never anything for that post to be a picture of.
- *
- * **The board has one edge.** It is the lip the books stand on, and it is the
- * bottom border of `.wf-shelf__board`. There is no second bar under it and
- * there must not be: a board drawn twice is the first thing anybody notices.
- *
- * **It scrolls inside itself and the page does not.** A shelf is wider than a
- * phone and always will be, and the alternative, wrapping it, would draw
- * furniture that is not in the room: a break means "new area" everywhere else
- * here. Native overflow rather than a drag handler, for the reason
- * `src/components/ShelfStrip.tsx` gives.
- *
- * ## How big a spine is allowed to be, which is a question about honesty
- *
- * The first pass varied both width and height from the index of the book in
- * the list, which is to say from nothing. The owner liked the variation and
- * then caught what was under it:
- *
- * > I think we're gonna face some problems with presenting the books by size.
- * > I don't think we have any metrics to make that possible. But I do like the
- * > fact that they are different sizes. It's gonna be odd when we're rendering
- * > the spines there, and if the book isn't tall but we show it as tall, right?
- *
- * He is right. **The catalogue holds no height.** It holds `pages`, which is a
- * measurement of the *other* axis: how thick the book is. So width is the one
- * dimension that can be drawn from something true, and it is drawn from it
- * here.
- *
- * **Height is uniform, and that is settled** (#273):
- *
- * > We should stick with flat tops, and we can do the width based off of the
- * > page count if we want. The problem is we don't always have the page count.
- *
- * There was a second variant for a round, which estimated a height from the
- * shape of a spine crop. It was drawn beside the flat one so the choice could
- * be made by looking, the choice was made, and it is gone with the screen it
- * was compared on. Every book on every shelf is one height, and there is no
- * second answer here to reintroduce.
- *
- * ## The fourth book, which has no page count
- *
- * The gap is measured rather than guessed. Against the live catalogue on
- * 2026-08-12: **183 of 238 books carry a page count, 77%.** Those that do run
- * from 54 pages to 1168, with a median of 339. So roughly one book in four has
- * no honest width, and what happens to that book decides how a shelf reads.
- *
- * **It is drawn at the width the median page count gives**, which is 27px. Not
- * a visibly odd width, and not every book the same: a shelf is a picture of a
- * room rather than a chart, and a quarter of the books shouting that a field is
- * empty would be a chart. It is a mild fiction of exactly the kind flat tops
- * already is, it is bounded by the real range on both sides, and it shrinks on
- * its own, because a page count arrives with the catalogue lookup and books
- * gain one over time.
- *
- * The alternatives, so nobody has to rediscover them: a deliberately different
- * width, which is honest and makes a quarter of the shelf look broken, and one
- * width for every book, which is truthful and throws away the variation the
- * owner liked in the first place.
- *
- * ## Marking the one book a screen is about, which is the cat's fourth job
- *
- * It was a white ring drawn round the spine, and the owner rejected it twice
- * over:
- *
- * > How we're highlighting the book doesn't look very good to me with the white
- * > outline that we have there. It may even be cute to put the cat on top of the
- * > edge. Something that makes it more visually apparent and isn't clipping the
- * > way that's clipping here.
- *
- * Both faults had one cause. An `outline` with a positive offset is drawn
- * outside the element, the run scrolls inside itself with `overflow-y: hidden`,
- * and the tallest thing on the board is the spine, so the top of that ring was
- * always outside the scroller and always cut off. Nothing about a ring can be
- * tuned out of that: any mark drawn outside the books is drawn outside the
- * scroller.
- *
- * So the mark is a thing that stands **on** the book rather than round it, and
- * the room it needs is taken inside the board. `wf-perch` is that room: it is
- * the marked book with the cat's height added above it, so the board grows
- * upward, the plank stays where it was, and there is nothing left to clip. He
- * scrolls with his book, because he is inside it rather than floating over the
- * run, and he is drawn over the empty air above the neighbouring books rather
- * than beside his own, so a book at either end of a run is marked exactly like
- * one in the middle and no spine is pushed sideways to make room.
- *
- * A second mark goes on the plank under him, in ink, on the board's own face.
- * The cat is what you see first; the mark is what survives him being small, and
- * it sits on the line the eye already runs along when it is reading a row of
- * books.
+ * The book a screen is about is marked by the cat standing on it rather than
+ * by an outline around it: an outline with a positive offset draws outside the
+ * element, which the scroller (`overflow-y: hidden`) then clips. `wf-perch`
+ * gives the cat room by growing the board upward above the marked book instead.
  */
 
 import { useEffect, useRef, type CSSProperties } from 'react'
@@ -115,16 +27,7 @@ export type Cloth = 'moss' | 'plum' | 'sky' | 'sun' | 'wood' | 'wood2'
 
 const CLOTHS: Cloth[] = ['moss', 'wood', 'sky', 'plum', 'wood2', 'sun']
 
-/**
- * The median page count in the catalogue, and the width a book with no page
- * count is drawn at.
- *
- * Measured, not chosen: 183 of the 238 books held a page count on 2026-08-12,
- * running 54 to 1168, and 339 was the middle of them. Written down here as the
- * one number the fallback comes from, so that when the catalogue's median moves
- * there is a single place that is out of date rather than a magic width nobody
- * can trace.
- */
+/** The median page count in the catalogue, measured rather than chosen. Used as the fallback for a book with no page count. */
 export const MEDIAN_PAGES = 339
 
 export type ShelfItem =
@@ -133,35 +36,22 @@ export type ShelfItem =
       /** Written down the spine, the way it is printed. */
       text: string
       /**
-       * What this spine is called for anybody not looking at pixels.
-       *
-       * `text` where a screen has nothing better, which is every screen in the
-       * gallery: there a spine is a name in dyed cloth and the name is all
-       * there is. The app has better, and it is a different string: what is
-       * written down a spine is the filing name, and what a person is looking
-       * for is the title. A run announced as "Herbert, Frank" eleven times
-       * says which shelf you are on and never which book, which is what
-       * `spineLabel` in `lib/shelfRow.ts` was already written to say.
+       * What this spine is called for anybody not looking at pixels. Falls
+       * back to `text` (the filing name) where a screen has nothing better;
+       * the app passes the title instead, since a run announced by filing
+       * name eleven times says which shelf you are on and never which book.
+       * See `spineLabel` in `lib/shelfRow.ts`.
        */
       name?: string
       cloth?: Cloth
-      /**
-       * The one measurement the catalogue actually holds. It decides the
-       * width, because pages are thickness and thickness is width seen end on.
-       *
-       * Absent for about one book in four, which is a fact about the catalogue
-       * rather than about this type. See `spineWidth`.
-       */
+      /** The one measurement the catalogue actually holds; decides the drawn width. See `spineWidth`. */
       pages?: number
       /** The book this screen is about, already in place. */
       here?: boolean
       /**
-       * The photograph of this book's spine, where the catalogue has one.
-       *
-       * The cloth is what a book with no photograph is drawn in, and it stays
-       * underneath this one so a picture still arriving is a bound book rather
-       * than a gap in the row. In the gallery there are no photographs at all
-       * and every spine is cloth, which is what the cloths were always for.
+       * The photograph of this book's spine, where the catalogue has one. The
+       * cloth stays underneath it so a picture still arriving is a bound book
+       * rather than a gap in the row.
        */
       photo?: string
       /** Walk along the shelf: open the book this spine is. */
@@ -177,52 +67,28 @@ const clamp = (low: number, value: number, high: number) =>
 export const SPINE_HEIGHT = 116
 
 /**
- * How tall the cat is when he is sitting on the book a screen is about.
- *
- * Big enough to read as a cat at arm's length on a phone, small enough that he
- * is a mark on a book rather than a second bookend. It is one number: the room
- * reserved above the book is this height, handed to the stylesheet as
- * `--perch`, because a cat 26 tall in a 24 gap is the kind of disagreement
- * nobody sees until it clips, which is the fault this whole mark replaces.
+ * How tall the cat is when he is sitting on the book a screen is about. Also
+ * the room reserved above the book, handed to the stylesheet as `--perch`, so
+ * the two cannot drift apart and clip him.
  */
 export const CAT_ON_TOP = 26
 
 /**
- * How wide to draw a book, in pixels.
- *
- * **Not to scale, and it cannot be.** At the scale that makes a 200mm book
- * 116px tall, a 24mm spine is 14px, and 14px is narrower than the type printed
- * down it. So the width is exaggerated and the *ordering* is what is true: a
- * thicker book is drawn wider than a thinner one, always, and the range of
- * real books lands inside a range a phone can draw.
- *
- * **A book with no page count is drawn at the median**, and that is a decision
- * rather than a default. It is the one place here where a number reaching the
- * screen did not come off the book, so it is spelled out: it lands at 27px,
- * between the 16px the thinnest real book gets and the 56px the thickest does,
- * and it makes an unknown book look like an ordinary one instead of like a
- * missing field. The header says why that is the right lie to tell.
+ * How wide to draw a book, in pixels. Not to scale: at true scale a spine
+ * would be narrower than the type printed down it, so only the ordering is
+ * true, a thicker book always drawn wider than a thinner one. A book with no
+ * page count is drawn at the median (27px) rather than a visibly different
+ * width; see the file header.
  */
 export function spineWidth(pages?: number): number {
   return Math.round(clamp(16, 12 + (pages ?? MEDIAN_PAGES) / 22, 56))
 }
 
 /**
- * A run of books from a list of names, for the gallery.
- *
- * The page counts are derived from the name rather than written out, so the
- * same book is the same thickness on every screen it appears on and nobody has
- * to keep two lists in step. In the app these are rows and photographs; this
- * is standing in for them, not decorating.
- *
- * **One name in four gets no page count at all**, which is the other half of
- * that. The live catalogue is missing one on 23% of its books, so a fixture
- * where every book has one would draw a shelf nobody will ever see, and the
- * fallback width would be the one thing in the system that only ever appeared
- * in a test. It is the hash that decides which, so a given book is missing its
- * count on every screen it appears on, and the misses are scattered rather than
- * every fourth: six of the gallery's thirty, which is what a real plank looks
- * like.
+ * A run of books from a list of names, for the gallery. Page counts are
+ * derived from the name's hash rather than written out, so the same book is
+ * the same thickness on every screen. One in four names gets no page count,
+ * so the fallback width is exercised here too rather than only in a test.
  */
 export function spines(names: string[], from = 0): ShelfItem[] {
   return names.map((text, i) => {
@@ -232,8 +98,7 @@ export function spines(names: string[], from = 0): ShelfItem[] {
       kind: 'spine' as const,
       text,
       cloth: CLOTHS[(i + from) % CLOTHS.length],
-      // 96 to 928 pages, which is the range a shelf of novels really covers,
-      // and undefined for the one in four the catalogue cannot answer for.
+      // 96 to 928 pages, undefined for one book in four.
       pages: hash % 4 === 0 ? undefined : 96 + (hash % 52) * 16,
     }
   })
@@ -259,16 +124,8 @@ export function Shelf({
   const scroller = useRef<HTMLDivElement>(null)
 
   /**
-   * A run is wider than a phone, so the marked book has to be brought into it.
-   *
-   * A shelf of fifty books is five screens wide and the book this screen is
-   * about is as likely to be at the end of it as anywhere else. Drawn from the
-   * left it is off the side of the phone, and the cat marking it is off the side
-   * with it, so the page reads as a shelf that has not been marked at all.
-   *
-   * `block: 'nearest'` because this scrolls a strip sideways and must not move
-   * the page: the same call the library already makes when it puts somebody back
-   * where they were reading.
+   * A run is wider than a phone, so the marked book has to be brought into
+   * view. `block: 'nearest'` scrolls the strip sideways without moving the page.
    */
   useEffect(() => {
     const here = scroller.current?.querySelector('.wf-perch')
@@ -290,9 +147,7 @@ export function Shelf({
         </div>
       </div>
 
-      {/* No cat on this line. He is already in the gap and again at the end of
-          the books, and three of him on one screen stopped being a mascot and
-          started being a pattern. Found by looking at it. */}
+      {/* No cat on this line, deliberately: he is already in the gap and at the end of the books. */}
       {inHand && <p className="wf-shelf__inhand">In your hand: {inHand}</p>}
     </section>
   )
@@ -315,38 +170,19 @@ function Item({ item }: { item: ShelfItem }) {
     )
   }
 
-  /*
-   * No class for the marked book. It wore one, `wf-spine--here`, and it drew
-   * the ring the owner rejected; what replaced it is the box around the book
-   * rather than anything on the book, so a class here would be a hook with no
-   * rule behind it and the next person would hang a second treatment off it.
-   */
   const className = ['wf-spine', `wf-spine--${item.cloth ?? 'wood'}`].join(' ')
 
-  /*
-   * Inline, because these are measurements of one book rather than a style. A
-   * class per size would be a lookup table of every page count there is.
-   */
   const size: CSSProperties = {
     width: spineWidth(item.pages),
     height: SPINE_HEIGHT,
   }
 
   const inside = item.photo ? (
-    /* No text over a photograph: the spine already has the title printed on it,
-       and the name is what the button is called. */
     <img className="wf-spine__photo" src={item.photo} alt="" loading="lazy" decoding="async" />
   ) : (
     <span className="wf-spine__text">{item.text}</span>
   )
 
-  /*
-   * A spine is a target in the app and a drawing in the gallery, and it is the
-   * same spine either way: given somewhere to go it becomes a button, and
-   * without one it stays what it has always been. A row of buttons in a
-   * wireframe that goes nowhere is a row of things that look pressable and are
-   * not.
-   */
   const spine = item.onPress ? (
     <button
       type="button"
@@ -366,12 +202,6 @@ function Item({ item }: { item: ShelfItem }) {
 
   if (!item.here) return spine
 
-  /*
-   * The cat says which book, and he says it in words too. He is the only thing
-   * on a board that is not a book, so he is the only thing on it that can carry
-   * a name, and "the book this screen is about" is not something a title
-   * attribute on a coloured rectangle was ever going to say.
-   */
   return (
     <div
       className="wf-perch"

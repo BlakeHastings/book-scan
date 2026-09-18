@@ -97,21 +97,10 @@ export function summarise(steps) {
   }
 
   /*
-   * A backtrack is going somewhere and leaving without doing anything: you
-   * arrived from a screen, changed nothing, and went back to the one you came
-   * from.
-   *
-   * **"Back where I came from" rather than "anywhere I have already been",
-   * and the first run is why.** The looser rule counted every step of a
-   * carrying wizard, because that flow visits "Where it goes" once per book
-   * and a visit whose own press only moved the flow on had changed nothing
-   * *yet*. Seven books produced six backtracks that were nothing of the sort.
-   *
-   * What the looser rule was reaching for is caught better by a number that
-   * needs no visit modelling at all: how many of the presses changed anything
-   * (`pressesThatChangedTheWorld`). One in twenty is a task somebody spent
-   * twenty presses on and got one thing out of, and no definition of a visit
-   * has to be argued about first.
+   * A backtrack is going somewhere, changing nothing, and returning to the
+   * screen you came from. Matched on "back where I came from" rather than
+   * "anywhere already visited": a flow that revisits one screen once per item
+   * without having changed anything yet is not the same as backtracking.
    */
   let backtracks = 0
   const backtrackDetail = []

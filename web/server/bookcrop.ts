@@ -1,48 +1,14 @@
 /**
  * Finding the book in a photograph, after it has been taken.
  *
- * This repository already tried book detection once and removed it (the Python
- * `bookscan/detect.py`, deleted in 6f1ff08) because it "fired on the wrong
- * thing often enough to be slower than just pressing a key". That was a live
- * shutter trigger: it had to be right within a frame, and being wrong meant
- * taking the wrong photograph.
+ * This runs after the shutter, on a file already safely on disk, it may take a
+ * second and it can decline, so everything below is arranged to rather find
+ * nothing than find the wrong rectangle.
  *
- * This is a different job with the same geometry. It runs after the shutter,
- * on a file already safely on disk, it may take a second, it can decline, and
- * a person can look at the result. So the failure that sank the live version
- * is survivable here, as long as declining is cheap and a wrong crop is rare.
- * Everything below is arranged around that: it would rather find nothing than
- * find the wrong rectangle.
- *
- * The shape of it:
- *
- *   1. Downscale and take a Sobel gradient.
- *   2. Propose a handful of candidate boxes. Two different ways of guessing
- *      "which object are we talking about", because either one alone has a
- *      background that defeats it: connected blobs of edge (inherited from the
- *      old detector) lose a book on a patterned rug, and the edge-mass content
- *      box loses one next to a dark table edge.
- *   3. Snap each candidate's four sides onto the strongest straight line near
- *      them, searching a small range of angles as well as offsets, because a
- *      hand-held book is never quite square to the camera.
- *   4. Score each side by how much it stands out from the lines either side of
- *      them, not by how strong it is outright. A book edge is a spike; a rug's
- *      pattern is a plateau, and a plateau must not read as a book.
- *   5. Check in CIE Lab that all four sides step the same way, near the line
- *      and again further out, because a book differs from what it is lying on
- *      and keeps differing as you walk away from its edge.
- *   6. Take the best candidate, and only if its weakest side is a real spike.
- *
- * Steps 5 and 6 are the whole safety argument. Steps 1 to 4 will happily
- * produce a rectangle for a photograph of a carpet, or for the title bar
- * printed across the front of a book.
- *
- * Measured against 48 of the owner's own photographs, 36 of them ones this
- * declined and 12 it already handled: 4 of the 36 recovered, all 12 kept, and
- * no crop that cut a cover. Three further ideas were built and measured and
- * thrown away, and what they cost is written down where each one was tried,
- * because every one of them found more books by finding the picture printed on
- * the book.
+ * The two gates that make that true are the Lab step check (`MIN_STEP`) and the
+ * prominence bar (`MIN_PROMINENCE`). Everything before them will happily produce
+ * a rectangle for a photograph of a carpet, or for the title bar printed across
+ * the front of a book.
  */
 
 import sharp from 'sharp'
@@ -57,20 +23,13 @@ export const DETECT_WIDTH = 480
 /**
  * ...and a ceiling on the working height, which only the spine strips reach.
  *
- * The edge slot arrives already cut to `SPINE_CROP`, 511 by 3072 pixels on this
- * phone. Scaling that to 480 wide leaves a 480 by 2885 working frame, and a
- * frame far taller than it is wide breaks the snapping search two ways at once.
- * A side's line is swept in angles, and at eight degrees over 2885 rows the
+ * A frame far taller than it is wide breaks the snapping search two ways at
+ * once. A side's line is swept in angles, and at eight degrees over 2885 rows the
  * ends move 405 pixels sideways in a frame only 480 wide, so most of the angles
- * on offer describe lines that leave the picture. The angles that remain are
- * spaced two degrees apart, which is a hundred pixels of lateral movement per
- * step, so a spine tilted by one degree in the owner's hand lands between two
- * candidates and is measured smeared across sixty pixels either way. That is
- * why the real spines score around two on a bar of 2.6.
- *
- * Capping the height fixes both: fewer rows means a shorter lever arm for the
- * same angle, and a quarter of the pixels pays for the finer angular sampling
- * the tall shape needed in the first place.
+ * on offer describe lines that leave the picture, and the ones that remain are
+ * too coarsely spaced to land on a spine tilted by a degree in the hand. Fewer
+ * rows means a shorter lever arm for the same angle, and a quarter of the pixels
+ * pays for finer angular sampling.
  */
 const MAX_DETECT_HEIGHT = DETECT_WIDTH * 3
 
@@ -97,15 +56,7 @@ const MIN_AREA_RATIO = 0.04
  */
 const MAX_AREA_RATIO = 0.9
 
-/**
- * Width over height. Wide enough for a spine strip and a book laid flat.
- *
- * Widening the lower bound to 0.03 was tried, on the theory that a paperback
- * spine in a strip 3072 tall is too narrow a shape to be allowed. It is not:
- * the spines that do get found sit at 0.12 to 0.21, comfortably inside this,
- * and loosening it recovered nothing while adding forty per cent to the time by
- * putting more slivers through the snapping search. Left where it is.
- */
+/** Width over height. Wide enough for a spine strip and a book laid flat. */
 const MIN_ASPECT = 0.08
 const MAX_ASPECT = 4.0
 
@@ -117,14 +68,12 @@ const SNAP_MAX_ANGLE = 8
 
 /**
  * How far apart two neighbouring tilts may land, measured in pixels at the ends
- * of the span rather than in degrees.
- *
- * Degrees were the wrong unit. Two degrees is a fifth of a pixel across a
+ * of the span rather than in degrees. Two degrees is a fifth of a pixel across a
  * thumbnail and a hundred pixels down a spine strip, so a fixed list of degrees
- * samples finely where nothing needed it and misses the answer entirely where
- * it mattered. Fixing the spacing in pixels asks the question the search is
- * really asking: how far can this line be wrong at its ends before the edge it
- * is meant to lie on smears into the average.
+ * samples finely where nothing needs it and misses the answer where it matters.
+ * In pixels it asks the question the search is really asking: how far can this
+ * line be wrong at its ends before the edge it is meant to lie on smears into the
+ * average.
  */
 const SNAP_SWEEP_STEP = 4
 
@@ -137,14 +86,12 @@ const SNAP_OFFSET_STEP = 1
 /**
  * How far each side must stand above the typical line in its own search band.
  *
- * This is the number that decides whether we crop, and it is deliberately the
- * last thing between a photograph of somebody's floor and a confident crop of
- * it. Measuring against the band rather than the frame is what tells a book's
- * edge (a spike among quiet neighbours) from a floorboard seam or a rug's
- * repeat (one of many equals).
+ * Measuring against the band rather than the frame is what tells a book's edge (a
+ * spike among quiet neighbours) from a floorboard seam or a rug's repeat (one of
+ * many equals).
  *
- * Exported so a test can name the gate a case depends on rather than restate
- * the number. Nothing outside this file changes it.
+ * Exported so a test can name the gate a case depends on rather than restate the
+ * number. Nothing outside this file changes it.
  */
 export const MIN_PROMINENCE = 2.6
 
@@ -160,36 +107,19 @@ const MIN_ABSOLUTE = 1.8
  * stuff on both sides of them, and they alternate. Insisting on one consistent
  * step is what tells "the edge of a thing" from "an edge".
  *
- * This used to be nine grey levels, and grey was the wrong place to measure it.
- * Measured on the owner's photographs, the covers that worked were pale and the
- * covers that failed were dark, in the same room on the same table: it was a
- * luminance-step detector wearing an object detector's clothes. A salmon spine
- * on dark wood, or an orange one, is a large step that greyscale throws away
- * because both collapse to about the same tone. Lab keeps the difference,
- * which is why the gate now lives here.
+ * Measured in Lab rather than in grey because a salmon or orange spine on dark
+ * wood is a large step that greyscale throws away, both collapsing to about the
+ * same tone. The number is in Lab units, where L runs 0 to 100.
  *
- * The number is in Lab units, where L runs 0 to 100. Nine grey levels near
- * mid-tone is about 3.4 of them, so four is slightly stricter than the gate it
- * replaces, and every photograph this recovers is recovered by the colour axes
- * rather than by a looser bar.
- *
- * Four is where it sits because of where the two populations fall. Across the
- * owner's photographs the weakest correct crop scores 4.4 and the one rectangle
- * that cut a cover in half scores 3.3, so the gap between them is the only
- * honest place to put it.
- *
- * Exported for the same reason as MIN_PROMINENCE. The photograph-of-a-rug case
- * in `bookcrop.test.ts` is held up by this gate and nothing else, so the test
- * that covers it says so by naming this rather than by hoping.
+ * Exported for the same reason as MIN_PROMINENCE. The photograph-of-a-rug case in
+ * `bookcrop.test.ts` is held up by this gate and nothing else.
  */
 export const MIN_STEP = 4
 
 /**
- * How much the colour axes count relative to lightness.
- *
- * One is the honest CIE 1976 answer and is what this uses. It is named rather
- * than inlined because it is the single knob that trades recall against wrong
- * crops here, and a future reader should be able to find it.
+ * How much the colour axes count relative to lightness. One is the honest CIE
+ * 1976 answer, and this is the single knob that trades recall against wrong crops
+ * here.
  */
 const CHROMA_WEIGHT = 1
 
@@ -203,9 +133,7 @@ const STEP_OFFSET = 5
  * not how big the difference is, it is whether the difference keeps. Move away
  * from a book's edge and the table is still there. Move away from the join
  * between a red title panel and the artwork below it and you are still on the
- * cover. Measured on the owner's photographs this was the whole of the
- * difference between a tight crop and a cover cut in half: every wrong crop had
- * a side that stepped convincingly at five pixels and said nothing at sixteen.
+ * cover.
  */
 const FAR_OFFSET = 16
 
@@ -222,14 +150,10 @@ export interface Rect {
 /**
  * Why no rectangle came back.
  *
- * `weak-edges` and `low-contrast` used to be one value, and conflating them hid
- * the most useful thing a refusal can say. They are different failures with
- * different fixes: `weak-edges` means no rectangle in the frame looked like the
- * outline of anything, and `low-contrast` means one did, convincingly, and was
- * then discarded because the cover and the surface underneath it were too close
- * in tone for the step gate. The second is a book the detector had already
- * found, so counting them apart is what tells "look harder" from "measure the
- * difference in a better colour space".
+ * `weak-edges` means no rectangle in the frame looked like the outline of
+ * anything. `low-contrast` means one did, convincingly, and was then discarded
+ * because the cover and the surface underneath it were too close in tone for the
+ * step gate, which is a book the detector had already found.
  */
 export type CropRefusal =
   | 'no-edges'
@@ -265,8 +189,7 @@ interface Grey {
    *
    * Float rather than sharp's 8-bit Lab on purpose: the 8-bit form stores a*
    * and b* unsigned and clips everything negative to zero, so a navy cover
-   * (b* about -10) and a neutral grey one come back identical. That clipping
-   * silently deletes exactly the blues and greens this is here to measure.
+   * (b* about -10) and a neutral grey one come back identical.
    */
   lab: Float32Array
   width: number
@@ -312,16 +235,13 @@ interface Box {
 async function toGrey(input: Buffer): Promise<Grey> {
   // `autoOrient`, not `width` and `height`.
   //
-  // `metadata()` reports the image as stored and says so: its own `width` and
-  // `height` are documented as taking no notice of the EXIF orientation, and
-  // calling `.rotate()` on the pipeline first does not change that, because
-  // metadata describes the input rather than the operations queued on it. The
-  // rest of this function then works in the rotated frame, so reading the
-  // stored pair here transposed `scale` and both bounds for any photograph
-  // whose tag swaps the axes: a 900 by 1200 image presenting as 1200 by 900
-  // scaled by 900/480 where the truth is 1200/480, and came back short by the
-  // ratio of the frame's two sides. Measured on the tagged scene in
-  // `bookcrop.test.ts`, that kept 0.3973 of the book. See #132.
+  // `metadata()` reports the image as stored: its own `width` and `height` are
+  // documented as taking no notice of the EXIF orientation, and calling
+  // `.rotate()` on the pipeline first does not change that, because metadata
+  // describes the input rather than the operations queued on it. The rest of this
+  // function works in the rotated frame, so reading the stored pair here would
+  // transpose `scale` and both bounds for any photograph whose tag swaps the
+  // axes.
   //
   // `metadata().autoOrient` is sharp answering the question directly: the
   // dimensions once the orientation has been applied. Taken from the library
@@ -496,9 +416,8 @@ function blobBoxes(mask: Uint8Array, w: number, h: number): Box[] {
  *
  * A printed cover carries most of the edge in a photograph of one, so trimming
  * the quiet margins lands on the book even where its outline is too faint to
- * survive as a blob. It fails the other way round, on a frame with a busy
- * corner, which is why it is one candidate among several rather than the
- * answer.
+ * survive as a blob. It fails the other way round, on a frame with a busy corner,
+ * which is why it is one candidate among several rather than the answer.
  */
 function contentBox(mask: Uint8Array, w: number, h: number): Box | null {
   const columns = new Float64Array(w)
@@ -542,10 +461,9 @@ function contentBox(mask: Uint8Array, w: number, h: number): Box | null {
 /**
  * Otsu's threshold: the grey level that best splits the frame in two.
  *
- * Gradient alone loses a book on a patterned background, because the pattern
- * has as much edge in it as the cover does. Brightness does not: a cover is
- * one flat tone against another, whatever is printed on the floor. This gives
- * the search a candidate it would not otherwise have.
+ * Gradient alone loses a book on a patterned background, because the pattern has
+ * as much edge in it as the cover does. Brightness does not: a cover is one flat
+ * tone against another, whatever is printed on the floor.
  */
 function otsu(data: Uint8Array): number {
   const histogram = new Int32Array(256)
@@ -581,18 +499,10 @@ function otsu(data: Uint8Array): number {
 /**
  * Boxes of the largest connected regions on one side of a brightness split.
  *
- * Two colour-aware ways of proposing regions were tried here and both were
- * removed, for the same reason. Splitting the frame by colourfulness, and
- * splitting it by distance from the colour of the border, each found more books
- * than brightness does: ten of the owner's thirty-six failures rather than
- * four. Six of those ten were right and four cut a cover in half, and looking
- * at the four says exactly what happened. A cover is not one region of colour.
- * "Mary Barton" is a bordered photograph of a sewing machine, "Beasts" is a
- * painting under a title bar, "Sunrise on the Reaping" is an emblem on a plain
- * ground, and every one of those crops came back as the artwork with the title
- * cut off. Anything that proposes regions by colour proposes the picture on the
- * book rather than the book, and the gates cannot tell the two apart because a
- * printed panel genuinely does have four consistent sides.
+ * Brightness rather than colour, deliberately. A cover is not one region of
+ * colour, so anything that proposes regions by colour proposes the picture
+ * printed on the book rather than the book, and the gates cannot tell the two
+ * apart because a printed panel genuinely does have four consistent sides.
  */
 function toneBoxes(grey: Grey, plane: Uint8Array, threshold: number, lighter: boolean): Box[] {
   const { width: w, height: h } = grey
@@ -751,9 +661,7 @@ interface LabStep {
  * Mean Lab colour in a band just inside a side, minus just outside it.
  *
  * The direction of the vector is the useful part, not just its length: see
- * MIN_STEP. A cover that is lighter than the table gives every side a positive
- * dL, and a salmon cover on dark wood gives every side the same push along a*
- * even where dL is nearly nothing.
+ * MIN_STEP.
  */
 function labStep(
   grey: Grey,
@@ -817,18 +725,16 @@ function sideSteps(
 /**
  * How far the four sides step, given that they must all step the same way.
  *
- * "The same way" used to mean the same sign of one number. In Lab it means one
- * direction in three dimensions, and the honest question is: is there any
- * direction along which all four sides move forward, and how far does the
- * laggard get? That is the largest value of the smallest projection, over every
- * unit direction, and it is zero exactly when no such direction exists.
+ * In Lab "the same way" is one direction in three dimensions, so the question is
+ * whether there is any direction along which all four sides move forward, and how
+ * far the laggard gets. That is the largest value of the smallest projection,
+ * over every unit direction, and it is zero exactly when no such direction
+ * exists.
  *
  * Searching every direction is not worth it for four vectors. The maximum sits
  * either where one side is the binding constraint or where several are, so the
- * candidates tried are the lightness axis (which reproduces the old greyscale
- * rule, in both signs), each side's own direction, and their sum. Taking the
- * best of those is never worse than the rule this replaced, which is what keeps
- * a pale cover on a dark floor behaving exactly as it did.
+ * candidates tried are the lightness axis in both signs, each side's own
+ * direction, and their sum.
  */
 function agreedStep(steps: LabStep[]): number {
   const weight = CHROMA_WEIGHT
@@ -845,18 +751,9 @@ function agreedStep(steps: LabStep[]): number {
   for (const d of directions) {
     const length = Math.hypot(d[0], d[1], d[2])
     if (!(length > 1e-6)) continue
-    // All four, with no allowance for a quiet one.
-    //
-    // Letting a single side abstain was tried, on the reasoning that a hand
-    // across the bottom edge or a book lying in its own shadow leaves one side
-    // saying nothing while the other three are certain. It recovered five more
-    // of the owner's photographs and sliced two covers doing it, and looking at
-    // them explains why: a rectangle whose bottom edge runs through the middle
-    // of a cover has exactly the shape the allowance was written to forgive. Of
-    // the five it gained, the two it got wrong were the only ones it gained
-    // that the strict rule had not already found, so it bought nothing except
-    // its own failures. A sliced cover is worse than a whole one, so the rule
-    // stays strict and the quiet-side cases stay declined.
+    // All four, with no allowance for a quiet one. Letting a single side abstain
+    // forgives exactly the shape of a rectangle whose bottom edge runs through the
+    // middle of a cover, so the quiet-side cases stay declined.
     let worst = Infinity
     for (const s of v) {
       const projected = (s[0] * d[0] + s[1] * d[1] + s[2] * d[2]) / length
@@ -981,8 +878,8 @@ export async function detectBook(input: Buffer): Promise<CropDecision> {
   if (!best) {
     if (!bestRejected) return { rect: null, confidence: 0, refusal: 'implausible-shape' }
     // Geometry that would have been accepted, thrown away at the step gate: the
-    // book was located and then discarded for being too close in tone to what
-    // it was lying on. Said apart from "no rectangle looked like anything".
+    // book was located and then discarded for being too close in tone to what it
+    // was lying on.
     return {
       rect: null,
       confidence: 0,
@@ -1040,11 +937,10 @@ export interface CropResult extends CropDecision {
 }
 
 /**
- * Detect and, if a book was found, produce the cropped image.
- *
- * The caller writes it. Nothing here touches the original: a buffer is read
- * and a new buffer comes back, so there is no path by which a photograph of a
- * real book is overwritten by a bad crop.
+ * Detect and, if a book was found, produce the cropped image. The caller writes
+ * it. Nothing here touches the original: a buffer is read and a new buffer comes
+ * back, so there is no path by which a photograph of a real book is overwritten
+ * by a bad crop.
  */
 export async function cropBook(input: Buffer): Promise<CropResult> {
   const decision = await detectBook(input)

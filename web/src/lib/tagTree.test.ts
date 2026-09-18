@@ -9,10 +9,6 @@ describe('what a person reads for a tag', () => {
     expect(labelOf(tag('genre/fantasy', 'Fantasy'))).toBe('Fantasy')
   })
 
-  /*
-   * The pinned rule, arriving where it actually bites: a tag written without a
-   * label must not fall back to the string that is its identity.
-   */
   it('is words, never the identity, for a tag nobody labelled', () => {
     expect(labelOf(tag('mine/lent-out'))).toBe('Lent out')
     expect(labelOf(tag('mine/lent-out'))).not.toContain('/')
@@ -34,10 +30,7 @@ describe('where a tag sits, said in words', () => {
     expect(underOf(tag('genre/fantasy/urban', 'Urban fantasy'), all)).toBe('Genre, Fantasy')
   })
 
-  /*
-   * A book can carry `genre/fantasy` in a vocabulary with no `genre` row, so
-   * the nesting has to be sayable without one.
-   */
+  /* A book can carry `genre/fantasy` in a vocabulary with no `genre` row. */
   it('names an ancestor that has no row of its own', () => {
     expect(underOf(tag('where-it-came-from/gift', 'A gift'), [])).toBe('Where it came from')
   })

@@ -1,18 +1,12 @@
 /**
  * A stand-in for Open Library and Google Books.
  *
- * Both lookups happen in the API process, not the browser, so the page cannot
- * intercept them and neither can Playwright's routing. The server reads its
- * catalogue origins from the environment (see web/server/lookup.ts), so the
- * suite starts this and points the app at it.
+ * Both lookups happen in the API process, not the browser, so neither the
+ * page nor Playwright's routing can intercept them: the server reads its
+ * catalogue origins from the environment (see web/server/lookup.ts), and the
+ * suite points it at this instead.
  *
- * This is not an optimisation. A suite that really asks Open Library fails
- * whenever Open Library is slow, rate limiting, or down, and it fails in a way
- * that looks exactly like the app being broken. Answering here means a run has
- * only one possible reason to go red, which is the app.
- *
- * One server serves all three origins. Their paths do not collide, and one
- * port is one thing to shut down.
+ * One server serves all three origins; their paths do not collide.
  */
 
 import { createServer, type Server } from 'node:http'
@@ -31,16 +25,12 @@ export interface CatalogueStub {
 }
 
 /**
- * A delay armed for the next lookup of one ISBN, so a test can hold a
- * relookup open for as long as it needs to assert on what the app does while
- * one is still running.
+ * A delay armed for the next lookup of one ISBN, so a test can assert on
+ * what the app does while a relookup is still running.
  *
- * `remaining` starts at two because `lookupOne` fires Open Library and Google
- * Books together with `Promise.all`: both legs have to be held up, or the one
- * left alone answers immediately and the lookup as a whole is not actually
- * slow. It counts down as each matching request is served and clears itself
- * once both have gone, so it never lingers to catch a lookup nobody armed it
- * for.
+ * `remaining` starts at two: the app fires Open Library and Google Books
+ * together, and both legs must be held up or the one left alone answers
+ * immediately, making the lookup as a whole not actually slow.
  */
 interface PendingDelay {
   isbn: string
@@ -70,8 +60,8 @@ function openLibraryData(book: StubBook) {
     number_of_pages: Number(book.pages),
     identifiers: { isbn_13: [book.isbn13], isbn_10: [book.isbn10] },
     subjects: book.subjects.map((name) => ({ name })),
-    // No cover: this stub serves no artwork, so the app finds none and stamps
-    // the book as asked-about, which is a real state the app has to handle.
+    // No cover: this stub serves no artwork, so the app finds none, a real
+    // state it has to handle.
     cover: {},
   }
 }
@@ -105,27 +95,19 @@ export async function startCatalogueStub(): Promise<CatalogueStub> {
   /**
    * ISBNs this stub will answer nothing for, however well it knows them.
    *
-   * A book no source can name is a real and ordinary thing: an old paperback,
-   * a book club edition, anything printed before ISBNs were universal. It is
-   * also the case the app is worst at, because there is nothing on screen to
-   * recognise the book by, so it is the book somebody photographs twice
-   * (#435). Every route below answers as it does for a book it has never heard
-   * of, which is the honest simulation: not an error, not a timeout, an empty
-   * answer.
-   *
-   * Armed by ISBN rather than by a global switch, so a scenario can have one
-   * book nobody can name while the shelf furniture around it stays nameable.
+   * Every route below answers as it does for a book it has never heard of: an
+   * empty answer, not an error or a timeout. Armed by ISBN rather than by a
+   * global switch, so a scenario can have one book nobody can name while the
+   * shelf furniture around it stays nameable.
    */
   const nobodyAnswersFor = new Set<string>()
 
   /**
    * The stub's own knowledge, minus whatever a scenario has taken off it.
    *
-   * The book is silenced rather than the number, and that is not tidiness. The
-   * app retries a failed 13-digit lookup under the 10-digit form (the note it
-   * writes says so out loud), so silencing the digits a scenario named would
-   * leave the other form answering and the book identified anyway. Found by
-   * doing exactly that.
+   * Silenced by book, not by the exact digits given: the app retries a failed
+   * 13-digit lookup under the 10-digit form, so silencing only the digits a
+   * scenario named would leave the other form answering.
    */
   function look(isbn: string): StubBook | undefined {
     const book = byIsbn(isbn)
@@ -177,9 +159,8 @@ export async function startCatalogueStub(): Promise<CatalogueStub> {
       return
     }
 
-    // And the undo, called after every scenario. This server outlives them
-    // all, so a book left silent would be silent for the rest of the run, and
-    // it would be the book the camera is pointed at in every other feature.
+    // The undo, called after every scenario: this server outlives them all,
+    // so a silenced book would stay silent for the rest of the run.
     if (request.method === 'POST' && url.pathname === '/__control/answer-for-everybody') {
       nobodyAnswersFor.clear()
       response.writeHead(204)
@@ -223,9 +204,8 @@ export async function startCatalogueStub(): Promise<CatalogueStub> {
     // Open Library: title search, the fallback when no ISBN can be read.
     if (url.pathname === '/search.json') {
       const title = (url.searchParams.get('title') ?? '').toLowerCase()
-      // Silenced by title as well as by ISBN. "No source answers for this
-      // book" has to mean the book, or a scenario about one would be answered
-      // round the side by the search nobody was thinking about.
+      // Silenced by title too: "no source answers for this book" must mean
+      // the book, not just the ISBN route.
       const named = ALL_STUB_BOOKS.find((b) => b.title.toLowerCase() === title)
       const book = named && look(named.isbn13)
       json({
@@ -256,16 +236,12 @@ export async function startCatalogueStub(): Promise<CatalogueStub> {
     }
 
     /*
-     * The two SRU catalogues (#305), which stand in for Library of Congress and
-     * K10plus. They answer a well-formed SRU response with no records in it,
-     * which is a real and ordinary thing for a national catalogue to say.
-     *
-     * That is the whole point of them being here. The app asks these two only
-     * about a book the other two left without a page count or a genre, and every
-     * book in `books.ts` has both, so nothing in a green run reaches them. What
-     * this stops is a run that goes off-script from reaching the real Library of
-     * Congress, which is the failure this file exists to prevent, one origin
-     * later than it was written for.
+     * The two SRU catalogues, standing in for Library of Congress and
+     * K10plus. They answer a well-formed SRU response with no records, since
+     * every book in `books.ts` already has a page count and a genre and so
+     * never reaches them in a green run. Answering here, rather than leaving
+     * them unhandled, is what stops a run reaching the real Library of
+     * Congress.
      */
     if (url.pathname === '/sru/lcdb' || url.pathname === '/sru/k10plus') {
       response.writeHead(200, { 'Content-Type': 'application/xml' })
@@ -278,8 +254,8 @@ export async function startCatalogueStub(): Promise<CatalogueStub> {
       return
     }
 
-    // Cover artwork. Deliberately absent: a 404 is what Open Library sends
-    // for a book it has no picture of, and it keeps the run off the network
+    // Cover artwork: deliberately absent. A 404 is what Open Library sends
+    // for a book with no picture, and it keeps the run off the network
     // without inventing artwork nobody asserts on.
     if (url.pathname.startsWith('/b/isbn/')) return missing()
 

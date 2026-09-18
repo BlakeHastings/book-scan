@@ -1,16 +1,12 @@
 /**
  * Synthetic book covers for tests. Generating them beats checking in binaries
- * and lets a test state exactly which condition it is exercising (glossy,
- * rotated, price add-on beside the ISBN, and so on).
+ * and lets a test state exactly which condition it is exercising.
  *
  * Cover text is rendered with an embedded font (see fixtureText below)
- * instead of a system font name in SVG markup. A font named in SVG is
- * resolved by whatever fontconfig/DirectWrite finds installed on the machine
- * running the test, so "Georgia" is Georgia on a box that has it and some
- * unrelated substitute, at different metrics, on one that does not. That
- * silently changes what a fixture actually draws depending on which platform
- * ran the test, which is exactly what made a real bug (#1) hard to diagnose:
- * the images two platforms were asserting against were not the same images.
+ * rather than a system font name, since a font named in SVG is resolved by
+ * whatever fontconfig or DirectWrite finds installed on the machine running
+ * the test, so the same name can resolve to a different font, at different
+ * metrics, on different platforms.
  */
 
 import fs from 'node:fs'
@@ -22,36 +18,20 @@ import bwipjs from 'bwip-js/node'
 import sharp, { type OverlayOptions } from 'sharp'
 
 // Gelasio, metric-compatible with Georgia, SIL Open Font License 1.1 (see
-// fixtures-assets/OFL.txt). Subset to ASCII, Latin-1 Supplement and a
-// handful of typographic punctuation marks, which is everything the fixture
-// text below needs. Passing this file straight to sharp's `fontfile` bypasses
-// system font lookup entirely, so the same glyphs at the same metrics are laid
-// out on Windows and Linux alike, whatever fonts either machine happens to have.
+// fixtures-assets/OFL.txt), subset to ASCII, Latin-1 Supplement and the
+// punctuation the fixture text needs. Passing this file straight to sharp's
+// `fontfile` bypasses system font lookup, so text lays out at the same
+// metrics on every platform.
 //
-// The same glyphs at the same metrics, and not the same pixels. This is worth
-// being exact about, because the sentence that used to be here claimed the
-// stronger thing and it is not true. Rendering this cover on both platforms and
-// differencing the raw pixels:
-//
-//   colouredCover('Blindsight', ...): 7654 of 1215000 pixels differ, by up to
-//   109 levels out of 255, and every one of them is inside the glyphs. The
-//   chosen point size and the canvas the text lays out into are identical; the
-//   rasterisation of the outlines into coverage is not.
-//
-// A scene with no text in it is byte-identical across the two, so the rest of
-// the pipeline (background generation, compositing, resize, JPEG encode) is
-// stable and only the glyph interiors are not.
-//
-// So a fixture may be built out of text, but no test may rest on a decision
-// that a few pixels along a glyph edge could tip. One did: see the note on the
-// title position in `colouredCover`.
+// Metrics match, but rasterised pixels do not: the same text differs by a
+// handful of pixel levels along the glyph edges between platforms. No test
+// may depend on an exact pixel match where text is involved; see the note on
+// the title position in `colouredCover`.
 const FONT_FAMILY = 'Gelasio'
 const FONT_FILE = fileURLToPath(new URL('./fixtures-assets/Gelasio-Regular.ttf', import.meta.url))
 
-// Fail loudly, at import time, if the embedded font is not where it should
-// be. A fixture that quietly fell back to a system font would be exactly the
-// silent-substitution bug this file exists to avoid, just moved one level
-// up, so this check does not try to be clever about it: no file, no tests.
+// Checked at import time: a fixture that silently fell back to a system font
+// would reintroduce the platform drift this file exists to avoid.
 if (!fs.existsSync(FONT_FILE)) {
   throw new Error(
     `Test fixture font is missing: ${FONT_FILE}\n` +
@@ -73,16 +53,13 @@ interface RenderedText {
  * Render text with the embedded font, auto-fit to a pixel box.
  *
  * Passing both `width` and `height` makes sharp choose the largest point
- * size that fits the text inside that box, wrapping to more lines only if a
- * single line will not fit. That is what keeps a long title such as "The
- * Dispossessed" on the canvas: rather than a fixed point size that happens
- * to fit one font's metrics and overflow another's, the box is fixed and the
- * size adapts to whatever the (now single, embedded) font actually measures.
+ * size that fits the text in the box, wrapping only if a single line will
+ * not fit.
  */
 async function fixtureText(
   text: string,
   box: { width: number, height: number },
-  /** Pango colour for the glyphs. Black when not given, as it always was. */
+  /** Pango colour for the glyphs; black when omitted. */
   ink?: string,
 ): Promise<RenderedText> {
   const escaped = escapePangoMarkup(text)
@@ -109,7 +86,6 @@ function escapePangoMarkup(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
-/** Centre a rendered text image horizontally, anchored on a vertical centre. */
 function centred(rendered: RenderedText, canvasWidth: number, centreY: number): OverlayOptions {
   return {
     input: rendered.input,
@@ -118,7 +94,6 @@ function centred(rendered: RenderedText, canvasWidth: number, centreY: number): 
   }
 }
 
-/** Left-align a rendered text image at a fixed position. */
 function positioned(rendered: RenderedText, left: number, top: number): OverlayOptions {
   return { input: rendered.input, left, top }
 }
@@ -139,23 +114,19 @@ export async function barcodePng(isbn: string, scale = 3): Promise<Buffer> {
 
 export interface BackCoverOptions {
   /**
-   * Use a retail UPC-A instead of a Bookland EAN, with the ISBN printed only
-   * as text. This is how US mass-market paperbacks looked before ISBN-13,
-   * and it is the case that defeats barcode-only identification.
+   * A retail UPC-A rather than a Bookland EAN, with the ISBN printed only as
+   * text: how US mass-market paperbacks looked before ISBN-13, and the case
+   * that defeats barcode-only identification.
    */
   upc?: string
-  /** Print the ISBN-10 form rather than the 13. */
   printIsbn10?: string
-  /** Print "ISBN 978-..." as text as well as the barcode. */
   printedIsbn?: boolean
-  /** Include the barcode itself. */
   barcode?: boolean
-  /** Add an EAN-5 price add-on beside the ISBN, as most US paperbacks have. */
+  /** An EAN-5 price add-on beside the barcode, as on most US paperbacks. */
   priceAddOn?: boolean
   rotate?: number
 }
 
-/** A plausible back cover: blurb, barcode, printed ISBN. */
 export async function backCover(
   isbn: string,
   options: BackCoverOptions = {},
@@ -179,8 +150,7 @@ export async function backCover(
     ),
   ]
   if (upc) {
-    // A retail UPC-A, which is what a pre-ISBN-13 paperback carries. It has a
-    // valid checksum and is not a book identifier.
+    // A valid UPC-A checksum, but not a book identifier.
     composites.push({
       input: await bwipjs.toBuffer({
         bcid: 'upca', text: upc, scale: 3, height: 18, includetext: true,
@@ -217,7 +187,6 @@ export async function backCover(
   return sharp(composed).rotate(rotate, { background: '#ffffff' }).png().toBuffer()
 }
 
-/** A front cover: big title, smaller author and cover noise. */
 export async function frontCover(title: string, author: string): Promise<Buffer> {
   const width = 900
   const height = 1350
@@ -239,13 +208,7 @@ export async function frontCover(title: string, author: string): Promise<Buffer>
     .toBuffer()
 }
 
-/**
- * A book spine: tall, narrow, title running down it.
- *
- * Shaped like what `SPINE_CROP` saves, so a scene built around one is the
- * shape the edge slot really holds rather than a rotated cover standing in
- * for it.
- */
+/** Shaped like what `SPINE_CROP` saves, so a scene built around this is the shape the edge slot really holds. */
 export async function spine(title: string, author: string): Promise<Buffer> {
   const width = 150
   const height = 1250
@@ -264,17 +227,10 @@ export async function spine(title: string, author: string): Promise<Buffer> {
 }
 
 /**
- * A cover on coloured paper, optionally with a panel printed on it.
- *
- * Every other cover here is black on white, which is the one case a detector
- * that only measures brightness handles well. The owner's collection is not
- * like that: the covers that were being missed were dark ones photographed on
- * a dark table, differing from it in hue far more than in tone.
- *
- * `rule` prints a contrasting band right across the cover, which is what the
- * edge of a title bar or a divider actually is: a strong straight line with the
- * same cover on both sides of it a short way out. A crop that stops at one has
- * cut the book in half, and the owner has a real photograph where that happened.
+ * A cover on coloured paper, optionally with a printed contrasting band
+ * (`rule`), which is what the edge of a title bar or a divider actually
+ * looks like: a strong straight line with the same cover on both sides of it.
+ * A crop that stops there has cut the book in half.
  */
 export async function colouredCover(
   title: string,
@@ -296,23 +252,14 @@ export async function colouredCover(
       top: Math.round(height * rule.at),
     })
   }
-  // The title sits where `frontCover` puts its own title, and it has to.
+  // The title sits where `frontCover` puts its own title, and it has to: the
+  // detector's line-snapping search can settle on either the title's top edge
+  // or the book's, and glyph-edge pixels are not the same on every machine
+  // (see the note at the top of this file).
   //
-  // It used to be centred at y=120, which put its glyphs within 60 pixels of
-  // the top of the cover. The detector snaps each side of a candidate onto the
-  // strongest straight line within 24 of its working pixels, and in a scene
-  // built from this cover 24 working pixels is about 80 cover pixels. So the
-  // top of the title and the top of the book were two rival lines inside one
-  // search band, and which of them the search settled on came down to the
-  // handful of pixels along the glyph edges. Those pixels are not the same on
-  // every machine: see the note at the top of this file. The result was a scene
-  // that found the book on one platform and came back with the title cut off on
-  // another.
-  //
-  // Nothing here wanted to test that. A printed line that a crop must not stop
-  // at is the sibling scene's job, and the `rule` parameter above places one at
-  // 28 per cent of the way down on purpose, far outside the snap band, so that
-  // it tests the far-offset check rather than the snapping search.
+  // `rule` is placed at 28 per cent of the way down on purpose, far outside
+  // the snap band, so it tests the far-offset check rather than the snapping
+  // search.
   composites.push(
     centred(await fixtureText(title, { width: 700, height: 180 }, ink), width, 620),
     centred(await fixtureText(author, { width: 620, height: 80 }, ink), width, 1120),
@@ -341,7 +288,6 @@ export async function colouredSpine(
   return sharp(laid).rotate(90).png().toBuffer()
 }
 
-/** Simulate a glossy cover: low contrast plus a bright diagonal highlight. */
 export async function glossy(input: Buffer): Promise<Buffer> {
   const { width = 900, height = 1250 } = await sharp(input).metadata()
   const glare = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
@@ -363,17 +309,7 @@ export async function glossy(input: Buffer): Promise<Buffer> {
     .toBuffer()
 }
 
-// ---------------------------------------------------------------------------
-// Photographs of a book in a room
-// ---------------------------------------------------------------------------
-//
-// A cover on a white canvas says nothing about whether a detector can find a
-// book in somebody's living room. These build the harder picture: a cover, at
-// an angle, on a floor, with a shadow under it and other straight-edged things
-// in the frame, and they hand back the rectangle the book really occupies so
-// accuracy can be a number rather than an impression.
-
-/** A rectangle in image pixels. The same shape `bookcrop` returns. */
+/** A rectangle in image pixels, the same shape `bookcrop` returns. */
 export interface FixtureRect {
   left: number
   top: number
@@ -397,7 +333,7 @@ export interface SceneOptions {
   background?: SceneBackground
   /** Fraction of the frame's width the book covers before any rotation. */
   fill?: number
-  /** Degrees. A hand-held book is never square to the camera. */
+  /** Degrees. */
   rotate?: number
   /** Rectangular things that are not the book: a table edge, a shelf, a mat. */
   distractors?: number
@@ -406,13 +342,9 @@ export interface SceneOptions {
   /** 0 to 1. How near the background's brightness is to the book's own. */
   camouflage?: number
   /**
-   * Per-channel multipliers for the background, red then green then blue.
-   *
-   * Without this every surface here is neutral grey, which quietly makes the
-   * scenes easier than the room they stand for: a grey floor differs from a
-   * cover in brightness or not at all. A warm dark table, `[1.15, 0.85, 0.6]`,
-   * differs from a cool dark cover mostly in hue, and that is the case the
-   * owner's photographs are full of.
+   * Per-channel multipliers for the background: red, then green, then blue.
+   * Defaults to neutral grey; a tint such as `[1.15, 0.85, 0.6]` differs from
+   * a dark cover in hue rather than brightness, which plain grey cannot test.
    */
   backgroundTint?: [number, number, number]
 }
@@ -436,9 +368,8 @@ function backgroundPixels(
   camouflage: number,
   tint: [number, number, number],
 ): Buffer {
-  // Camouflage lifts the floor towards the cover's own near-white, which is
-  // what takes a book's outline away and is the case worth being able to fail
-  // on rather than guess through.
+  // Camouflage lifts the floor brightness toward the cover's own near-white,
+  // removing the outline a detector relies on.
   const base = 60 + Math.round(camouflage * 150)
   const raw = Buffer.alloc(width * height * 3)
 
@@ -480,11 +411,9 @@ function backgroundPixels(
 }
 
 /**
- * Put a book in a room and say where it is.
- *
- * `subject` is any cover or spine image. It is rotated first, so the returned
- * rectangle is the axis-aligned box around the tilted book, corners included,
- * which is exactly what a crop has to contain in order not to cut it.
+ * `subject` is rotated first, so the returned rectangle is the axis-aligned
+ * box around the tilted book, corners included, which is what a crop has to
+ * contain in order not to cut it.
  */
 export async function photographedBook(
   subject: Buffer,

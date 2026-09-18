@@ -3,9 +3,7 @@ Feature: Photographing a book whose barcode is already in the queue
   The door people actually use. Somebody working through a stack of new books
   is in the Add flow with the camera on the back cover, and the back cover is
   where the barcode is, so this is the entry point where a book gets scanned
-  twice most often. It was also the one entry point with no check at all: the
-  answer from #138 lived in the scan route and ran only where no barcode read,
-  so a second capture of an already queued ISBN appeared in silence (#146).
+  twice most often.
 
   Deliberately the ordinary back cover camera, and deliberately not tagged for
   the front cover one. A barcode is what this scenario is about: the ISBN is
@@ -27,8 +25,6 @@ Feature: Photographing a book whose barcode is already in the queue
     And I photograph the book
     Then the camera should recognise the book as "Dune"
 
-    # Somebody picks the same book off the pile and starts it again, which is
-    # exactly what happens when one person photographs and another resolves.
     When I start the next book
     And I photograph the book
     Then it should say the book is already in the queue
@@ -36,8 +32,6 @@ Feature: Photographing a book whose barcode is already in the queue
     When I open the book it found in the queue
     Then the review screen should be showing a queued book
 
-    # And one book in the queue, not two. The photographs just taken went with
-    # the decision to go and finish the capture that already existed.
     And the queue should hold one book
 
   Scenario: Saying it is a different book keeps the second capture

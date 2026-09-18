@@ -1,18 +1,17 @@
 /**
  * The capture repository, against a real Postgres.
  *
- * Postgres only, and it has to be: `capture` is created by a migration, and
- * migrations exist only for Postgres. The database each test opens is built by
- * running every migration, which is also the only way to get one with this table
- * in it.
+ * Postgres only, and it has to be: `capture` is created by a migration,
+ * and migrations exist only for Postgres. The database each test opens is
+ * built by running every migration, which is also the only way to get one
+ * with this table in it.
  *
- * Two things here are worth more than the rest. The first is that recording a
- * photograph twice is the same as recording it once, and recording a *different*
- * file is a second photograph rather than a replacement, which is the whole
- * reason this table exists. The second is that every field a repeat writes moves
- * in one direction only: that is what makes two overlapping crop passes safe
- * without a lock, and the lost update it prevents is one this project has
- * already had, in stage G, on the column this replaces.
+ * Two things here are worth more than the rest. The first is that
+ * recording a photograph twice is the same as recording it once, and
+ * recording a different file is a second photograph rather than a
+ * replacement, which is the whole reason this table exists. The second is
+ * that every field a repeat writes moves in one direction only, which is
+ * what makes two overlapping crop passes safe without a lock.
  */
 
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
@@ -79,11 +78,9 @@ describe('recording a photograph', () => {
   })
 
   it('makes a re-shot spine a second photograph, and keeps the first', async () => {
-    /*
-     * The feature the whole table is for. Under the eight columns this replaces
-     * there was one `edge_image`, so re-shooting a blurred spine meant writing
-     * over the only record of it. Here it is a new file, so it is a new row.
-     */
+    // Under the eight columns this replaces there was one `edge_image`,
+    // so re-shooting a blurred spine meant writing over the only record
+    // of it. Here it is a new file, so it is a new row.
     const id = await aBook('Dune')
     await captures.record(id, [{ kind: 'spine', file: 'blurred.jpg', takenAt: SHOT_AT }])
     await captures.record(id, [{
@@ -126,14 +123,11 @@ describe('what a repeat may change', () => {
   })
 
   it('never takes a crop back off, whatever a later caller says', async () => {
-    /*
-     * The lost update stage G found, on the column this replaces. Two crop
-     * passes over one book overlap routinely, one fired after a save and one
-     * from the backfill loop, and the second one arriving with nothing to say
-     * must not erase what the first one found. The crop is a file on a disk this
-     * statement cannot reach: blanking the column would make it unreachable
-     * rather than making it untrue.
-     */
+    // Two crop passes over one book overlap routinely, one fired after a
+    // save and one from the backfill loop, and the second one arriving
+    // with nothing to say must not erase what the first one found. The
+    // crop is a file on a disk this statement cannot reach: blanking the
+    // column would make it unreachable rather than making it untrue.
     const id = await aBook('Dune')
     await captures.record(id, [{
       kind: 'front', file: 'front.jpg', cropFile: 'front_crop.jpg',

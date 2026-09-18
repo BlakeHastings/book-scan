@@ -2,26 +2,16 @@
  * Contrast the way WCAG 2.1 defines it, and the compositing that has to happen
  * before there is anything to measure.
  *
- * **One arithmetic, because there are two tests that measure colour.**
- * `src/styles.test.ts` recomputes the ratios of what the app's own stylesheet
- * floats on the camera, from the digits in the files rather than from a
- * sentence somebody wrote beside them (#432, #451). `design/design.test.tsx`
- * does the same for the bed the design system writes every word on the camera
- * on (#530). Two copies of this would agree until one of them was edited, which
- * is the fault `Shots.tsx` was made to end, and colour is the worst place to
- * have it: a drifted copy is a green test asserting the wrong number.
+ * Shared by two tests, `src/styles.test.ts` and `design/design.test.tsx`, both
+ * of which recompute ratios from the actual colour digits rather than trusting
+ * a comment, so this stays one arithmetic rather than two copies that could
+ * drift. Nothing at run time imports it.
  *
- * Nothing at run time imports this. It is here rather than beside one of the
- * two tests because it belongs to neither of them.
- *
- * ## What "over a photograph" means, which is the whole reason this exists
- *
- * A ratio needs two colours, and half of what this app draws is floating on a
- * live camera, where the second colour is whatever the lens is pointed at. That
- * looks unanswerable and is not. The lens hands the screen eight-bit sRGB, so
- * the background is a **range with both ends closed**: nothing is lighter than
- * white or darker than black. Measure against `BEHIND` and the answer holds for
- * every book that will ever be held up.
+ * A ratio needs two colours, but half of what this app draws floats on a live
+ * camera, where the second colour is whatever the lens is pointed at. The lens
+ * hands the screen eight-bit sRGB, so the background is a range with both ends
+ * closed: nothing is lighter than white or darker than black. Measuring
+ * against `BEHIND` therefore holds for every book that will ever be held up.
  */
 
 /** A colour with no alpha left in it. */
@@ -35,10 +25,7 @@ export interface Paint {
 
 /**
  * A `#rgb`, `#rrggbb`, `rgb(...)` or `rgba(...)` as written in a stylesheet.
- *
- * Deliberately narrow. Anything else throws rather than being guessed at, so a
- * rule that starts writing in a colour space this cannot composite fails the
- * test that reads it instead of being quietly skipped.
+ * Deliberately narrow: anything else throws rather than being guessed at.
  */
 export function parse(colour: string): Paint {
   const hex = colour.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i)
@@ -80,23 +67,10 @@ export const over = (top: Paint, under: Rgb): Rgb =>
 export const AA_BODY_TEXT = 4.5
 
 /**
- * AA for something you have to be able to make out and do not have to read.
- *
- * WCAG 1.4.11. There is exactly one such thing on this camera and it is the
- * frame you aim the book inside (#553): a rectangle with no words in it, whose
- * whole job is to say where the crop is. Inheriting 4.5 for it would have been
- * a stricter rule nobody argued for, and a looser one applied to a word would be
- * worse, so the two numbers sit here together with their reasons rather than
- * being chosen per test.
+ * AA for something you have to be able to make out and do not have to read
+ * (WCAG 1.4.11): the camera's aiming frame, which carries no words.
  */
 export const AA_NON_TEXT = 3
 
-/**
- * The two ends of what a camera can put behind something.
- *
- * A white page and a black paperback are both books somebody photographs, and
- * neither is a corner case: the page is most of what this camera sees. Nothing
- * an eight-bit photograph contains is outside them, so a bed that clears both
- * clears everything in between.
- */
+/** The two ends of what a camera can put behind something: a bed that clears both clears everything an eight-bit photograph can contain. */
 export const BEHIND: Rgb[] = [[0, 0, 0], [255, 255, 255]]

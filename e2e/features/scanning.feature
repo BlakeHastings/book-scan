@@ -45,7 +45,6 @@ Feature: Scanning a book that is already catalogued
     And I scan the book
     Then it should open the book "Dune"
 
-    # Scanning it did not put it back. Nothing does that but the person.
     And the catalogue should record "Dune" as off the bookcase
 
     When I check it in

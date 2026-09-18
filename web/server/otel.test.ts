@@ -4,10 +4,8 @@ import { isLoopbackHttps, otlpProtocol } from './otel'
 
 describe('otlpProtocol', () => {
   it('speaks gRPC when the collector says so, which is what Aspire says', () => {
-    // Exactly the environment an Aspire resource is handed. Getting this wrong
-    // is not a degraded pipeline, it is no pipeline: the dashboard listens for
-    // HTTP/2 only, and an http/protobuf exporter never gets past the TLS
-    // handshake.
+    // The Aspire dashboard listens for HTTP/2 only, so an http/protobuf exporter
+    // never gets past the TLS handshake.
     const env = {
       OTEL_EXPORTER_OTLP_ENDPOINT: 'https://localhost:21047',
       OTEL_EXPORTER_OTLP_PROTOCOL: 'grpc',

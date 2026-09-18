@@ -1,53 +1,17 @@
 /**
- * What the rules want, said as a list of books to carry, before anything is
- * written.
+ * What the rules want, as a list of books to carry, before anything is written.
+ * No separate plan table: `AssignPlacementsHandler` and this run the same
+ * rules over the same rows, one writing and one not.
  *
- * **Plan and apply are the same answer read twice.** `AssignPlacementsHandler`
- * runs the rules and writes an `assigned` row wherever the answer differs from
- * where the book already is; this runs the same rules over the same rows and
- * writes nothing, so what a person approves is what gets recorded. There is no
- * plan table and there must not be one: a plan that had to be stored would be a
- * third opinion about where a book goes, beside `assigned` and `placed`, and the
- * reason the ledger has two kinds is that two is the number.
+ * Whether a book moves is decided on `standing.area` against
+ * `found.slot.area.id`, never on the rendered labels: two pieces of furniture
+ * can stand on the same number, so two different planks can render the same
+ * label (see `slotsInOrder`).
  *
- * ## Whether a book moves is decided on areas, and only said in labels
- *
- * This block used to argue the opposite, that comparing "the labels a person
- * reads" was deliberate because "the two agree wherever a label identifies a
- * plank, which is everywhere on a bookcase's face". **A label does not identify
- * a plank**, and `slotsInOrder` says why in as many words: two pieces of
- * furniture can stand on one number, which is an arrangement this catalogue has.
- * Both then render `4A`, and a plan comparing the strings reported a book as
- * staying exactly where it was while the engine, which compares area ids, wrote
- * an assignment moving it to the other bookcase.
- *
- * That is [#430](https://github.com/BlakeHastings/book-scan/issues/430) item 1:
- * a rule previewed as "no book would have to be carried" and then produced a
- * carry list, one of whose trips read `4A` to `4A`. It is the same hole as #356,
- * #380, #401 and #434 arriving through the preview: a place was rendered to a
- * string and the string was read back as if it were the place.
- *
- * So the decision is `standing.area` against `found.slot.area.id`, which is the
- * same identity the handler writes rows about, and the labels are carried
- * alongside because "which plank do I take this off and which do I put it on" is
- * still the question a person is answering. What the two numbers say and what
- * the two strings say can no longer part company.
- *
- * ## What it refuses to leave out
- *
- * A plan that says "50 books move" having quietly dropped three pinned ones is
- * lying by omission, so every book the rules will not touch is counted here with
- * the reason it was left alone:
- *
- * - **pinned**, because a pin is a person overruling the rules and it beats them
- *   forever;
- * - **checked out** and **withdrawn**, because neither is on a shelf to be
- *   carried off one;
- * - **unclaimed**, where no rule matches the book at all, which is how the
- *   person who wrote the rules finds out;
- * - **never placed**, where nobody has ever said where the book is, so there is
- *   no plank to take it off. The rules will still assign it; it is just not a
- *   book anybody carries anywhere.
+ * Every book the rules will not touch is counted with a reason, so a plan
+ * never silently drops one: pinned, checked-out, withdrawn (not on a shelf to
+ * carry off), unclaimed (no rule matches), or never-placed (nowhere to take
+ * it off, though the rules will still assign it).
  */
 
 import { labelFor, type Slot } from './geography'
@@ -70,12 +34,7 @@ export interface PlannedBook {
   authorFiling: string
 }
 
-/**
- * Every book coming off one plank and going onto one other.
- *
- * The unit a person acts on. 187 moves is not a list on a phone; "22 books,
- * 4C to 3C" is, and the books are underneath it for when a number looks wrong.
- */
+/** The unit a person acts on: books grouped by their one shared move. */
 export interface PlanGroup {
   from: string
   to: string
@@ -121,18 +80,15 @@ function rowsByBook(rows: readonly Placement[]): Map<number, Placement[]> {
 }
 
 /**
- * Run the rules over a catalogue and answer what would have to happen.
+ * Runs the rules over a catalogue and answers what would have to happen.
  *
- * `order` is the furniture as it would stand, which is the whole of how a
- * proposed change is planned: hand it the prospective arrangement from
- * `relocateRun` and this answers the proposal, hand it the arrangement that
- * exists and this answers the present.
+ * `order` is the furniture as it would stand: hand it the prospective
+ * arrangement from `relocateRun` to preview a change, or the current one to
+ * see the present.
  *
- * `placed` names where the books are **now**, one label per area, and is a
- * separate argument for two reasons. A proposal's furniture no longer holds the
- * planks the books are standing on; and a book can be recorded on a plank that
- * has been taken out, which is off every arrangement there is and still reads as
- * the plank somebody wrote down.
+ * `placed` names where books are now, one label per area, kept separate
+ * because a book can be recorded on a plank that has since been removed and
+ * so no longer appears in `order`.
  */
 export function planPlacements(
   books: readonly PlannableBook[],
@@ -171,8 +127,6 @@ export function planPlacements(
 
     const from = placed.get(standing.area) ?? ''
     const to = there.get(found.slot.area.id) ?? ''
-    // The two areas rather than the two labels, for the reason above them:
-    // one trip is one pair of places, and two places can read alike.
     const key = `${standing.area}${found.slot.area.id}`
     const group = grouped.get(key) ?? { from, to, books: [] }
     group.books.push(named(book))

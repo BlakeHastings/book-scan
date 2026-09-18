@@ -1,15 +1,6 @@
 /**
- * What the app says about a catalogue that has been quiet (#348).
- *
- * The server's half of this is tested in `server/source-watch.test.ts` and
- * `server/lookup-sources.test.ts`, where five real behaviours produce five
- * different reports. This is the other half of the same claim: that the five
- * survive being turned into sentences, and that the two facts a person can act
- * on are the two that reach the screen he is actually looking at.
- *
- * The one that would be easy to lose is the negative: a catalogue merely having
- * a bad afternoon must draw nothing on the first screen. A card drawn for
- * weather is a card somebody learns to scroll past, and this screen carries two
+ * A catalogue merely having a bad afternoon must draw nothing on the first screen: a card
+ * drawn for weather is a card somebody learns to scroll past, and this screen carries two
  * others that must not be scrolled past.
  */
 
@@ -57,15 +48,10 @@ const working = { asked: 12, answered: 12, held: 10, noRecord: 2 }
 
 describe('the card on the first screen', () => {
   it('says nothing at all while the read has not answered', () => {
-    // The same silence `backupWords.ts` keeps, and for the same reason: a
-    // sentence written from a request that never came back is worth less than
-    // no sentence.
     expect(catalogueTrouble(null)).toBeNull()
   })
 
   it('says nothing on a day when every catalogue is answering', () => {
-    // There is no reassuring card in here. A line saying the catalogues are
-    // fine is a line a bug can print over a lookup that never happened.
     expect(catalogueTrouble(report({
       'Open Library': working,
       'Google Books': working,
@@ -73,19 +59,10 @@ describe('the card on the first screen', () => {
   })
 
   it('says nothing about a catalogue nobody has asked', () => {
-    // The two supplementary catalogues are asked only about a book the first
-    // pair left a gap in, so nought is an ordinary state and not news.
     expect(catalogueTrouble(report({ 'Open Library': working }))).toBeNull()
   })
 
   it('says nothing about a catalogue that is merely failing', () => {
-    /*
-     * The deliberate omission, and the reason the server had to learn the
-     * difference between a refusal and a failure before this file could exist.
-     * A timeout ends on its own, often before the shelf is finished. Putting it
-     * on the first screen would be putting weather next to a backup that has
-     * stopped.
-     */
     expect(catalogueTrouble(report({
       'Open Library': working,
       'Google Books': brokenDown,
@@ -93,9 +70,6 @@ describe('the card on the first screen', () => {
   })
 
   it('says nothing about a catalogue that is refusing but still answering', () => {
-    // Contributing and also having a bad morning. The counters have it and
-    // Settings shows it; the first screen is for what will still be true
-    // tomorrow.
     expect(catalogueTrouble(report({
       'Google Books': { asked: 12, answered: 8, held: 8, silent: 4, declined: 4 },
     }))).toBeNull()
@@ -110,17 +84,11 @@ describe('the card on the first screen', () => {
     expect(said.title).toBe(
       'Google Books has described none of the 12 books you have looked up',
     )
-    // The reassurance is the point of the second half: a person holding a book
-    // has done nothing wrong and nothing they catalogued is wrong.
     expect(said.said).toContain('Nothing you have catalogued is wrong')
     expect(said.said).toContain('Where your books are described from')
   })
 
   it('names every refusing catalogue rather than the first one', () => {
-    /*
-     * A report that reads as complete and is not is the whole defect being
-     * fixed, so a card mentioning one of two would rebuild it one storey up.
-     */
     const said = catalogueTrouble(report({
       'Google Books': refused,
       K10plus: { asked: 3, silent: 3, declined: 3 },
@@ -146,8 +114,6 @@ describe('the card on the first screen', () => {
   it('never says anything about a key beyond whether there is one', () => {
     for (const keyed of [true, false]) {
       const said = catalogueTrouble(report({ 'Google Books': refused }, keyed))!
-      // No length, no prefix, no masked form. The boolean is the whole of what
-      // the wire carries and the whole of what may be said.
       expect(said.said).not.toMatch(/[A-Za-z0-9_-]{20,}/)
     }
   })
@@ -169,11 +135,6 @@ describe('the card in Settings', () => {
   })
 
   it('tells a catalogue nobody asked from a catalogue that had no record', () => {
-    /*
-     * The two that look identical from outside, side by side. Library of
-     * Congress was never consulted; Google Books was consulted twelve times and
-     * has never heard of any of those books. Both contributed nothing.
-     */
     const roll = catalogueRoll(report({
       'Google Books': { asked: 12, answered: 12, held: 0, noRecord: 12 },
     }))!
@@ -198,8 +159,6 @@ describe('the card in Settings', () => {
   })
 
   it('says the noughts out loud rather than leaving them off', () => {
-    // The rule this whole issue produced. An absent number reads as "nothing to
-    // report" and means the opposite.
     const roll = catalogueRoll(report({ 'Open Library': working }))!
     const said = roll.rows.find((one) => one.source === 'Open Library')!.said
 
@@ -225,15 +184,10 @@ describe('the card in Settings', () => {
 
     const without = catalogueRoll(report({}, false))!.keyed
     expect(without).toContain('without a key')
-    // And says plainly that this screen is not where one is typed, so nobody
-    // waits for a field that is never coming.
     expect(without).toContain('where the server runs, not here')
   })
 
   it('says the counts start again, so a nought is about today', () => {
-    // They live in the server process and a restart empties them. A card that
-    // let "asked 0" read as "never asked, ever" would be inventing the
-    // ambiguity it exists to remove.
     expect(catalogueRoll(report())!.said).toContain('start again each time')
   })
 })

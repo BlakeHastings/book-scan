@@ -1,43 +1,14 @@
 /*
  * The tokens. One file, both themes, nothing hard-coded downstream.
  *
- * ## Why these are scoped to `.wf` and not to `:root`
+ * Scoped to `.wf`, not `:root`: the running app already defines `--line` at
+ * `:root` in `src/styles.css` with a different value, and defining these
+ * globally would repaint every screen not yet converted. `body.wf-page` gets
+ * the same values so the page under a converted screen matches its column.
  *
- * The running app already owns `:root`, and one of the names it uses there is
- * a name this file wants: `--line`, which is `#33333f` in `src/styles.css` and
- * a warm hairline here. Defining these globally would repaint every screen of
- * the app that has not been converted yet, which is exactly the disturbance
- * this work is not allowed to cause. So every token lives on the `.wf` element
- * a converted screen mounts, custom properties inherit, and the app's own
- * value is the one that survives everywhere `.wf` is not.
- *
- * That is the whole of the collision between the two stylesheets, and it was
- * looked for rather than discovered: no class name appears in both, because
- * every rule here is `.wf` or `wf-` prefixed and nothing in `src/styles.css`
- * is. The header used to name `--radius`, `--text` and `--bg` beside `--line`;
- * those three are defined by the app and never redefined here, so they were
- * never collisions.
- *
- * When the redesign is cut over for real, this scope moves up to `:root` and
- * `src/styles.css` goes away. That is a later job, deliberately: the app wears
- * this on one screen so far.
- *
- * ## `body.wf-page`, which is the page under a converted screen
- *
- * `.wf` is a column at most 480px wide inside a page the app paints, so its
- * paper stops at its own edges: the app's cold `--bg` shows either side of it
- * on anything wider, and under an overscroll bounce on the phone itself. The
- * class goes on `body` for exactly as long as a converted screen is on
- * screen, and it is in the selector list below rather than repeating a colour,
- * so there is still one place each of these values is decided.
- *
- * ## The palette dresses the furniture, not the books
- *
- * The spines on these shelves are photographs in the real app. Everything
- * named here is the room around them: the board, its one edge, the divider,
- * the card, the label. Nothing in this file should be able to out-shout a
- * shelf of real spines, which is why the four hues are used for small marks
- * and never for large fills.
+ * The four hues are used for small marks and never for large fills: the
+ * spines on these shelves are photographs in the real app, and nothing here
+ * should be able to out-shout them.
  */
 
 .wf,
@@ -50,14 +21,7 @@ body.wf-page {
   --paper-raised: #fdf9f0;
   /* Sunk below the page: a well, a field, the inside of a slot. */
   --paper-sunk: #efe6d3;
-  /*
-   * A shallower well than `--paper-sunk`, for the one place a well sits
-   * inside a card rather than on the page: a list of books nested in a card,
-   * such as the stuck queue or a card on the first screen. The full sunk
-   * value read as a hole cut in the card, worst at night where it and the
-   * page were nearly the same colour, and the owner called it out on both
-   * screens: "the background on them is pretty harsh... pretty dark."
-   */
+  /* A shallower well than `--paper-sunk`, for a well nested inside a card rather than on the page. */
   --paper-well: #f6f0e2;
 
   /* The plank a book stands on. Board, as in bookbinder's board. */
@@ -100,11 +64,9 @@ body.wf-page {
   /* --- Books, which do not change when you turn the lights off ---------- */
 
   /*
-   * The cloths a placeholder spine is bound in. These are the only tokens in
-   * the file with no night value, and that is the point: in the real app a
-   * spine is a photograph, and a photograph of a green book is green at two
-   * in the morning. Lightening them for dark mode turned a shelf into pastel
-   * confectionery, which is exactly the chrome out-shouting the books.
+   * The cloths a placeholder spine is bound in. Deliberately the only tokens
+   * in the file with no night value: a real spine is a photograph, and a
+   * photograph of a green book is green at two in the morning too.
    */
   --cloth-moss: #3f6b52;
   --cloth-plum: #8a3e57;
@@ -120,68 +82,32 @@ body.wf-page {
   /* --- The picture, which is not paper either --------------------------- */
 
   /*
-   * The camera fills the screen, so every control on it floats on a
-   * photograph rather than on a page. These follow the theme no more than a
-   * spine does, and for the same reason: the thing behind them is whatever
-   * the lens is pointed at, and a label that goes dark because the phone is
-   * set to dark is a label that disappears on a photograph of a black
-   * paperback.
-   *
-   * The scrim is what makes the cream readable over any of it, and it is what
-   * every word on that screen is bedded on.
+   * The camera fills the screen, so controls float on a photograph rather
+   * than a page. These do not follow the theme, since what is behind them is
+   * whatever the lens is pointed at rather than the phone's light or dark
+   * setting.
    */
   --picture: #332a22;
   --picture-ink: #fbf6ec;
   /*
-   * The quiet half of the same cream, for a line that is a footnote to the one
-   * above it: what the camera is doing, under what it is for. `--ink-2` is that
-   * for paper and this is that for a picture, and the reason there have to be
-   * two of them is the reason the whole block exists.
-   *
-   * The alpha is where the ratio comes from and it is measured rather than
-   * chosen (#451). It was `rgba(255, 255, 255, 0.4)` written straight into the
-   * rule, which is 3.83 to 1 on the panel it sits on and fails AA in both
-   * themes at once, because a literal follows no theme at all. This is 5.79 to
-   * 1 there, and `styles.test.ts` recomputes it from these digits rather than
-   * trusting this sentence.
+   * The quiet half of the same cream, `--ink-2`'s counterpart for a picture.
+   * The alpha is measured rather than chosen, giving 5.79:1 against the panel
+   * it sits on; `styles.test.ts` recomputes it from these digits.
    */
   --picture-ink-2: rgba(251, 246, 236, 0.55);
   /*
-   * The bed every word on the camera is written on, and the reason it is a
-   * number rather than a taste (#530).
-   *
-   * **A ratio against a photograph is a range, and the range is closed.** The
-   * lens hands this screen eight-bit sRGB, so nothing it is pointed at is
-   * lighter than white or darker than black. So the two ends are drawable, and
-   * they are: `#camerapage` and `#cameracover` in the gallery. Measure a bed
-   * against both and it is measured against every book.
-   *
-   * It was `0.55`, which is 18.6 to 1 on a black paperback and **3.9 to 1 on a
-   * white page**, and a book's page is white. That is the shape of this defect
-   * and it is the same shape as `--picture-ink-2` above: fine at one end,
-   * failing at the other, and nothing about switching themes finds either of
-   * them, because a photograph is not a theme.
-   *
-   * `0.72` is 7.1 to 1 over white and 18.2 over black, and the margin over 4.5
-   * is deliberate rather than timid. `0.60` clears it at 4.60 and would be a
-   * fix only the arithmetic could see: what a person is reading is antialiased
-   * type on a picture that moves in their hand, and the edge pixels of a glyph
-   * never reach the nominal ratio. The cost is picture, and it is paid only
-   * under the words: this is a bed under each control, not a wash over the
-   * frame you aim with.
+   * The bed every word on the camera is written on. Measured against both
+   * ends of what a camera can show, `#camerapage` and `#cameracover` in the
+   * gallery, since a photograph is not a theme: 7.1:1 over white and 18.2:1
+   * over black, with margin above the 4.5 AA threshold because antialiased
+   * type on a moving picture never reaches the nominal ratio at its edges.
    */
   --picture-scrim: rgba(20, 16, 11, 0.72);
   --picture-line: rgba(251, 246, 236, 0.4);
 
   /* --- The cat ---------------------------------------------------------- */
 
-  /*
-   * He is a black cat, and the rim is what keeps him one. In daylight the
-   * rim is a mid-brown that vanishes against his own body and shows on the
-   * page, which is where his whiskers are. At night the same line goes pale,
-   * because a black cat on a dark room with no rim is a hole cut in the page
-   * with two eyes in it. Found by looking at him at night.
-   */
+  /* He is a black cat; the rim keeps him readable as one rather than a hole cut in the page. */
   --cat: #241d18;
   --cat-rim: rgba(110, 97, 84, 0.5);
   --cat-eye: #e8a93b;
@@ -190,49 +116,13 @@ body.wf-page {
   /* --- Type ------------------------------------------------------------- */
 
   /*
-   * Three roles, still no download. A phone that is about to load book
-   * photographs should not also be loading a webfont for its chrome.
-   *
-   * **The third role is the one the owner asked for, and he has now chosen
-   * it** (#273): "we want rounded, we want the rounded one that looks the
-   * best". The counts on the first screen were set in the book face and read
-   * as a plaque on a library wall. So the numbers the app says *about itself*
-   * are their own role, separate from the interface text they sit in, and
-   * separate from the book face, which stays where a reader's eye goes:
-   * titles, authors, the one line a screen exists to say. The comparison
-   * screen that asked the question is gone with the answer.
-   *
-   * ## What "rounded" actually is, which is worth being exact about
-   *
-   * `ui-rounded` is a generic family rather than a font, so what it means
-   * depends on the engine, and "he chose rounded" is only a real choice if his
-   * engine has one.
-   *
-   * It does. **This is reviewed on an iPhone**, and on iOS every browser is
-   * WebKit, where `ui-rounded` is SF Pro Rounded and `ui-serif` is New York.
-   * So the face he picked from is a genuinely rounded one, and the decision is
-   * about something he saw.
-   *
-   * **Off that phone there is no rounded face at all, and this was measured
-   * rather than assumed.** Rendering a string at 64px in Chromium on Windows
-   * and comparing its width against a family that does not exist: `ui-rounded`
-   * comes out at exactly the width of a missing font, as do SF Pro Rounded,
-   * Varela Round, Baloo 2, Quicksand and Nunito, none of which are installed
-   * anywhere here. So the whole rounded half of the stack is skipped and
-   * `--face-display` lands on Segoe UI Variable Display, which is a plain sans.
-   * `--face-ui` lands on Segoe UI beside it, so the display role still reads as
-   * its own face, and that is the half of the effect which travels.
-   *
-   * That is deliberate rather than unnoticed: off the phone the roundedness is
-   * absent rather than faked.
-   *
-   * Making it rounded everywhere means shipping a font file, with the weight
-   * and the licence that implies, and nobody has asked for that. If it is ever
-   * wanted, this is the line it lands on.
-   *
-   * `--face-display` is the rounded stack and not an alias of `--face-ui`, so
-   * this decision can be revisited in one line without dragging every button
-   * and label with it.
+   * Three roles, still no download: a phone loading book photographs should
+   * not also load a webfont for its chrome. `ui-rounded` is a generic family,
+   * so it only resolves to an actual rounded face on WebKit/iOS (SF Pro
+   * Rounded); elsewhere it and its fallbacks are all missing, so the stack
+   * falls through to a plain sans, deliberately rather than faked with a
+   * shipped font file. `--face-display` is its own stack rather than an alias
+   * of `--face-ui`, so this can be revisited without touching every label.
    */
   --face-book: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
   --face-ui: ui-rounded, "SF Pro Rounded", "Nunito", system-ui, -apple-system,
@@ -267,13 +157,9 @@ body.wf-page {
   /* The smallest thing a thumb is asked to hit. */
   --tap: 44px;
 
-  /* How much of the bottom of the glass the four places take.
-     A size rather than a space, and it is here rather than in `library.css`
-     because two rules a long way apart have to agree on it: the tab bar keeps
-     this height, and the body of every screen keeps this much clear so the
-     last card is not underneath a bar that no longer stands in the flow. See
-     `.wf-tabs` (#414). The safe area is added at both ends, not folded in
-     here, because it is a property of the phone rather than of the bar. */
+  /* The tab bar's height. Also used by every screen's body to keep this much
+     clear at the bottom, so the two must stay in step. See `.wf-tabs`. The
+     safe area is added separately at both ends rather than folded in here. */
   --tabs: 60px;
 
   /* --- Radii: rounded, because the direction says so -------------------- */
@@ -291,15 +177,7 @@ body.wf-page {
   --lift-2: 0 2px 8px rgba(51, 42, 34, 0.1);
   --lift-3: 0 8px 24px rgba(51, 42, 34, 0.16);
 
-  /*
-   * What the room goes behind a question that cannot be taken back. The same
-   * warm ink everything else on this page is written in, at the strength that
-   * pushes the screen away without hiding which screen it is: a person about
-   * to remove an area should still be able to see the area they are removing.
-   * Not `--picture-scrim`, which is a different job in a different room: that
-   * one sits on a photograph and has to survive whatever the lens is pointed
-   * at, so it is nearly black in both themes.
-   */
+  /* The backdrop behind a destructive confirmation. Not `--picture-scrim`, which sits on a photograph and must survive whatever the lens is pointed at. */
   --scrim: rgba(51, 42, 34, 0.42);
 
   --focus: 0 0 0 3px rgba(78, 124, 168, 0.45);
@@ -308,18 +186,13 @@ body.wf-page {
 }
 
 /*
- * Dark is a different room, not an inverted one.
- *
- * Three things change role rather than value. In daylight the board is
- * *lighter* than the page it sits on; at night the room is the darkest thing
- * and the plank is lighter than it, because a plank catches lamp light and a
- * room does not. The paper stops being a surface and becomes ink: text is the
- * warm off-white, and nothing large is pale. And the four hues move in
- * opposite directions by role, the two woods up so they still read as timber,
- * the marks up only far enough to clear the room.
+ * Dark is a different room, not an inverted one: the board is lighter than
+ * the page it sits on in daylight, but at night the room is darkest and the
+ * plank is lighter than it.
  *
  * Written twice on purpose: once for a phone set to dark, once for the
- * gallery's own switch, so the switch wins in both directions.
+ * gallery's own switch, so the switch wins in both directions. Keep the two
+ * blocks identical.
  */
 
 .wf[data-theme="dark"] {
@@ -352,8 +225,6 @@ body.wf-page {
   --sun-wash: rgba(240, 192, 105, 0.16);
   --sky-wash: rgba(143, 185, 221, 0.14);
 
-  /* Still black, still the darkest thing on the screen, but now with an edge
-     so he is a cat and not a hole cut in the page. */
   --cat: #0d0a08;
   --cat-rim: rgba(239, 228, 209, 0.45);
   --cat-eye: #f0c069;
@@ -363,8 +234,7 @@ body.wf-page {
   --lift-2: 0 2px 8px rgba(0, 0, 0, 0.55);
   --lift-3: 0 10px 28px rgba(0, 0, 0, 0.6);
 
-  /* Darker, because at night the room is already the darkest thing and a
-     scrim the same weight as the daylight one does not read as one. */
+  /* Darker: at night the room is already the darkest thing, so the daylight weight would not read as a scrim. */
   --scrim: rgba(0, 0, 0, 0.62);
 
   --focus: 0 0 0 3px rgba(143, 185, 221, 0.5);

@@ -1,30 +1,11 @@
 /**
- * The tags somebody keeps, arranged the way a screen has to draw them.
- *
- * **A tag has two halves and a person only ever sees one of them.** The slug is
- * the identity, `genre/fantasy`, and the label is what anybody reads. That is a
- * pinned rule with a test behind it, and it is the whole reason this file
- * exists: the hierarchy lives in the slug, so every question a screen asks about
- * nesting has to be answered from a string nobody may be shown, and the answers
- * have to come back as words.
- *
- * Twenty-three flat chips do not fit on a phone and would be lying anyway, so
- * the tags are groups that open one at a time, and everything here is about
- * turning a flat vocabulary into that.
+ * The slug (`genre/fantasy`) is the identity and carries the hierarchy; the label
+ * is what a person reads. A screen never shows the slug.
  */
 
 import type { TagRow } from './api'
 
-/**
- * The two halves, and nothing else about a tag.
- *
- * What the questions about words and nesting actually need. A screen naming a
- * tag the collection has not got yet holds one of these rather than a row: it
- * has an identity and something to read, and no count, no note and nothing about
- * whether a rule asks for it, because none of that exists until the tag does.
- * Asking for a whole `TagRow` there made those callers invent the missing halves
- * and then keep inventing each new one (#452 added `ruled` and found two).
- */
+/** A screen naming a tag the collection has not got yet holds one of these rather than a full row: no count or note exists until the tag does. */
 export interface Named {
   slug: string
   label: string
@@ -36,13 +17,7 @@ function wordsOf(segment: string): string {
   return words ? words[0]!.toUpperCase() + words.slice(1) : segment
 }
 
-/**
- * What a person reads for one tag.
- *
- * The label, and where a tag was created without one, the last part of its own
- * identity turned back into words. Never the identity itself: `genre/fantasy` on
- * a screen is the same mistake as showing somebody a row id.
- */
+/** The label, or where a tag was created without one, the last part of its slug turned back into words. */
 export function labelOf(tag: Named): string {
   return tag.label || wordsOf(tag.slug.split('/').pop() ?? tag.slug)
 }
@@ -55,11 +30,8 @@ export function depthOf(tag: Named): number {
 /**
  * The tags this one sits under, as labels: "Genre", or "Subject, History".
  *
- * This is where the nesting goes when there is no tree to indent inside, and it
- * is said in words rather than drawn as a path with a stroke in it. An ancestor
- * that has no row of its own is still named, because a book can carry
- * `genre/fantasy` in a vocabulary with no `genre` row and the nesting is true
- * either way.
+ * An ancestor with no row of its own is still named, since a book can carry
+ * `genre/fantasy` in a vocabulary with no `genre` row.
  */
 export function underOf(tag: TagRow, all: readonly TagRow[]): string | undefined {
   const parts = tag.slug.split('/')
@@ -87,12 +59,9 @@ export interface TagGrouping {
 }
 
 /**
- * The vocabulary, cut into the groups a screen opens one at a time.
- *
- * Ordered by slug, which is how the server answers, so a tag and the tags under
- * it arrive together and stay together. A group is named after its own tag row
- * where there is one and after its identity turned into words where there is
- * not, because a namespace does not have to exist for tags to be under it.
+ * Ordered by slug, which is how the server answers, so a tag and the tags under it stay together.
+ * A group is named after its own tag row where there is one, or its identity turned into words
+ * where there is not, since a namespace does not have to exist for tags to be under it.
  */
 export function groupsOf(tags: readonly TagRow[]): TagGrouping[] {
   const groups = new Map<string, TagGrouping>()

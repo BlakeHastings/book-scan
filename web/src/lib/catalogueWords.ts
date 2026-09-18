@@ -1,59 +1,14 @@
 /**
- * What the app says about the catalogues it asks, and where it says it (#348).
+ * What the app says about the catalogues it asks, and where it says it.
  *
- * Here rather than in the two screens that draw it, for `driftWords.ts`'s
- * reason: these are sentences that have to stay true to counters the server
- * keeps, and a sentence written where it is drawn is a sentence nobody tests.
- * The server keeps deciding what is true; this file keeps deciding how to say
- * it.
+ * Here rather than in the two screens that draw it: these are sentences
+ * that have to stay true to counters the server keeps, and a sentence
+ * written where it is drawn is a sentence nobody tests.
  *
- * ## Why there is a screen at all, when `/api/health` already answers
- *
- * Because #519 settled the general form of this question and the answer applies
- * here too. A startup log line could not be the reader for the placement
- * projection, and not only because nobody reads logs: it is printed once, and
- * the thing it reports goes wrong while the process is running. `/api/health`
- * was the reader it got.
- *
- * A catalogue going quiet has the same shape and one more turn of the screw.
- * The log line is printed the first time a source goes quiet and then not
- * again, on purpose, because a line per book is a line nobody reads. And since
- * #521 `/api/health` is behind the gate, so reading it is a signed-in `curl`
- * from a terminal. The person this is about owns the books, holds a phone, and
- * will never type that command. **The counters existed and nobody could see
- * them**, which is one storey up from the defect they were built to end.
- *
- * ## Two screens, and which fact goes on which
- *
- * #504's split, applied to a different pair of facts. There the news was a
- * count on the first screen and the names were the books, on the screen where
- * books live. Here the news is that a catalogue has answered nothing, and the
- * "names" are the catalogues themselves, so they belong on the screen where the
- * app's own arrangements are, which is Settings, and not on a shelf. A quiet
- * catalogue is not a fact about the collection, and nobody resolves one by
- * carrying a book.
- *
- * ## The first screen carries refusals and not failures
- *
- * This is the line worth arguing rather than defaulting to a card, and the
- * split between `declined` and `failed` is what makes it drawable.
- *
- * A refusal is a standing state. 401, 403 and 429 will be the same answer for
- * the next book and the one after, because they are about this application
- * rather than about the afternoon, and something a person changes is what ends
- * them. Google Books has refused every request in the life of the real
- * catalogue. That belongs in front of the owner.
- *
- * A failure is weather. A timeout or an unreachable host ends on its own, often
- * before he has finished the shelf, and a card about it would be a card he
- * learns to scroll past, which is exactly how the day it is real gets missed.
- * So failures are counted, reported in Settings, and not put on the first
- * screen. The same judgement the server already makes when it leaves `ok` true
- * for a quiet catalogue: somebody can still catalogue a book.
- *
- * There is no reassuring sentence here either. A day when every catalogue is
- * answering draws no card, for `backupWords.ts`'s reason: a line saying
- * everything is fine is a line a bug can print over a check that never ran.
+ * A refusal (`declined`) is a standing state: the same catalogue will
+ * refuse the next book too, until something changes where the app runs, so
+ * it belongs on the first screen. A failure (`failed`) is weather, often
+ * gone before the next book, so it is only counted in Settings.
  */
 
 import type { LookupStandings, SourceStanding } from './api'
@@ -80,12 +35,10 @@ export interface CatalogueRoll {
 
 /**
  * A catalogue that was asked, answered nothing, and refused at least once.
- *
- * The three conditions together, and each is load-bearing. Asked, because a
- * catalogue nobody has consulted owes nothing. Answered nothing, because a
- * source that is contributing and also having a bad morning is not news.
- * Refused, because that is the half of "did not answer" that will still be true
- * tomorrow.
+ * Each condition matters: asked (a catalogue never consulted owes nothing),
+ * answered nothing (a source having a bad morning while still contributing
+ * is not news), and refused (the part of "did not answer" still true
+ * tomorrow).
  */
 function refusing(one: SourceStanding): boolean {
   return one.asked > 0 && one.answered === 0 && one.declined > 0
@@ -95,13 +48,11 @@ function refusing(one: SourceStanding): boolean {
  * The card on the first screen: that a catalogue has answered nothing, and
  * where to look.
  *
- * Null for a read that has not answered and null for an ordinary day, and those
- * are different silences: no refusal is a working afternoon, and a request that
- * never came back is not something to write a sentence from.
+ * Null both for a read that has not answered and for an ordinary day: no
+ * refusal is a working afternoon, and a request that never came back is not
+ * something to write a sentence from.
  *
- * **Every refusing catalogue is named, not the first one.** A report that reads
- * as complete and is not is the defect this whole issue is about, and it would
- * be a strange way to fix it to write a card that mentions one of two.
+ * Every refusing catalogue is named, not just the first.
  */
 export function catalogueTrouble(lookups: LookupStandings | null): CatalogueTrouble | null {
   if (!lookups) return null
@@ -139,12 +90,9 @@ function alsoQuiet(names: string[]): string {
 }
 
 /**
- * What one catalogue has done, in a line, with every number said out loud.
- *
- * **Including the noughts**, which is the rule this whole issue produced: an
- * absent number reads as "nothing to report" and means the opposite. A
- * catalogue at nought everywhere is the sentence about never having been asked,
- * not a blank.
+ * What one catalogue has done, in a line, with every number said out loud,
+ * including the noughts: an absent number would read as "nothing to
+ * report" and mean the opposite.
  */
 function standing(one: SourceStanding): string {
   if (one.asked === 0) {
@@ -167,16 +115,11 @@ function standing(one: SourceStanding): string {
 /**
  * The Settings card: every catalogue, and what each has done.
  *
- * Every catalogue every time, including the ones that have done nothing, which
- * is the same rule the server's report follows and for the same reason. This
- * card is the only place in the app where a catalogue that was never asked is
- * visibly different from a catalogue that answered and had no record, and that
- * difference is the issue.
+ * Every catalogue every time, including ones that have done nothing: this
+ * is the only place a catalogue that was never asked is visibly different
+ * from one that answered and had no record.
  *
- * It says the counts reset, because they do: they live in the server process
- * and a restart empties them. A card that let somebody read "asked 0" as
- * "nothing has ever been asked" would be inventing the ambiguity it exists to
- * remove.
+ * The counts reset on a server restart, so "asked 0" means today, not ever.
  */
 export function catalogueRoll(lookups: LookupStandings | null): CatalogueRoll | null {
   if (!lookups) return null

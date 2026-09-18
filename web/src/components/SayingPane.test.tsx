@@ -1,21 +1,4 @@
-/**
- * The screen somebody settles one unclaimed book on.
- *
- * Rendered as markup the way `UnclaimedPane.test.tsx` does it: this project has
- * no DOM in its test setup and this screen holds no state.
- *
- * **The rule this file exists for is #304.** A genre is written only when a
- * source stated one, on the owner's explicit instruction, and this is the one
- * screen where that is either kept or quietly broken: it asks a person which of
- * two answers a book is, and the way the instruction comes back reversed is a
- * default preselected so that a save button can be enabled. There is no save
- * button here, and nothing is chosen when it opens, and both of those are
- * checked.
- *
- * The other thing checked is that it is #377's arrangement rather than a second
- * one: the two genre answers as words you tap, and the naming panel for
- * everything else.
- */
+/** Rendered as markup: this project has no DOM in its test setup, and this screen holds no state. */
 
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
@@ -94,8 +77,6 @@ describe('saying what one book is', () => {
   })
 
   it('reads those two out of the collection rather than writing the words here', () => {
-    // The slug is the identity and the label is what a person reads, so a
-    // collection that calls it something else is drawn saying that.
     const said = words(drawn({
       vocabulary: [{ slug: FICTION_SLUG, label: 'Made up', note: '', books: 3, ruled: false }],
     }))
@@ -110,8 +91,6 @@ describe('saying what one book is', () => {
     })
 
     expect(html).toMatch(/wf-tag--on/)
-    // And the sentence about nothing being chosen goes with it, rather than
-    // arguing with the answer somebody just gave.
     expect(words(html)).not.toContain('Nothing is chosen')
   })
 
@@ -127,8 +106,6 @@ describe('saying what one book is', () => {
   })
 
   it('shows what the catalogue holds, because nothing else answers the question', () => {
-    // The card the drawing gained by being looked at: it asked somebody what a
-    // book is about while showing them a title in a bar and nothing else.
     const said = words(drawn())
 
     expect(said).toContain('Baker, J. A.')
@@ -153,11 +130,6 @@ describe('saying what one book is', () => {
   })
 
   it('stops saying that the moment somebody answers, and not before', () => {
-    // "Nothing knows what this book is" over a lit Fiction pill is the screen
-    // contradicting the answer it just took, and it was drawn that way until it
-    // was looked at. The other half is the one that made this a fact about the
-    // visit rather than about the book: a book arriving with Crime on it
-    // already carries something and nobody has said anything yet.
     const arrived = words(drawn({
       book: book({ why: 'unmatched', tags: ['Crime'] }),
       carried: ['subject/crime'],

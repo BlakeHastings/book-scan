@@ -1,30 +1,20 @@
 /**
- * Does the thing the build produced actually load? (#512)
+ * Does the thing the build produced actually load?
  *
  *     cd web && npm run build && node scripts/smoke-built-server.mjs
  *
- * A build that compiles is not a build that runs. `esbuild` will happily emit a
- * bundle whose externals cannot be resolved, whose entry point never reaches
- * `bootstrap`, or which is missing the migrations it reads off disk, and none
- * of that is visible until somebody starts it. CI runs this so the first person
- * to find out is not a deployment.
+ * What it proves: the bundle loads, every external package resolves against
+ * the installed tree, the entry module runs, and execution reaches the one
+ * refusal this app makes on purpose: no connection string, so it exits 1
+ * naming the variable rather than coming up on an empty database. What it
+ * does not prove is that the server serves: that needs a database, and is
+ * proved by `server/client-serving.routes.test.ts` and by hand against a
+ * real Aspire environment.
  *
- * What it proves: the bundle loads, every external package resolves against the
- * installed tree, the entry module runs, and execution reaches the one refusal
- * this app makes on purpose: no connection string, so it exits 1 naming the
- * variable rather than coming up on an empty database.
- *
- * What it does not prove is that the server serves. That needs a database, and
- * it is proved by `server/client-serving.routes.test.ts` over real HTTP for the
- * routing, and by hand against a real Aspire environment for the whole journey.
- *
- * ## The environment is set, not inherited
- *
- * Every variable that could point this process at somebody's catalogue is set
- * explicitly below, empty where empty is the answer. That is the same rule the
- * AppHost follows and the same one `run-stable.ps1` follows: an inherited value
- * must not be able to decide what a process opens or writes. This machine still
- * carries connection variables at `User` scope; see AGENTS.md.
+ * Every variable that could point this process at somebody's catalogue is
+ * set explicitly below rather than inherited, empty where empty is the
+ * answer: an inherited value must not be able to decide what this process
+ * opens or writes.
  */
 
 import { spawn } from 'node:child_process'
@@ -45,21 +35,14 @@ const check = (ok, said) => { if (!ok) failures.push(said) }
 check(existsSync(BUNDLE), `No server bundle at ${BUNDLE}. Run \`npm run build:server\`.`)
 check(existsSync(JOURNAL), `No migration journal at ${JOURNAL}.`)
 
-/*
- * The sibling coupling, checked rather than trusted. `server/index.ts` finds
- * the built client at `../dist/` relative to the entry module, which is
- * `web/dist-server/index.js` once built. If the build ever moves the bundle a
- * directory deeper, the server comes up serving no client and says so in a log
- * line nobody is reading.
- */
+// The sibling coupling, checked rather than trusted: `server/index.ts` finds
+// the built client at `../dist/` relative to the entry module, and a build
+// that moved the bundle a directory deeper would come up serving no client.
 check(existsSync(CLIENT), `No built client at ${CLIENT}. Run \`npm run build:client\`.`)
 
-/*
- * The way in for the first user (#531). An image carries no TypeScript and no
- * `tsx`, so `npm run enable-user` cannot run inside one, and a deployment whose
- * enable script did not get built is a login screen that admits nobody. The
- * failure is invisible until somebody has already deployed and signed in.
- */
+// The way in for the first user: an image carries no TypeScript, so `npm run
+// enable-user` cannot run inside one, and a deployment whose enable script
+// did not get built is a login screen that admits nobody.
 check(existsSync(ADMIT), `No enable-user bundle at ${ADMIT}. Run \`npm run build:server\`.`)
 
 if (failures.length) {

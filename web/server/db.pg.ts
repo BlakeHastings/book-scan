@@ -1,23 +1,11 @@
 /**
- * Postgres schema and driver. Since stage I the only implementation of `Db`,
- * and still a separate file from driver.ts, which is what the seam was for.
+ * Postgres schema and driver, the only implementation of `Db`, and still a
+ * separate file from driver.ts.
  *
- * **This is the only database.** Stage G made it the default, stage H moved the
- * owner's catalogue onto it, and stage I removed `SqliteDb`, the `BOOKSCAN_DB`
- * switch and `better-sqlite3` with it. The SQLite file itself is untouched on
- * the owner's disk and is not this repository's business; the way back is a
- * `git checkout` of a commit before stage I, which brings back the driver and
- * the migration tool together.
- *
- * Three of db.ts's functions went with it and are worth naming so nobody looks
- * for them. `addMissingColumns` and `migrateSeparators` brought an old SQLite
- * catalogue file forward, and there was exactly one such file in the world;
- * `SCHEMA_VERSION` was stored in a SQLite pragma.
- *
- * Postgres has a migration chain as of #172, and it is Drizzle's, in
- * `web/infrastructure/db/migrations`. `applySchema` at the bottom of this file
- * runs it. Nothing in this file decides what the schema is any more; the
- * constant below is what the first migration is checked against.
+ * The migration chain is Drizzle's, in `web/infrastructure/db/migrations`, and
+ * `applySchema` at the bottom of this file runs it. Nothing in this file decides
+ * what the schema is; the constant below is what the first migration is checked
+ * against.
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks'
@@ -43,23 +31,15 @@ type PoolClient = pg.PoolClient
  * SQLite schema produced, because the API contract and the React client depend
  * on it. The decisions worth arguing about are marked at the column.
  *
- * **The app does not run this.** Since #172 the schema is created by the
- * baseline migration under `web/infrastructure/db/migrations`, generated from
- * the Drizzle schema. It is still executed, by
- * `infrastructure/db/migrate.test.ts`, which builds one database from this
- * constant and one from the migration and diffs them, column for column, index
- * for index and constraint for constraint. A baseline that claims to reproduce
- * today's schema and is only ever compared against itself claims nothing, so
- * this constant is that test's fixed point and the reason it means anything.
+ * The app does not run this. The schema is created by the baseline migration
+ * under `web/infrastructure/db/migrations`, and this constant is executed only by
+ * `infrastructure/db/migrate.test.ts`, which builds one database from it and one
+ * from the migration and diffs them, column for column, index for index and
+ * constraint for constraint. So do not edit it to describe a change: a schema
+ * change goes in the Drizzle schema and gets a migration, and this constant is
+ * what says the conversion was faithful.
  *
- * So do not edit it to describe a change. A schema change goes in the Drizzle
- * schema and gets a migration; this constant is what says the conversion was
- * faithful, and it stops being useful the moment it moves.
- *
- * **It is also where the columns are explained.** That prose lived in db.ts
- * until stage I deleted it, and the facts in it are about the product rather
- * than about SQLite: which photograph is the record, what an empty crop column
- * means, why a column nobody writes is still here. Comments do not reach the
+ * It is also where the columns are explained. Comments do not reach the
  * catalogue, so adding one cannot move the fixed point.
  */
 export const SCHEMA = `
@@ -318,16 +298,10 @@ CREATE INDEX IF NOT EXISTS idx_separators ON separators (shelf_range, position);
 /**
  * A row of `books` as the stores read it back.
  *
- * Lived in db.ts until stage I, and moved here rather than into a file of its
- * own because this is where the columns it names are declared and explained.
- * It is the shape of a row, not a fact about a driver: `Store` and `Shelves`
- * both take it and neither can see what is underneath them.
- *
- * **There is no photograph on it, since #228.** A book's photographs are rows in
- * `capture`, and what everything above the stores actually reads is
- * `PhotographedBook` in `server/photographs.ts`: this, with the current
- * photograph of each kind joined onto it. A row of `books` cannot answer what a
- * book looks like, and that is the change.
+ * There is no photograph on it. A book's photographs are rows in `capture`, and
+ * what everything above the stores actually reads is `PhotographedBook` in
+ * `server/photographs.ts`: this, with the current photograph of each kind joined
+ * onto it. A row of `books` cannot answer what a book looks like.
  */
 export interface BookRow {
   id: number
@@ -356,25 +330,20 @@ export interface BookRow {
    * Where the book is in its life. See `domain/books/state.ts`, and
    * `shelved_books`, which is the only relation an ordering query reads.
    *
-   * Added beside `checked_out_at` rather than instead of it (#183), and the last
-   * of the two standing since #232 dropped that column. It is what
-   * `Store.setCheckedOut` compares and sets, and the moment a book left is the
-   * `created_at` of the `checked_out` row written in the same transaction.
+   * It is what `Store.setCheckedOut` compares and sets, and the moment a book
+   * left is the `created_at` of the `checked_out` row written in the same
+   * transaction.
    *
-   * **`location`, `shelved_at` and `checked_out_at` are not here**, because they
-   * are not columns. `server/placement-ledger.ts` derives the two the wire still
+   * `location`, `shelved_at` and `checked_out_at` are not here, because they are
+   * not columns. `server/placement-ledger.ts` derives the two the wire still
    * carries, in the shape it carries them; see `PlacementFields`.
    */
   state: BookState
   /*
-   * What was known about this book before anybody said what it was.
-   *
-   * Eleven columns that were the `captures` queue table until #183 dissolved
-   * it, and empty for every book catalogued before that. They are not cleared
-   * when a book is shelved: what OCR read off a cover is the evidence behind
-   * the title somebody typed, and `BookDetail` quotes it beside the fields
-   * (#147). See the same columns in infrastructure/db/schema.ts, where each one
-   * is explained.
+   * What was known about this book before anybody said what it was. Not cleared
+   * when a book is shelved: what OCR read off a cover is the evidence behind the
+   * title somebody typed, and `BookDetail` quotes it beside the fields. See the
+   * same columns in infrastructure/db/schema.ts, where each one is explained.
    */
   /** The first line OCR read off the front cover, and never a stated title. */
   title_guess: string
@@ -392,75 +361,54 @@ export interface BookRow {
   claimed_at: string | null
   processed_at: string | null
   /**
-   * When a cover was last looked for, found or not.
-   *
-   * The one survivor of the ten #228 dropped, because it is a fact about a
-   * search rather than about a photograph: a book with no artwork anywhere has
-   * been asked about and has no `catalogue` row to carry the answer.
+   * When a cover was last looked for, found or not. A fact about a search rather
+   * than about a photograph: a book with no artwork anywhere has been asked about
+   * and has no `catalogue` row to carry the answer.
    */
   cover_checked_at: string | null
 }
 
 /**
  * The same row as one of the three views answers it: with the name its first
- * credit files under.
- *
- * **A view has one column `books` does not**, since #227 dropped
- * `books.author_filing`. What a book files under is a fact about the author,
- * held on `author_alias`, and the views join it back on so that every listing,
- * every shelf row and every neighbour reads exactly what it read before. A
- * lookup by id is a lookup of a book, so `Store.getBook` answers a `BookRow` and
- * `GET /api/books/:id` sends the book's credits beside it.
+ * credit files under, which is a column `books` does not have. What a book files
+ * under is a fact about the author, held on `author_alias`, and the views join it
+ * back on. A lookup by id is a lookup of a book, so `Store.getBook` answers a
+ * `BookRow` and `GET /api/books/:id` sends the book's credits beside it.
  *
  * Two types rather than one optional field, because the difference is which
- * relation was read and a reader should not have to guess which one a value came
- * from. See `filed` in infrastructure/db/schema.ts, which is where the join is.
+ * relation was read. See `filed` in infrastructure/db/schema.ts, which is where
+ * the join is.
  */
 export interface FiledBookRow extends BookRow {
   author_filing: string
 }
 
-
 /**
  * The columns that must not be compared by a linguistic collation, and the
  * tables they live in.
  *
- * `sort_key` is the spine of the product. `Store.neighbours` seeks either side
- * of one with `<` and `>`, `Shelves.booksIn` orders by it, and
- * `area.starts_at` is compared against it to find where a plank begins.
- * Every key in this catalogue was built to be compared byte by byte, which is
- * what the SQLite this app grew up on did with no exceptions. Postgres compares
- * using the collation of the column, and a glibc `en_US.utf8` one ignores
- * punctuation on the first pass, folds case, and files accented characters
- * beside their unaccented forms. Two keys that ought to order one way come back
- * the other way.
+ * `Store.neighbours` seeks either side of a `sort_key` with `<` and `>`,
+ * `Shelves.booksIn` orders by it, and `area.starts_at` is compared against it to
+ * find where a plank begins. Every key in this catalogue is built to be compared
+ * byte by byte. Postgres compares using the collation of the column, and a glibc
+ * `en_US.utf8` one ignores punctuation on the first pass, folds case, and files
+ * accented characters beside their unaccented forms, so two keys that ought to
+ * order one way come back the other way. That does not throw: it reorders a
+ * shelf, and the app then tells somebody to put a book in the wrong place.
  *
- * That does not throw and does not fail a smoke test. It reorders a shelf, or
- * moves one book past a separator, and the app then tells somebody to put a
- * book in the wrong place.
- *
- * `sort_key` also contains `\x1f`, the unit separator that joins its
- * components, and the `.` in a padded series index, both of which are exactly
- * the sort of character a linguistic collation is entitled to treat as
- * ignorable.
+ * `sort_key` also contains `\x1f`, the unit separator that joins its components,
+ * and the `.` in a padded series index, both of which are exactly the sort of
+ * character a linguistic collation is entitled to treat as ignorable.
  *
  * Exported so a test can assert the declaration rather than trusting this
- * comment. See db.pg.test.ts, which reads the collation back out of the
- * catalogue and also shows the fixture coming out in the wrong order without it.
+ * comment. See db.pg.test.ts.
  */
 export const SORT_KEY_COLUMNS: readonly (readonly [table: string, column: string])[] = [
   ['books', 'sort_key'],
   ['books', 'title_filing'],
-  // `books.author_filing` was here until #227 dropped it. The filing name it
-  // held is a fact about the author now, and this is where it lives: it is the
-  // first component of every sort key a shelf is ordered by, so it is the same
-  // kind of column under a different name, and getting its collation wrong
-  // orders almost right.
+  // The filing name is the first component of every sort key a shelf is ordered
+  // by, so getting its collation wrong orders almost right.
   ['author_alias', 'filing_name'],
-  // `separators.starts_at` was here until #232 dropped the table. The anchor it
-  // held is `area.starts_at`, which is compared against `books.sort_key` to find
-  // where a plank begins, so it is the same column under a name that says what
-  // it anchors, and getting its collation wrong orders almost right.
   ['area', 'starts_at'],
 ]
 
@@ -468,13 +416,11 @@ export const SORT_KEY_COLUMNS: readonly (readonly [table: string, column: string
  * Turn a connection string into something node-postgres understands, in either
  * of the two spellings this app is handed one in.
  *
- * **Aspire does not hand out a URL.** `ConnectionStrings__bookscan` arrives as
+ * Aspire does not hand out a URL. `ConnectionStrings__bookscan` arrives as
  * ADO.NET keywords, `Host=localhost;Port=65156;Username=postgres;Password=...;
- * Database=bookscan`, because the connection string is produced for the .NET
- * clients Aspire was built around. node-postgres reads only the
- * `postgres://user:pass@host:port/db` URL form and would take the whole
- * keyword string as a hostname. The plan said to read the variable the way
- * `PORT` is read, which is true of getting it and not of using it.
+ * Database=bookscan`, and node-postgres reads only the
+ * `postgres://user:pass@host:port/db` URL form and would take the whole keyword
+ * string as a hostname.
  *
  * Both are accepted: a URL passes straight through, so
  * `BOOKSCAN_TEST_DATABASE_URL` and a hand-written connection still work.
@@ -483,10 +429,9 @@ export function connectionConfig(value: string): pg.PoolConfig {
   const trimmed = value.trim()
   if (/^postgres(ql)?:\/\//i.test(trimmed)) return { connectionString: trimmed }
 
-  // Walked rather than split on ';', because ADO allows a quoted value and
-  // that is how a password containing a separator is spelled. Splitting first
-  // truncates such a password at the separator, which surfaces as an
-  // authentication failure that says nothing about the string being cut.
+  // Walked rather than split on ';', because ADO allows a quoted value and that
+  // is how a password containing a separator is spelled. Splitting first
+  // truncates such a password at the separator.
   const fields = new Map<string, string>()
   let i = 0
   while (i < trimmed.length) {
@@ -526,9 +471,8 @@ export function connectionConfig(value: string): pg.PoolConfig {
 
   const port = pick('port')
   return {
-    // The aliases ADO.NET and Npgsql accept for the same four things. Listed
-    // rather than assumed, because which one arrives is a property of whatever
-    // produced the string and not of this app.
+    // The aliases ADO.NET and Npgsql accept for the same four things. Which one
+    // arrives is a property of whatever produced the string, not of this app.
     host: pick('host', 'server', 'datasource'),
     port: port ? Number(port) : undefined,
     user: pick('username', 'userid', 'user'),
@@ -539,17 +483,13 @@ export function connectionConfig(value: string): pg.PoolConfig {
 
 /**
  * The catalogue's connection string, from the one variable it is written in.
+ * `ConnectionStrings__bookscan` is the name Aspire gives it, read here so the
+ * server and the maintenance scripts all find it the same way.
  *
- * `ConnectionStrings__bookscan` is the name Aspire gives it. Read here so the
- * server and the three maintenance scripts that open the catalogue by hand all
- * find it the same way, and so "there is exactly one name" is a fact about one
- * function rather than about four call sites that currently agree.
- *
- * Nothing else is consulted. Not `DATABASE_URL`, not `PG*`: the test harness
- * ignores every ambient connection variable for a reason (server/testdb.ts),
- * and a second accepted spelling here would be a way for a shell to decide what
- * gets written to. The migration and backup tools take their target on their
- * own command lines for the same reason and do not call this.
+ * Nothing else is consulted. Not `DATABASE_URL`, not `PG*`: a second accepted
+ * spelling here would be a way for a shell to decide what gets written to. The
+ * migration and backup tools take their target on their own command lines for the
+ * same reason and do not call this.
  */
 export function catalogueConnection(): string {
   const url = process.env.ConnectionStrings__bookscan ?? ''
@@ -585,30 +525,20 @@ interface TxContext {
 /**
  * `Db` over node-postgres.
  *
- * Two things this has to get right, and both were settled by what `SqliteDb`
- * had to do rather than being invented here.
- *
- * **A transaction is pinned to one connection.** A pool hands out whichever
+ * A transaction is pinned to one connection. A pool hands out whichever
  * connection is free, so a naive implementation would send `BEGIN` down one
- * connection, an `INSERT` down a second and `COMMIT` down a third. Postgres
- * would accept every one of them: the insert would be its own autocommitted
- * transaction, the rollback would undo nothing, and on a quiet machine where
- * the pool keeps handing back the same idle connection every test would pass.
- * So the open transaction is carried in an `AsyncLocalStorage` and `all`, `get`
- * and `run` look there before they look at the pool.
+ * connection, an `INSERT` down a second and `COMMIT` down a third. Postgres would
+ * accept every one of them: the insert would be its own autocommitted
+ * transaction, the rollback would undo nothing, and on a quiet machine where the
+ * pool keeps handing back the same idle connection every test would pass. So the
+ * open transaction is carried in an `AsyncLocalStorage` and `all`, `get` and `run`
+ * look there before they look at the pool.
  *
- * It has to be the async context rather than a field on the class for the same
- * reason `SqliteDb` needed one: `Shelves.moveAcrossBoundary` opens a
- * transaction and then calls `remove`, which opens one of its own **through the
- * handle the class holds** rather than the one `tx` passed its work. A field
- * would also catch an unrelated request's statement and pull it into a
- * transaction that may then roll back.
- *
- * **What it does not need is `SqliteDb`'s lock.** That exists because
- * better-sqlite3 has one connection, so keeping a transaction's statements
- * contiguous meant making everything else queue behind it. Postgres has real
- * connections: an unrelated statement runs on another one, concurrently, which
- * is the point of moving to it.
+ * It has to be the async context rather than a field on the class:
+ * `Shelves.moveAcrossBoundary` opens a transaction and then calls `remove`, which
+ * opens one of its own through the handle the class holds rather than the one
+ * `tx` passed its work, and a field would also catch an unrelated request's
+ * statement and pull it into a transaction that may then roll back.
  */
 export class PgDb implements Db {
   private readonly context = new AsyncLocalStorage<TxContext>()
@@ -617,18 +547,14 @@ export class PgDb implements Db {
     /*
      * An idle connection can fail with nobody waiting on it: the server is
      * restarted, a network path drops, an administrator ends the backend.
-     * node-postgres reports that by emitting `error` on the pool, and an
-     * `error` event with no listener is what `EventEmitter` **throws**, so the
-     * default behaviour is that a blip on a connection nobody was using takes
-     * the whole API process down.
+     * node-postgres reports that by emitting `error` on the pool, and an `error`
+     * event with no listener is what `EventEmitter` throws, so the default
+     * behaviour is that a blip on a connection nobody was using takes the whole
+     * API process down.
      *
-     * Not hypothetical, and it is how this was found: one run of the suite
-     * reported db.pg.test.ts as a failed file with every test in it passing,
-     * which is what an unhandled rejection outside a test looks like.
-     *
-     * Logged and swallowed. The pool discards the client and makes another,
-     * and any request that was actually using one gets its own rejection
-     * through the promise it is already awaiting.
+     * Logged and swallowed. The pool discards the client and makes another, and
+     * any request that was actually using one gets its own rejection through the
+     * promise it is already awaiting.
      */
     pool.on('error', (error) => {
       console.error('[db] an idle Postgres connection failed, discarding it', error)
@@ -647,7 +573,6 @@ export class PgDb implements Db {
 
   async run(sql: string, params?: Params): Promise<{ changes: number }> {
     const result = await this.query(sql, params)
-    // `changes` is what the stores read and what better-sqlite3 called it.
     // `CaptureQueue.claim` decides whether a claim was taken from this number,
     // so a null read as 0 would report every successful claim as contended.
     return { changes: result.rowCount ?? 0 }
@@ -687,9 +612,7 @@ export class PgDb implements Db {
    */
   private async query(sql: string, params?: Params): Promise<pg.QueryResult> {
     // The `?`, `@name` and `:name` placeholders the stores are written in,
-    // rewritten as `$1`, `$2`. Stage E routed SQLite through this same
-    // translator so it was exercised by the whole suite a stage before this
-    // driver existed; the suite exercises it here now for the same reason.
+    // rewritten as `$1`, `$2`.
     const { text, values } = bindParams(sql, params)
     const open = this.context.getStore()
     if (open) return open.client.query({ text, values })
@@ -698,20 +621,18 @@ export class PgDb implements Db {
 
   /**
    * A transaction inside a transaction, on the connection the outer one holds.
-   * Postgres refuses a nested `BEGIN` with a warning and then quietly carries
-   * on in the outer transaction, so the inner one's rollback would undo the
-   * outer one's work. `SAVEPOINT` is the spelling that means what the caller
-   * asked for, and it is the same word SQLite uses.
+   * Postgres refuses a nested `BEGIN` with a warning and then quietly carries on
+   * in the outer transaction, so the inner one's rollback would undo the outer
+   * one's work. `SAVEPOINT` is the spelling that means what the caller asked for.
    */
   /**
    * Hold an exclusive lock on `name` for the length of the open transaction.
    *
    * `pg_advisory_xact_lock` rather than the session-scoped spelling, and the
    * difference matters on a pool: a session lock is released by the code that
-   * took it, so a crash or a missed `finally` leaks it onto a connection the
-   * pool then hands to the next request, which blocks forever on something it
-   * never asked for. The transaction-scoped one is released by the COMMIT or
-   * the ROLLBACK, which happen whatever the work did.
+   * took it, so a crash or a missed `finally` leaks it onto a connection the pool
+   * then hands to the next request. The transaction-scoped one is released by the
+   * COMMIT or the ROLLBACK, which happen whatever the work did.
    *
    * Taken as the first statement inside BEGIN, so nothing this transaction
    * reads was read before the lock was held.
@@ -760,41 +681,26 @@ const OUTCOMES: Record<MigrationOutcome, string> = {
 }
 
 /**
- * Bring the schema up to date and seed it, then hand back a `Db`.
+ * Bring the schema up to date, then hand back a `Db`.
  *
- * The name and the contract are unchanged; what is underneath is not. Since
- * #172 the schema comes from the migrations rather than from `SCHEMA` above,
- * and `migrateToLatest` handles the case that makes this worth doing at all: a
- * database that already has these tables and has never been migrated is
- * **adopted**, not rebuilt. That is not hypothetical here. The Postgres
- * container has a persistent volume per checkout, so every developer already
- * has one, and so does every scratch catalogue anybody has been seeding into.
- *
- * The two seed statements were made dialect-neutral in stage D, against SQLite,
- * where that was cheap to prove. This is where they are run.
+ * The schema comes from the migrations rather than from `SCHEMA` above, and
+ * `migrateToLatest` handles the case that makes this worth doing at all: a
+ * database that already has these tables and has never been migrated is adopted,
+ * not rebuilt. That is not hypothetical, because the Postgres container has a
+ * persistent volume per checkout.
  */
 export async function applySchema(pool: pg.Pool): Promise<void> {
   // Straight at the pool, not through `Db.run`, and for the reason `Db` has no
-  // `exec`: schema work is the only caller that wants multi-statement SQL, and
-  // it is per-dialect. Drizzle's migrator wants a pool for the same reason, and
-  // it is given this one rather than opening any of its own.
+  // `exec`: schema work is the only caller that wants multi-statement SQL, and it
+  // is per-dialect. Drizzle's migrator is given this pool rather than opening any
+  // of its own.
   const outcome = await migrateToLatest(pool)
 
-  // Said out loud, because the interesting outcomes are the quiet ones. A
-  // database that was adopted looks exactly like one that was built, right up
-  // until somebody wonders whether the tables they had last week are the tables
-  // they have now. `aspire logs api` is where this shows up.
+  // Said out loud, because a database that was adopted looks exactly like one
+  // that was built, right up until somebody wonders whether the tables they had
+  // last week are the tables they have now.
   console.log(`[db] postgres migrations: ${OUTCOMES[outcome]}`)
 
-  /*
-   * There is nothing to seed here any more (#232).
-   *
-   * The two `shelf_ranges` rows this used to write, and the two repairs beside
-   * them, said which bookcase each run began on. That is a `placement_rule`
-   * pointing at a fixture, and `0013` is what writes one: a migration, applied
-   * above, rather than an upsert on every start. A database that reaches this
-   * line has had it.
-   */
   const db = new PgDb(pool)
 
   await sayWhetherThePlacementProjectionHolds(db)
@@ -807,38 +713,20 @@ export async function applySchema(pool: pg.Pool): Promise<void> {
  * Place every shelved book twice, by the shelf the app draws and by the rules,
  * and say whether the two answers are the same book for book.
  *
- * **This is #184's comparison, asked again, and #232 is where it had to survive
- * losing one of the two things it compared.** It placed 236 books by
- * `separators` and by the areas `0013` derived from them and proved the answers
- * identical at the moment of the backfill; #213 made it continuous, because the
- * first divider somebody moves, a backfill's proof is about a catalogue that no
- * longer exists. `separators` is gone, and what is left is still two readings of
- * one set of rows rather than one: the shelf takes the range off
+ * Two readings of one set of rows: the shelf takes the range off
  * `books.shelf_range` and walks a boundary list derived from the areas, and the
  * rules take no notice of that column and claim the book by the tags it carries.
  * See `infrastructure/shelving/area-drift.ts`.
  *
  * They disagree when a book's range column and its genre tags disagree, when a
  * range's run has grown past where the next range begins, and when the boundary
- * list is not the inverse of the areas it came from. Every one of those is a
- * book drawn on the wrong plank, and every one of them is silent.
+ * list is not the inverse of the areas it came from. Every one of those is a book
+ * drawn on the wrong plank, and every one of them is silent.
  *
- * **It reports, does not repair, and does not refuse to start**, for the reasons
- * given above about the projection.
- *
- * ## This line is no longer the only reader (#489)
- *
- * It was, for the whole of #485, and that is what made the log worth nothing:
- * the check was right on every restart for three weeks, naming the twelve books
- * it had found, and the person who owns the books never saw a word of it. The
- * answer now goes to `GET /api/placement/drift` as well, and from there to a
- * card on the first screen and the list on the shelves screen.
- *
- * **The line stays, and it is not redundant.** It is what somebody reading
- * `aspire logs api` sees, it is what proved #485's fix, and it says the good
- * outcome out loud where the screens deliberately say nothing at all: an
- * interface that drew "the shelf agrees with the rules" on an ordinary day is
- * the reassurance a bug can print over a check that never ran.
+ * It reports, does not repair, and does not refuse to start, for the reasons
+ * given above about the projection. The answer also goes to
+ * `GET /api/placement/drift`, which is what the screens read; this line is what
+ * `aspire logs api` shows.
  */
 async function sayWhetherTheRulesAgreeWithTheShelf(db: Db): Promise<void> {
   const found = await areaDisagreements(db)
@@ -860,38 +748,20 @@ async function sayWhetherTheRulesAgreeWithTheShelf(db: Db): Promise<void> {
 /**
  * Say how many books no rule claims, and which of the two states each is in.
  *
- * **The answer to "what happens if a tag goes missing" is: nothing moves, and
- * this line is how anybody finds out** (#223). `books.shelf_range` is written by
- * a save and by nothing else, so a book whose tag is taken off afterwards keeps
- * the range it already had and stays exactly where it is. It does not become
- * unplaceable and no shelf empties.
+ * `books.shelf_range` is written by a save and by nothing else, so a book whose
+ * tag is taken off afterwards keeps the range it already had and stays exactly
+ * where it is. What it becomes is a book whose position nothing can justify any
+ * more: no rule claims it, so no plan will ever move it.
  *
- * What it does become is a book whose position nothing can justify any more: no
- * rule claims it, so no plan will ever move it. The one thing worth knowing is
- * which books.
+ * A book here is either one somebody took a tag off or one nothing has ever
+ * classified. The second kind has an empty `shelf_range` rather than a stale one:
+ * it is in neither run, so nothing about where it sits needs justifying, and what
+ * it is waiting for is a person to say which it is.
  *
- * **A save reaches this state too, since #304.** It used to be that the tag
- * routes were the only way in, because a save always stated one of the two
- * slugs whatever it had been given. A save that no catalogue and no person gave
- * a genre to now writes no genre tag, so a book here is either one somebody
- * took a tag off or one nothing has ever classified. The second kind has an
- * empty `shelf_range` rather than a stale one: it is in neither run, so nothing
- * about where it sits needs justifying, and what it is waiting for is a person
- * to say which it is.
- *
- * Reported and not repaired either way, for the reason the projection check
- * above is: writing a genre back would invent an answer nobody gave, and it is
- * the thing #304 stopped doing on the owner's explicit instruction.
- *
- * **This used to ask a narrower question in SQL of its own** (#341). It was
- * `NOT EXISTS` against two hard-coded slugs over `shelved_books`, which meant it
- * saw a book carrying no genre tag and missed a book carrying a tag no rule
- * asks for, and it would have started answering wrongly the first time somebody
- * wrote a rule about a third tag. It now asks `booksNoRuleClaims`, which puts
- * the question to `claim`, so this line, the route and the screens say the same
- * thing about the same books by construction. That also widened what it covers:
- * a checked out book is in the collection and is here, where the old statement
- * read `shelved_books` and could not see one.
+ * Reported and not repaired either way, because writing a genre back would invent
+ * an answer nobody gave. The question goes to `booksNoRuleClaims`, which puts it
+ * to `claim`, so this line, the route and the screens say the same thing about
+ * the same books by construction, and a checked out book is covered too.
  */
 async function sayWhetherEveryBookIsClaimed(db: Db): Promise<void> {
   const unclaimed = await booksNoRuleClaims(db)
@@ -918,31 +788,19 @@ async function sayWhetherEveryBookIsClaimed(db: Db): Promise<void> {
  * Read `books.current_area_id` back out of `book_placement` and say whether they
  * agree.
  *
- * **This is what lets the projection exist.** It is a denormalisation, asked for
- * deliberately because drawing a shelf needs every book's position at once, and
- * a denormalisation nobody checks is a second source of truth waiting to be
- * discovered wrong. `0015` asks this once, at the moment it writes the
- * projection; a migration answers for the past and nothing answers for next
- * month, so it is asked again here, on every start, against whatever catalogue
- * the app has just opened.
+ * The column is a denormalisation, asked for deliberately because drawing a shelf
+ * needs every book's position at once, and a denormalisation nobody checks is a
+ * second source of truth waiting to be discovered wrong. One indexed pass on
+ * every start, against whatever catalogue the app has just opened.
  *
- * One indexed pass, beside the migrations that have already run, so it costs
- * nothing worth measuring on a catalogue of this size.
+ * It reports and does not repair, and it does not refuse to start. A disagreement
+ * means a writer is missing, and the evidence for which one is the disagreement
+ * itself, so rebuilding on sight would erase it. `rebuildProjection` is the
+ * repair, and running it is a decision somebody makes having read this line.
  *
- * **It reports and does not repair, and it does not refuse to start.** A
- * disagreement means a writer is missing, and the evidence for which one is the
- * disagreement itself; rebuilding on sight would erase it. Refusing to start
- * would take the app down in front of somebody holding a book over a column
- * nothing reads yet, which is the wrong trade in the other direction.
- * `rebuildProjection` is the repair, and running it is a decision somebody makes
- * having read this line.
- *
- * **This line is no longer the only reader, and it was never a sufficient one**
- * (#505). It is printed once, at startup, so a writer that stops recording at
- * four o'clock goes unreported until the next restart. `GET /api/health` asks
- * the same question live and answers `ok: false`. The line stays because it is
- * what `aspire logs api` shows, and because it says the good outcome out loud
- * where the endpoint only says `ok: true`.
+ * This line is printed once, at startup, so a writer that stops recording at four
+ * o'clock goes unreported until the next restart. `GET /api/health` asks the same
+ * question live and answers `ok: false`.
  */
 async function sayWhetherThePlacementProjectionHolds(db: Db): Promise<void> {
   const disagreeing = await countProjectionDisagreements(db)
@@ -965,28 +823,19 @@ async function sayWhetherThePlacementProjectionHolds(db: Db): Promise<void> {
 /**
  * Ask the furniture whether the planks the ledger names are still on it.
  *
- * **The check above it compares two answers, and this is the third** (#518).
- * `sayWhetherThePlacementProjectionHolds` reported healthy through all four of
- * the 2026-09-02 defects, because removing a boundary, deleting a bookcase,
- * overflow and renumbering a piece all wrote to neither the column nor the
- * ledger. This asks the one thing they did write to: `area.position` and
- * `fixture.position`, which the furniture writers own and neither side of that
- * comparison derives.
+ * The check above compares the ledger and the column, and both can agree while
+ * removing a boundary, deleting a bookcase, overflow or renumbering a piece wrote
+ * to neither. This asks the one thing those writers did write to: `area.position`
+ * and `fixture.position`, which neither side of that comparison derives. So the
+ * projection line says whether the ledger and the column agree, and this says
+ * whether what they agree on is still there.
  *
- * It sits directly beneath it rather than at the end of the list, because the
- * two are one family read twice: the projection line says whether the ledger and
- * the column agree, and this says whether what they agree on is still there.
+ * Reported, not repaired, and there is no repair to offer. Nothing here is
+ * derived from anything here: the ledger is right about what somebody did and the
+ * furniture is right about what the shelves are, so the books need a person at
+ * the shelves rather than a statement.
  *
- * **Reported, not repaired, and there is no repair to offer** (#485). The
- * projection line can name a command because a projection can be folded again.
- * Nothing here is derived from anything here: the ledger is right about what
- * somebody did and the furniture is right about what the shelves are, and the
- * books need a person at the shelves rather than a statement.
- *
- * **This line is not the reader**, for the reason #505 gave about the one above:
- * it is printed once and a writer goes missing while the process runs. It is
- * what `aspire logs api` shows, and it says the good outcome out loud where the
- * endpoint only says `ok: true`. `GET /api/health` is the reader.
+ * This line is printed once, so `GET /api/health` is the reader.
  */
 async function sayWhetherTheFurnitureStillHasThePlanks(db: Db): Promise<void> {
   const stranded = await countStrandedBooks(db)
@@ -1006,13 +855,6 @@ async function sayWhetherTheFurnitureStillHasThePlanks(db: Db): Promise<void> {
   )
 }
 
-/**
- * Open the catalogue on Postgres.
- *
- * Asynchronous, where opening a SQLite file was not, which is the one thing the
- * move cost the startup path: `index.ts` awaits its database rather than having
- * it by the time the module finishes evaluating.
- */
 export async function openPostgres(connectionString: string): Promise<Db> {
   const pool = new Pool(connectionConfig(connectionString))
   try {

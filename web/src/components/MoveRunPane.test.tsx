@@ -1,19 +1,4 @@
-/**
- * What the move and plan screens tell somebody standing in front of a bookcase.
- *
- * The failure this guards against is the plan being read and believed: 50 books
- * carried, three pinned ones silently left behind, and no way to tell from the
- * screen that anything was omitted. So the counts are held to the reasons, and
- * every book the rules will not touch is held to a name.
- *
- * The design rules the gallery pins reach here too, and the ones this screen can
- * break are checked: no word out of the model on screen, the four places in the
- * tab bar, and no arrow between two areas.
- *
- * Rendered as markup rather than driven in a browser, the same way
- * `CarryPane.test.tsx` does it. The pane holds no state, which is what makes
- * that possible and is why it is split out of the screen at all.
- */
+/** Rendered as markup rather than driven in a browser: this pane holds no state. */
 
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
@@ -76,13 +61,7 @@ const drawn = (over: Partial<Parameters<typeof MoveRunPane>[0]> = {}): string =>
     ...over,
   }) as ReactElement)
 
-/**
- * The words on the screen, with the markup and the class names gone.
- *
- * The spaces are collapsed, because a tag becomes a space and two labels with
- * an element each around them would otherwise have to be asserted with the
- * gaps between the elements counted.
- */
+/** Spaces are also collapsed: a tag becomes a space, so two adjacent labels would otherwise need the gap between them counted. */
 const words = (markup: string) => markup.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ')
 
 const planned = (over: Partial<RunMovePlan> = {}) => drawn({ plan: plan(over) })
@@ -103,16 +82,6 @@ describe('choosing where a stretch of books should live', () => {
     expect(words(html)).toContain('A bookcase you do not have yet')
   })
 
-  /**
-   * #500. A shelf at the top of a run with nothing on it yet is an ordinary
-   * state: it is what you have the moment you say a stretch of books belongs
-   * somewhere and before you have carried any of them there.
-   *
-   * The screen used to read this list off the books it was drawing, so a plank
-   * holding nothing was not in it at all, and the run was described as three
-   * planks when it is four. The planks are the run's now, so the empty one is
-   * named with the number that is true of it.
-   */
   it('names a plank of the run that is holding nothing, rather than leaving it out', () => {
     const html = words(drawn({
       areas: [
@@ -125,11 +94,6 @@ describe('choosing where a stretch of books should live', () => {
     expect(html).toContain('Three areas: 4A with 0 books, 4B with 20 books, 4C with 22 books')
   })
 
-  /**
-   * #486. The refusal is right and it is unchanged; what was wrong was that it
-   * came after somebody had read a description of the run and chosen one of
-   * three bookcases to send it to.
-   */
   it('says why a run cannot be moved instead of offering three bookcases first', () => {
     const html = drawn({
       refused: 'Fiction names one plank rather than a bookcase, so there is no run to move.',
@@ -140,7 +104,6 @@ describe('choosing where a stretch of books should live', () => {
     expect(words(html)).not.toContain('Show me the plan')
   })
 
-  /* And it still says where the run stands, because that part was never wrong. */
   it('still says where a run that cannot be moved lives', () => {
     const html = words(drawn({
       refused: 'Fiction names one plank rather than a bookcase, so there is no run to move.',
@@ -150,11 +113,7 @@ describe('choosing where a stretch of books should live', () => {
     expect(html).toContain('Bookcase 4')
   })
 
-  /*
-   * Nought is not a bookcase, so it is what "the read has not answered yet"
-   * reads as. Claiming bookcase 0, or claiming that nothing is filed here,
-   * would both be the screen saying something it does not know.
-   */
+  // 0 is the sentinel for "the read has not answered yet", not a real bookcase number.
   it('claims nothing at all until the read has answered', () => {
     const html = drawn({ livesOn: 0, areas: [] })
 
@@ -179,11 +138,7 @@ describe('the plan for moving a stretch of books', () => {
     expect(html).toContain('4C to 3C · 22 books')
   })
 
-  /*
-   * Every arrow in Unicode lives in the block the design system refuses
-   * outright, and the two ends of a move are two labels and the word "to". The
-   * screen this replaced drew "4A -> 3A" with the glyph.
-   */
+  // Matches the whole Unicode arrow block, which the design system refuses outright.
   it('says "to" between two areas rather than drawing an arrow', () => {
     expect(planned()).not.toMatch(/[\u{2190}-\u{2BFF}]/u)
   })
@@ -202,12 +157,6 @@ describe('the plan for moving a stretch of books', () => {
     expect(html).toContain('One checked out.')
   })
 
-  /*
-   * The count and the names are one claim. A card that said four over a list of
-   * three would be the omission the reasons exist to prevent, and a pinned book
-   * is the one somebody has to be able to find by name: they decided it stays,
-   * and the plan is where they find out it did.
-   */
   it('names every book it is leaving alone, with the reason beside it', () => {
     const html = planned({
       skipped: [
@@ -242,11 +191,6 @@ describe('the plan for moving a stretch of books', () => {
     expect(html).toContain('0 books to carry')
   })
 
-  /**
-   * #391. The plan has known which planks it moves since #244 and drew none of
-   * them, so a move that took four shelves off a bookcase somebody had put up
-   * that afternoon was, on screen, entirely about books.
-   */
   it('names every area the books take with them', () => {
     const html = words(planned())
 
@@ -271,12 +215,6 @@ describe('the plan for moving a stretch of books', () => {
       .not.toContain('move with them')
   })
 
-  /*
-   * Applying does not start a job of its own: these fifty join a list that
-   * already has three on it, and the screen after this says fifty-three. A plan
-   * that reported its own fifty and handed over a different number would look
-   * like an arithmetic bug.
-   */
   it('says what is already waiting, so the next screen is not a surprise', () => {
     expect(words(drawn({ plan: plan(), waiting: 3 })))
       .toContain('Three books are on your carry list')
@@ -343,22 +281,16 @@ describe('the bookcases a move is offered', () => {
     expect(found.find((one) => one.number === 5)!.said).toBe('A bookcase you do not have yet')
   })
 
-  /*
-   * A bookcase holds one stretch of books, and the server refuses a destination
-   * with areas already on it. Offering one would be a target that exists to say
-   * no.
-   */
+  // A bookcase holds one stretch of books; the server refuses a destination
+  // with areas already on it, so offering one would be a target that exists
+  // only to refuse.
   it('never offers a bookcase somebody else’s books are already on', () => {
     expect(destinationsFor([piece(1, 11), piece(4, 3)], 4).map((one) => one.number))
       .toEqual([2, 3, 4, 5])
   })
 
-  /*
-   * #401. A bookcase a stretch of books was moved off has no areas on its face
-   * and every one of those books still standing on it, because nobody has
-   * carried them yet. It reads as free from the areas alone, and it is the one
-   * bookcase in the room that certainly is not.
-   */
+  // A bookcase a stretch was moved off can still have books standing on it
+  // with no areas left on its face, so "no areas" alone does not mean free.
   it('never offers a bookcase with books still standing on it and no areas left', () => {
     const found = destinationsFor([piece(1, 11), piece(2, 0, 46), piece(4, 3)], 4)
 

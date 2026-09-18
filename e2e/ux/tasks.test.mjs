@@ -2,17 +2,6 @@
 //
 // What task 3's furniture check must catch, and what it must not.
 //
-// The check exists because a task can fail for what it destroyed (#391), and it
-// then failed to catch exactly that (#420): the second pass of the usability
-// loop applied a move that left four shelves at negative positions, drawn by no
-// screen, with a rule still filing comics onto one of them, and every part of
-// the check reported ok because every row was still in the table.
-//
-// **A guard that measures the wrong thing is worse than no guard, because it is
-// believed.** So the world below is not invented. It is the world #419 recorded,
-// rows and all, and the first test here is the one that has to fail before the
-// application code is worth anything: the old, row-counting parts pass over it.
-//
 // The check is pure, so this needs no database, no browser and no AppHost.
 import assert from 'node:assert/strict'
 import { judge, taskById } from './tasks.mjs'
@@ -27,10 +16,6 @@ function test(name, body) {
     process.exitCode = 1
   }
 }
-
-// ---------------------------------------------------------------------------
-// The world, exactly as the second pass left it
-// ---------------------------------------------------------------------------
 
 /** A row of the `fixture LEFT JOIN area` read the checks are given. */
 const row = (fixture, position, name, area, at, areaName = '') => ({
@@ -100,11 +85,10 @@ const CARRIED = Array.from({ length: 8 }, (_, at) => ({
 }))
 
 /**
- * What applying the move actually left, read off `e2e/ux/runs/turn2/report.md`.
- *
- * The hall's four shelves at `area_position` -4 to -1 in reversed order, a `4D`
- * that nobody added (area 15, a new row) on the bookcase the books came off, and
- * rule 3 still pointing at area 11.
+ * What applying the move actually left: the hall's four shelves at
+ * `area_position` -4 to -1 in reversed order, a `4D` that nobody added (area
+ * 15) on the bookcase the books came off, and rule 3 still pointing at area
+ * 11.
  */
 const BROKEN_FURNITURE = [
   ...BASELINE_FURNITURE,
@@ -136,10 +120,8 @@ const FIXED_DRAWN = [
   piece(1, 1, '', [[1, '1A'], [21, '1B']]),
   piece(7, 2, '', [[22, '2A'], [23, '2B']]),
   piece(9, 3, '', [[30, '3A'], [31, '3B'], [32, '3C']]),
-  // The run left it, its planks came off its face, and the books have all been
-  // carried, so there is nothing left for the piece to draw. That is the
-  // request, said in the plan as `RunMovePlan.emptied` before anybody pressed
-  // anything, and it is why this bookcase is one of the two the task is about.
+  // Its planks came off its face and the books have all been carried, so
+  // there is nothing left for this piece to draw.
   piece(2, 4, '', []),
   piece(4, 5, 'Hall', [[8, '5A'], [9, '5B'], [10, '5C'], [11, '5D', 'Comics']]),
 ]
@@ -222,9 +204,9 @@ test('the destination may gain the shelves the move puts on it', () => {
 })
 
 test('a plank that stays reachable through the books on it counts as reachable', () => {
-  // Before anybody carries anything, bookcase 4's planks are off its face and
-  // still hold every book, which the app draws as "taken out" (#403). The hall
-  // is untouched. Nothing here is unreachable.
+  // Before anybody carries anything, bookcase 4's planks are off its face but
+  // still hold every book, which the app draws as "taken out". The hall is
+  // untouched.
   const drawn = [
     piece(1, 1, '', [[1, '1A'], [21, '1B']]),
     piece(7, 2, '', [[22, '2A'], [23, '2B']]),

@@ -2,40 +2,23 @@
  * The furniture as rows: reading a piece back, and writing one somebody
  * described.
  *
- * `areas.ts` beside this file writes the areas a **boundary change** implies,
- * reconciling a derived list against the rows. This one writes the areas a
- * **person** asked for: a bookcase they own, named, with the planks they can
- * see on it. Both end up in the same two tables and they are deliberately not
- * the same function, because reconciling a list and honouring a request are
- * different jobs and the second one has to be able to say what it did.
- *
- * ## Renumbering is where the unique index bites
+ * `areas.ts` beside this file writes the areas a boundary change implies; this
+ * one writes the areas a person asked for. Both end up in the same two tables
+ * and they are deliberately not the same function.
  *
  * `area_fixture_position_key` stops two areas on one fixture sharing an ordinal,
- * and Postgres checks a unique index **per row** rather than at the end of the
- * statement. So the obvious `UPDATE area SET position = position + 1` collides
- * with itself the moment two of the rows it is walking are adjacent, and so does
- * a loop that writes each area's new ordinal in turn: moving `C` to `A` puts it
- * on top of the `A` that has not moved yet.
+ * and Postgres checks a unique index per row rather than at the end of the
+ * statement. So `UPDATE area SET position = position + 1` collides with itself
+ * the moment two of the rows it is walking are adjacent, and so does a loop that
+ * writes each area's new ordinal in turn. `resequenceFace` therefore writes
+ * every ordinal twice: the first pass parks each area above every ordinal on the
+ * fixture, the second brings them down to the numbers they were given, so no row
+ * ever holds a number another row holds at any point.
  *
- * `resequenceFace` therefore writes every ordinal **twice**. The first pass
- * parks each area above every ordinal on the fixture, where nothing can be
- * standing; the second brings them down to the numbers they were given. No row
- * ever holds a number another row holds, at any point in either pass, so the
- * index never has to be relaxed and there is nothing to defer.
- *
- * **The index is not the thing to change.** `fixture.position` is deliberately
- * not unique and `docs/data-model.md` says why, and the area index is the other
- * half of that decision: one fixture with two areas called `B` is a shelf with
- * two planks nobody can tell apart, which is not a catalogue anybody has.
- *
- * ## The parking band cannot reach the retired areas
- *
- * A retired area sits at a negative ordinal, `-(plank + 1)`, which is how a
- * plank a book was placed on stays nameable after somebody takes the divider
- * out. The parking band is above every ordinal in use and therefore positive, so
- * a renumbering can neither collide with a retired area nor accidentally bring
- * one back onto the face. See `retiredPosition` and `faceOf` in `areas.ts`.
+ * The parking band is above every ordinal in use and therefore positive, so a
+ * renumbering can neither collide with a retired area, which sits at
+ * `-(plank + 1)`, nor bring one back onto the face. See `retiredPosition` and
+ * `faceOf` in `areas.ts`.
  */
 
 import { standingOf, type Placement } from '../../domain/placement/ledger'
@@ -44,7 +27,6 @@ import type { Db } from '../../server/driver'
 import { DrizzlePlacementLedger } from '../placement/ledger-repository'
 import { areasStanding, retiredPosition } from './areas'
 
-/** A fixture as the rows hold it. */
 export interface FixtureRow {
   id: number
   collectionId: number
@@ -55,7 +37,6 @@ export interface FixtureRow {
   note: string
 }
 
-/** An area as the rows hold it, with how many books are standing in it. */
 export interface AreaRow {
   id: number
   fixtureId: number
@@ -85,10 +66,10 @@ interface RawFixture {
 /**
  * Every fixture on the floor, in the order a book meets them.
  *
- * `position >= 0` throughout, which is the whole of what keeps a retired area
- * off the face. Ordered by position and then by id, the same total order
- * `slotsInOrder` imposes, because two fixtures really can carry one position and
- * without the id the answer would vary between reads.
+ * `position >= 0` throughout, which is what keeps a retired piece off the floor.
+ * Ordered by position and then by id, the same total order `slotsInOrder`
+ * imposes, because two fixtures really can carry one position and without the id
+ * the answer would vary between reads.
  */
 export async function fixturesOnTheFloor(db: Db): Promise<FixtureRow[]> {
   const rows = await db.all<RawFixture>(
@@ -113,11 +94,9 @@ export async function fixturesOnTheFloor(db: Db): Promise<FixtureRow[]> {
  * and therefore what a person would find if they walked to the plank: an
  * assignment nobody has acted on does not move a book and does not count here.
  *
- * **It comes from `areasStanding` rather than from a statement of its own**, and
- * that is #401. This file used to hang the count off a read that filtered
- * `position >= 0`, so a book standing on a retired plank was counted by nothing
- * the room, a piece or an area draws, while the carry list counted it correctly
- * out of the other read. One statement now answers both.
+ * It comes from `areasStanding` rather than from a statement of its own, so a
+ * book standing on a retired plank is counted by the reads that draw a room, a
+ * piece or an area as well as by the carry list.
  */
 export async function everyArea(db: Db): Promise<AreaRow[]> {
   return (await areasStanding(db)).map((area) => ({
@@ -134,12 +113,10 @@ export async function everyArea(db: Db): Promise<AreaRow[]> {
 }
 
 /**
- * The same, narrowed to the areas that are on a face.
- *
- * Which is what everything that **draws** a piece of furniture wants: a retired
- * plank is not on the piece, and putting one back into this list would put a
- * boundary back into every run derived from it. What a retired plank still has
- * is books standing on it, and that is `everyArea`'s to answer.
+ * The same, narrowed to the areas that are on a face, which is what everything
+ * that draws a piece of furniture wants: putting a retired plank back into this
+ * list would put a boundary back into every run derived from it. What a retired
+ * plank still has is books standing on it, and that is `everyArea`'s to answer.
  */
 export async function areasOnFaces(db: Db): Promise<AreaRow[]> {
   return (await everyArea(db)).filter((area) => !area.gone)
@@ -159,8 +136,8 @@ export async function areaOnAFace(db: Db, id: number): Promise<AreaRow | null> {
  * One area whatever has become of it, or nothing when no such row exists.
  *
  * For the reads that are about the books rather than about the furniture. An
- * area's own page is one: forty-six books standing on a plank somebody took out
- * is a page that has to open, and `areaOnAFace` answers 404 for it.
+ * area's own page is one: books standing on a plank somebody took out is a page
+ * that has to open, and `areaOnAFace` answers 404 for it.
  */
 export async function anyArea(db: Db, id: number): Promise<AreaRow | null> {
   return (await everyArea(db)).find((one) => one.id === id) ?? null
@@ -172,7 +149,6 @@ export async function collectionId(db: Db): Promise<number | null> {
   return row ? Number(row.id) : null
 }
 
-/** The strategies a person may choose between, which is the offerable ones. */
 export async function offerableStrategies(
   db: Db,
 ): Promise<{ code: SortStrategy; label: string; isInherit: boolean }[]> {
@@ -193,14 +169,11 @@ export async function collectionStrategy(db: Db): Promise<SortStrategy> {
 /**
  * Change what the collection falls back on.
  *
- * The same `ORDER BY id LIMIT 1` every other read of this row uses, because
- * there is one collection and the ordering is how that is said without a
- * constant. Answers whether a row was there to write: a database with no
- * collection in it is a database with no schema, and a silent no-op would look
- * from the screen exactly like a setting that saves.
+ * Answers whether a row was there to write: a database with no collection in it
+ * is a database with no schema, and a silent no-op would look from the screen
+ * exactly like a setting that saves.
  *
- * It moves no book and reorders nothing by itself, which is the same bargain
- * `updateFixture` strikes with `sort_strategy`: this is the answer the
+ * It moves no book and reorders nothing by itself. This is the answer the
  * placement rules read next time they are asked where a book belongs, and the
  * difference between that and where a book actually stands is the carry list.
  */
@@ -258,8 +231,8 @@ export interface FixtureEdit {
  * Change a piece of furniture.
  *
  * A plain update, including for `position`, because `fixture.position` carries
- * no unique index and must not gain one: the live catalogue already has two
- * pieces numbered 4, and refusing that would refuse an arrangement somebody has.
+ * no unique index and must not gain one: two pieces numbered the same is an
+ * arrangement somebody has, and refusing it would refuse their catalogue.
  * Renumbering the pieces around it would be worse than allowing the duplicate,
  * since every label on every one of them is derived from its number and moving
  * them all would relabel every book in the house.
@@ -333,10 +306,10 @@ export async function updateArea(db: Db, id: number, edit: AreaEdit): Promise<vo
 /**
  * Give a fixture's face the ordinals `order` asks for, 0, 1, 2 and on.
  *
- * **Two passes, and the reason is at the top of this file.** Every area is
- * parked above every ordinal on the fixture first, then brought down. A single
- * pass would put an area on an ordinal another area still holds, and the unique
- * index refuses that the moment the row is written rather than at commit.
+ * Two passes, for the reason at the top of this file. Every area is parked above
+ * every ordinal on the fixture first, then brought down. A single pass would put
+ * an area on an ordinal another area still holds, and the unique index refuses
+ * that the moment the row is written rather than at commit.
  *
  * `order` must be the whole face. Handing it a subset would leave the areas it
  * left out holding ordinals inside the range being written, which is the same
@@ -372,7 +345,6 @@ export async function resequenceFace(
   }
 }
 
-/** What still names a fixture, which is what stands between it and deletion. */
 export interface FixtureHolds {
   areas: number
   /**
@@ -396,19 +368,15 @@ export interface FixtureHolds {
 /**
  * What still names a fixture, which is what stands between it and deletion.
  *
- * **`books` is the question `booksNaming` answers, asked of a whole piece**, and
- * #484 is what asking a narrower one cost. It counted `books.current_area_id`
- * alone, which follows only what somebody has said they carried: a book the
- * rules had assigned to a plank on this piece and nobody had moved yet was
- * standing somewhere else, so it counted for nothing, so the refusal did not
- * fire. Every plank was then retired and the assignment left naming one that is
- * off every face, which is precisely the state `booksNaming` exists to prevent
- * and which `dropArea` has always asked about.
+ * `books` is the question `booksNaming` answers, asked of a whole piece. A book
+ * the rules have assigned to a plank here and nobody has carried yet is standing
+ * somewhere else, so counting `books.current_area_id` alone would let the
+ * refusal miss it, retire every plank, and leave the assignment naming one that
+ * is off every face.
  *
- * **The standing half comes out of `areasStanding`, through `everyArea`, rather
- * than out of a count of its own.** That is #401: there is one statement in this
- * app that counts the books standing on an area, and this is not allowed to
- * become a second.
+ * The standing half comes out of `areasStanding`, through `everyArea`, rather
+ * than out of a count of its own: there is one statement in this app that counts
+ * the books standing on an area, and this is not allowed to become a second.
  */
 export async function whatHoldsFixture(db: Db, id: number): Promise<FixtureHolds> {
   const row = await db.get<{ areas: number; rules: number; recorded: number }>(
@@ -445,11 +413,11 @@ export async function whatHoldsFixture(db: Db, id: number): Promise<FixtureHolds
  * The same two steps `planAreaRemoval` takes for a single plank. `booksNaming`
  * answers every book a plank has ever been about, which includes the ones that
  * only passed through, and the ledger is what says which of those the plank is
- * still about today — so a piece that once held books but holds none and is
- * owed none goes, and a piece somebody is still being told to carry a book to
- * does not.
+ * still about today: a piece that once held books but holds none and is owed
+ * none goes, and a piece somebody is still being told to carry a book to does
+ * not.
  *
- * Not added to the standing count until it is narrowed: a book standing on one
+ * Narrowed before it is added to the standing count: a book standing on one
  * plank of a piece and assigned to another is one book, and counting it twice
  * would put a number on a screen that nothing in the room matches.
  */
@@ -507,12 +475,9 @@ export async function removeFixtureIfUnused(db: Db, id: number): Promise<boolean
  * into a label decodes it back through `faceOf`, so a book recorded on `4A`
  * still reads as `4A`.
  *
- * **It is needed because the row cannot always go.** `book_placement.area_id` is
+ * It is needed because the row cannot always go. `book_placement.area_id` is
  * ON DELETE RESTRICT, so a piece whose planks a book was ever placed on keeps
- * every one of them and therefore keeps itself. #484 is what leaving it at that
- * cost: the answer said the piece was retired and nothing wrote it, so a
- * bookcase somebody had just deleted went on standing in the room with nothing
- * on its face, which is the state #391 and #420 are about.
+ * every one of them and therefore keeps itself.
  *
  * No collision to handle, unlike `retireArea`. `fixture.position` carries no
  * unique index, deliberately (`updateFixture` says why), so two pieces retired
@@ -528,9 +493,9 @@ export async function retireFixture(db: Db, id: number, position: number): Promi
  *
  * The union is not belt and braces. `books.current_area_id` holds where a person
  * put a book, and `book_placement` holds that as well as an assignment nobody
- * has acted on: a book the rules moved here last week and nobody carried is
- * still a book this area is about, and leaving it out would strand its
- * assignment on a plank that no longer exists.
+ * has acted on: a book the rules moved here and nobody carried is still a book
+ * this area is about, and leaving it out would strand its assignment on a plank
+ * that no longer exists.
  */
 export async function booksNaming(db: Db, areaId: number): Promise<number[]> {
   const rows = await db.all<{ id: number }>(

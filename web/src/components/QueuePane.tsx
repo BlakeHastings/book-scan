@@ -23,17 +23,8 @@ import { Queued } from '../design/Queue'
 import { Trouble } from './RoomFrame'
 
 /**
- * The state a waiting book is in, as one word on one pill.
- *
- * The same four words the control above the list filters by, so a book found
- * under "Stuck" says "Stuck" on itself. `failed` is `Stuck` here and nothing
- * more: what is actually wrong with it is a different fact and gets its own
- * pill, which is `whatItNeeds` below and is the whole of #148.
- *
- * **`pending` is the one word that turned into two** (#436), and the control
- * above still holds both under "Reading": what that word answers is which
- * statuses a book can be in, and the row answers something the status cannot,
- * which is whether the worker is on this book right now. See `WAITING_LABEL`.
+ * `failed` is `Stuck` here and nothing more; what is actually wrong with it
+ * is a separate pill, `whatItNeeds` below.
  */
 const STATE_LABEL: Record<CaptureStatus, string> = {
   pending: 'Reading photos',
@@ -43,74 +34,35 @@ const STATE_LABEL: Record<CaptureStatus, string> = {
 }
 
 /**
- * What a waiting book says when nothing is reading it (#436).
- *
- * `pending` was one word over two situations. A book the worker has in its
- * hands is being read and will be done in seconds; a book behind it is waiting
- * for its turn, and a whole queue of them with nothing at the front is a queue
- * that has stopped. Eight of those said "Reading photos" for five minutes.
- *
- * **It is not a third state and it is not a fault.** Nothing is wrong with a
- * book that is waiting to be read, which is exactly why it must not be dressed
- * as one: a capture that could not be read already has its own word, its own
- * diagnosis pill and its own retry (#299, #339), and printing that over a book
- * whose photographs nobody has opened sends somebody to fetch a book that never
- * needed them.
+ * Not a third state and not a fault: a book waiting for its turn is not the
+ * same as one being read, but nothing is wrong with either of them, so this
+ * must not be dressed up as a failure.
  */
 const WAITING_LABEL = 'Waiting to be read'
 
 /**
- * Which of those, for one book.
- *
- * `reading` is the capture the server says its worker is holding, which is what
- * tells a book being read from a book waiting for one. Null, or an id that is
- * not this book's, means nothing is reading this: null because the worker is
- * idle, and a different id because it is busy with somebody else's book.
+ * `reading` is null when the worker is idle, or an id belonging to a
+ * different capture when it is busy elsewhere; either way this book is not
+ * currently being read.
  */
 export function stateWord(capture: Capture, reading?: number | null): string {
   if (capture.status === 'pending' && capture.id !== reading) return WAITING_LABEL
   return STATE_LABEL[capture.status]
 }
 
-/**
- * What this row says the book needs, and nothing where nothing is wrong.
- *
- * `failed` used to read "needs you", which was true and useless: the same
- * three words whether the photographs yielded no ISBN, yielded a good one no
- * catalogue has, or broke the read outright. Those need different things from
- * the person holding the book, so the row names which one, out of the same
- * helper Home counts with (#148). One rule, so the row and the first screen
- * cannot say different things about the same capture again.
- *
- * **It is a pill now rather than a line, and that changes nothing about which
- * words it says.** The owner asked for the diagnosis to be a tag rather than a
- * sentence; the four words behind it are `FAILURE_LABEL` and are untouched,
- * because the incident this exists to prevent is somebody being sent to retype
- * an ISBN that read perfectly well.
- */
+/** Only failed captures need something named; the words come from `FAILURE_LABEL`. */
 export function whatItNeeds(capture: Capture): string {
   return capture.status === 'failed' ? FAILURE_LABEL[failureOf(capture)] : ''
 }
 
-/**
- * The device that has this book, with no words wrapped around it.
- *
- * > Instead of "checked by" and then the device, just have the device there as
- * > a pill.
- *
- * The claim first, because a claim is somebody working on this book right now
- * and an edit is somebody who was. The row used to say both, in two clauses
- * either side of a middle dot, and tell them apart with "worked on" against
- * "checked": three sentences of prose for one name.
- */
+/** The claim wins over the edit: a claim is somebody working the book right now. */
 export function deviceOn(capture: Capture): string {
   return capture.claimed_by || capture.edited_by || ''
 }
 
 /**
  * A capture still being read cannot be shelved: there is nothing yet to
- * confirm, correct or place. The row says so, and now that the row itself is
- * the control, this is what stops a tap on one starting anything.
+ * confirm, correct or place.
  */
 export function canShelve(capture: Capture): boolean {
   return capture.status !== 'pending'
@@ -122,47 +74,21 @@ export interface QueueReturnAnchor {
   index: number
 }
 
-/**
- * Which books the queue is showing.
- *
- * The three the drawing names, and they are the three states a capture is
- * actually in: read and waiting for somebody, still being read, and stuck.
- * "Processing", not "Reading": the owner read the old word as the app telling
- * him he was in the middle of a novel rather than as it working on a
- * photograph.
- */
 export type Which = 'ready' | 'processing' | 'stuck' | 'all'
 
-/**
- * Whether a capture belongs under each answer, one predicate each.
- *
- * A table rather than a chain of conditionals inside the filter, and exported
- * rather than closed over, so what each word on that control claims to show is
- * a thing a test can ask about directly. Every status appears under exactly one
- * of the three besides `all`, which is what makes the counts on the control add
- * up to the number in the top bar.
- */
+/** Every status belongs under exactly one of these three besides `all`. */
 export const SHOWING: Record<Which, (capture: Capture) => boolean> = {
   all: () => true,
-  // `done` is a book that has been shelved and whose row has not gone yet.
-  // Nothing is wrong with it and nobody is reading it, so it sits with the
-  // ones somebody could act on rather than inventing a fourth answer.
+  // `done` also counts as ready: it is shelved but its row has not gone yet.
   ready: (capture) => capture.status === 'ready' || capture.status === 'done',
   processing: (capture) => capture.status === 'pending',
   stuck: (capture) => capture.status === 'failed',
 }
 
 /**
- * The stuck books whose photographs are worth putting through the reader again
- * (#299).
- *
- * The two failures that say nothing about the book: the reader was given up on,
- * or it broke on the way to a verdict. Offered here, above the list, rather than
- * on each row, because the useful case is a reader that stopped and took
- * everything queued behind it with it, which is several books at once and one
- * decision about all of them. The other two failures want a person and a book
- * in their hands, and a button that re-read those would be a button that
- * produces the same answer twice.
+ * Only the two failures that say nothing about the book (the reader gave up,
+ * or broke outright). The other two need a person with the book in hand, and
+ * re-reading them would just produce the same answer again.
  */
 export function readableAgain(captures: Capture[]): Capture[] {
   return captures.filter(couldBeReadAgain)
@@ -171,9 +97,7 @@ export function readableAgain(captures: Capture[]): Capture[] {
 interface Props {
   onOpen: (capture: Capture, anchor: QueueReturnAnchor) => void
   onCounts: (counts: QueueCounts) => void
-  /** Where each of the four places goes, since this screen wears the tab bar. */
   tabs: Record<TabName, () => void>
-  /** Photograph a book, which is what an empty queue is for. */
   onPhotograph: () => void
   /**
    * Set when this mount is a return trip: the user opened a capture from
@@ -183,17 +107,8 @@ interface Props {
   returnAnchor?: QueueReturnAnchor | null
   onReturnAnchorConsumed?: () => void
   /**
-   * Which books to open on, where whatever opened this screen was about some of
-   * them rather than all of them (#436).
-   *
-   * The first screen's counts are the reason it exists. "31 stuck" opened this
-   * screen on "All 39", so pressing a number about thirty-one books produced a
-   * list of thirty-nine, and **a count is a promise about what you will see**.
-   * Absent means the whole queue, which is what the tab bar asks for and what
-   * somebody working through a pile wants.
-   *
-   * Used once, on the way in, and then the control above the list owns it: this
-   * is where the screen opens, not a filter it is held to.
+   * Which books to open on. Absent means the whole queue. Used once, on the
+   * way in; the control above the list owns the filter after that.
    */
   showing?: Which | null
 }
@@ -225,36 +140,18 @@ export function photoCount(capture: Capture): number {
 }
 
 /**
- * One book waiting to be filed.
- *
- * Holds no state of its own, deliberately: the swipe lives in the pane, which
- * paints the drag straight onto the DOM rather than through React, so dragging
- * a row does not re-render a list that can be a hundred books long. That also
- * leaves this callable as the plain function it is, which is how it gets
- * tested in a project with no browser in its test setup.
- *
- * The whole row is the control now (#120). It used to carry a "Shelve" button
- * and a "Discard" button in a column on the right, which is two taps of aim
- * for somebody holding a book in their other hand.
- *
- * **What it draws is `Queued`, which is the wireframe's own row** (#363). The
- * book, the name, and three pills; and nothing on it is a sentence about the
- * book any more. What is left here is the wrapper: the swipe, the word revealed
- * behind it, and the undo that takes the row's place. Those are this screen's
- * and the drawing has none of them.
+ * Holds no state of its own: the swipe lives in the pane, which paints the
+ * drag straight onto the DOM rather than through React, so dragging a row
+ * does not re-render a list that can be a hundred books long.
  */
 export function QueueRow({
   capture, held, reading, onOpen, onUndo, gesture, registerRow,
 }: RowProps) {
-  // What anybody has worked out about this book, over what the worker
-  // read off its photographs. The row has to show the corrected title,
-  // not the one the wrong ISBN produced, or the person coming to shelve
-  // it is looking for the wrong book.
+  // Shows the corrected draft, not the raw OCR title, so the person shelving
+  // sees the same title as the person who fixed it.
   const draft = draftFromCapture(capture)
-  // A capture is not a book: it has no catalogue id and often no title at all,
-  // so what OCR read off the cover names the row, and the number names the
-  // ones it could not read either. Marked as a guess where it is one: the row
-  // has to say which book it is without that name looking like a settled one.
+  // A capture is not a book yet, so this may be a guess; marked as one via
+  // `guessed` where it is.
   const name = captureName(capture)
   const shelvable = canShelve(capture)
 
@@ -267,20 +164,13 @@ export function QueueRow({
       }
     >
       {held ? (
-        /*
-         * The row does not vanish when it is discarded. It stays exactly where
-         * the thumb just was and counts down, because the failure this is
-         * guarding against is somebody not noticing they discarded anything,
-         * and a row that disappears is the one shape that cannot be noticed.
-         */
+        // Stays in place and counts down rather than vanishing, so a
+        // discard is not easy to miss.
         <div className="queue__undo">
           <span className="queue__undo-text">
             Discarding <strong>{name.text}</strong> and its {photoCount(capture)} photo
             {photoCount(capture) === 1 ? '' : 's'}. Nothing has been deleted yet.
           </span>
-          {/* The design system's button, which is what every other way back in
-              the app is. It is the primary thing here because taking a discard
-              back is the only thing this row is for while the window is open. */}
           <Button tone="primary" onPress={() => onUndo(capture.id)}>
             Undo
           </Button>
@@ -292,45 +182,19 @@ export function QueueRow({
         </div>
       ) : (
         <>
-          {/* Revealed as the row slides off it, so what the gesture is going
-              to do is legible before the finger lifts. */}
           <span className="queue__behind" aria-hidden="true">Discard</span>
 
           <div className="queue__slide" {...gesture}>
             <button
               type="button"
-              /*
-               * `wf-qrow` is the card a waiting book sits on, which the
-               * gallery draws and which this screen used to redraw. What is
-               * left beside it is the swipe: `queue__open` is the row being
-               * unavailable while its photographs are still being read, and
-               * the two wrappers outside carry the clip, the reveal and the
-               * slide. `library.css` says the same from the other end.
-               */
+              // `library.css` styles this from the other side; keep the two in sync.
               className="queue__open wf-qrow"
-              /*
-               * `aria-disabled` rather than `disabled`. A disabled button
-               * swallows pointer events in every browser this runs on, and
-               * they are what the swipe is made of: a capture whose photos
-               * came out unusable is exactly one somebody wants to discard
-               * while it is still being read.
-               */
+              // `aria-disabled` rather than `disabled`: a disabled button
+              // swallows the pointer events the swipe is made of in every
+              // browser this runs on.
               aria-disabled={!shelvable}
               onClick={() => { if (shelvable) onOpen(capture) }}
             >
-              {/*
-                The wireframe's row, called rather than rebuilt. The pills are
-                its, the book is `Shots` in the mode a book's own page draws
-                itself in, and the words are the ones in `Queue.tsx`.
-
-                Three things the row used to print are deliberately not passed.
-                What OCR read off the cover is gone, which the owner asked for
-                outright. The worker's note under a stuck book is gone with it:
-                it says which photograph and which digits, which is a paragraph
-                on a row and is already the first thing the screen behind this
-                one says when the book is opened. And "worked on by" against
-                "checked by" is one device name now.
-              */}
               <Queued
                 name={name.text}
                 guessed={name.guessed}
@@ -349,14 +213,9 @@ export function QueueRow({
 }
 
 /**
- * Books photographed but not yet filed. Polls while anything is still being
- * read, so a capture stops saying "reading photos" without a manual refresh,
- * and so a second person's work appears here too.
- *
- * This is a working surface rather than a report (#120): the row is the
- * control, the front cover is what a book is recognised by while it is in your
- * hands, a sideways drag discards, and a box at the top finds one book in a
- * stack. What a discard does is deferred rather than confirmed; see
+ * Polls while anything is still being read, so a capture's status updates
+ * without a manual refresh, and so a second person's work appears here too.
+ * What a discard does is deferred rather than confirmed; see
  * `discardWindow.ts` for why that is the safer of the two.
  */
 export function QueuePane({
@@ -364,22 +223,15 @@ export function QueuePane({
   showing,
 }: Props) {
   const [captures, setCaptures] = useState<Capture[]>([])
-  /*
-   * Where the screen opens, which is whatever sent somebody here (#436). A
-   * fresh mount per visit, so the initial value is read once and the control
-   * above the list owns it from then on: coming in on "Stuck" and pressing
-   * "All" shows all of them, and leaving and coming back through the tab bar
-   * opens on the whole queue again.
-   */
+  // Read once on mount; the control above the list owns it after that, so
+  // returning via the tab bar always reopens on the whole queue.
   const [which, setWhich] = useState<Which>(showing ?? 'all')
   /**
    * The capture the server's worker has in its hands, or null.
    *
-   * Read from the same answer the list comes from, so it is as fresh as the
-   * rows are and stale in exactly the same way. Null covers both "the worker is
-   * idle" and "this server did not say", and the row then says a book is
-   * waiting rather than being read, which is the safe direction to be wrong in:
-   * it claims less.
+   * Null covers both "the worker is idle" and "this server did not say", and
+   * either way the row says a book is waiting rather than being read, which
+   * is the safe direction to be wrong in.
    */
   const [reading, setReading] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
@@ -414,14 +266,8 @@ export function QueuePane({
     load()
   }, [load])
 
-  /*
-   * The delete itself, sent only once a held discard's window has closed with
-   * nobody having taken it back.
-   *
-   * Built once and kept in a ref: the window owns live timers, and rebuilding
-   * it on a render would strand them and delete something after the person had
-   * already undone it.
-   */
+  // Kept in a ref rather than rebuilt each render: the window owns live
+  // timers that a rebuild would strand, deleting something already undone.
   const loadRef = useRef(load)
   loadRef.current = load
   const discards = useRef(createDiscardWindow((id) => {
@@ -443,38 +289,24 @@ export function QueuePane({
       })
   }))
 
-  /*
-   * Nothing held survives this pane going away, and nothing held is deleted on
-   * the way out. Somebody who navigates away mid-window keeps the book; see
-   * `discardWindow.ts` for why that is the direction to fail in.
-   */
+  // Navigating away mid-window keeps the book rather than deleting it; see
+  // `discardWindow.ts` for why that is the direction to fail in.
   const window_ = discards.current
   useEffect(() => () => window_.abandon(), [window_])
 
   const anyPending = captures.some((c) => c.status === 'pending')
 
   useEffect(() => {
-    /*
-     * Only poll while there is something to wait for, which is what makes this
-     * a wait rather than a poll: it starts when a book is unread and stops when
-     * none is.
-     *
-     * **It is also what keeps the server looking** (#436). A read that finds
-     * pending work arms the server's own sweep, so a person standing on this
-     * screen watching a queue that has stopped is the thing that starts it
-     * again, within a couple of seconds and without touching anything.
-     */
+    // Polls only while something is pending, and a read that finds pending
+    // work re-arms the server's own sweep.
     if (!anyPending) return
     const timer = setInterval(load, 2000)
     return () => clearInterval(timer)
   }, [anyPending, load])
 
-  /*
-   * A capture that left the queue some other way while its discard was held:
-   * another person deleted it, or shelved it from their own phone. There is
-   * nothing left to take back, so let go of the timer rather than firing a
-   * delete at an id that has gone.
-   */
+  // A capture that left the queue some other way while held (deleted or
+  // shelved elsewhere) has nothing left to take back, so release its timer
+  // rather than firing a delete at a stale id.
   useEffect(() => {
     if (held.length === 0 || loading) return
     const present = new Set(captures.map((c) => c.id))
@@ -484,13 +316,8 @@ export function QueuePane({
     setHeld((current) => current.filter((id) => present.has(id)))
   }, [captures, held, loading, window_])
 
-  /**
-   * The queue, narrowed to what was typed, in the order it already had.
-   *
-   * A held discard stays on screen whatever is in the search box. Its undo is
-   * the only way back, and a filter that hid it would take that away without
-   * stopping the delete.
-   */
+  // A held discard stays visible regardless of the filter, since its undo
+  // is the only way back and a filter that hid it would not stop the delete.
   const visible = useMemo(() => {
     const matching = filterQueue(captures, query).filter(SHOWING[which])
     if (held.length === 0) return matching
@@ -510,13 +337,8 @@ export function QueuePane({
       ? returnAnchor.id
       : captures[Math.min(returnAnchor.index, captures.length - 1)]?.id
 
-    /*
-     * The book wins over the filter. Coming back from a capture has to land on
-     * that capture, and a search that no longer matches it would otherwise
-     * land the person at the top of a list their book is not in. The pane is
-     * remounted per visit so the box is normally already empty; this is the
-     * case where it is not, and it clears rather than scrolling to nothing.
-     */
+    // The book wins over the filter: if an active search hides the target,
+    // the query is cleared instead of landing on nothing.
     if (targetId !== undefined && query && !visible.some((c) => c.id === targetId)) {
       setQuery('')
       return
@@ -550,19 +372,11 @@ export function QueuePane({
     }
   }
 
-  /*
-   * The gesture, in refs rather than in state.
-   *
-   * Dragging paints straight onto the row's own style, so a finger moving down
-   * a list of a hundred books re-renders nothing. React only hears about the
-   * gesture when it ends and something has to change.
-   */
+  // Dragging paints straight onto the row's own style, so a finger moving
+  // down a long list re-renders nothing until the gesture ends.
   const drag = useRef<{ id: number; pointer: number; swipe: Swipe } | null>(null)
-  /*
-   * A pointerup after a sideways drag is still followed by a click. Without
-   * this, letting go of a half-finished swipe opens the book you were trying
-   * not to open.
-   */
+  // A pointerup after a sideways drag is still followed by a click; without
+  // this, letting go of a half-finished swipe opens the book.
   const swallowClick = useRef(false)
 
   const paint = (id: number, swipe: Swipe | null) => {
@@ -649,13 +463,9 @@ export function QueuePane({
   const rereadable = readableAgain(captures)
 
   /**
-   * Send the stuck-through-no-fault-of-their-own ones back through the reader.
-   *
-   * One request each rather than a bulk route: each capture is its own row and
-   * its own refusal, and a book that somebody shelved from another phone while
-   * this screen was open should not stop the others going back. `allSettled`
-   * for the same reason, and the count of what actually went is what is
-   * reported rather than what was asked for.
+   * One request per capture rather than a bulk route, so a book shelved
+   * elsewhere mid-batch does not stop the others going back; the count
+   * reported is what actually succeeded, not what was asked for.
    */
   const readAgain = async () => {
     setError('')
@@ -699,12 +509,6 @@ export function QueuePane({
           />
         }
       >
-      {/*
-        Which ones. Four answers where the drawing has three, because the
-        drawing shows the queue mid-sort and the app opens on it: everything,
-        which is what somebody working through a pile is looking at, and then
-        the three the drawing names.
-      */}
       {captures.length > 0 && (
         <Segmented
           label="Which ones"
@@ -719,24 +523,6 @@ export function QueuePane({
         />
       )}
 
-      {/*
-        The way back from a reader that stopped, without going and finding the
-        books again (#299).
-
-        It used to live inside a card that summarised what the stuck books
-        need, and #349 took that summary off: the count is on the first screen
-        and on the control above this, and what each book needs is on the book.
-        The button was never part of the summary. It is one decision about
-        several books at once, so it stays above the list it acts on, saying in
-        its own words how many it would send.
-
-        **Secondary now, and that came out of looking at it.** Inside the card
-        it was the primary thing in a box about stuck books. Standing on the
-        screen it was a full-width filled button above everything, which claims
-        to be what this screen is for, and this screen is for picking a book up
-        and shelving it. The design system is explicit that a screen has at
-        most one primary and that it is the one thing the screen is for.
-      */}
       {rereadable.length > 0 && (
         <Button
           tone="secondary"
@@ -752,31 +538,6 @@ export function QueuePane({
         </Button>
       )}
 
-      {/*
-        The row above the books, which is the library's row with this screen's
-        search box in front of it (#349).
-
-        **Without the switcher that used to end it** (#363). It chose between
-        the front and the spine because a row drew one small photograph of a
-        book; a row draws the book now, spine standing against the front, so
-        both of its answers produce the same picture. The row itself is the same
-        component the library wears and is otherwise untouched.
-
-        **And the box in front of it is the design system's too** (#387), which
-        is the same `SearchField` the find screen and the tag panel type into
-        and the same one `#/design/queue` draws with this screen's own
-        placeholder. It was the app's box wearing the design system's tokens: a
-        second field that agreed with the drawing until one of them was edited.
-
-        **The Clear button went with it, and it is not lost.** The design
-        system keeps the browser's own clear affordance and takes it down to
-        the ink around it rather than hiding it, which is the whole of
-        `.wf-search__input::-webkit-search-cancel-button`; and this screen
-        already had a second way out, which is "Show the whole queue" below,
-        offered at the exact moment a search stops matching anything. Two
-        controls that do one thing is the fault the row itself was built to
-        end.
-      */}
       <div className="queue__tools">
         <Filter>
           <SearchField
@@ -807,13 +568,6 @@ export function QueuePane({
             {visible.length} of {captures.length} shown.
             {visible.length === 0 && ' Nothing here matches that.'}
           </Said>
-          {/*
-            The way back to the whole queue, which was a word underlined inside
-            that sentence. It is the quiet button now, which is what this design
-            system does with a word that is really a control: the same 44px the
-            rest of the app is built to, on the screen most likely to be used
-            one-handed with a book in the other.
-          */}
           {visible.length === 0 && (
             <Button tone="quiet" onPress={() => setQuery('')}>
               Show the whole queue
@@ -830,10 +584,6 @@ export function QueuePane({
         <Said>Tap a book to shelve it. Slide one left to discard it.</Said>
       )}
 
-      {/* The gallery's own list of waiting books, called rather than rebuilt.
-          A list of divs rather than a `ul`, which is what the drawing is and
-          what stops a second set of rules existing to undo a `ul`'s bullets
-          and indent. */}
       <div className="wf-qlist" role="list" aria-label="Books on the table">
         {visible.map((capture) => (
           <QueueRow

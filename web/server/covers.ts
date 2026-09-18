@@ -1,11 +1,6 @@
 /**
- * The publisher's cover, fetched rather than photographed.
- *
- * Worth having for two reasons. It is what a matched book is supposed to look
- * like, so it can be put next to the photo in hand and compared by eye, which
- * is the only check on an ISBN that a person can actually perform. And it is a
- * clean, straight-on image of the front, which is a far better thing to match
- * a held-up book against than a photo taken at an angle in a dim room.
+ * The publisher's cover, fetched rather than photographed: a clean,
+ * straight-on image of the front to compare a held-up book against.
  */
 
 import { writeFileSync } from 'node:fs'
@@ -19,9 +14,7 @@ import sharp from 'sharp'
  * placeholder image, which would otherwise be stored as though it were a real
  * cover.
  */
-// Overridable for the same reason as the metadata origins in lookup.ts: this
-// fetch happens in the server process, so a test run can only take it off the
-// network by being told where to go instead. Unset in normal use.
+// Overridable so a test run can take this off the network. Unset in normal use.
 const COVERS_ORIGIN = process.env.BOOKSCAN_COVERS_URL || 'https://covers.openlibrary.org'
 
 export function openLibraryCover(isbn: string): string {
@@ -75,15 +68,12 @@ export async function downloadCover(
       .jpeg({ quality: 82 })
       .toBuffer()
 
-    // A timestamp alone collides when two covers save in the same
-    // millisecond, and a book with no ISBN would collide with every other
+    // A timestamp alone can collide if two covers save in the same
+    // millisecond, and an ISBN-less book would collide with every other
     // ISBN-less book on the 'noisbn' literal. The random suffix makes the
-    // name unique regardless of timing, without hashing the image content:
-    // a content hash would also deduplicate identical covers, which is a
-    // storage-behaviour change this fix is not making. The timestamp and
-    // ISBN stay in the name because nothing reads them back out of it, but a
-    // directory listing sorted by name is still roughly chronological and
-    // still groups a book's covers together, which is worth keeping.
+    // name unique regardless of timing, without hashing the image content,
+    // which would also deduplicate identical covers, a storage-behaviour
+    // change this is not making.
     const name = `${Date.now()}_${isbn || 'noisbn'}_${randomBytes(4).toString('hex')}_cover.jpg`
     writeFileSync(join(dir, name), jpeg)
     return name

@@ -1,8 +1,5 @@
-// node scripts/ci-scope.test.mjs
-//
 // The cost of getting `classify` wrong is asymmetric, so most of these assert
-// the safe direction: that something which is not obviously documentation gets
-// the full run.
+// the safe direction: anything not obviously documentation gets the full run.
 import assert from 'node:assert/strict'
 import { classify, classifyImage, decidesTheImage, isInert } from './ci-scope.mjs'
 
@@ -75,8 +72,8 @@ test('the reason names the offending files but does not run away', () => {
   assert.match(why, /and 7 more/)
 })
 
-// The second question (#549). The cost of getting this one wrong is asymmetric
-// the other way round from `classify`: the expensive answer is `image: true`.
+// The image question is asymmetric the other way round from `classify`: the
+// expensive answer is `image: true`.
 
 test('the recipe and the context decide the image', () => {
   assert.equal(decidesTheImage('Dockerfile'), true)

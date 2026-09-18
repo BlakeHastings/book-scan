@@ -1,7 +1,7 @@
 Feature: The first screen says so when nothing answered
 
   The first screen is made of two reads, the collection's counts and the
-  queue's, and until #562 both ended in a bare catch that did nothing:
+  queue's, and both end in a bare catch that does nothing:
 
     api.health().then(...).catch(() => {})
     api.listCaptures().then(...).catch(() => {})

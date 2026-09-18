@@ -1,33 +1,4 @@
-/**
- * The editable fields of one book, drawn with the design system.
- *
- * ## It is the review screen's form, on the screen that corrects a record
- *
- * The gallery draws `review` ("Check the details") and draws no screen at all
- * for editing a book the catalogue already holds. The two are the same act on
- * two kinds of book, so this wears what that drawing wears rather than
- * inventing a second form: the ISBN above it, then the title, the author, what
- * it files under, the series, the tags, and everything that arrives from a
- * catalogue in a sunk card at the bottom. `CaptureReview` builds that shape out
- * of the same `Field`, `Card` and `Tag` this does, so the two screens cannot
- * drift into two forms.
- *
- * **The names are the drawing's names.** "Authors (comma separated)" said in a
- * label what the placeholder says better, and the drawing calls it "Author";
- * the browser journeys that typed into the old name were changed with it, in
- * the same pull request, because a label is the thing a test holds on to.
- *
- * ## The order is the order they are worth your attention
- *
- * Which is unchanged: fiction and non-fiction first, because they decide which
- * bookcase the book crosses the room to, then what a lookup most often gets
- * wrong. Publisher, year and length arrive from the catalogue and are almost
- * never touched, so they are last, in a card of their own.
- *
- * The one thing that moved is the page count and its friends: they were behind
- * a `<details>` somebody had to open. A sunk card says the same "this is the
- * rest of it" without hiding a field from anybody looking for one.
- */
+/** Built out of the same `Field`, `Card` and `Tag` as `CaptureReview`, so the two screens cannot drift into two forms. */
 
 import { Card, Said } from '../design/Card'
 import { Field } from '../design/Controls'
@@ -43,14 +14,7 @@ interface Props {
   lookup: LookupResponse | null
   derivedFiling: string
   onChange: (patch: Partial<Draft>) => void
-  /**
-   * What a person has said this book is, beyond which of the two genres it is.
-   *
-   * Absent until #433, which is the defect: the two genre answers are a draft
-   * the save writes, and everything else somebody might say about a book is a
-   * set written the moment it is said. This form had the first and not the
-   * second, so a book already on a shelf could not be told what it was.
-   */
+  /** Genre is part of the draft the whole form saves; these tags are written the moment they are said, through `onAddTag`/`onRemoveTag`. */
   tags?: AppliedTag[]
   taggingBusy?: boolean
   taggingError?: string
@@ -72,13 +36,9 @@ export function BookFields({
 }: Props) {
   const confidence = draft.classificationConfidence
 
-  /*
-   * Where the answer above came from, and how much to trust it.
-   *
-   * A book loaded out of the catalogue carries no lookup, so there is no
-   * reasoning to quote and a bare "probable:" says nothing. That condition is
-   * the one the old markup had and it is kept exactly.
-   */
+  // A book loaded from the catalogue carries no lookup, so there is no
+  // reasoning to quote; without `lookup.classification.reason`, a bare
+  // confidence label would say nothing useful.
   const why = draft.classificationSource === 'manual'
     ? 'Set by you'
     : lookup?.classification.reason
@@ -87,13 +47,7 @@ export function BookFields({
 
   return (
     <>
-      {/*
-        A book the catalogue already holds, which is news somebody has to read
-        before they save. It is a card with the news in its title, which is
-        where `Card` says news belongs, and it is quiet rather than loud: this
-        is a thing to know rather than a refusal, and saving a second copy of a
-        book somebody genuinely owns twice is allowed.
-      */}
+      {/* Quiet rather than loud: this is a thing to know, not a refusal, since saving a genuine second copy is allowed. */}
       {lookup?.duplicateOf && (
         <Card
           weight="quiet"
@@ -105,19 +59,11 @@ export function BookFields({
         />
       )}
 
-      {/* What the catalogue said it could not answer for. Quiet lines, because
-          each of them is a fact about the lookup rather than a thing to do. */}
       {lookup?.notes.map((note) => (
         <Said key={note}>{note}</Said>
       ))}
 
-      {/*
-        Fiction and non-fiction, drawn as the two tags they are, which is what
-        the review screen draws and what a person reading this sees. They are
-        one question with two answers and at most one holds; pressing one says
-        a person decided it, which is what keeps it safe from an automatic
-        rewrite.
-      */}
+      {/* Setting `classificationSource: 'manual'` on press is what protects this answer from being overwritten by an automatic reclassification later. */}
       <div>
         <span className="wf-field__label">Tags</span>
         <div style={{ height: 6 }} />
@@ -135,17 +81,7 @@ export function BookFields({
             Non-fiction
           </Tag>
 
-          {/* Everything else somebody has said this book is, in the same
-              wrapping row as the two genre answers, because a person reading
-              this sees tags. Where they came from is a distinction the model
-              needs and the screen does not. Lit, because every one of these is
-              on the book right now and pressing one takes it off again.
-
-              The two genre slugs are filtered out rather than drawn twice: they
-              are the buttons to the left of this, and a book whose genre a
-              person set carries that tag, so without this the row read
-              "Fiction  Non-fiction  Fiction". `TagNaming` leaves them out of
-              what it offers for the same reason. */}
+          {/* Filters out the two genre slugs: a book whose genre is set already carries that tag, so without this the row would read "Fiction  Non-fiction  Fiction". */}
           {tags.filter((tag) => !GENRE_ANSWERS.includes(tag.slug)).map((tag) => (
             <Tag
               key={tag.slug}
@@ -197,9 +133,7 @@ export function BookFields({
         onChange={(seriesIndex) => onChange({ seriesIndex })}
       />
 
-      {/* Kept out of the card below, because it is the one line here nothing
-          else wrote: a catalogue never has an opinion about where somebody
-          left their own copy. */}
+      {/* Kept out of the card below: unlike those fields, a catalogue never has an opinion about a note somebody left on their own copy. */}
       <Field
         label="Notes"
         value={draft.notes}

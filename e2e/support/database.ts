@@ -1,27 +1,8 @@
 /**
- * Reading, and resetting, the database the app under test is writing to.
- *
- * This is the point of the suite. A book that renders on screen but was
- * persisted with the wrong filing name, or not persisted at all, is exactly
- * the bug a screen-only assertion misses, so every journey ends by opening the
- * database and looking.
- *
- * **Postgres since stage G, and the shape of that change is worth stating.**
- * The connection is not guessed and not rebuilt here: it is read out of the api
- * resource's own environment by global-setup, so this opens the database the
- * AppHost gave the app rather than one reconstructed and hoped to match. That
- * is the same argument the old version made for asking `/api/health` for a file
- * path, and it is a better answer than teaching a health endpoint to hand out a
- * password.
- *
- * Every method is asynchronous now, because `pg` is. That is the only change to
- * the step files: not one assertion moved, and if one had to, the migration
- * changed behaviour and that is the finding rather than something to
- * accommodate.
- *
- * Safe to open alongside the running server, which is the whole reason a real
- * database was worth moving to: these are separate connections, and the app
- * goes on serving while a scenario reads.
+ * Reading, and resetting, the database the app under test writes to. The
+ * connection is read out of the api resource's own environment by
+ * global-setup rather than reconstructed here, so this opens the exact
+ * database the AppHost gave the app.
  */
 
 import pg from 'pg'
@@ -45,39 +26,21 @@ export interface BookRow {
   cover_image: string
   isbn_source: string
   lookup_source: string
-  /**
-   * Which of its photographs the queue has read, comma separated.
-   *
-   * A column on the book rather than on anything the queue keeps separately,
-   * and it stays with the book after it is shelved. Read here because a
-   * photograph attached to the wrong book takes a slot back out of it, which is
-   * a fact about a catalogued book that no screen shows (#431).
-   */
+  /** Which of its photographs have been read, comma separated. Stays with the book after it is shelved. */
   analysed: string
-  /**
-   * Which of the seven states the book is in. `checked_out` is a book in
-   * somebody's bag and `shelved` is one on the bookcase, which is the pair
-   * `books.checked_out_at` used to answer before #232 dropped it.
-   */
+  /** Which of the seven states the book is in. `checked_out` is one in somebody's bag; `shelved` is one on the bookcase. */
   state: string
   /**
    * The area the book was last placed in, or null for one nobody has placed.
-   *
-   * This is where `books.location` went. The column held a label and this holds
-   * a row; `areas()` below is what turns one back into the other.
+   * `areas()` below turns this row id back into the label a screen shows.
    */
   current_area_id: number | null
 }
 
 /**
- * A book photographed but not yet filed.
- *
- * Not a table any more since #183: the queue was dissolved into `books`, so a
- * row here is a book in one of the three early states, read back through the
- * projection below. The field names are unchanged because the app's wire
- * vocabulary is unchanged, and a suite that had to be rewritten alongside a
- * table move would stop being independent evidence that the move kept its
- * promises.
+ * A book photographed but not yet filed, read back through the projection
+ * below: there is no queue table any more, only books in one of the three
+ * early states.
  */
 export interface CaptureRow {
   id: number
@@ -98,29 +61,14 @@ export interface CaptureRow {
   claimed_by: string
   book_id: number | null
   /**
-   * Hash of the front photograph, written by the background pass after the
-   * reading. Empty until then, and empty for good on a frame the hash refused
-   * as featureless. It is what lets a book held up be recognised as one
-   * already waiting to be shelved.
+   * Written by the background pass after reading the front photograph. Empty
+   * until then, and empty for good if the hash refused the frame as
+   * featureless.
    */
   front_hash: string
 }
 
-/**
- * A queued book in the shape the queue has always handed one over.
- *
- * A mirror of `QUEUE_ROW` in web/server/queue.ts, copied rather than imported
- * for the same reason `connectionConfig` below is a copy: this package is a
- * separate npm tree, and reaching into the app to save a dozen lines would give
- * the suite a build dependency on the thing it is testing.
- *
- * Four names are aliased back because #183 renamed the columns underneath them.
- * `status` is derived from `state`, so the four words the steps know survive the
- * seven states arriving. `note` is `scan_note`, because `books.notes` is already
- * a person's note about a book. `created_at` is `scanned_at`, the same moment
- * under the name `books` has always used. And the capture that became a book is
- * the book, so `book_id` is the row's own id once it has left the queue.
- */
+/** A mirror of `QUEUE_ROW` in web/server/queue.ts, copied rather than imported since this package is a separate npm tree. */
 const QUEUE_ROW = `
   id,
   CASE "state"
@@ -135,16 +83,7 @@ const QUEUE_ROW = `
   CASE WHEN "state" IN ('scanned', 'unidentified', 'identified') THEN NULL ELSE id END AS book_id,
   scanned_at AS created_at, processed_at`
 
-/**
- * The photographs, joined on rather than selected, because they are rows in
- * `capture` and not columns on `books` (#228).
- *
- * `current_photograph` is the app's own relation for "the newest photograph of
- * each kind", which is the question every screen asks. Reading it here rather
- * than reproducing the tie-break is deliberate: this suite asserts on what
- * reaches the database, and a second copy of the rule would let both copies be
- * wrong together.
- */
+/** Joined on `current_photograph`, the app's own relation for the newest photograph of each kind, rather than reproducing that tie-break here. */
 const PHOTOGRAPHS = `
   COALESCE(front.file, '')     AS front_image,
   COALESCE(back.file, '')      AS back_image,
@@ -159,16 +98,7 @@ const PHOTOGRAPH_JOINS = `
   LEFT JOIN current_photograph spine   ON spine.book_id = b.id   AND spine.kind = 'spine'
   LEFT JOIN current_photograph artwork ON artwork.book_id = b.id AND artwork.kind = 'catalogue'`
 
-/**
- * Where one run of books ends and the next begins, which is an `area` row since
- * #232: a boundary is not a record of a divider any more, it is the plank the
- * books after it stand on.
- *
- * `kind` is therefore derived rather than stored. The furniture says whether a
- * boundary starts a fresh bookcase by putting its area on a fresh fixture, and
- * that is the same distinction the feature files have always written as 'shelf'
- * and 'area'.
- */
+/** A boundary is an `area` row; `kind` is derived from the furniture, not stored. */
 export interface BoundaryRow {
   id: number
   /** 'shelf' when a new bookcase starts here, 'area' when a new plank does. */
@@ -177,14 +107,8 @@ export interface BoundaryRow {
 }
 
 /**
- * One plank, with the bookcase it hangs on, which is everything a label needs.
- *
- * Here because `books.location` is gone and `books.current_area_id` is what
- * replaced it (#232). A step that wants to say which plank a book is recorded on
- * has to join the two rows back together, and there is no other way to reach
- * them from the suite. The label itself is built in `catalogue.steps.ts`, where
- * the wire's vocabulary belongs; this hands back rows, which is what the rest of
- * this file does.
+ * One plank with the bookcase it hangs on. The label itself (like `1A`) is
+ * built in `catalogue.steps.ts`; this only hands back rows.
  */
 export interface PlankRow {
   id: number
@@ -205,29 +129,9 @@ interface AreaRow {
 }
 
 /**
- * The furniture back to what migration `0013` leaves on a fresh database, so
- * what a scenario added to the two runs is put back.
- *
- * The furniture is not truncated and cannot be: the fixtures, the areas and the
- * two rules that file into them are seeded by that migration, and a scenario
- * expects to find the two runs standing, exactly as the app does. Each run
- * begins in one area at position 0 on the fixture its rule points at, anchored
- * at the empty string; everything else on the floor was put there by a
- * scenario, including a retired area, which is one at a negative position kept
- * only because a `book_placement` named it. The truncate cascades to
- * `book_placement`, so by the time these run nothing names an area at all.
- *
- * **A name is put back too**, because a name is not decoration: every label on a
- * piece is derived from it, so a scenario that calls bookcase 1 "Hall shelf"
- * leaves every scenario after it reading `Hall shelf · A` where it seeded `1A`.
- *
- * **And so is the number.** Deleting what no rule points at is not enough for a
- * scenario that moved a run: the piece it left behind goes and the piece it
- * arrived on stays, standing wherever it was sent. Non-fiction would then begin
- * on bookcase 3 for every scenario afterwards, which is a world none of them
- * seeded and only some of them notice. The two runs begin where `0013` put them,
- * and that is asked of the rule rather than of the row, because the rule is what
- * says which run a piece is carrying.
+ * The furniture back to what migration `0013` leaves on a fresh database.
+ * Not truncated: the runs, fixtures and areas are seeded by that migration,
+ * so only what a scenario added or changed is put back.
  */
 const STARTS_ON: [string, number][] = [['genre/fiction', 1], ['genre/non-fiction', 4]]
 
@@ -246,17 +150,7 @@ const RESTORE_FURNITURE = [
   "UPDATE area SET name = '' WHERE name <> ''",
 ]
 
-/**
- * Turn the connection Aspire produced into one node-postgres understands.
- *
- * A copy of the reasoning in web/server/db.pg.ts, not a copy of the code: this
- * package is a separate npm tree with its own dependencies, and importing
- * across the two to save fifteen lines would give the suite a build dependency
- * on the thing it is testing. Aspire hands over ADO.NET keywords, because it
- * produces connection strings for the .NET clients it was built around, and
- * node-postgres reads only the URL form and would take the whole keyword string
- * as a hostname.
- */
+/** Aspire hands over ADO.NET-style keywords, but node-postgres only reads the URL form and would otherwise take the whole keyword string as a hostname. */
 export function connectionConfig(value: string): pg.ClientConfig {
   const trimmed = value.trim()
   if (/^postgres(ql)?:\/\//i.test(trimmed)) return { connectionString: trimmed }
@@ -294,15 +188,14 @@ export class Catalogue {
   /**
    * @param connection what the api resource was given as
    *   `ConnectionStrings__bookscan`
-   * @param coverDir where the app writes photographs, which is still a
-   *   directory on disk: cover storage is explicitly out of scope for this
-   *   migration and the database holds bare filenames, not paths.
+   * @param coverDir where the app writes photographs: the database holds bare
+   *   filenames, not paths.
    */
   constructor(connection: string, readonly coverDir: string) {
     this.pool = new pg.Pool({ ...connectionConfig(connection), max: 2 })
     // node-postgres emits `error` on the pool when an idle client fails, and an
-    // `error` event with no listener is one EventEmitter throws. Without this a
-    // Postgres blip takes the test runner down rather than one scenario.
+    // `error` event with no listener throws. Without this a Postgres blip takes
+    // down the whole test runner rather than one scenario.
     this.pool.on('error', () => {})
   }
 
@@ -312,40 +205,12 @@ export class Catalogue {
   }
 
   /**
-   * Back to nothing catalogued.
-   *
-   * One statement where there were five deletes, because CASCADE handles the
-   * order the deletes were spelling out by hand. RESTART IDENTITY so a scenario
-   * that reads an id back sees the same numbers a fresh catalogue gives.
-   *
-   * The furniture is deliberately not truncated: the fixtures, the areas and
-   * the two rules are seeded when the schema is created, and emptying them
-   * would leave the app with nowhere to file. It is put back instead, by
-   * `RESTORE_FURNITURE`, because a boundary is an area since #232 and a
-   * scenario that split a plank would otherwise leave that plank standing for
-   * the next scenario to find.
-   *
-   * Photographs on disk are left alone. They are named after the moment they
-   * were taken so they cannot collide, and no assertion counts them.
-   *
-   * `captures` has dropped off the list since #183. The table is still there
-   * with its rows in it, but nothing reads or writes it, and naming a table this
-   * suite has no opinion about would be asserting that it still matters. It is
-   * emptied anyway: it holds a foreign key into `books`, so CASCADE reaches it.
+   * RESTART IDENTITY so a scenario that reads an id back sees the same
+   * numbers a fresh catalogue gives. Photographs on disk are left alone: they
+   * are named after the moment they were taken, so they cannot collide.
    */
   async reset(): Promise<void> {
-    /*
-     * `tag` is on the list since #372, and it is the vocabulary rather than what
-     * any book carries. CASCADE from `books` already takes `book_tag`, so an
-     * emptied catalogue had no tagged books and still knew every word anybody
-     * had ever typed. A scenario about naming a tag that does not exist yet
-     * would then pass once and be offered the tag it made on every run
-     * afterwards, which is the kind of green nobody reads twice.
-     *
-     * Nothing is lost by it. The two genre slugs are written by `define` on the
-     * first save that states one, and the labels it gives them are the labels
-     * the migration gave them.
-     */
+    /* `tag` is explicit here since it is vocabulary, not something CASCADE from `books` reaches. */
     await this.pool.query(
       'TRUNCATE book_authors, books, author_filing, ' +
       'author, author_alias, tag RESTART IDENTITY CASCADE',
@@ -354,14 +219,8 @@ export class Catalogue {
   }
 
   /**
-   * The catalogue, in shelf order.
-   *
-   * `catalogued_books`, not `books`, since #183 put the queue in the same
-   * table. A book waiting to be identified has no sort key, so it would sort to
-   * the front of this list as a row with no title in it, and the first scenario
-   * that left a book in the queue and then asserted the order would fail for a
-   * reason that had nothing to do with what it was testing. That view holds
-   * exactly the rows `books` held before the queue moved in.
+   * Reads from `catalogued_books`, not `books`: a book still in the queue has
+   * no sort key, and would sort to the front with no title.
    */
   async books(): Promise<BookRow[]> {
     return this.all<BookRow>(
@@ -370,12 +229,7 @@ export class Catalogue {
     )
   }
 
-  /*
-   * `catalogued_books` rather than `books` for both of these, because
-   * `author_filing` is a column on the views since #227: what a book files under
-   * is a fact about its first credit's alias, joined back on. A scenario asks
-   * about a book it has just saved onto a shelf, which is a catalogued book.
-   */
+  // Same view as `books()` above: `author_filing` lives on it, not on the table.
   async bookByIsbn(isbn13: string): Promise<BookRow | undefined> {
     return (await this.all<BookRow>(
       `SELECT b.*, ${PHOTOGRAPHS} FROM catalogued_books b ${PHOTOGRAPH_JOINS}
@@ -393,19 +247,8 @@ export class Catalogue {
   }
 
   /**
-   * The boundaries of one run, in the order somebody walking it meets them.
-   *
-   * A range is a band of bookcase numbers rather than a column: fiction starts
-   * on bookcase 1 and non-fiction on bookcase 4, so everything from 4 up is
-   * non-fiction and everything below it is fiction. That is what the two
-   * placement rules seeded by `0013` say, read off the floor plan instead of
-   * off a `shelf_range` string that no longer exists.
-   *
-   * The first area is dropped because it is where the run begins rather than a
-   * boundary: it is anchored at the empty string, which is not a book anybody
-   * carried anywhere. Areas at a negative position are dropped by the query
-   * for the same reason in reverse: a retired area is off the face of the
-   * fixture, kept only so a placement can still name it.
+   * A range is a band of bookcase numbers, read off the placement rules `0013` seeds rather than a stored column.
+   * The first area (the run's start, anchored at the empty string) and areas at a negative position (retired, kept only so a placement can still name them) are dropped.
    */
   async boundaries(range: 'fiction' | 'nonfiction' = 'fiction'): Promise<BoundaryRow[]> {
     const band = range === 'fiction' ? 'f.position >= 1 AND f.position < 4' : 'f.position >= 4'
@@ -426,12 +269,9 @@ export class Catalogue {
   }
 
   /**
-   * Every plank on the floor, retired ones included.
-   *
-   * No `position >= 0` filter, unlike `boundaries` above, and deliberately: this
-   * answers "what is the area this book names called", and a book still pointing
-   * at an area that has been taken off the face of its fixture is a finding
-   * rather than a row to hide. The app's own read joins the same way.
+   * Every plank on the floor, retired ones included: unlike `boundaries`
+   * above, there is no `position >= 0` filter, because a book still pointing
+   * at a retired area is a finding rather than a row to hide.
    */
   async areas(): Promise<PlankRow[]> {
     return this.all<PlankRow>(
@@ -441,15 +281,7 @@ export class Catalogue {
     )
   }
 
-  /**
-   * Give a bookcase a name, which is what the furniture screens are for.
-   *
-   * Written straight in rather than driven through those screens, for the reason
-   * the books are: this is a scenario's setup, and what it is about is what
-   * happens to every other screen afterwards. Naming a piece moves nothing and
-   * changes no id; every label on it reads differently, and #356 is what that
-   * cost the day it was first done.
-   */
+  /** Written straight into the database rather than through the furniture screens: this is a scenario's setup, not what it is testing. */
   async nameFixture(fixturePosition: number, name: string): Promise<void> {
     await this.pool.query(
       'UPDATE fixture SET name = $1 WHERE position = $2',
@@ -457,37 +289,8 @@ export class Catalogue {
     )
   }
 
-  /**
-   * Stand a bare plank up, out past the end of every run.
-   *
-   * For a scenario that needs the catalogue to have recorded a book somewhere
-   * the shelves do not put it. Before #232 that was any label at all, because
-   * `books.location` was a string; a placement names an area now, so the route
-   * refuses a label naming furniture nobody owns, and the scenario has to own
-   * some. That refusal is the point of the cut-over rather than something to
-   * work around, so the furniture is made here instead of being invented by the
-   * app.
-   *
-   * **Anchored at `'~'`, which is why the layout does not move.** A sort key is
-   * normalised to letters, digits and spaces joined with the unit separator, so
-   * a tilde is above every key this catalogue can hold, and a plank anchored
-   * there is one no book ever reaches. `END_OF_RUN` in web/shared/layout.ts is
-   * the same character for the same reason. Every book stays on the plank it was
-   * on; all that changes is that the plank exists to be recorded on.
-   */
-  /**
-   * The plank an address like `1A` names, which is what the shelving routes take.
-   *
-   * They took the address itself until #359, and an address is a rendering: it
-   * is built out of two ordinals, and the moment a piece has a name every other
-   * screen calls the same plank something else. So a step that wants to say "1A
-   * filled up" resolves the plank here, exactly as a screen resolves it from the
-   * answer it is acting on, and sends the area.
-   *
-   * The first fixture at a position, matching `runAreasOf`: a run is the
-   * furniture that was there first, and a scenario that stands a second piece up
-   * at the same position is saying something about that, not about this.
-   */
+  /** Anchored at `'~'`, since a sort key is normalised to letters, digits and spaces joined with the unit separator and a tilde sorts after every key this catalogue can hold. `END_OF_RUN` in web/shared/layout.ts uses the same character for the same reason. */
+  /** The plank an address like `1A` names. Resolves to the first fixture at that position, matching `runAreasOf`, since a run is the furniture that was there first. */
   async plankId(label: string): Promise<number> {
     const match = /^(\d+)([A-Z]+)$/.exec(label)
     if (!match) throw new Error(`${label} is not a plank address`)
@@ -531,16 +334,8 @@ export class Catalogue {
   }
 
   /**
-   * The work queue itself. Read because #65 is a claim about what reaches the
-   * database while a book is still in it, which no screen assertion can make.
-   *
-   * `queued_books` is the queue now, and it is the right relation rather than
-   * merely the working one: the steps that read this all ask about a book
-   * somebody has photographed and not yet shelved, and `books` would hand them
-   * every book in the catalogue as well. Two of the projected columns are
-   * therefore constant here, `status` never reading `done` and `book_id` always
-   * reading null, which is exactly what a capture waiting in the queue always
-   * was.
+   * The work queue: `queued_books`, not `books`, since a step here asks about
+   * a photographed, not yet shelved, book only.
    */
   async captures(): Promise<CaptureRow[]> {
     return this.all<CaptureRow>(
@@ -549,19 +344,9 @@ export class Catalogue {
     )
   }
 
-  /**
-   * Every photograph anybody has taken, counted.
-   *
-   * `capture` rather than the books, because a photograph is a row of its own
-   * since #228 and taking one again does not replace the one it improves on.
-   * That is what makes this the honest wait for "the shutter's work has reached
-   * the database": it goes up by one whichever book the photograph landed on,
-   * so a scenario about which book that was can wait for the write and then
-   * look, rather than looking and hoping it has happened (#431).
-   */
+  /** Counted from `capture`: taking a photograph again does not replace the one it improves on, so this is a reliable count to wait on after a shutter fires. */
   async photographCount(): Promise<number> {
-    // CAST for the reason `captureCount` carries one: COUNT is a bigint, and
-    // node-postgres hands one back as a string.
+    // CAST because COUNT is a bigint and node-postgres returns it as a string.
     const [row] = await this.all<{ n: number }>(
       'SELECT CAST(COUNT(*) AS INTEGER) AS n FROM capture',
     )
@@ -569,14 +354,9 @@ export class Catalogue {
   }
 
   async captureCount(): Promise<number> {
-    // CAST for the reason the stores carry one: COUNT is a bigint and
-    // node-postgres hands a bigint back as a string rather than lose precision,
-    // so `toBe(1)` would fail against "1" and say nothing about why.
-    //
-    // Counted over the queue and not over `books`, because "the queue holds one
-    // book" is a claim about what is still waiting. A book that has been shelved
-    // has left the queue without leaving the table, so counting the table would
-    // make every scenario that shelves anything count it twice.
+    // CAST for the same reason as `photographCount`. Counted over the queue,
+    // not over `books`: a book that has been shelved has left the queue
+    // without leaving the table, so counting the table would count it twice.
     const [row] = await this.all<{ n: number }>(
       'SELECT CAST(COUNT(*) AS INTEGER) AS n FROM queued_books',
     )
@@ -584,17 +364,9 @@ export class Catalogue {
   }
 
   /**
-   * What one book is under, and who said each one.
-   *
-   * Read from `books` rather than from a view, because a scenario asks this of a
-   * book that is still in the queue as readily as of one on a shelf: a tag is
-   * written the moment somebody says it, and a capture has been a row in `books`
-   * since #183.
-   *
-   * The source travels with it, and that is most of why this exists. "The book
-   * carries a comic book tag" is a weaker claim than the one #372 has to make,
-   * which is that a *person's* tag survives a save that states a genre. Those
-   * are different rows and only one of them is a person's.
+   * Read from `books`, not a view: a scenario may ask this of a book still in
+   * the queue. `source` says who stated each tag; a person's tag is a
+   * different row from one stated while saving a genre.
    */
   async tagsOf(title: string): Promise<{ slug: string; label: string; source: string }[]> {
     return this.all(

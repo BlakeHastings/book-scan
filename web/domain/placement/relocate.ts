@@ -1,17 +1,14 @@
 /**
  * Moving a whole run of books onto a different bookcase.
  *
- * The owner's sentence is "non-fiction is on bookcase 4 and I want it on
- * bookcase 3, and then show me every book I have to carry". There are two ways
- * to say that against this model and they are not the same thing:
+ * There are two ways to say that against this model and they are not the same
+ * thing:
  *
- * - **Move the fixture.** `fixture.position` goes from 4 to 3. Every area keeps
- *   its id, so every book keeps the area it was placed in, and **the label a
- *   book reads changes with the furniture**, because a label is derived from the
- *   fixture's position at read time. The plan is empty and nobody carries
- *   anything. That is renaming a bookcase, which is a real thing to want and is
- *   not this.
- * - **Point the run's rule at a different bookcase**, and give that bookcase the
+ * - Move the fixture. `fixture.position` goes from 4 to 3. Every area keeps its
+ *   id, so every book keeps the area it was placed in, and only the label
+ *   changes, because a label is derived from the fixture's position at read
+ *   time. Nobody carries anything. That is renaming a bookcase, and is not this.
+ * - Point the run's rule at a different bookcase, and give that bookcase the
  *   run's own cuts. The areas at the far end are different rows, so the books
  *   stay behind on the planks they are physically on, the rules want them
  *   somewhere else, and the difference is the list of books to carry.
@@ -19,22 +16,12 @@
  * Only the second one produces a book in somebody's hands, so it is the one
  * built. See `docs/shelving.md`, "Moving a run to another bookcase".
  *
- * ## The run takes its own cuts with it
+ * The destination gets the planks the run already had: the same number of areas,
+ * anchored at the same sort keys, so capacity does not arise here. A destination
+ * that already has planks on it is refused rather than guessed at.
  *
- * Non-fiction is 8 books, then 20, then 22. Moving it does not ask how many
- * books the destination's planks hold, because the destination gets the planks
- * the run already had: the same number of areas, anchored at the same sort keys,
- * so the same books land together. **Capacity therefore does not arise**, which
- * is the answer this slice can give honestly. What a run does when it is poured
- * onto a bookcase of a different shape is `docs/shelving.md`'s overflow cascade
- * and a question #242 leaves open; a destination that already has planks on it
- * is refused here rather than guessed at.
- *
- * ## Nothing here writes anything
- *
- * This is arithmetic over the furniture as it stands, answering what the
- * furniture would be. The plan reads it and the apply writes it, and they are
- * the same answer because they are the same function.
+ * Nothing here writes. This is arithmetic over the furniture as it stands, and
+ * the plan and the apply are the same answer because they are the same function.
  */
 
 import {
@@ -53,23 +40,19 @@ export interface PlankMove {
 /**
  * A piece the move takes every plank off, left standing with nothing on it.
  *
- * **The half of a run move that is about furniture rather than about books**,
- * and #391 is what it cost to leave it unsaid. A run flows on past the piece its
- * rule points at, so a bookcase somebody put up after it and has not filled yet
- * is the tail of that run whether or not they think of it that way. Moving the
- * run therefore takes that bookcase's planks with it and leaves the piece bare,
- * which is a real consequence of a real request and is nobody's surprise to
- * find afterwards. `docs/shelving.md` and #307 say the same thing about removal:
- * a plan that would leave something empty says so before it happens.
+ * A run flows on past the piece its rule points at, so a bookcase somebody put
+ * up after it and has not filled yet is the tail of that run. Moving the run
+ * takes that bookcase's planks with it and leaves the piece bare, and
+ * `docs/shelving.md` requires that a plan which would leave something empty says
+ * so before it happens.
  *
- * Nothing is deleted either way. The piece keeps standing and its planks are
+ * Nothing is deleted either way: the piece keeps standing and its planks are
  * retired rather than dropped, so moving the run back puts every one of them
  * back on its face.
  *
- * **A piece it cannot take whole is not in here, because it is not touched**
- * (#420). A bookcase somebody wrote their own rule on is that rule's furniture,
- * the move stops in front of it, and a piece that keeps a plank is never left
- * having quietly lost the rest.
+ * A piece the move cannot take whole is not in here, because it is not touched.
+ * A bookcase somebody wrote their own rule on is that rule's furniture and the
+ * move stops in front of it.
  */
 export interface EmptiedPiece {
   /** What the piece reads as: its name, or its number. */
@@ -101,21 +84,20 @@ export type Relocation =
   | { ok: false; error: string }
 
 /**
- * Ids for furniture that does not exist yet.
- *
- * Negative, so they cannot collide with a row, and only ever meaningful inside
- * one answer: the plan compares **labels** rather than ids for exactly this
- * reason, and the apply reads the ids back out of the rows it wrote.
+ * Ids for furniture that does not exist yet. Negative, so they cannot collide
+ * with a row, and only ever meaningful inside one answer: the plan compares
+ * labels rather than ids for exactly this reason, and the apply reads the ids
+ * back out of the rows it wrote.
  */
 const prospectiveId = (at: number): number => -(at + 1)
 
 /**
  * The run a move would pick up, and where it stands.
  *
- * **A run lives where its rule points.** The first group of books is wherever
- * the first book happens to be standing, and the two are different answers the
+ * A run lives where its rule points. The first group of books is wherever the
+ * first book happens to be standing, and the two are different answers the
  * moment the leading bookcase of a run holds nothing, which is an ordinary
- * state and is #500.
+ * state.
  */
 export interface RunOnTheMove {
   rule: PlacementRule
@@ -127,11 +109,8 @@ export interface RunOnTheMove {
 
 /**
  * Whether there is a run here for a move to pick up, said without a
- * destination.
- *
- * A refusal still answers where the run stands wherever it can, because "this
- * cannot be moved" and "this is nowhere" are different sentences and a screen
- * has to be able to draw the first one truthfully.
+ * destination. A refusal still answers where the run stands wherever it can,
+ * because "this cannot be moved" and "this is nowhere" are different sentences.
  */
 export type Movable =
   | { ok: true; move: RunOnTheMove }
@@ -140,13 +119,8 @@ export type Movable =
 /**
  * The run a rule opens, and whether a move may pick it up at all.
  *
- * **Split out of `relocateRun` by #486, and the split is the whole of that
- * fix.** Every refusal here is about the rule and the furniture and none of
- * them is about the destination, so every one of them is knowable before
- * anybody has chosen one. They were reachable only through `relocateRun`, which
- * cannot be called without a bookcase, so the screen described a run, offered
- * three destinations and refused whichever one was picked. The refusals are
- * unchanged, word for word: what changed is when they can be asked.
+ * Every refusal here is about the rule and the furniture and none of them is
+ * about the destination, so every one is knowable before anybody has chosen one.
  */
 export function runToMove(
   order: Slot[],
@@ -184,32 +158,24 @@ export function runToMove(
   }
 
   /*
-   * **The run flows further than the move may reach**, and #420 is the gap
-   * between the two. A run runs on until the next rule's entry area, which can
-   * fall part way down a piece: somebody puts up a bookcase, gives it four
-   * shelves, and writes a rule on the bottom one. The three shelves above it are
-   * the tail of this run and the bookcase is not this run's furniture.
+   * The run flows further than the move may reach. A run runs on until the next
+   * rule's entry area, which can fall part way down a piece: somebody puts up a
+   * bookcase, gives it four shelves, and writes a rule on the bottom one.
    *
-   * A move rehangs whole pieces. A piece it cannot take whole it does not touch,
-   * because taking three shelves out of somebody's bookcase and screwing them
-   * onto another one is not a thing a person asked for and is not a thing the
-   * plan could honestly draw. So the stretch that moves stops at the first piece
-   * another rule stands on, which is exactly the bound `bandsOf` reconciles
-   * over, read from the same function.
+   * A move rehangs whole pieces, so a piece it cannot take whole it does not
+   * touch: the stretch that moves stops at the first piece another rule stands
+   * on, which is exactly the bound `bandsOf` reconciles over, read from the same
+   * function.
    */
   const start = flowing[0]!.fixture.position
 
   /*
-   * **And it does not take half of the piece it starts on either** (#499).
-   *
-   * `nextRunStartAfter` answers about pieces past this one, which was the whole
-   * of the question while a second run opening on this run's own piece bounded
-   * the earlier band at its own start and left it with no planks to move. It
-   * does not any more, so the piece a move starts from has to be asked the same
-   * question the pieces it stops at are asked, and the answer is #420's: a
-   * bookcase another run begins on is that run's furniture. Refused rather than
-   * trimmed, because a move that took the planks above the other rule would
-   * leave that piece half stripped, which is the state
+   * And it does not take half of the piece it starts on either.
+   * `nextRunStartAfter` answers only about pieces past this one, so the piece a
+   * move starts from has to be asked the same question the pieces it stops at
+   * are asked: a bookcase another run begins on is that run's furniture.
+   * Refused rather than trimmed, because a move that took the planks above the
+   * other rule would leave that piece half stripped, which is the state
    * `refuseAHalfStrippedPiece` throws on inside the write.
    */
   const shared = otherRunOn(order, rules, start, flowing[0]!.area.id)
@@ -238,10 +204,10 @@ export function runToMove(
  * two runs sharing a bookcase, which is the arrangement `0013` refuses outright
  * and which nothing here is in a position to merge.
  *
- * **What it refuses about the run itself is `runToMove`'s answer**, asked here
+ * What it refuses about the run itself is `runToMove`'s answer, asked here
  * rather than answered a second time, so the screen that asks before offering a
  * destination and the write that asks after one is chosen refuse on the same
- * terms and in the same words.
+ * terms.
  */
 export function relocateRun(
   order: Slot[],
@@ -335,11 +301,9 @@ export function relocateRun(
 }
 
 /**
- * The pieces the run would walk off, in the order they stand.
- *
- * A piece is emptied when every plank on it is moving and nothing of the run
- * lands back on it. The second half is what keeps the ordinary case quiet: a run
- * shuffled one bookcase along re-covers most of the furniture it was on, and
+ * The pieces the run would walk off, in the order they stand. A piece is emptied
+ * when every plank on it is moving and nothing of the run lands back on it: a
+ * run shuffled one bookcase along re-covers most of the furniture it was on, and
  * only the piece at the far end is left bare.
  */
 function emptiedBy(

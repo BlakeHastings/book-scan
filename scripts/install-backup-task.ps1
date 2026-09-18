@@ -4,97 +4,36 @@
 # by an agent and it is not run by CI: it needs the live connection string, and
 # nothing else in this repository is allowed to hold one.
 #
-# ## Why Task Scheduler
+# Task Scheduler rather than a long-running Node process because it survives a
+# reboot, runs with no session logged in, and has `-StartWhenAvailable`, which
+# runs a missed occurrence once the machine is back rather than skipping the day.
 #
-# There is no cron here, and the alternatives are worse in ways this project has
-# already paid for.
+# The connections go in a file, encrypted with DPAPI for the account running
+# this script, and the task's command line carries only the path. Windows Task
+# Scheduler has no per-task environment block: an action is a command, arguments
+# and a working directory, and a variable at a scope the scheduler can see is a
+# variable in every process on the machine. The file is not per-task isolation
+# either, since anything running as this account can read it if it knows the
+# path; what it removes is the accident.
 #
-# A long-running Node scheduler would be a process somebody has to keep alive.
-# AGENTS.md records the `stable` server dying three times because it was owned
-# by a session that later let go of it. A backup that stops when a terminal
-# closes is a backup that stops on the day nobody notices.
-#
-# GitHub Actions cannot reach 127.0.0.1:5433. A schedule that cannot see the
-# database is not a schedule.
-#
-# Task Scheduler is part of the operating system, survives a reboot, runs with
-# no session logged in, and has the one property a daily job on a desktop
-# machine actually needs: `-StartWhenAvailable`, which runs a missed occurrence
-# once the machine is back rather than skipping the day. A desktop is off or
-# asleep at 03:30 often enough that a scheduler without it would silently miss
-# most of its runs.
-#
-# ## Where it puts the connections
-#
-# In a file, encrypted with DPAPI for the account running this script, at
-# -ConnectionFile. The task's command line carries the *path*, which is
-# harmless to have in a process listing, and backup-catalogue.ps1 decrypts it
-# and hands the connections to the one child process that needs them.
-#
-# The writing is `write-connection-file.ps1` beside this, not code in here, so
-# that the connections can be rotated without re-registering a schedule and so
-# that the stable server's launcher has somewhere to get the same connection
-# from without inventing a second store. See #308.
-#
-# ### What this used to do, and why it is not that
-#
-# Windows Task Scheduler has no per-task environment block. An action is a
-# command, arguments and a working directory, and there is nowhere on a task to
-# hang a variable that only that task sees. This script used to answer that by
-# writing the two connections to `Machine` scope, which reads like "the task's
-# environment" and is not: it is every process on the machine. A live catalogue
-# connection string, password and all, was in every shell and every agent
-# session on the box, and `npx tsx server/backup-catalogue.ts` with no arguments
-# opened the live catalogue. That is #215.
-#
-# The honest statement of what a DPAPI file buys, since it is not "only the task
-# can read it": anything running as this user can read the file if it knows the
-# path and chooses to. What it removes is the *accident*. A machine variable is
-# inherited by everything with no action taken and no path known; a file has to
-# be found and opened on purpose. Literal per-task isolation on Windows needs a
-# separate service account for the task, with the file encrypted under that
-# account, which is a bigger change to the machine than this problem is worth.
-#
-# ## Removing it
-#
-#     Unregister-ScheduledTask -TaskName 'book-scan catalogue backup' -Confirm:$false
-#     Remove-Item <the -ConnectionFile path>
-#
-# Note the second line takes the stable server's connection with it, since #308
-# gave that launcher the same file to read. Unregistering the backup task on its
-# own does not.
-#
-# And, once, the two variables the old version of this script persisted. It
-# wrote them at Machine scope; on the owner's machine they are at User scope,
-# so look in both. User needs no elevation, Machine does:
-#
-#     foreach ($n in 'BOOKSCAN_BACKUP_SOURCE','BOOKSCAN_BACKUP_SCRATCH') {
-#       foreach ($s in 'Machine','User') {
-#         [Environment]::SetEnvironmentVariable($n, $null, $s)
-#       }
-#     }
-#
-# or pass -RemoveLegacyEnvironment to this script, which does both scopes and
-# says which ones it managed.
+# `write-connection-file.ps1` beside this does the writing, so the connections
+# can be rotated without re-registering a schedule. See docs/backup-runbook.md.
 
 [CmdletBinding()]
 param(
     # The live catalogue, read-only as far as this job is concerned.
     [Parameter(Mandatory = $true)][string] $Source,
 
-    # A Postgres the verification may create and drop databases on.
     # MUST NOT be the live server: the verification creates a database, restores
-    # into it and drops it, and none of that belongs beside the catalogue.
+    # into it and drops it.
     [Parameter(Mandatory = $true)][string] $Scratch,
 
     # Where dumps go. Put this on a different disk from the database if there is
-    # one, and copy it off the machine (see docs/backup-runbook.md).
+    # one, and copy it off the machine. See docs/backup-runbook.md.
     [Parameter(Mandatory = $true)][string] $BackupDir,
 
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
 
-    # 03:30 local. Late enough that a scanning session is over, early enough
-    # that a failure is visible the next morning.
     [string] $At = '03:30',
 
     [int] $Keep = 14,
@@ -104,17 +43,14 @@ param(
     [string] $CoversSource = '',
     [string] $CoversDestination = '',
 
-    # Where the two connections are written, encrypted with DPAPI for this
-    # account. Under LOCALAPPDATA rather than in the repository or in BackupDir:
-    # the repository is a place things get committed from, and BackupDir is the
-    # thing that is supposed to be copied to another disk.
+    # Under LOCALAPPDATA rather than in the repository or in BackupDir: the
+    # repository is a place things get committed from, and BackupDir is the thing
+    # that is supposed to be copied to another disk.
     [string] $ConnectionFile = (Join-Path $env:LOCALAPPDATA 'book-scan\backup-connections.json'),
 
-    # Delete the BOOKSCAN_BACKUP_SOURCE and BOOKSCAN_BACKUP_SCRATCH variables an
-    # older version of this script persisted, in whichever of User and Machine
-    # scope they are in. Off by default and opt-in, because removing a persisted
-    # variable is not a thing to do to somebody as a side effect of registering
-    # a task. Machine scope needs elevation; User scope does not.
+    # Opt-in, because removing a persisted variable is not a thing to do to
+    # somebody as a side effect of registering a task. Machine scope needs
+    # elevation; User scope does not.
     [switch] $RemoveLegacyEnvironment,
 
     [string] $TaskName = 'book-scan catalogue backup'
@@ -134,8 +70,6 @@ if (-not (Test-Path $writer)) { throw "Cannot find $writer" }
 
 New-Item -ItemType Directory -Force -Path $BackupDir | Out-Null
 
-# --- the connections, encrypted for this account ---------------------------
-
 # Written before the task is registered, so a machine that cannot store the
 # secret does not end up with a schedule that will fail every night at 03:30.
 $whoami = "$([Environment]::UserDomainName)\$([Environment]::UserName)"
@@ -149,9 +83,8 @@ $arguments = @(
     '-File', "`"$runner`""
     '-BackupDir', "`"$BackupDir`""
     '-RepoRoot', "`"$RepoRoot`""
-    # A path, not a secret. This is the whole reason the connections are in a
-    # file: what goes in the task definition and every process listing is
-    # something it costs nothing to show.
+    # A path, not a secret: this goes in the task definition and in every
+    # process listing.
     '-ConnectionFile', "`"$ConnectionFile`""
     '-Keep', $Keep
     '-MaxMb', $MaxMb
@@ -161,7 +94,7 @@ if ($CoversSource) { $arguments += @('-CoversSource', "`"$CoversSource`"") }
 if ($CoversDestination) { $arguments += @('-CoversDestination', "`"$CoversDestination`"") }
 
 # PowerShell 7 when it is installed, Windows PowerShell otherwise. The wrapper
-# runs on either; this only picks the one the machine has.
+# runs on either.
 $shell = (Get-Command pwsh -ErrorAction SilentlyContinue)?.Source
 if (-not $shell) { $shell = 'powershell.exe' }
 
@@ -187,13 +120,7 @@ Register-ScheduledTask `
     -Description 'Daily pg_dump of the book-scan catalogue, with retention and a verified restore into a scratch database. See docs/backup-runbook.md.' `
     -Force | Out-Null
 
-# --- the variables the old version of this script left behind --------------
-
-# Both scopes, because the observed state does not match what the old code did.
-# It called SetEnvironmentVariable with 'Machine', and on the owner's machine
-# the two names are at 'User'. Whichever way that happened, "still in every
-# process this account starts" is the same problem, so look in both places
-# rather than in the one the code says.
+# Both scopes, because these have been observed at either one.
 $legacy = foreach ($name in 'BOOKSCAN_BACKUP_SOURCE', 'BOOKSCAN_BACKUP_SCRATCH') {
     foreach ($scope in 'Machine', 'User') {
         if ([Environment]::GetEnvironmentVariable($name, $scope)) {
@@ -205,8 +132,7 @@ $legacy = foreach ($name in 'BOOKSCAN_BACKUP_SOURCE', 'BOOKSCAN_BACKUP_SCRATCH')
 if ($legacy -and $RemoveLegacyEnvironment) {
     foreach ($item in $legacy) {
         # Machine scope is HKLM and needs elevation; User scope does not. Said
-        # per variable rather than assumed, so a half-elevated run reports what
-        # it actually managed.
+        # per variable, so a half-elevated run reports what it managed.
         try {
             [Environment]::SetEnvironmentVariable($item.Name, $null, $item.Scope)
             Write-Output "Removed $($item.Scope)-scope $($item.Name)."

@@ -1,24 +1,10 @@
 Feature: A bookcase the books have not left yet says how many are standing on it
 
-  On the owner's own catalogue, in the same second:
-
-      GET /api/fixtures  ->  Bookshelf 4 (0 areas, 0 books)
-      GET /api/carry     ->  46 books, "Bookshelf 4 · A" to "Bookshelf 2 · E"
-
-  Both cannot be true for the person reading them, and the carrying list was the
-  one that was right (#401). He had moved a stretch of books off that bookcase
-  and carried none of them yet, which is a legitimate state and the only state a
-  move can leave: applying one records where books belong and a person moves
-  them. The shelves it takes off the bookcase are retired rather than deleted,
-  because the record of where every book has been names them, and that is
-  deliberate and stays (#307, #391).
-
-  What was wrong was the reading. Everything that draws furniture asks for the
-  shelves that are on a piece, which is right, and the count of books hung off
-  that same reading, which is not: the two questions are one letter apart and
-  they are not the same question. So a bookcase with forty-six books standing on
-  it drew as nothing at all, on the room, on its own page and on the page of
-  every shelf they were standing on.
+  A bookcase that a move has taken books off is a legitimate state, and the only
+  one a move can leave: applying a move records where books belong, and a person
+  moves them physically. The shelves it takes off the bookcase are retired
+  rather than deleted, because the record of where every book has been names
+  them, and that is deliberate.
 
   The difference from `moving-a-run.feature` is the room. There, a bookcase
   somebody put up stands after the run, so the run flows onto it and comes back
@@ -55,21 +41,14 @@ Feature: A bookcase the books have not left yet says how many are standing on it
     And I ask to move these books to bookcase 3
     And I apply the plan
 
-    # This answered nothing at all for a shelf that is off the face, so the one
-    # screen that could have shown somebody the books the carrying list was
-    # naming was the one that refused to open.
     When I open my fixtures
     And I open the shelf called "4A"
     Then the screen should say:
       | 4A was taken out |
 
-    # They stand on a board here rather than in a list (#405), and a spine is
-    # printed with the filing name and called by the book. Both are the drawing
-    # every other row of books in this app gets.
     And the row of books should name:
       | Rendezvous with Rama |
       | Neuromancer          |
       | Dune                 |
 
-    # It is already off the piece, so there is nothing on the piece to take off.
     And it should not offer to "Remove this area"

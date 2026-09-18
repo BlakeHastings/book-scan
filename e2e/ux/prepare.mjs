@@ -1,23 +1,8 @@
 /**
  * Put the world back to the baseline, so two runs can be compared.
  *
- * The same seed every time is the whole reason this is a script and not three
- * lines of a prompt: a number from a world somebody had already been arranging
- * cannot be compared with a number from a fresh one, and "I think I reset it"
- * is not a seed.
- *
- * Usage, from e2e/, with the AppHost already started from the repo root:
- *
- *     aspire start --non-interactive
- *     npm run ux:prepare
- *
- * What it does, in order:
- *
- *  1. asks the AppHost for the api's connection and the web URL
- *  2. runs web/scripts/seed-world.ts with --reset against that connection
- *  3. restarts the api, because the capture queue drain fires once at boot and
- *     the seed lands after it (docs/process/agent-hunting-pass.md)
- *  4. prints the world it built: the furniture, and what stands on it
+ * Restarts the api after seeding: the capture queue drain fires once at boot,
+ * before the seed lands. See docs/process/agent-hunting-pass.md.
  *
  * The connection is read out of the AppHost and never out of a shell, and the
  * seeder refuses a target on port 5433 in any case.
@@ -74,14 +59,9 @@ console.log(`  fingerprint ${state.fingerprint}`)
 console.log('')
 
 /*
- * The world as it stood before anybody touched it, committed.
- *
- * Two things read it. The completion checks ask "which bookcase is new", which
- * is a question about the difference rather than about the world, and a reader
- * comparing two runs a month apart needs to know the second one started from
- * the same floor as the first. Ids and the fingerprint move when the seeder
- * changes, and that is the point: a baseline that changed silently is exactly
- * what makes two numbers incomparable.
+ * The world as it stood before anybody touched it, committed. Ids and the
+ * fingerprint move when the seeder changes, and that is the point: a baseline
+ * that changed silently is exactly what makes two runs incomparable.
  */
 writeFileSync(join(UX_ROOT, 'baseline.json'), `${JSON.stringify({
   seededBy: 'web/scripts/seed-world.ts --reset',

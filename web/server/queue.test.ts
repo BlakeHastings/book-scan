@@ -1,12 +1,7 @@
 /**
- * Queue behaviour, with the two-person cases front and centre. The claim
- * logic is the part that stops both people filling in the same book, and the
- * precedence block at the bottom is the part that stops the background worker
- * quietly undoing somebody's correction.
- *
- * Both catalogues and the photograph reader are stubbed. Neither is what these
- * tests are about, identify.test.ts already pays for the real OCR pipeline,
- * and a queue test that reached Open Library would fail whenever it was down.
+ * Both catalogues and the photograph reader are stubbed: identify.test.ts
+ * already covers the real OCR pipeline, and a queue test that reached Open
+ * Library would fail whenever it was down.
  */
 
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -19,8 +14,8 @@ import { lookupIsbn } from './lookup'
 import type { LookupResult } from './lookup'
 import { Store } from './store'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
-// A recorded location names an `area` row since #232, so a test that records one
-// on a plank the seeded furniture does not have has to make the plank first.
+// A recorded location names an existing `area` row, so a test that sets one on
+// a plank the seeded furniture lacks must create that plank first.
 import { DrizzleSeparatorRepository } from '../infrastructure/shelving/separator-repository'
 import { genreStatedBy } from '../domain/tagging/genre'
 import { FICTION_SLUG } from '../domain/tagging/catalogue-claims'
@@ -67,7 +62,7 @@ let queue: CaptureQueue
 let store: Store
 let db: Db
 
-// Both databases, since stage F. Nothing below knows which. See testdb.ts.
+// openTestDatabase may return either backing database; nothing below knows which.
 beforeEach(async () => {
   vi.mocked(identify).mockReset()
   vi.mocked(lookupIsbn).mockReset()
@@ -87,19 +82,14 @@ async function add() {
 }
 
 /**
- * Put a queued book on a shelf, which is how a book leaves the queue (#183).
- *
- * This used to be `queue.markDone(captureId, bookId)`, pairing a capture with a
- * book somebody had added separately. There is nothing to pair any more: the
- * capture and the book are one row, and shelving it is `Store.updateBook`,
- * which is what the save route calls. Going through the real method rather than
- * an UPDATE here is the point, since what these tests want to know is that the
- * queue agrees with the thing that actually shelves books.
+ * Goes through `Store.updateBook`, the same method the save route calls,
+ * rather than a raw UPDATE, since these tests want to know the queue agrees
+ * with what actually shelves books.
  */
 async function shelve(id: number) {
   const draft = { title: 'A Book', authors: ['Ann Author'], genre: FICTION_SLUG }
-  // The range arrives beside the draft since #223, settled from the genre. See
-  // `store.test.ts` for why a draft's own claim is the answer here.
+  // The range is settled from the draft's own genre; see store.test.ts for why
+  // that is the answer here.
   await store.updateBook(id, draft, genreStatedBy(draft).range)
   return id
 }
@@ -207,8 +197,8 @@ describe('editing a capture while it is still in the queue', () => {
     const result = await queue.edit(capture.id, 'alice', { title: 'Dune' })
     expect(result.ok).toBe(true)
 
-    // Read back through a fresh handle: the point of the feature is that the
-    // work survives the browser it was typed into.
+    // Read back through a fresh handle: the work must survive the browser it
+    // was typed into.
     const reopened = (await new CaptureQueue(db, () => null).get(capture.id))!
     expect(editsOn(reopened).title).toBe('Dune')
     expect(reopened.edited_by).toBe('alice')
@@ -216,16 +206,11 @@ describe('editing a capture while it is still in the queue', () => {
   })
 
   /*
-   * #156. `title_guess` is the first line OCR read off a cover, and it used to
-   * take a stated title on top of that reading. One column holding both means
-   * nothing that reads the row can tell a title somebody confirmed from a
-   * machine's reading of a photograph, which is how the guess got into the
-   * Title box in the first place. What a person stated stays in `edit_json`,
-   * which is where every reader already looks for it.
+   * `title_guess` is the OCR reading; what a person states stays in
+   * `edit_json`, which is where every reader looks for it. Mixing the two into
+   * one column is how a guess ends up displayed as if confirmed.
    */
   it('does not write a stated title into the column that holds the guess', async () => {
-    // The capture this is about: read, no ISBN found, and the one thing it
-    // has to show for itself is a line off the cover.
     const capture = await add()
     await db.run("UPDATE books SET title_guess = ?, state = 'unidentified' WHERE id = ?",
       ['S0NG 0F SOLOMQN', capture.id])
@@ -235,14 +220,12 @@ describe('editing a capture while it is still in the queue', () => {
     const after = (await queue.get(capture.id))!
     expect(after.title_guess).toBe('S0NG 0F SOLOMQN')
     expect(editsOn(after).title).toBe('Song of Solomon')
-    // And the edit still settles the capture: a person who has named the book
-    // has resolved it, whatever the photographs did or did not read.
+    // The edit still settles the capture: a person who has named the book has
+    // resolved it, whatever the photographs did or did not read.
     expect(after.status).toBe('ready')
   })
 
   it('accumulates edits across a handoff instead of the second wiping the first', async () => {
-    // The three-person workflow in one test: alice gets partway, puts the
-    // book down, bob picks it up and adds to what she did.
     const capture = await add()
     await queue.edit(capture.id, 'alice', { title: 'Dune' })
     await queue.release(capture.id, 'alice')
@@ -256,10 +239,9 @@ describe('editing a capture while it is still in the queue', () => {
   })
 
   it('records a typed ISBN as manual, not as a barcode or an OCR guess', async () => {
-    // #29: a barcode reading is self-validating, an OCR reading is a guess,
-    // and a person reading the number off the book is a third thing. Filing
-    // the third under either of the first two claims a provenance it has not
-    // got.
+    // A barcode reading is self-validating, an OCR reading is a guess, and a
+    // person typing the number is a third thing; filing it under either of the
+    // first two would claim a provenance it does not have.
     vi.mocked(lookupIsbn).mockResolvedValue(found(DUNE, 'Dune', ['Frank Herbert']))
     const capture = await add()
 
@@ -272,8 +254,7 @@ describe('editing a capture while it is still in the queue', () => {
 
   it('re-runs the lookup for a corrected ISBN, which is what makes it worth anything', async () => {
     vi.mocked(lookupIsbn).mockResolvedValue(found(DUNE, 'Dune', ['Frank Herbert']))
-    // The case this actually happens in: the photographs failed, so somebody
-    // is typing the number off the back of the book.
+    // The photographs failed, so somebody is typing the number off the back of the book.
     const capture = await add()
     await db.run("UPDATE books SET state = 'unidentified' WHERE id = ?", [capture.id])
 
@@ -281,9 +262,8 @@ describe('editing a capture while it is still in the queue', () => {
 
     expect(vi.mocked(lookupIsbn)).toHaveBeenCalledWith(DUNE, expect.anything())
     expect(result.ok && result.lookup?.title).toBe('Dune')
-    // And the refetched record is on the capture, not only in the response:
-    // correcting the key without refetching leaves the right number beside
-    // the wrong book.
+    // The refetched record must land on the capture, not only in the response:
+    // correcting the key without refetching leaves the right number beside the wrong book.
     const stated = editsOn((await queue.get(capture.id))!)
     expect(stated.title).toBe('Dune')
     expect(stated.authors).toEqual(['Frank Herbert'])
@@ -362,9 +342,8 @@ describe('editing a capture while it is still in the queue', () => {
   })
 
   it('tells apart a book nobody has opened from one somebody left as it was', async () => {
-    // The queue's whole value is knowing what still wants attention, so a
-    // person who read a capture and decided it was fine has to leave a mark.
-    // An edit that states nothing is exactly that mark.
+    // A person who read a capture and decided it was fine has to leave a mark;
+    // an edit that states nothing is exactly that mark.
     const untouched = await add()
     const checked = await add()
 
@@ -373,7 +352,6 @@ describe('editing a capture while it is still in the queue', () => {
     expect((await queue.get(untouched.id))!.edited_at).toBeNull()
     expect((await queue.get(checked.id))!.edited_at).not.toBeNull()
     expect((await queue.get(checked.id))!.edited_by).toBe('alice')
-    // Looked at and left alone: nothing is claimed as a human decision.
     expect(editsOn((await queue.get(checked.id))!)).toEqual({})
   })
 
@@ -388,16 +366,10 @@ describe('editing a capture while it is still in the queue', () => {
 })
 
 /**
- * #233: correcting a queued capture's ISBN to one already on a shelved book
- * used to shelve a silent duplicate, because `edit` called `lookupIsbn` and
- * never asked the catalogue whether it already held that ISBN. The background
- * worker's own automatic identification had the same gap, so a book that
- * auto-identifies from its barcode against an ISBN already on a shelf never
- * warned either.
- *
  * A queue built without the fifth constructor argument (the default `queue`
- * from `beforeEach`) never learns about a duplicate at all, which is the
- * behaviour every other test in this file already exercises unchanged.
+ * from `beforeEach`) never checks for a duplicate ISBN at all, which is the
+ * behaviour every other test in this file exercises unchanged. `withCatalogue`
+ * below opts a queue into that check.
  */
 describe('naming a duplicate already on the shelf (#233)', () => {
   function withCatalogue(reader: (name: string) => Buffer | null = () => null) {
@@ -405,20 +377,9 @@ describe('naming a duplicate already on the shelf (#233)', () => {
   }
 
   /**
-   * Give the fiction run a second bookcase with two planks on it, so `2B` is
-   * somewhere a book can be recorded.
-   *
-   * A test database arrives with the two runs `0013` seeds and nothing else, so
-   * `1A` and `4A` are the only planks that exist. Since #232 a recorded location
-   * names an `area` row rather than being a string in a column, so saving a book
-   * at `2B` on a catalogue with no second bookcase is refused, which is the same
-   * refusal a person would get for typing a plank they do not have.
-   *
-   * Two boundaries, in anchor order, because that is what makes the second one a
-   * plank on the new bookcase rather than a third one on the first: a `shelf`
-   * boundary opens `2A` and an `area` boundary after it opens `2B`. Neither
-   * anchor names a book, and neither needs to: a boundary says where a plank
-   * begins, and what this test is about is the plank existing to be recorded on.
+   * A test database only seeds `1A` and `4A`, so `2B` must be created: a
+   * `shelf` boundary opens `2A` and an `area` boundary after it opens `2B`, in
+   * that anchor order. Neither anchor needs to name a real book.
    */
   async function giveFictionASecondBookcase(): Promise<void> {
     const boundaries = new DrizzleSeparatorRepository(db)
@@ -477,12 +438,8 @@ describe('naming a duplicate already on the shelf (#233)', () => {
 })
 
 /**
- * The sharp edge of #65.
- *
  * A person corrects an ISBN, another photograph arrives or the server
- * restarts, the worker re-reads the book, and the correction is gone. That is
- * the exact scenario this feature exists to enable, so it has to be shown not
- * to happen rather than reasoned about.
+ * restarts, the worker re-reads the book: the correction must not be lost.
  */
 describe('precedence between a person and the background worker', () => {
   /** A queue that will actually run, with one readable photograph. */
@@ -531,7 +488,6 @@ describe('precedence between a person and the background worker', () => {
     const after = (await running.get(capture.id))!
     expect(after.isbn13).toBe(DUNE)
     expect(after.isbn_source).toBe('barcode')
-    // And the person's note is still there underneath it.
     expect(editsOn(after).notes).toBe('Water damage to the spine')
   })
 
@@ -552,10 +508,8 @@ describe('precedence between a person and the background worker', () => {
     const after = (await running.get(capture.id))!
     expect(JSON.parse(after.draft_json).title).toBe('Rendezvous with Rama')
     expect(editsOn(after).title).toBe('Dune (Ace edition)')
-    // And what anybody is shown is the person's, because it goes on top. Read
-    // out of edit_json, not off a column the worker also writes: `title_guess`
-    // is the cover reading and only that, so the two remain tellable apart on
-    // the row itself (#156).
+    // Read out of edit_json: title_guess is only the cover reading, kept
+    // separate on the row.
     expect(after.title_guess).toBe('')
   })
 
@@ -608,10 +562,8 @@ describe('photos arriving one at a time', () => {
     expect(again.back_image).toBe('b2.jpg')
     // Back drops out of analysed; front, which did not change, stays.
     expect(again.analysed.split(',').filter(Boolean)).toEqual(['front'])
-    // And it is a list of one, not ",front,". Every reader here drops the empty
-    // entries, which is how a column went on being written malformed for as
-    // long as it did: the string is what somebody reads when they are working
-    // out what a photograph did to a book (#431).
+    // A list of one, not ",front,": `analysed` is a raw string a person reads
+    // directly when working out what a photograph did to a book.
     expect(again.analysed).toBe('front')
     expect(again.status).toBe('pending')
   })
@@ -625,18 +577,11 @@ describe('photos arriving one at a time', () => {
 
 describe('two drains at once', () => {
   /**
-   * The guard `drain` puts on itself, watched rather than assumed.
-   *
-   * Every shutter fires `void drain()` and the server fires one more at boot,
-   * so overlapping calls are the normal case rather than an exotic one. If a
-   * second pass could start while the first is suspended, both would take the
-   * same row off the top of the pending queue and read the same photographs
-   * twice, which with two people scanning into one server is how a capture
-   * gets claimed by two workers at once.
-   *
-   * Asserting on the number of photographs read is what makes that visible: a
-   * second pass that duplicated the work would read three or four rather than
-   * one per capture, whatever the rows ended up saying afterwards.
+   * Overlapping `drain` calls are the normal case, not exotic: every shutter
+   * fires `void drain()` and the server fires one more at boot. Asserts on the
+   * number of photographs read, not the final row state, since a duplicated
+   * second pass would read a capture twice while still landing on the same
+   * final answer.
    */
   it('reads each pending capture exactly once', async () => {
     // Suspended mid-photograph, so the later calls genuinely arrive while the
@@ -659,26 +604,21 @@ describe('two drains at once', () => {
 })
 
 /**
- * The breakdown Home counts from (#148).
- *
- * `failed` is one status over three situations, and Home used to read it as
- * one: "9 need an ISBN by hand" when five of the nine carried a valid ISBN off
- * a barcode. Driven through the worker rather than by writing rows by hand,
- * because the defect was reading a reason out of a status, so a test that set
- * the reason itself would prove nothing about what the worker actually writes.
+ * `failed` is one status over three different situations. Driven through the
+ * worker rather than by writing rows by hand, since a test that set the reason
+ * itself would prove nothing about what the worker actually writes.
  */
 describe('why the failed ones failed', () => {
   it('tells a barcode no catalogue has apart from a photo with no ISBN on it', async () => {
     const running = new CaptureQueue(db, () => Buffer.from('a photograph'))
 
-    // Read cleanly off a barcode, so the number on the row is right. Nothing
-    // has it, which is a different job for a person entirely.
+    // Read cleanly off a barcode, so the number is right; nothing catalogues it.
     vi.mocked(identify).mockResolvedValue(readBarcode(DUNE))
     vi.mocked(lookupIsbn).mockResolvedValue(nothingFound())
     const uncatalogued = await running.attach(null, 'back', 'b1.jpg')
     await running.drain()
 
-    // Nothing readable on the photographs at all. This one does need typing in.
+    // Nothing readable on the photographs at all: this one needs typing in.
     vi.mocked(identify).mockResolvedValue(readNothing())
     const blank = await running.attach(null, 'back', 'b2.jpg')
     await running.drain()
@@ -712,19 +652,10 @@ describe('why the failed ones failed', () => {
 })
 
 /**
- * A reading that was given up on, and the way back from one (#299).
- *
- * The defect this is about is not visible in any of these assertions and is
- * worth stating: before the bound there was nothing to assert on, because the
- * drain never returned. `identify` held a process-wide chain, `drain` awaited
- * `process`, and every capture behind the stuck one waited for the life of the
- * server with no error, no note and nothing on screen to distinguish it from a
- * queue that was merely busy.
- *
  * `ReadingTimedOut` comes from `server/deadline.ts` rather than from
- * `./identify`, which this file replaces wholesale, and that is why it lives
- * there: an `instanceof` against a stubbed module's missing export throws
- * inside the very catch that is there to cope with a throw.
+ * `./identify`, which this file mocks wholesale: an `instanceof` check against
+ * a stubbed module's missing export would throw inside the very catch meant to
+ * handle a throw.
  */
 describe('a reading that was given up on', () => {
   const abandoned = () => new ReadingTimedOut('Reading this photograph', 60_000)
@@ -774,8 +705,6 @@ describe('a reading that was given up on', () => {
     const stuck = await running.attach(null, 'back', 'stuck.jpg')
     const behind = await running.attach(null, 'back', 'behind.jpg')
 
-    // The reader recovers between the two, which is what the bound buys: the
-    // second book is read rather than queued behind the first for good.
     vi.mocked(identify)
       .mockRejectedValueOnce(abandoned())
       .mockResolvedValue(readBarcode(DUNE))
@@ -809,9 +738,8 @@ describe('a reading that was given up on', () => {
   })
 
   it('offers every photograph again, not only the one that stopped', async () => {
-    // A capture can have read its back and stopped on its front. Clearing the
-    // lot is the rule rather than a judgement about which slots are worth
-    // redoing, and a slot that read cleanly costs a second to confirm.
+    // Clearing every slot's analysed mark, not just the one that stopped, is
+    // the rule: a slot that read cleanly just costs a second to re-confirm.
     const running = new CaptureQueue(db, () => Buffer.from('a photograph'))
     vi.mocked(identify).mockResolvedValue(readNothing())
     const capture = await running.add({ front: 'f.jpg', back: 'b.jpg', edge: 'e.jpg' })
@@ -823,8 +751,6 @@ describe('a reading that was given up on', () => {
   })
 
   it('will not re-read a book that has left the queue', async () => {
-    // A shelved book is not read by this worker any more, and a discarded one
-    // is not coming back through a button that says read.
     const shelved = await add()
     await shelve(shelved.id)
     expect(await queue.readAgain(shelved.id)).toBeUndefined()
@@ -839,12 +765,7 @@ describe('a reading that was given up on', () => {
   })
 })
 
-/**
- * What the scanner is allowed to compare a photograph against (#122).
- *
- * Each exclusion here is the difference between a useful answer and a wrong
- * one, so each is asserted on its own rather than through the route.
- */
+/** Each exclusion here is asserted on its own, since each is the difference between a useful answer and a wrong one. */
 describe('captures still waiting to be shelved', () => {
   const hashed = async (hash = 'p1abcdef0123456789'.slice(0, 18)) => {
     const capture = await add()
@@ -858,8 +779,8 @@ describe('captures still waiting to be shelved', () => {
   })
 
   it('leaves out one that has become a book', async () => {
-    // Not waiting for anybody. It is on a shelf, and the books path answers
-    // for it, so sending somebody to finish it sends them to a dead end.
+    // It is on a shelf and the books path answers for it now; sending somebody
+    // to finish it would send them to a dead end.
     const id = await hashed()
     await shelve(id)
     expect(await queue.waiting()).toEqual([])
@@ -873,8 +794,7 @@ describe('captures still waiting to be shelved', () => {
 
   it('leaves out one whose front photograph was refused as featureless', async () => {
     // `coverHash` declines a frame with no detail in it, and `deriveCapture`
-    // leaves the column empty rather than storing something that would go on
-    // to be compared. That refusal has to survive all the way to here.
+    // leaves the column empty rather than storing something comparable.
     const capture = await add()
     await queue.setFrontHash(capture.id, '')
     expect(await queue.waiting()).toEqual([])
@@ -898,13 +818,10 @@ describe('captures still waiting to be shelved', () => {
 })
 
 /**
- * The same question asked of the identifier rather than of the pictures (#146).
- *
- * `waiting` above is what a photograph gets compared against, and it is a
- * measurement with a band and a measured error rate. This is the other kind of
- * evidence: an ISBN-13 either satisfies its check digit or is thrown away, so
- * two captures carrying the same one are two captures of the same title, and
- * the filters that make sense for a comparison do not apply to it.
+ * `waiting` compares a fuzzy measurement with an error rate; an ISBN-13 either
+ * satisfies its check digit or is thrown away, so two captures sharing one are
+ * the same title, and the filters that make sense for a fuzzy comparison do
+ * not all apply here.
  */
 describe('captures waiting under the same ISBN', () => {
   const withIsbn = async (isbn13: string) => {
@@ -934,9 +851,9 @@ describe('captures waiting under the same ISBN', () => {
   })
 
   it('answers nothing at all for a capture with no ISBN', async () => {
-    // The case that would be worst if it were wrong. Every capture nobody has
-    // read yet carries an empty string in this column, so an unguarded query
-    // would report each of them as a duplicate of all the others.
+    // Every capture nobody has read yet carries an empty string in this
+    // column, so an unguarded query would report each of them as a duplicate
+    // of all the others.
     await add()
     await add()
     const mine = await add()
@@ -970,27 +887,16 @@ describe('captures waiting under the same ISBN', () => {
   })
 
   it('answers for a photograph that is not a capture at all', async () => {
-    // The scan route asks this with no capture of its own, so there is nothing
-    // to exclude and nothing may be excluded by accident.
+    // The scan route asks this with no capture of its own, so nothing may be
+    // excluded by accident.
     const id = await withIsbn(DUNE)
     expect((await queue.sharingIsbn(DUNE)).map((c) => c.id)).toEqual([id])
   })
 })
 
 /**
- * Nothing picked the queue up again (#436).
- *
- * Eight captures sat pending for five minutes, through reloads, a shelving and
- * a lookup, every one of them saying "Reading photos" with nothing reading
- * anything. One press of the shutter drained all eight in half a minute, which
- * is the whole diagnosis: `drain` was only ever called by the shutter, by a
- * retake and at boot, and **a queue that has silently stopped looks exactly
- * like a queue that is busy**.
- *
- * Both halves of the fix are reproduced here rather than reasoned about: the
- * race that loses a capture inside this process, and the pending work this
- * process never heard about. The last two blocks are the part #299 asks for,
- * which is that whatever picks the queue up can stop.
+ * `drain` is only ever called by the shutter, a retake, or at boot; nothing
+ * else picks up work this process did not see arrive or hear about.
  */
 describe('picking the queue up again', () => {
   function worker(over: Db = db) {
@@ -1024,15 +930,12 @@ describe('picking the queue up again', () => {
   }
 
   /**
-   * The database, with a hook on the query the drain loop ends on.
-   *
-   * The window this opens is a real one and it is only microseconds wide:
-   * `nextPending` is a query on another connection, so a capture inserted after
-   * it has been issued and before it answers is a capture the loop has already
-   * decided is not there. Racing two real requests for it would be a test that
-   * passes most of the time, which is worse than no test, so the arrival is put
-   * exactly where it has to be: after the empty answer, before the loop acts on
-   * it.
+   * Hooks the query the drain loop ends on. The window is real but only
+   * microseconds wide: a capture inserted after `nextPending` is issued and
+   * before it answers is one the loop has already decided is not there. Racing
+   * two real requests for it would pass most of the time, which is worse than
+   * no test, so the arrival is placed deterministically: after the empty
+   * answer, before the loop acts on it.
    */
   function afterTheLastLook(inner: Db, arrive: () => Promise<void>): Db {
     let fired = false
@@ -1059,9 +962,9 @@ describe('picking the queue up again', () => {
     let running: CaptureQueue
     let arrival = 0
     const watched = afterTheLastLook(db, async () => {
-      // Exactly what `POST /api/captures` does, in the one moment where it used
-      // to be lost: the row lands, and the drain it fires is refused by the
-      // guard because the pass that is about to give up still holds it.
+      // Exactly what `POST /api/captures` does: the row lands, and the drain
+      // it fires is refused because the pass that is about to give up still
+      // holds the guard.
       arrival = (await running.attach(null, 'back', 'b2.jpg')).id
       await running.drain()
     })
@@ -1070,9 +973,8 @@ describe('picking the queue up again', () => {
     const first = await running.attach(null, 'back', 'b1.jpg')
     await running.drain()
 
-    // The one that was already there is read either way. The one that arrived
-    // in the window is the whole test: it used to stay pending until the next
-    // shutter or the next restart, with nothing anywhere saying so.
+    // The one already there is read either way; the one that arrived in the
+    // window is the point of this test.
     expect((await running.get(first.id))!.status).toBe('ready')
     expect((await running.get(arrival))!.status).toBe('ready')
     expect(await running.counts()).toMatchObject({ pending: 0, ready: 2 })
@@ -1082,22 +984,19 @@ describe('picking the queue up again', () => {
     readsCleanly()
     const running = worker()
 
-    // A capture with nothing following it. The seeder writing into a running
-    // server's database is the case this was found in; a second server, or a
-    // process that died mid-pass, are the same shape. Nothing in here has any
+    // A capture with nothing following it, the shape of a second server or an
+    // external writer inserting into this database: nothing here has any
     // reason to call `drain`.
     const stranded = await running.attach(null, 'back', 'b.jpg')
     expect(await running.counts()).toMatchObject({ pending: 1, ready: 0 })
 
-    // And it stays that way. This is the five minutes.
     await new Promise((done) => setTimeout(done, 20))
     expect((await running.get(stranded.id))!.status).toBe('pending')
     expect(vi.mocked(identify)).not.toHaveBeenCalled()
 
-    // Then somebody looks at a queue with unread books in it, which is what
-    // arms the sweep. The pass is what a look leads to and what this drives
-    // directly: waiting five real seconds to watch one is how a suite stops
-    // being run.
+    // Looking at a queue with unread books in it is what arms the sweep;
+    // `sweepPass` is called directly rather than waiting on a real timer,
+    // which would make this suite slow.
     await running.sweepPass()
 
     expect((await running.get(stranded.id))!.status).toBe('ready')
@@ -1116,12 +1015,9 @@ describe('picking the queue up again', () => {
   })
 
   /**
-   * The bound #299 asks for, and the reason this is a sweep rather than a poll.
-   *
-   * A pass that changes nothing is the last pass. How many captures are waiting
-   * is a non-negative integer that has to fall every time or this ends, so a
-   * reader that has wedged is looked at once and then left alone rather than
-   * asked again for the life of the process.
+   * A pass that changes nothing is the last pass: pending count is a
+   * non-negative integer that must fall each time or the sweep stops, so a
+   * wedged reader is looked at once and then left alone.
    */
   it('stops sweeping when a pass moved nothing', async () => {
     const held = heldReading()
@@ -1132,10 +1028,9 @@ describe('picking the queue up again', () => {
     const reading = running.drain()
     await held.started
 
-    // The drain this asks for is refused, because one is already running: two
-    // passes over one queue is what that guard exists to stop. So the queue is
-    // exactly as long after this sweep as before it, and a second sweep has
-    // nothing to do that this one did not already fail to do.
+    // The drain this asks for is refused since one is already running, which
+    // is what that guard exists to stop; the queue is exactly as long after
+    // this sweep as before it.
     expect(await running.sweepPass()).toBe(false)
 
     held.release()
@@ -1144,13 +1039,9 @@ describe('picking the queue up again', () => {
   })
 
   /**
-   * The other half of "a queue that has stopped looks like one that is busy",
-   * which is what the row says.
-   *
-   * `reading` is not a column and is never written down. It is which capture
-   * the worker has in its hands, for the seconds one reading takes, and it is
-   * what lets the queue draw "Reading photos" on the book being read and
-   * "Waiting to be read" on the ones behind it.
+   * `reading` is not a column and is never written down: it is which capture
+   * the worker currently has in its hands, and it is what lets the queue draw
+   * "Reading photos" on that one and "Waiting to be read" on the rest.
    */
   it('says which capture it is reading, and says so only while it is', async () => {
     const held = heldReading()

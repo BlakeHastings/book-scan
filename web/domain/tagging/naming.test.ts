@@ -7,11 +7,7 @@ const vocabulary = (...slugs: string[]): KnownTag[] =>
   slugs.map((slug) => ({ slug, label: '' }))
 
 describe('two spellings of one idea', () => {
-  /*
-   * The owner's own example, and the reason this file exists. The slug folds
-   * the case and the space on its own; the plural is what it does not fold, and
-   * two rows byte-ordered apart is two tags meaning one thing.
-   */
+  // The slug alone folds case and spaces but not the plural; two rows byte-ordered apart would mean one thing twice.
   it('is one key for "Comic Book", "comic books" and "COMIC-BOOKS"', () => {
     expect(sameThing('Comic Book')).toBe('comicbook')
     expect(sameThing('comic books')).toBe('comicbook')
@@ -24,9 +20,7 @@ describe('two spellings of one idea', () => {
     expect(sameThing('Nonfiction')).toBe('nonfiction')
   })
 
-  /* Words that only look alike are left alone. A fold that swallowed these
-     would refuse a tag somebody genuinely wants and offer them a different
-     one, which is worse than the duplicate it was avoiding. */
+  // A fold that swallowed these would refuse a tag somebody wants and offer a different one instead, worse than the duplicate it avoids.
   it('keeps apart words that are not the same word', () => {
     expect(sameThing('Comics')).not.toBe(sameThing('Comic book'))
     expect(sameThing('Poetry')).toBe('poetry')
@@ -40,9 +34,7 @@ describe('two spellings of one idea', () => {
     expect(sameThing('???')).toBe('')
   })
 
-  /* The identity is the slug and this is not it. Said as a test because the
-     tempting next change is to store this, and storing it makes it a second
-     key that has to agree with the first one for ever. */
+  // Not the identity, deliberately not stored: storing it would make a second key that has to agree with the slug forever.
   it('is asked of a name rather than of a path', () => {
     expect(nameIn('subject/comic-book')).toBe('comic-book')
     expect(nameIn('genre')).toBe('genre')
@@ -58,9 +50,7 @@ describe('naming a tag', () => {
       .toEqual(['subject/comic-book'])
   })
 
-  /* The near miss is told apart from the plain one, because a person typing a
-     word they already keep needs no explanation and a person being refused a
-     second spelling of it does. */
+  // Distinguished because a person typing the exact spelling needs no explanation, but one typing a near miss does.
   it('says when what was typed was not how the tag is spelled', () => {
     const vocab = vocabulary('subject/comic-book')
 
@@ -68,9 +58,7 @@ describe('naming a tag', () => {
     expect(nameTag('Comic Book', vocab)).toMatchObject({ nearly: false })
   })
 
-  /* Across namespaces, because a collection that already keeps the word means
-     it whichever heading it sits under. Two of them under two headings is the
-     same defect wearing a different coat. */
+  // Across namespaces: a word the collection already keeps means it whichever heading it sits under.
   it('finds what the collection means wherever it is kept', () => {
     const answer = nameTag('Cookery', vocabulary('genre/cookery'))
 
@@ -87,10 +75,7 @@ describe('naming a tag', () => {
     })
   })
 
-  /* #304. The app states a genre only when a source did, and a person choosing
-     one is a different act with two options of its own. A box that happens to
-     say "fiction" is not that act, so it writes nothing and says where the act
-     lives instead. */
+  // A box that happens to say "fiction" is not a person choosing a genre, so it writes nothing and points at where that act lives.
   it('never writes a genre, however the word is spelled', () => {
     for (const typed of ['fiction', 'Fiction', 'FICTION', 'non fiction', 'Non-fiction']) {
       expect(nameTag(typed, []).kind, `"${typed}"`).toBe('genre')
@@ -107,8 +92,7 @@ describe('naming a tag', () => {
     expect(FICTION.value.startsWith('genre/') && NON_FICTION.value.startsWith('genre/')).toBe(true)
   })
 
-  /* A slash is a hyphen here. Where a tag sits decides which rules can reach
-     it, and a free-text box is not where that gets decided by accident. */
+  // A slash is a hyphen here: where a tag sits decides which rules can reach it, not what somebody happened to type.
   it('reads a slash as part of the name rather than as nesting', () => {
     const answer = nameTag('comic/book', [])
 
@@ -130,9 +114,7 @@ describe('the label a new tag carries', () => {
     expect(labelTyped('comic  book ')).toBe('Comic book')
   })
 
-  /* Theirs rather than the app's: a label is the half of a tag a person reads,
-     and lowercasing an initialism to match a house style would be the app
-     correcting somebody's own word. */
+  // Theirs, not the app's: lowercasing an initialism would be correcting somebody's own word.
   it('leaves the rest of it alone', () => {
     expect(labelTyped('MTG')).toBe('MTG')
     expect(labelTyped('books by Le Guin')).toBe('Books by Le Guin')

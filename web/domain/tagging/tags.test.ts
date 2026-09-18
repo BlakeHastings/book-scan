@@ -1,14 +1,11 @@
 /**
- * The tag rules, with no database anywhere near them.
+ * The tag rules, with no database anywhere near them. Two claims:
  *
- * Two claims are made about this design and both of them are made here, where
- * they can be read in ten seconds:
- *
- * 1. **The slug is the identity**, so every spelling of one idea normalises to
- *    one slug, and hierarchy is a property of the path rather than of a table.
- * 2. **A source may take back its own tags and no others.** Not "does not
- *    usually": the removal list `restatedBy` produces cannot contain another
- *    source's row, because the only rows it looks at are its own.
+ * 1. The slug is the identity: every spelling of one idea normalises to one
+ *    slug, and hierarchy is a property of the path.
+ * 2. A source may take back its own tags and no others: the removal list
+ *    `restatedBy` produces cannot contain another source's row, because the
+ *    only rows it looks at are its own.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -22,8 +19,7 @@ const claim = (slug: string, confidence: TagClaim['confidence'] = 'high'): TagCl
 
 describe('normalising what somebody wrote into a slug', () => {
   it('folds the spellings a catalogue answers with into one', () => {
-    // The failure this prevents: three rows for one idea, and a rule matching
-    // one of them claiming a third of the books it should.
+    // Prevents three rows for one idea, each matched by only a fraction of the rules that should catch it.
     const spellings = ['Fiction', 'fiction', 'FICTION', ' Fiction ', 'Fiction.']
     expect(new Set(spellings.map((one) => TagSlug.of(one).value))).toEqual(new Set(['fiction']))
   })
@@ -74,8 +70,7 @@ describe('hierarchy in the slug', () => {
   })
 
   it('finds a child of a parent nobody ever created', () => {
-    // Question 2 on #170: a book may carry genre/fantasy in a vocabulary that
-    // has never heard of genre, and `under genre` still finds it.
+    // A book may carry genre/fantasy in a vocabulary that has never heard of genre, and `under genre` still finds it.
     const fantasy = TagSlug.of('genre/fantasy')
     expect(fantasy.isUnder(TagSlug.of('genre'))).toBe(true)
     expect(fantasy.ancestors.map(String)).toEqual(['genre'])
@@ -118,8 +113,7 @@ describe('a source restating what it claims', () => {
   })
 
   it('leaves a person alone, and that is not a filter applied afterwards', () => {
-    // The rule the whole design turns on. Whatever the catalogue claims, and
-    // however little of it, nothing it produces may name another source's row.
+    // Whatever the catalogue claims, nothing it produces may name another source's row.
     for (const claims of [[], [claim('genre/horror')], [claim('mine/lent-out')]]) {
       const { retracted, untouched } = book.restatedBy('catalogue', claims)
       expect(retracted.every((one) => one.source === 'catalogue')).toBe(true)
@@ -158,21 +152,15 @@ describe('a source restating what it claims', () => {
   })
 
   it('a person restating does not disturb the catalogue', () => {
-    // The rule runs both ways: it is about a source owning its own rows, not
-    // about people being privileged in the arithmetic.
+    // Runs both ways: about a source owning its own rows, not about people being privileged.
     const { retracted } = book.restatedBy('person', [])
     expect(retracted.map((one) => one.slug.value)).toEqual(['mine/lent-out'])
   })
 })
 
 /**
- * A source speaking about one part of the vocabulary.
- *
- * This is the same rule the block above is about, read one level in: a
- * statement about the genre is not a statement about anything else, so it may
- * not take anything else back. Without it, a save that states a genre restates
- * the whole of what that person ever said, and a tag they applied by hand a
- * moment earlier goes away on the save with nothing reporting it.
+ * A statement about one part of the vocabulary is not a statement about the
+ * rest of it, so it may not take anything else back.
  */
 describe('a source restating one part of what it said', () => {
   const book = BookTags.of([

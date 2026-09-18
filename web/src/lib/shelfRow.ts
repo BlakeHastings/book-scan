@@ -18,10 +18,10 @@ export function spineOf(book: FiledBookRow): StripBook {
     front: book.front_image ?? '',
     back: book.back_image ?? '',
     edge: book.edge_image ?? '',
-    // A spine is drawn two centimetres wide, so the margin of room the capture
-    // guide left around it is a real part of the picture. Cropping it is the
-    // same decision the gallery makes, taken in the one place the precedence
-    // is written down so the two views cannot disagree.
+    // A spine is drawn two centimetres wide, so the margin around it left by
+    // the capture guide is a real part of the picture. Cropping it is the
+    // same decision the gallery makes, in the one place the precedence is
+    // written down.
     crops: {
       front: book.front_crop ?? '',
       back: book.back_crop ?? '',
@@ -32,9 +32,8 @@ export function spineOf(book: FiledBookRow): StripBook {
   return {
     id: book.id,
     title: book.title,
-    // What is written down the spine when there is no photograph of one. The
-    // author is what you read walking along a shelf, so it is what a blank
-    // block carries.
+    // What is written down the spine when there is no photograph: the
+    // author, since that is what you read walking along a shelf.
     authorFiling: book.author_filing || book.authors || book.title,
     spine: photo.name,
     spineSlot: photo.slot,
@@ -50,20 +49,17 @@ export interface ListRow {
 }
 
 /**
- * The books on a shelf plus, in their alphabetical slots, the ones that belong
- * there but are currently off it.
+ * The books on a shelf plus, in their alphabetical slots, the ones that
+ * belong there but are currently off it.
  *
- * Lifted out of ShelfView unchanged when the list came back as one of three
- * views (#82), so it can be tested without a DOM. The numbering deliberately
- * counts only what is physically present, since that is what you use to find a
- * book by counting along. An absent book gets a dash: it is in the list to
- * explain a gap, not to be counted to.
+ * The numbering counts only what is physically present, since that is
+ * what you use to find a book by counting along; an absent book gets a
+ * dash rather than a number.
  *
- * This is the one thing the list does that the spine row and the gallery do
- * not. Those two draw the run as it physically stands, because a spine or a
- * cover is a picture of furniture and a book that is out of the house is not
- * in the picture. A line of text is not a picture, and the list has always
- * used that to say where the gap is.
+ * This is the one thing the list does that the spine row and the gallery
+ * do not: those two draw the run as it physically stands, since a spine
+ * or a cover is a picture of furniture and a book that is out of the
+ * house is not in the picture.
  */
 export function listOf(group: ShelfGroupDto, checkedOut: CheckedOutAt[]): ListRow[] {
   const present: ListRow[] = group.books.map(({ book }, i) => ({ book, n: i + 1, here: true }))
@@ -76,16 +72,10 @@ export function listOf(group: ShelfGroupDto, checkedOut: CheckedOutAt[]): ListRo
 }
 
 /**
- * Whether a book that is off the shelf belongs on this board.
- *
- * **The area, and the label only where there is no area** (#447). Both sides
- * used to be labels, which is the comparison that hid 181 books in #356: a label
- * is a rendering, and the day somebody names a bookcase the two sides can be
- * rendered by different hands. They are one hand today and this does not depend
- * on their staying that way.
- *
- * The fallback is a run whose rule points at furniture that has been taken out,
- * where neither side has a plank to name and both are the ordinal walk's answer.
+ * Whether a book that is off the shelf belongs on this board. Matched by
+ * area id where both sides have one; only falls back to the label when
+ * neither does, since a label is a rendering and can differ once a
+ * bookcase is named.
  */
 const onThisBoard = (group: ShelfGroupDto, entry: CheckedOutAt): boolean =>
   (group.areaId !== null && entry.areaId !== null
@@ -112,13 +102,8 @@ export interface GridBook {
 }
 
 /**
- * One book as it is drawn lying face up in the gallery.
- *
- * The sibling of `spineOf`, asking the same question of the same book for a
- * view that shows the other face of it, and going through the one shared rule
- * for both reasons `spineOf` does: so the two views cannot disagree about a
- * book, and so the answer arrives saying what it is rather than leaving the
- * caller to assume.
+ * One book as it is drawn lying face up in the gallery. The sibling of
+ * `spineOf`, going through the same shared rule for the same reasons.
  */
 export function coverOf(book: FiledBookRow): GridBook {
   const picture = bookCover({
@@ -127,8 +112,7 @@ export function coverOf(book: FiledBookRow): GridBook {
     edge: book.edge_image ?? '',
     catalogue: book.cover_image ?? '',
     // The gallery is the reason cropping exists: a wall of photographs with
-    // somebody's feet in the corner of half of them. Where a crop was found,
-    // this shows it.
+    // somebody's feet in the corner of half of them.
     crops: {
       front: book.front_crop ?? '',
       back: book.back_crop ?? '',
@@ -150,17 +134,14 @@ export function coverOf(book: FiledBookRow): GridBook {
 /**
  * What a tile is showing, where that is not what it looks like.
  *
- * Every case except a front cover is one somebody would otherwise get wrong: a
- * spine or a back standing in reads as a badly cropped cover, and the
- * publisher's picture reads as a photograph of the book on the shelf when it is
- * a stock image of some edition of it.
+ * Every case except a front cover is one somebody would otherwise get
+ * wrong: a spine or a back standing in reads as a badly cropped cover, and
+ * the publisher's picture reads as a photograph of this copy rather than a
+ * stock image.
  *
- * **It is said in words under the tile rather than drawn on it** (#387). It was
- * a dashed border and a corner note, and the design system's answer to a fact
- * about a card is to say the thing in words; `CoverItem.meta` is the line those
- * words go on, and a tile whose picture is a front cover has nothing to say and
- * says nothing. A book nobody has photographed says nothing either: the cloth
- * under it is already the drawing of that, on every screen in the app.
+ * Said in words under the tile (`CoverItem.meta`) rather than drawn on it.
+ * A tile whose picture is a front cover, or whose book has no photograph
+ * at all, says nothing.
  */
 export function coverNote(book: GridBook): string {
   if (book.coverSlot === 'edge') return 'Spine, no cover photo'

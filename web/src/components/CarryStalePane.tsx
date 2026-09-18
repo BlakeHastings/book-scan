@@ -1,22 +1,9 @@
 /**
- * What the last change of mind did to a list somebody was halfway through.
- *
- * The counts are the easy half and they lead, because the first question is
- * whether the job got bigger. The second card is the one this screen exists for:
- * **books that were carried and have to be carried again.** Nobody may find that
- * out one book at a time standing at a shelf, so they are named here with both
- * ends of the new carry on them.
- *
- * There is nothing to accept or dismiss. The list changed the moment the rule
- * did, because there is no plan and nothing is stored: the work is what the
- * ledger says now. This only says what happened, and the way on is the work.
- *
- * ## Where the numbers come from, since nothing recorded a session
- *
- * The rules write their assignments in one run with one timestamp, so the newest
- * of those timestamps names the last change of mind and the rows carrying it are
- * what it did. Folding each of those books with and without that run is the
- * difference somebody would notice. See `domain/placement/carry.ts`.
+ * There is nothing to accept or dismiss: there is no plan and nothing is
+ * stored, so the list changes the moment the rule does and this only reports
+ * what happened. The rules write assignments in one run with one timestamp;
+ * the newest of those timestamps names the last change and its rows are what
+ * it did. See `domain/placement/carry.ts`.
  */
 
 import { Card, Instruction } from '../design/Card'
@@ -37,11 +24,7 @@ interface Props {
   onScan: () => void
 }
 
-/**
- * What the change did, which is the first question: did the job get bigger.
- *
- * Both halves in one sentence when there are two, because they are one event.
- */
+/** Both halves in one sentence when there are two, since they are one event. */
 function whatItDid(left: number, joined: number): string {
   const off = `took ${plural(left, 'book')} off your list`
   const on = `put ${plural(joined, 'book')} on your list`
@@ -76,13 +59,7 @@ export function CarryStalePane({ work, onCarry, onHome, onQueue, onScan }: Props
       tabs={tabs}
       top={<TopBar title="What changed" sub="You changed where books belong" onBack={onCarry} />}
     >
-      {/*
-        The two counts, and not "your list went from 38 books to 47".
-        Subtracting one from the other is only true at the moment of the change:
-        carry three books afterwards and the arithmetic goes backwards, which it
-        did on a real list the first time this screen was walked. What is always
-        true is what the change itself did.
-      */}
+      {/* Deliberately not "went from 38 to 47": subtracting one count from the other is only true at the moment of the change, and goes wrong the instant a book is carried afterwards. */}
       <Instruction>{whatItDid(changed.left, changed.joined)}</Instruction>
 
       {changed.left > 0 && (
@@ -98,15 +75,9 @@ export function CarryStalePane({ work, onCarry, onHome, onQueue, onScan }: Props
       )}
 
       {changed.joined > 0 && (
-        /* One card, not two. The books that have to be carried again are the
-           whole reason this screen exists, so they sit inside the count they
-           belong to rather than reading as a fourth thing that happened. */
         <Card kind="On the list" title={`${saidBooks(changed.joined)} joined`}>
           {changed.again.length > 0 && (
             <>
-              {/* "Two of them" when the two are all of them is a sentence that
-                  makes somebody count. Found by looking at a list where every
-                  book that joined was one they had carried. */}
               <p>
                 {changed.again.length === changed.joined
                   ? `You had already carried ${changed.joined === 1 ? 'it' : 'them'}.`

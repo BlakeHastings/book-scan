@@ -1,70 +1,3 @@
-/**
- * Check the details, for a book that is not in the catalogue yet.
- *
- * The cataloguing half of what `BookDetail` used to do on its own. They were
- * one screen because a queued capture and a catalogued book are both "a book,
- * looked at and edited", and the drawings say they are two: `review` is the
- * step between a photograph and a shelf, with the photographs at the top and
- * two answers at the bottom, and `book` is a page about a book you own, with
- * everything you can do to it. `BookDetail` is still that second one and is
- * untouched by this file; #315 is converting it.
- *
- * ## The photographs lead
- *
- * There were none on this screen at all, which the owner found immediately:
- *
- * > We are not showing any images here. We wanna show those images and enable
- * > them to retake them if they don't like them because they're blurry.
- *
- * So `Shots` is first, at the size somebody can judge a blurred photograph
- * from, and pressing one goes back to the camera pointed at that slot.
- *
- * ## Three slots, and the spine leads them (#373)
- *
- * > At the top of this screen we need to show the catalogue image if it's
- * > available. If it's not available, we don't show it. The spine should be on
- * > the far left, not on the far right.
- *
- * It was on the far right, because `SLOTS` is the order the camera fills them
- * in and the spine is the last thing photographed. The order a book is
- * photographed in is not the order a book is looked at in, so this screen names
- * its own and the camera keeps `SLOTS`.
- *
- * The arrangement itself is `threeSlots` in `design/Shots.tsx`, so the drawing
- * and this screen cannot disagree about it. What it decides is where the
- * downloaded cover goes and what happens to the room it takes: with one, the
- * two photographs somebody took share the last slot and a swipe moves between
- * them; without one, they take a slot each and there is nothing to swipe.
- * Either way there are three, the spine is the first, and no empty frame is
- * ever drawn for a cover nobody has downloaded.
- *
- * ## The ISBN leads the fields, and its second answer is not a keyboard
- *
- * It is the one field that decides what every other field says, and thirteen
- * digits typed off a book by somebody holding the book is the slowest and
- * least reliable way to answer it. The camera in the corner of the field opens
- * the ISBN prompt, which has a camera of its own: point it at the barcode or
- * at the printed number and it fills the box in rather than submitting it,
- * because OCR misreads digits and a wrong ISBN silently fetches a different
- * book.
- *
- * ## What the photographs read is beside the form and never in it
- *
- * `CaptureEvidence`, which is at the foot of this file since #409 because this
- * screen is the only place it is drawn. It was shared with the screen for a book
- * the catalogue already holds, and the owner took it off that one: "we have text
- * underneath the images coming from the OCR system. We shouldn't show those,
- * they're very intrusive."
- *
- * **It stays here, and the difference is what the screen is for.** This is the
- * page for exactly the captures the app could not settle by itself, so what the
- * photographs read is the one piece of evidence somebody has while they type;
- * on a book already in the catalogue it is a machine's old guess at a record a
- * person has since confirmed. OCR is a lossy reading of a photograph, and a
- * guess promoted into a box somebody then saves enters the catalogue wearing the
- * clothes of a confirmed value (#147).
- */
-
 import { useState } from 'react'
 import { Card, Said } from '../design/Card'
 import { TopBar, type TabName } from '../design/Chrome'
@@ -84,15 +17,10 @@ interface Props {
   draft: Draft
   lookup: LookupResponse | null
   /**
-   * The book the catalogue already holds under this one's ISBN, or null.
-   *
-   * A prop of its own since #435, and it used to be read off `lookup`. That is
-   * the defect: the warning only existed where a lookup had found something,
-   * so a book no source can name, which is exactly the book somebody scans
-   * twice because there is nothing on screen to recognise it by, was never
-   * warned about. Whether some catalogue can name an ISBN and whether this
-   * collection already holds it are two questions, and the caller answers this
-   * one from the catalogue rather than from the lookup.
+   * Two different questions: whether some catalogue can name an ISBN, and
+   * whether this collection already holds it. Read from the catalogue
+   * rather than from `lookup`, so a book no source can name is still
+   * warned about.
    */
   catalogued: CataloguedBook | null
   photos: Partial<Record<Slot, string>>
@@ -101,12 +29,9 @@ interface Props {
   relookupBusy: boolean
   relookupError: string
   /**
-   * The publisher's picture for whatever ISBN this matched, where there is one.
-   *
-   * Drawn beside the photograph somebody took so the two can be compared, which
-   * is the one part of a lookup a person can confirm at a glance: an ISBN is
-   * thirteen digits nobody can verify by reading. Empty means no catalogue held
-   * a picture, and then it is not drawn at all rather than drawn as a gap.
+   * Drawn beside the photograph somebody took so the two can be compared,
+   * since that is the one part of a lookup a person can confirm at a
+   * glance. Empty means not drawn at all, rather than drawn as a gap.
    */
   catalogueCover: string
   /** What the photographs produced, quoted rather than filled in (#147). */
@@ -128,13 +53,9 @@ interface Props {
   tabs: Record<TabName, () => void>
 
   /**
-   * What somebody has said this book is, beyond the two answers above.
-   *
-   * Only a person's tags, and that is a choice rather than an omission. A book
-   * out of Open Library arrives carrying up to twelve subject headings, and
-   * twelve chips on the screen somebody is trying to get a book off would be a
-   * wall where the point was a fast path. These are the ones a person put on,
-   * on this screen, and taking one off is tapping it again.
+   * Only a person's tags: a book from Open Library can carry up to twelve
+   * subject headings, and drawing all of those would bury the few someone
+   * actually chose.
    */
   tags: AppliedTag[]
   /** Every tag the collection keeps, which is what is offered before anything new. */
@@ -145,24 +66,17 @@ interface Props {
   onAddTag: (tag: { slug: string; label: string }) => void
   onRemoveTag: (slug: string) => void
   /**
-   * Whether a tag can be written at all, which is whether there is a row to
-   * hang one on.
-   *
-   * A capture is a row in `books` from its first photograph (#183), so there
-   * almost always is. The one moment there is not is a book being drawn before
-   * its capture has come back, and offering to tag it then would be a target
-   * that answers 404.
+   * A capture becomes a row in `books` from its first photograph, so this is
+   * almost always true; false only for a book drawn before its capture has
+   * come back, where offering to tag it would be a target that answers 404.
    */
   canTag: boolean
 }
 
 /**
- * Where the ISBN came from, as the second line of the top bar.
- *
- * A barcode is self-validating, a printed number read by a machine is a guess,
- * and digits somebody typed are a person's word. Those are three different
- * amounts of trust and the screen is about deciding whether to trust what is
- * on it, so it says which.
+ * A barcode is self-validating, a printed number read by a machine is a
+ * guess, and digits somebody typed are a person's word: three different
+ * amounts of trust, so the screen says which.
  */
 const READ_FROM: Record<string, string> = {
   barcode: 'Read off the barcode',
@@ -180,12 +94,8 @@ export function CaptureReview({
   const [asking, setAsking] = useState(false)
   const [naming, setNaming] = useState(false)
 
-  /*
-   * Whether a save can run at all. The same expression `BookDetail` reads and
-   * for the same reason: a relookup in flight is about to replace the title,
-   * the authors and the ISBN, and a save started before it lands writes the
-   * record it was about to correct.
-   */
+  // Same expression `BookDetail` reads, and for the same reason: a relookup
+  // in flight is about to replace the title, authors and ISBN.
   const blocked = saving || relookupBusy || !draft.title
   const why = relookupBusy
     ? 'Waiting for the ISBN lookup to finish.'
@@ -194,14 +104,8 @@ export function CaptureReview({
         + 'from the photographs; what the cover reads is quoted below.'
       : ''
 
-  /*
-   * The three slots, named in the order they are read rather than the order
-   * they are filled.
-   *
-   * `SLOTS` is the camera's order, back then front then spine, and it put the
-   * spine on the far right of this screen. That is the camera's business and
-   * not this screen's, so the two are no longer the same list.
-   */
+  // Named in the order they are read, not `SLOTS`' order (the camera's):
+  // that is the camera's business, not this screen's.
   const one = (slot: Slot): Shot => ({
     word: SLOT_SHORT[slot],
     sliver: slot === 'edge',
@@ -211,9 +115,8 @@ export function CaptureReview({
 
   const slots = threeSlots(
     one('edge'),
-    /* No press on it: it is not a photograph of this copy and there is no
-       shutter that could take it again. Changing it is changing the ISBN,
-       which is the field below. */
+    // No press on it: it is not a photograph of this copy. Changing it is
+    // changing the ISBN, which is the field below.
     { word: 'Downloaded', catalogue: true, photo: catalogueCover },
     [one('front'), one('back')],
   )
@@ -234,15 +137,9 @@ export function CaptureReview({
             onBack={onLeave}
           />
         }
-        /* Over the screen rather than beside it, because the book being named
-           is the one on the screen underneath and the panel is measured in
-           seconds. See `design/Naming.tsx` for why it is a panel from the top
-           and not a card from the bottom: there is a keyboard under this one. */
+        // Over the screen rather than beside it: the book being named is the
+        // one on the screen underneath.
         over={asking ? (
-          /* Correcting the ISBN, which is a card from the bottom rather than a
-             panel from the top: its answer is the number on the photographs at
-             the top of the screen underneath. Through this slot since #408,
-             which is what took it out of a fixed overlay of its own. */
           <IsbnPrompt
             initial={draft.isbn13 || draft.isbn10}
             onCancel={() => setAsking(false)}
@@ -259,22 +156,11 @@ export function CaptureReview({
           />
         ) : undefined}
       >
-        {/* A refusal and a note about what just happened, drawn as the two
-            different things they are. See `BookDetail`, which says the same. */}
         <Trouble said={error} onDismiss={onDismissError} />
         {notice && <Said>{notice}</Said>}
 
-        {/* The photographs first, because the first thing somebody wants to
-            know is whether they came out. */}
         <Shots {...slots} act size="big" />
 
-        {/* The same two the edit screen draws, out of the same components, so
-            one book cannot be told two different things about its own lookup
-            depending on which door it came through.
-
-            The first of them comes from the catalogue rather than from the
-            lookup since #435, so it is said for a book no source could name
-            as well as for one every source can. The words are unchanged. */}
         {catalogued && (
           <Card
             weight="quiet"
@@ -294,10 +180,6 @@ export function CaptureReview({
             {found && <p>{found}</p>}
           </Card>
         ) : (
-          /* Quiet, which is the weight for something that is not there yet.
-             It was `Instruction` for a round, which sets a sentence in the
-             book face at the size the screen's own purpose is set at, and a
-             screen for checking details led with an apology. */
           <Card weight="quiet" kind="Nothing came back" title="Fill it in from the book">
             <p>
               No catalogue answered for this one. What the photographs read is
@@ -308,13 +190,8 @@ export function CaptureReview({
 
         <CaptureEvidence coverText={coverText} note={captureNote} />
 
-        {/*
-          The ISBN leads, because it is the one field that decides what every
-          other field says. The way to correct it is a camera rather than a
-          keyboard, which is the owner's: "on the right side of it, we should
-          show like a camera icon [...] it opens up to scan the ISBN in the
-          back of the book, like our current flow."
-        */}
+        {/* Leads the fields: it is the one field that decides what every
+            other field says. */}
         <Field
           label="ISBN"
           value={relookupBusy ? 'Looking it up...' : draft.isbn13 || draft.isbn10}
@@ -366,22 +243,10 @@ export function CaptureReview({
           onChange={(seriesName) => onChange({ seriesName })}
         />
 
-        {/*
-          The two answers that decide which bookcase this book crosses the room
-          to, and then whatever else somebody has said it is (#372).
-
-          The two are one question with two answers and at most one holds, and
-          they are the draft's rather than the book's: they are written by the
-          save, through `settleGenre`, which is how #304 keeps a genre out of
-          anything that did not actually answer that question. Everything after
-          them is a set somebody adds to, written the moment it is said, because
-          a capture is a row from its first photograph and there is somewhere to
-          put it.
-
-          Drawn as one wrapping row all the same, because a person reading this
-          sees tags. Where they came from is a distinction the model needs and
-          the screen does not.
-        */}
+        {/* Fiction/Non-fiction and the tags below are drawn as one row, since
+            a person reading this sees tags; that they are the draft's genre
+            versus a set someone adds to is a distinction the model needs and
+            the screen does not. */}
         <div>
           <span className="wf-field__label">Tags</span>
           <div style={{ height: 6 }} />
@@ -398,9 +263,7 @@ export function CaptureReview({
             >
               Non-fiction
             </Tag>
-            {/* Lit, because every one of these is on the book right now, and
-                pressing one takes it off again. The same "tap it again to unsay
-                it" the tags screen already has. */}
+            {/* Lit because it is on the book right now; pressing it again takes it off. */}
             {tags.map((tag) => (
               <Tag
                 key={tag.slug}
@@ -465,29 +328,11 @@ export function CaptureReview({
 }
 
 /**
- * What the photographs said, on the screen where somebody has to work out
- * what the book is.
- *
- * This is the page for exactly the captures the app could not settle by
- * itself, and its one piece of evidence used to be on the previous screen:
- * the queue row said "Cover reads: Song of Solomon", and opening the row
- * showed neither that nor the note. Somebody correcting a stack of these was
- * backing out to re-read a line they had just been shown and holding it in
- * their head while typing (#147).
- *
- * Shown as evidence and never as a value. Nothing here is pre-filled into a
- * field and there is deliberately no control that copies it across: OCR is a
- * lossy, engine-version-dependent reading of a photograph, and a guess
+ * Shown as evidence and never as a value: nothing here is pre-filled into a
+ * field, and there is deliberately no control that copies it across. OCR is
+ * a lossy, engine-version-dependent reading of a photograph, and a guess
  * promoted into a box somebody then saves enters the catalogue wearing the
- * clothes of a confirmed value. So it is quoted beside the form rather than
- * poured into it, and it says both where it came from and how much to trust
- * it.
- *
- * The note gets the same room. Three people work one pile, and a note is how
- * one of them hands the work to the next.
- *
- * **It lives here rather than in `BookDetail` since #409**, which is where it
- * was written and where it is no longer drawn. One caller, one file.
+ * clothes of a confirmed value.
  */
 export function CaptureEvidence({ coverText = '', note = '' }: {
   coverText?: string
@@ -497,18 +342,8 @@ export function CaptureEvidence({ coverText = '', note = '' }: {
   if (!lines.length && !note) return null
 
   return (
-    /*
-     * A well on the page, which is what the design system does with something
-     * quoted rather than stated, and it is a `Card` in that weight now (#387).
-     * The rules that painted it by hand were already reading the design
-     * tokens, so what this changes is where they live rather than what they
-     * say: same sunk paper, same quiet labels, same monospaced quotation.
-     *
-     * The labels are `Field`'s label, which is the small quiet word this
-     * design system puts above a value. Nothing here is a field, and that is
-     * the point of the well around it: a label over a well says where a line
-     * came from, and a label over a box says what to type in it.
-     */
+    // Labels here are `Field`'s label even though nothing here is a field: a
+    // label over this well says where a line came from, not what to type.
     <div className="evidence">
       <Card weight="sunk">
         {note && (

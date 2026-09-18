@@ -62,7 +62,6 @@ describe('identify', () => {
   }, 30_000)
 
   it('falls back to OCR of the printed ISBN when there is no barcode', async () => {
-    // This is the case the live browser scanner could never handle.
     const result = await identify(
       await backCover(ISBN, { barcode: false, printedIsbn: true }),
     )
@@ -89,9 +88,9 @@ describe('identify', () => {
 
 describe('barcode category', () => {
   it('does not accept a non-book EAN-13 as an ISBN', async () => {
-    // The regression this guards: fromBarcodes used to test isValidIsbn13,
-    // which a plain retail EAN-13 passes, because the checksum is identical.
-    // A back cover often carries exactly such a barcode next to the ISBN.
+    // A plain retail EAN-13 passes isValidIsbn13, because the checksum is
+    // identical; a back cover often carries exactly such a barcode next to
+    // the ISBN.
     const png = await bwipBarcode('4006381333931')
     const result = await identify(png, { ocrEnabled: false })
     expect(result.isbn13).toBe('')
@@ -166,9 +165,8 @@ describe('extractIsbnsFromText', () => {
 
 describe('concurrent identification', () => {
   it('serialises overlapping calls and keeps results correct', async () => {
-    // Two people scanning at once used to mean two simultaneous calls into a
-    // tesseract worker that handles one job at a time. Each result must still
-    // match its own input.
+    // Two simultaneous calls go into a tesseract worker that handles one job
+    // at a time; each result must still match its own input.
     const [dune, none] = await Promise.all([
       identify(await backCover(ISBN), { ocrEnabled: false }),
       identify(await backCover(ISBN, { barcode: false, printedIsbn: false }), {
@@ -182,16 +180,11 @@ describe('concurrent identification', () => {
 })
 
 /**
- * A reading that does not come back (#299).
- *
- * Nothing here is stubbed, deliberately. What is being asserted is that the
- * bound is wired to the real pipeline and that the process-wide chain above
- * survives one, and a stubbed reading would only prove that a promise can be
- * raced against a timer. So these run a genuine front cover, which measurably
- * takes seconds, against a bound of a few milliseconds.
- *
- * The bound in production is `READING_TIMEOUT_MS`, and it is a minute; these
- * pass their own so the suite does not have to wait one out.
+ * Nothing here is stubbed, deliberately: a stubbed reading would only prove
+ * that a promise can be raced against a timer. These run a genuine front
+ * cover against a bound of a few milliseconds rather than the production
+ * `READING_TIMEOUT_MS` of a minute, so the suite does not have to wait one
+ * out.
  */
 describe('a reading that is given up on', () => {
   it('ends, rather than waiting for something that is not coming', async () => {
@@ -210,10 +203,9 @@ describe('a reading that is given up on', () => {
 
   it('lets the next reading through, which is the whole of the defect', async () => {
     /*
-     * The chain is process-wide, so before #299 one reading that never returned
-     * held every later one behind it until somebody restarted the server. This
-     * is that sequence: an abandoned reading, then an ordinary one, in that
-     * order, through the same chain.
+     * The chain is process-wide, so one reading that never returns could hold
+     * every later one behind it. This is that sequence: an abandoned reading,
+     * then an ordinary one, through the same chain.
      */
     await expect(identify(await frontCover('DUNE', 'Frank Herbert'), {
       wantTitle: true, timeoutMs: 5,
@@ -240,9 +232,8 @@ describe('a reading that is given up on', () => {
 })
 
 describe('pre-ISBN-13 paperback: UPC barcode, ISBN only in print', () => {
-  // Modelled on a real failure: V.C. Andrews, Dark Angel (1986). The back
-  // cover carries a retail UPC-A, not a Bookland EAN, and the only ISBN on
-  // the book is the printed line. Barcode-only identification cannot work.
+  // A retail UPC-A on the back cover, not a Bookland EAN, with the ISBN only
+  // printed: barcode-only identification cannot work here.
   const ISBN10 = '0671525433'
   const ISBN13 = '9780671525439'
   const UPC = '076714004504'
@@ -270,8 +261,7 @@ describe('pre-ISBN-13 paperback: UPC barcode, ISBN only in print', () => {
 
 describe('reading a front cover', () => {
   it('discards artwork debris that is not words', () => {
-    // Verbatim lines from OCR over an illustrated cover. The largest of them
-    // used to become the book's title.
+    // Verbatim lines from OCR over an illustrated cover.
     expect(pickCoverLines([
       { text: '4] F', height: 400, words: 2 },
       { text: ': R 0', height: 380, words: 3 },
@@ -281,7 +271,6 @@ describe('reading a front cover', () => {
   })
 
   it('discards series taglines', () => {
-    // A real one that became a title: the largest non-noise line on the cover.
     expect(pickCoverLines([
       { text: 'THE STORY OF THE CASTEEL FAMILY CONTINUES', height: 400, words: 7 },
       { text: 'THE EXTRAORDINARY NEW BESTSELLER!', height: 390, words: 4 },
@@ -336,10 +325,9 @@ describe('barcode region, the crop handed to OCR', () => {
   })
 
   it('refuses a symbol with no width', async () => {
-    // Taken from the capture that killed the server: zbar reported collinear
-    // points, so the box had zero width. Padding made it a 1x21 crop, and the
-    // upscale turned that into 2000x42000, which leptonica refuses and which
-    // took the OCR worker, and then the whole process, down with it.
+    // zbar can report collinear points, producing a zero-width box; padding
+    // that into a crop and upscaling it can reach a size leptonica refuses,
+    // crashing the OCR worker.
     const region = regionAroundBarcode(
       await image(),
       { left: 1442.2153846153847, top: 2414.2153846153847, width: 0, height: 4.984615384615385 },
@@ -395,11 +383,11 @@ describe('cover hashing, for recognising a book held up to the camera', () => {
   })
 
   it('refuses to compare a hash written by an earlier algorithm', async () => {
-    // A hash left behind by the difference hash this replaced is the same
-    // width and drawn from the same alphabet, so comparing the two yields a
-    // plausible looking number rather than an error. Recognising a cover
-    // decides which book gets checked in or out, so a stale hash has to come
-    // back as no likeness at all.
+    // A hash from a different hashing algorithm is the same width and drawn
+    // from the same alphabet, so comparing the two yields a plausible
+    // looking number rather than an error. Recognising a cover decides which
+    // book gets checked in or out, so a hash from an unrecognised algorithm
+    // has to come back as no likeness at all.
     const current = await coverHash(await frontCover('Dune', 'Frank Herbert'))
     expect(distance(current, '90006869d8680000')).toBe(64)
     expect(distance('90006869d8680000', '90006869d8680000')).toBe(64)

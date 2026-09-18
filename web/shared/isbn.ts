@@ -1,10 +1,9 @@
 /**
  * ISBN validation and conversion, ported from bookscan/recognize.py.
  *
- * The reason this matters more than it looks: most books carry a *second*
- * barcode next to the ISBN, an EAN-5 price add-on or a UPC. Scanning the wrong
- * one and looking it up gives a confident, wrong answer. Only 978 and 979
- * prefixes are books, so the scanner filters on that before it ever calls out.
+ * Most books carry a second barcode next to the ISBN (an EAN-5 price add-on or
+ * a UPC); scanning the wrong one gives a confident, wrong answer. Only 978 and
+ * 979 prefixes are books.
  */
 
 export function normaliseIsbn(value: string): string {
@@ -61,12 +60,9 @@ export function isbn13To10(value: string): string {
 }
 
 /**
- * Letters OCR commonly returns in place of digits.
- *
- * Only ever applied inside a run that already looks like an ISBN, and the
- * result is always check-digit validated afterwards, so a wrong substitution
- * is discarded rather than believed. A real example from a 1986 paperback:
- * tesseract read "ISBN O-b7l-52543-3" for "ISBN 0-671-52543-3".
+ * Letters OCR commonly returns in place of digits. Only applied inside a run
+ * that already looks like an ISBN, and the result is check-digit validated
+ * afterward, so a wrong substitution is discarded rather than believed.
  *
  * X is deliberately absent: it is a legitimate ISBN-10 check character.
  */
@@ -93,19 +89,12 @@ export interface IsbnCandidate extends IsbnPair {
 }
 
 /**
- * Pull ISBNs out of OCR'd text.
+ * Two sources are trusted: digits after an explicit ISBN label, and a 978/979
+ * prefixed run anywhere in the text (self-identifying, no label needed).
  *
- * Two sources are trusted, and nothing else:
- *
- *   1. Digits following an explicit ISBN label. Books print one, and the
- *      label is what makes a bare 10-digit run interpretable at all.
- *   2. A 978/979 prefixed run anywhere in the text. Bookland prefixes are
- *      self-identifying, so these need no label.
- *
- * An unlabelled 10-digit run is deliberately NOT accepted. Roughly one in
- * eleven random 10-digit sequences satisfies the ISBN-10 check digit, and a
- * back cover is covered in long numbers: UPC digits, price add-ons, order
- * codes. Trusting those produced a confident, wrong ISBN on a real book.
+ * An unlabelled 10-digit run is deliberately not accepted: roughly one in
+ * eleven random 10-digit sequences passes the ISBN-10 check digit, and a back
+ * cover is covered in other long numbers (UPC digits, price add-ons, order codes).
  */
 export function extractIsbnCandidates(text: string): IsbnCandidate[] {
   const source = (text ?? '').replace(/\s+/g, ' ')
@@ -118,29 +107,20 @@ export function extractIsbnCandidates(text: string): IsbnCandidate[] {
     found.push({ ...pair, labelled })
   }
 
-  // 1. Labelled. Take the run of digit-ish characters after the label.
-  //
-  // The character class is deliberately wide. OCR on a worn label emits stray
-  // marks between the digits ("ISBN D-b?71-52543-3"), and a narrow class stops
-  // the match dead at the first one, throwing away the rest of the number.
-  // Anything that is not a digit is dropped straight afterwards.
+  // 1. Labelled. The character class is deliberately wide, since OCR on a worn
+  // label emits stray marks between digits; non-digits are dropped afterward.
   const labelled =
     /ISBN(?:[-\s]*1[03])?\s*[:.]?\s*([0-9OoQDIlLiZzEASsbGTBgqXx|!?*"'.,;:_+\s-]{9,30})/gi
 
   for (const match of source.matchAll(labelled)) {
     const cleaned = repairDigits(match[1] ?? '').replace(/[^0-9Xx]/g, '')
 
-    // Slide a little: OCR often prepends a spurious character to the run
-    // ("D0-b71-..." for "0-671-..."), so the real number starts an index or
-    // two in.
-    //
-    // The two lengths get different licence, because they carry different
-    // risk. A 13-digit window still has to pass the Bookland prefix test, so
-    // extra offsets cost nothing. A 10-digit window has only its check digit,
-    // which one run in eleven satisfies by chance, so it gets fewer offsets
-    // and is skipped entirely when the run is longer than a single ISBN could
-    // be. Without that guard, a label followed by digit soup reliably invents
-    // a plausible ISBN.
+    // Slide a little: OCR often prepends a spurious character, so the real
+    // number may start an index or two in. The 13-digit window still has to
+    // pass the Bookland prefix test, so extra offsets cost nothing; the
+    // 10-digit window's check digit passes by chance about 1 in 11 times, so
+    // it gets fewer offsets and is skipped when the run is longer than a
+    // single ISBN could be.
     for (let start = 0; start <= 2 && start + 13 <= cleaned.length; start += 1) {
       push(cleaned.substr(start, 13), true)
     }
@@ -189,26 +169,21 @@ export interface IsbnPair {
 const NO_ISBN: IsbnPair = { isbn13: '', isbn10: '' }
 
 /**
- * Resolve both ISBN forms from whatever we were handed, validating each
- * candidate against the rules for its own length. This is the single place
- * that decides whether something is a book identifier, so barcode decoding,
- * OCR and manual entry cannot disagree.
+ * Resolves both ISBN forms, validating against the rules for its own length.
+ * The single place that decides whether something is a book identifier, so
+ * barcode decoding, OCR and manual entry cannot disagree.
  *
- * The trap this exists to close: a 13-digit code with a correct check digit
- * is not necessarily an ISBN. EAN-13 product barcodes use the identical
- * checksum, so `isValidIsbn13('4006381333931')` is true for a jar of coffee.
- * Only the 978/979 Bookland prefix separates the two categories, and a book's
- * back cover usually carries a second, non-Bookland barcode right next to the
- * ISBN. Length alone, or checksum alone, will happily pick the wrong one.
+ * A 13-digit code with a correct check digit is not necessarily an ISBN: EAN-13
+ * product barcodes use the identical checksum, so `isValidIsbn13('4006381333931')`
+ * is true for a jar of coffee. Only the 978/979 Bookland prefix distinguishes them.
  *
- * The two forms are kept as separate data points rather than one canonical
- * value: catalogues index editions under whichever ISBN the edition was
- * issued with, so both are worth carrying and worth searching.
+ * The two forms are kept separate rather than collapsed to one: catalogues
+ * index editions under whichever ISBN the edition was issued with.
  */
 /**
- * A run of one repeated digit is never a real ISBN, but some of them do
- * satisfy the check digit: 0000000000 sums to zero, which is divisible by 11.
- * OCR on a blank or noisy patch produces exactly this.
+ * A run of one repeated digit is never a real ISBN, though some satisfy the
+ * check digit (0000000000 sums to zero, divisible by 11); OCR on a blank or
+ * noisy patch produces exactly this.
  */
 function isDegenerate(digits: string): boolean {
   return digits.length > 0 && /^(.)\1*$/.test(digits.slice(0, -1))

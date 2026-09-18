@@ -1,27 +1,15 @@
 /**
  * Writing a rule on the place it is about: the state, and nothing drawn.
  *
- * **One hook, two screens.** An area's page and a piece's page answer the same
- * two questions, and #382 made them draw one widget rather than two so they
- * could not drift. The behaviour behind that widget is the same fact one level
- * down: the lines somebody is holding, the vocabulary they pick from, the plan
- * they read, and the write at the end of it are identical on both pages, and a
- * second copy of them in the second screen is two behaviours that agree until
- * one of them is edited.
+ * One hook, shared by an area's page and a piece's page, so the behaviour
+ * cannot drift between two copies of it.
  *
- * ## The rule is a draft until the last press
+ * Nothing here writes until `apply`, so a half-built rule is safe to pass
+ * through. See `server/place-rule.ts`.
  *
- * Nothing here writes until `apply`. That is what makes a half-built rule safe:
- * taking the last line off is a state somebody passes through on the way to the
- * right one, and if it were a write the collection would spend that moment with
- * an area claiming nothing and a plan nobody asked for. See `server/place-rule.ts`.
- *
- * ## Planning is a press, not a keystroke
- *
- * The plan runs the rules over every book in the collection. Asking for one on
- * every change would put that behind a thumb, and it would also be the wrong
- * shape of promise: what somebody agrees to is the answer they read, so the
- * answer is cleared the moment the lines stop matching it.
+ * The plan is asked for by a press, not recomputed on every keystroke: the
+ * plan somebody agreed to is the answer they read, so it is cleared the
+ * moment the lines stop matching it.
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -43,10 +31,8 @@ export interface Writing {
   on: boolean
   /**
    * What they have written: the rules on this place, each a list of lines.
-   *
-   * Two levels and no third. A line added to a rule is "and"; a rule added to
-   * the place is "or"; a group inside a group is the boolean tree the model
-   * refuses and there is nowhere here to hold one.
+   * Two levels and no third: a line added to a rule is "and", a rule added
+   * to the place is "or", and there is nowhere here to hold a nested group.
    */
   rules: DraftRule[]
   /** What the change would do, once they have asked. Null until they have. */
@@ -68,11 +54,9 @@ export interface Writing {
 }
 
 /**
- * Nobody is writing a rule, which is what a page looks like almost all the time.
- *
- * A value rather than a special case, so a pane never has to ask whether it was
- * handed one: the resting state answers every question with "no", and a test
- * that is about something else on the page hands this and says nothing more.
+ * Nobody is writing a rule, which is what a page looks like almost all the
+ * time. A value rather than a special case, so a pane never has to ask
+ * whether it was handed one.
  */
 export const RESTING: Writing = {
   on: false,
@@ -89,11 +73,9 @@ export const RESTING: Writing = {
 }
 
 /**
- * @param after Called once the write has landed, so the page can read the room
- *   again. **Found by walking it**: applying wrote the rule and the card above
- *   the confirmation went on saying what the area used to allow, because a label
- *   and a rule in this app are worked out at read time and nothing had re-read
- *   them. The page was reporting a change it was not showing.
+ * @param after Called once the write has landed, so the page can read the
+ *   room again: a label and a rule in this app are worked out at read
+ *   time, so nothing else would notice the change.
  */
 export function useWriting(place: Place | null, after?: () => void): Writing {
   const [on, setOn] = useState(false)
@@ -108,10 +90,9 @@ export function useWriting(place: Place | null, after?: () => void): Writing {
   const [vocabulary, setVocabulary] = useState<TagRow[]>([])
 
   /*
-   * Read once, when somebody opens the editor rather than when the page loads.
-   * The vocabulary is only ever needed by the picker, and a page somebody is
-   * reading should not fetch a list of four hundred tags on the chance that they
-   * are about to change a rule.
+   * Read once, when somebody opens the editor rather than when the page
+   * loads: a page somebody is just reading should not fetch a list of
+   * hundreds of tags on the chance they are about to change a rule.
    */
   useEffect(() => {
     if (!on || vocabulary.length > 0) return
@@ -123,11 +104,9 @@ export function useWriting(place: Place | null, after?: () => void): Writing {
   }, [on, vocabulary.length])
 
   /*
-   * The rules are read again on the way in rather than taken off the room the
-   * page is already drawing. The room answers rules in labels, because no
-   * reading route in this app hands out an identity; what goes back has to be
-   * the identity, so what comes in is asked for in that shape from the one route
-   * that speaks it.
+   * The rules are read again on the way in rather than taken off what the
+   * page is already drawing: no other reading route in this app hands out
+   * a rule's identity, only its label, and identity is what has to go back.
    */
   const start = useCallback(() => {
     setRules([])
@@ -152,9 +131,8 @@ export function useWriting(place: Place | null, after?: () => void): Writing {
   }, [])
 
   /*
-   * Every change throws the plan away. What somebody agreed to is the answer
-   * they read, and a plan drawn against rules it was not worked out from is the
-   * one lie this whole journey exists to make impossible.
+   * Every change throws the plan away: a plan drawn against rules it was
+   * not worked out from would misrepresent what somebody is agreeing to.
    */
   const held = useCallback((next: DraftRule[]) => {
     setRules(next)
@@ -210,13 +188,12 @@ export function useWriting(place: Place | null, after?: () => void): Writing {
   }, [place, rules, after])
 
   /**
-   * Everything the picker needs for one rule: what to offer, and what to make.
+   * Everything the picker needs for one rule: what to offer, and what to
+   * make.
    *
-   * **The words already on the place count as vocabulary** (#392). A word named
-   * on the first rule of an "or" has no row until the write, so a picker asking
-   * only the server's vocabulary would offer to make it a second time and the
-   * two lines would then disagree about which tag they meant. Every rule on the
-   * place is asked, not just the one being written.
+   * Words already on the place count as vocabulary too: a word named on
+   * the first rule of an "or" has no row until the write, so without this
+   * a picker would offer to make it a second time.
    */
   const chooseFor = (group: number) => {
     const onThisRule = rules[group]?.conditions ?? []
@@ -235,11 +212,9 @@ export function useWriting(place: Place | null, after?: () => void): Writing {
       group,
       query,
       /*
-       * Narrowed by the lines on **this** rule and not by the place's. Two
-       * rules on a place naming one tag between them is ordinary: "tagged
-       * Comics and Fiction, or tagged Comics and Poetry" is one word said
-       * twice on purpose, and a picker that hid it would make the second half
-       * of an "or" unwritable.
+       * Narrowed by the lines on this rule, not the place's: two rules can
+       * legitimately name the same tag, and hiding it would make the
+       * second "or" unwritable.
        */
       offering: offering(vocabulary, query, onThisRule.map((line) => line.tag)),
       make: make && slug ? { ...make, onPress: () => put(slug, make.name) } : null,
@@ -248,8 +223,8 @@ export function useWriting(place: Place | null, after?: () => void): Writing {
       onPick: (label: string) => {
         const slugged = slugFor(vocabulary, label)
         if (slugged) { put(slugged); return }
-        /* A word named on another rule of this place: it has no row yet, so the
-           vocabulary cannot answer for it and the draft is what knows. */
+        /* A word named on another rule of this place has no row yet, so the
+           vocabulary cannot answer for it and the draft does. */
         const named = namedHere.find((line) => line.label === label)
         if (named) put(named.tag, named.label)
       },
@@ -260,9 +235,9 @@ export function useWriting(place: Place | null, after?: () => void): Writing {
   const editing: RuleEditing | null = on
     ? {
       /*
-       * The labels, worked out from the slugs the draft holds. One direction
-       * only: a tag is drawn by its label and never by its identity, and the
-       * identity is what goes back to the server.
+       * The labels, worked out from the slugs the draft holds. One
+       * direction only: a tag is drawn by its label but sent back by its
+       * identity.
        */
       groups: rules.map((rule) => linesSaid(vocabulary, rule.conditions)),
       choosing: choosing === null
@@ -280,9 +255,9 @@ export function useWriting(place: Place | null, after?: () => void): Writing {
       ),
       onAdd: (group) => { setQuery(''); setChoosing(group) },
       /*
-       * "Or", which is another rule on the same place. A new one has no id
-       * because it is not a row yet, and it starts empty, which claims nothing
-       * until a tag goes on it: a half-built alternative files no book anywhere.
+       * "Or": another rule on the same place. A new one has no id since it
+       * is not a row yet, and starts empty, so it claims nothing until a
+       * tag goes on it.
        */
       onAlso: () => {
         held([...rules, { id: null, conditions: [] }])

@@ -46,9 +46,7 @@ describe('the label a person reads', () => {
 
 describe('the sequence of areas', () => {
   it('is fixture position, then fixture id, then area position', () => {
-    // Two fixtures at position 4 is what `shelf_ranges.start_shelf` produces
-    // today, so the id in the middle is what keeps the answer the same between
-    // two reads.
+    // Two fixtures can share a position; the id tiebreak keeps the order stable between reads.
     const fixtures = [fixture(9, 4), fixture(1, 1), fixture(5, 4)]
     const areas = [area(3, 5, 0), area(1, 1, 1), area(2, 1, 0), area(4, 9, 0)]
     expect(slotsInOrder(fixtures, areas).map((slot) => slot.area.id))
@@ -78,9 +76,7 @@ describe('the run an area opens', () => {
   })
 
   it('stops at an area that orders itself, which takes no overflow', () => {
-    // The settled decision: a continuous run only works if every area in it
-    // orders the same way, so an area with a strategy of its own is the start
-    // of its own run rather than the middle of somebody else's.
+    // A continuous run only works if every area in it orders the same way, so a self-ordering area starts its own run.
     const selfContained = slotsInOrder(fixtures, [
       areas[0]!, { ...areas[1]!, sortStrategy: 'title' }, areas[2]!,
     ])
@@ -115,9 +111,7 @@ describe('which area a sort key lands in', () => {
   })
 
   it('steps over both of two areas sharing an anchor', () => {
-    // What a boundary move that empties an area leaves behind: its anchor comes
-    // to rest on the next one's. A book at that key belongs in the later area,
-    // and stopping at the first would put it on a plank the person emptied.
+    // An emptied area's anchor rests on the next one's; a book at that key belongs in the later area, not the emptied plank.
     const emptied = runFrom(slotsInOrder([fixture(1, 1)], [
       area(10, 1, 0),
       area(11, 1, 1, { startsAt: 'M' }),

@@ -1,39 +1,17 @@
 /**
  * How many books each tag has, counting the ones under it.
  *
- * ## Why this is its own module and not a method on the repository
+ * Not a method on the repository, and it must not become one: `server/furniture.ts`
+ * reads this too, and a furniture module importing `book-repository.ts` closes a
+ * dependency loop through four files that `npm run lint:layers` fails by name.
  *
- * It is both: `DrizzleBookRepository.tagCounts` calls this. The reason the
- * query lives here is that `server/furniture.ts` reads it too and cannot build
- * a `Store` — that takes an authorship port it has no use for — and
- * `book-repository.ts` reaches `server/photographs.ts` and `server/db.pg.ts`
- * for the row shapes it derives onto a page of books. Those two reach
- * `server/claim.ts`, which reaches `server/furniture.ts`, so a furniture module
- * importing the repository closes a loop through four files, and
- * `npm run lint:layers` says so by name.
- *
- * This query needs none of that. `Db`, the schema and the query renderer, and
- * `server/driver.ts` imports nothing at all. So the counting query sits where a
- * caller that is not a book reader can reach it, which is the smaller of the two
- * ways to have **one spelling of the query and two callers**: two counts of one
- * tag that agreed until somebody edited one of them is exactly how a screen ends
- * up saying "nothing carries this" beside a list of forty books.
- *
- * ## The rollup, and the range that does it
- *
- * The rollup is the point rather than an extra: choosing Fantasy shows the books
- * tagged Urban fantasy too, so a count that said 112 next to a list of 126 would
- * be the screen contradicting itself one tap later. `DISTINCT` because a book
- * carrying both is one book.
- *
- * At or under, as a range over the slug rather than a `LIKE`, which is the shape
- * `TagRepository.vocabulary` already uses and for the same reason: `tag.slug` is
- * `COLLATE "C"`, so a prefix is an index range. `/` is 0x2F and `0` is 0x30, so
- * everything under `genre/` sorts below `genre0`. The concatenation keeps the
- * column's collation, because a bare string literal has none of its own to bring.
- *
- * Catalogued books only, which is the same set the library draws, so the number
- * beside a tag is the number of rows choosing it produces.
+ * The rollup counts at or under the slug, as a range rather than a `LIKE`,
+ * because `tag.slug` is `COLLATE "C"` and only a range is an index seek. `/` is
+ * 0x2F and `0` is 0x30, so everything under `genre/` sorts below `genre0`. The
+ * concatenation keeps the column's collation, since a bare string literal has
+ * none of its own to bring. `DISTINCT` because a book carrying both a tag and
+ * one under it is one book, and catalogued books only, so the number beside a
+ * tag is the number of rows choosing it produces.
  */
 
 import { and, asc, eq, gte, lt, or, sql } from 'drizzle-orm'

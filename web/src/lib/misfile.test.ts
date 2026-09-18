@@ -44,12 +44,7 @@ describe('findMisfile', () => {
     expect(findMisfile(review(flagged(7, 'A1', 'A2')), 12)).toBeNull()
   })
 
-  /*
-   * A checked-out book and a book never confirmed onto a shelf are excluded by
-   * reviewShelving rather than listed, so they arrive here as an absence. The
-   * client must not read that absence as anything other than "not flagged",
-   * which is exactly what an entry-not-found means.
-   */
+  /* A checked-out book or one never confirmed onto a shelf arrives here as an absence, meaning "not flagged", not "excluded". */
   it('reports nothing for a book the server excluded from the judgement', () => {
     const excluded: ShelvingReview = {
       misfiles: [],
@@ -64,13 +59,7 @@ describe('findMisfile', () => {
   })
 })
 
-/**
- * The count that must never be silent (#356).
- *
- * A book the check could not judge is not a book the check found fine, and the
- * defect this is here about was the two being indistinguishable from the
- * screen: an empty list with 181 books quietly set aside behind it.
- */
+/** A book the check could not judge is not a book the check found fine, and an empty list must not read as the latter. */
 describe('notChecked', () => {
   const aside = (...reasons: ExcludedReason[]): ShelvingReview => ({
     misfiles: [],
@@ -83,8 +72,6 @@ describe('notChecked', () => {
   })
 
   it('says nothing for the exclusions that are about the book rather than the check', () => {
-    // Off the shelf and never placed are both answered elsewhere on the screen,
-    // and neither means the check could not do its job.
     expect(notChecked(aside('checked-out', 'never-placed')).count).toBe(0)
   })
 
@@ -103,17 +90,10 @@ describe('notChecked', () => {
 describe('recordMoved', () => {
   afterEach(() => { vi.unstubAllGlobals() })
 
-  /*
-   * The single write this feature makes, checked against the wire rather than
-   * against a mock of the client: confirming has to reach the one endpoint
-   * that changes a recorded location, carrying the plank the book was carried
-   * TO. Writing anything else, or writing nothing, loses the only record of
-   * where the book physically is.
-   *
-   * **The plank goes over as an id and not as the label the row showed** (#356).
-   * A label is a rendering of where a piece stands and what it is called, so a
-   * row read before somebody renamed a bookcase would ask the server to find a
-   * plank by a name it no longer answers to.
+  /**
+   * The plank goes over as an id and not as the label the row showed: a label is a rendering of
+   * where a piece stands and what it is called, so a row read before a bookcase was renamed would
+   * ask the server to find a plank by a name it no longer answers to.
    */
   it('writes the plank the book was carried to, through the location endpoint', async () => {
     const calls: Array<{ path: string; init?: RequestInit }> = []
@@ -133,12 +113,9 @@ describe('recordMoved', () => {
 })
 
 /**
- * The second question about a flagged book, and it is not the same question.
- *
- * "Where is it against where it belongs" is `findMisfile`. "Did this app put it
- * there" is this, and only the second one can be withdrawn: a book pushed along
- * by a newcomer is a real misfile with no assignment behind it, and offering to
- * undo it would move the furniture on somebody's behalf.
+ * "Where is it against where it belongs" is `findMisfile`. "Did this app put it there" is this,
+ * and only the second one can be withdrawn: a book pushed along by a newcomer is a real misfile
+ * with no assignment behind it, and undoing it would move the furniture on somebody's behalf.
  */
 describe('canTakeBack', () => {
   const answered = (misfiles: Misfile[], outstandingMoves: number[]) =>
@@ -159,13 +136,7 @@ describe('canTakeBack', () => {
 describe('takeMoveBack', () => {
   afterEach(() => { vi.unstubAllGlobals() })
 
-  /*
-   * The mirror of the assertion above, and the reason this is a separate call
-   * rather than `recordMoved` with a different label: withdrawing a move must
-   * not write a location, because nobody carried the book anywhere. A retraction
-   * that reached the location endpoint would record the walk it exists to avoid
-   * claiming.
-   */
+  /* Withdrawing a move must not write a location, since nobody carried the book anywhere. */
   it('reaches the retraction, and never the location endpoint', async () => {
     const calls: string[] = []
     vi.stubGlobal('fetch', (path: string, init?: RequestInit) => {

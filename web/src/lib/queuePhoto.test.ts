@@ -1,19 +1,7 @@
 /**
- * Where a queued book's pictures are, and what a caller with room for one
- * falls back to.
- *
- * **The stored choice is gone and so are its four cases** (#363). There were
- * two answers to "which photograph do you want to see", kept in storage the way
- * the library's view is, and tests pinning that anything unrecognised fell back
- * rather than being trusted. The row draws the book now, which is the spine
- * standing against the front, so both photographs are on every row and there is
- * nothing left to choose or to remember. Nothing about crops or fallbacks went
- * with it: those are below, unchanged, because they are about where a picture
- * is rather than about which one somebody asked for.
- *
- * The fallback order matters more than it looks: half the queue is books whose
- * photographs are still being read, so the front is routinely not there yet,
- * and a queue of empty grey boxes is a queue nobody can work from.
+ * The fallback order matters more than it looks: half the queue is books whose photographs are
+ * still being read, so the front is routinely not there yet, and a queue of empty grey boxes is
+ * a queue nobody can work from.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -54,11 +42,6 @@ function capture(photos: Partial<Capture>): Capture {
 describe('queueThumb', () => {
   const all = capture({ front_image: 'f.jpg', edge_image: 'e.jpg', back_image: 'b.jpg' })
 
-  /*
-   * The change #135 was about. This used to prefer the spine, which is what a
-   * book looks like once it is shelved and not what it looks like in the hands
-   * of somebody working through a pile.
-   */
   it('shows the front, which is how a book in your hands is recognised', () => {
     expect(queueThumb(all)).toBe('f.jpg')
   })
@@ -76,16 +59,11 @@ describe('queueThumb', () => {
   })
 })
 
-/*
- * The rest of what the owner asked for: a book is shown, not the room it was
- * photographed in.
- *
- * Both halves are pinned here, and the second one is the one that will break if
- * somebody reaches for `front_crop` on its own. A crop is absent far more often
- * than it is present, because the detector declines most real photographs, and
- * `cropped` naming a slot with an empty crop column is a decline rather than a
- * missing file. Rendering that as a broken frame would take the queue from
- * "shows the room" to "shows nothing", which is worse.
+/**
+ * A crop is absent far more often than present, since the detector declines most real
+ * photographs, and `cropped` naming a slot with an empty crop column is a decline rather than a
+ * missing file. Rendering that as a broken frame would take the queue from showing the room to
+ * showing nothing.
  */
 describe('the pictures of a book, once captures carry crops', () => {
   it('draws the cropped front where the detector found the book', () => {
@@ -123,12 +101,7 @@ describe('the pictures of a book, once captures carry crops', () => {
     expect(queuePictures(half)).toEqual({ front: 'f_crop.jpg', spine: 'e.jpg', back: '' })
   })
 
-  /*
-   * Which slot wins is settled before any crop is: a front photograph beats a
-   * spine whether or not either cropped. Otherwise the one-picture caller would
-   * quietly start drawing spines wherever the spine happened to crop and the
-   * front did not.
-   */
+  /* A front photograph beats a spine whether or not either is cropped: which slot wins is settled before any crop is. */
   it('does not let a crop on one slot change which slot is shown', () => {
     const spineOnlyCrop = capture({
       front_image: 'f.jpg', edge_image: 'e.jpg', edge_crop: 'e_crop.jpg',
@@ -152,13 +125,9 @@ describe('the pictures of a book, once captures carry crops', () => {
 })
 
 /**
- * A book drawn as a book needs the honest answer, not a substitute.
- *
- * This is the difference between the two functions above and the reason both
- * exist. `queueThumb` has room for one picture and a wrong photograph of the
- * right book beats a gap; `queuePictures` is read by a row drawing the spine
- * against the front, where standing the front in for a spine nobody has
- * photographed would draw one photograph twice and claim a spine exists.
+ * `queueThumb` has room for one picture and a wrong photograph of the right book beats a gap;
+ * `queuePictures` is read by a row drawing the spine against the front, where standing the front
+ * in for a missing spine would draw one photograph twice and claim a spine exists.
  */
 describe('the pictures of a book, one slot at a time', () => {
   it('leaves a slot empty rather than filling it from another', () => {

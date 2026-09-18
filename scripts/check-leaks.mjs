@@ -1,44 +1,14 @@
 #!/usr/bin/env node
-// Says what this machine is still holding that nothing is using any more.
+// Says what this machine is still holding that nothing is using any more: docker
+// volumes, docker containers, and processes whose command line names a worktree.
 //
-// WHY THIS EXISTS
-// On 2026-09-02 the owner asked why his RAM was disappearing with nine shells
-// open. Nine `until ... aspire describe ... sleep` loops were still polling in
-// worktrees whose AppHosts had been stopped hours earlier, two of them in
-// worktrees that had since been deleted. Each poll spawned a .NET process.
-// Stopping them took bash from 18 processes to 0 and gave back 4 GB of commit
-// on a machine whose whole commit limit is 34 GB.
+// It cannot see a harness background task. A polling loop is a process this
+// script cannot tell apart from any other shell, so what it sees is only the
+// effect: a process rooted in a directory that is gone, or a volume nothing owns.
 //
-// None of that was visible from inside the session. The orchestrator started
-// every one of those loops, believed each had ended when it stopped caring
-// about the answer, and was wrong nine times. **An instruction to tidy up would
-// have failed the same way**, which is why this is a command that looks rather
-// than a paragraph that asks.
-//
-// The cause was found afterwards and is sharper than "they were unbounded":
-// `aspire describe` writes OSC 8 terminal hyperlinks around each resource name,
-// which stripping SGR colour codes does not remove, so `grep -E "^| api .*Healthy"`
-// was a condition that could never be true. The loops were not slow; they were
-// waiting for something that would never happen. An `until` loop has no failure
-// path, so nothing said so. `docs/process/handoff.md` carries both halves.
-//
-// WHAT IT COVERS, AND WHAT IT CANNOT
-// It reads the machine: docker volumes, docker containers, and processes whose
-// command line names a worktree. That is the residue an agent leaves behind.
-//
-// **It cannot see a harness background task.** A polling loop is a process this
-// script cannot tell apart from any other shell. What it sees is the effect: a
-// process rooted in a directory that is gone, or a volume nothing owns. If the
-// numbers here look wrong and nothing below explains them, the next place to
-// look is the session's own background tasks, listed under `/tasks`.
-//
-// IT DELETES NOTHING
-// A volume that looks unused may be an agent's world between restarts: the
-// AppHost keys its Postgres volume to the checkout path, so a stopped
-// environment and an abandoned one are the same picture from here. Removing one
-// out from under a running agent destroys hours of work. So this prints the
-// commands and lets a person decide, the way `prune-worktrees.mjs` refuses
-// rather than forcing.
+// It deletes nothing. The AppHost keys its Postgres volume to the checkout path,
+// so a stopped environment and an abandoned one are the same picture from here,
+// and removing one out from under a running agent destroys hours of work.
 
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
@@ -62,28 +32,23 @@ const run = (cmd, args) => {
 }
 
 /**
- * The volume name the AppHost would give this checkout.
- *
- * Kept identical to `apphost.mts` on purpose, and it is the one thing here that
- * can silently rot: if that line changes its hash or its prefix, every volume
- * starts reading as an orphan and this becomes a tool that recommends deleting
- * whatever an agent is using. There is a guard for that below.
+ * The volume name the AppHost would give this checkout, and it must stay
+ * identical to `apphost.mts`: if that line changes its hash or its prefix, every
+ * volume starts reading as an orphan and this becomes a tool that recommends
+ * deleting whatever an agent is using. The guard below checks for that.
  */
 export const volumeFor = (dir) =>
   `bookscan-pg-${createHash('sha256').update(dir).digest('hex').slice(0, 12)}`
 
 /**
- * Split this repository's volumes into the ones a live worktree owns and the
- * ones nothing does.
- *
- * Exported and pure so the classification can be tested without a Docker
- * daemon, which is the half worth testing: the reading of `docker volume ls` is
- * one line and the deciding is where a mistake deletes somebody's work.
+ * Split this repository's volumes into the ones a live worktree owns and the ones
+ * nothing does. Exported and pure so the classification can be tested without a
+ * Docker daemon.
  */
 export const classifyVolumes = (volumes, worktrees) => {
   // `git` prints forward slashes; the AppHost hashes what Node's `dirname` gave
-  // it, which on Windows is backslashes. Both spellings are held, so a match is
-  // a match rather than a platform accident.
+  // it, which on Windows is backslashes. Both spellings are held so that a match
+  // is a match rather than a platform accident.
   const expected = new Set()
   for (const tree of worktrees) {
     expected.add(volumeFor(tree))
@@ -107,8 +72,6 @@ const worktrees = (run('git', ['worktree', 'list', '--porcelain']) ?? '')
 
 const findings = []
 
-// --- Docker volumes -------------------------------------------------------
-
 const volumes = (run('docker', ['volume', 'ls', '--format', '{{.Name}}']) ?? '')
   .split('\n').map((v) => v.trim()).filter(Boolean)
 
@@ -118,20 +81,10 @@ const matched = ours.length - orphanVolumes.length
 console.log(`Worktrees: ${worktrees.length}`)
 console.log(`Postgres volumes: ${ours.length}, of which ${matched} belong to a live worktree`)
 
-// The rot guard the header promises, which asks the AppHost rather than
-// inferring from the data.
-//
-// **The first version of this guard inferred, and it was wrong within the hour.**
-// It said: if no volume matches any live worktree, the naming has probably
-// moved. But "every agent worktree was pruned" produces exactly that picture,
-// and that is not a rare state — it is the state right after a batch of pull
-// requests land, which is precisely when volumes get orphaned and precisely
-// when somebody runs this. A guard that fires hardest when the tool is most
-// useful is worse than no guard.
-//
-// So it reads the one line that could actually rot. If the AppHost still builds
-// the name the same way, zero matches means zero live agent worktrees, which is
-// ordinary and reportable.
+// The rot guard, which asks the AppHost rather than inferring from the data.
+// Zero matches must not be read as the naming having moved: it is the ordinary
+// state right after a batch of pull requests land, which is exactly when volumes
+// get orphaned and when somebody runs this.
 const namingIsIntact = () => {
   const src = readFileSyncSafe(new URL('../apphost.mts', import.meta.url))
   if (src === null) return null // Cannot tell. Say so rather than guess either way.
@@ -160,24 +113,18 @@ if (orphanVolumes.length) {
   for (const v of orphanVolumes) console.log(`    docker volume rm ${v}`)
 }
 
-// --- Containers -----------------------------------------------------------
-
 const containers = (run('docker', ['ps', '--format', '{{.Names}}']) ?? '')
   .split('\n').map((c) => c.trim()).filter(Boolean)
 console.log('')
 console.log(`Running containers: ${containers.length}${containers.length ? ' — ' + containers.join(', ') : ''}`)
-// A smell test and not a proof, said plainly so nobody trusts it further than
-// it goes. Aspire and testcontainers both name containers randomly, so there is
-// no way from here to say which worktree a given container belongs to. A count
-// higher than the worktrees is definitely wrong; a count lower than them proves
-// nothing, and one worktree can legitimately hold two containers while its
-// suite runs.
+// A smell test and not a proof. Aspire and testcontainers both name containers
+// randomly, so there is no way from here to say which worktree a given container
+// belongs to. More containers than worktrees is definitely wrong; fewer proves
+// nothing, and one worktree can legitimately hold two while its suite runs.
 if (containers.length > worktrees.length) {
   findings.push('more running containers than worktrees')
   console.log('  More containers than worktrees, so at least one belongs to nothing.')
 }
-
-// --- Processes rooted in a worktree that no longer exists ------------------
 
 const live = new Set(worktrees.map((t) => t.replace(/\//g, '\\').toLowerCase()))
 const ps = run('powershell', [
@@ -210,8 +157,6 @@ if (ps === null) {
     for (const s of stale) console.log(`    pid ${s.pid}  ${s.dir}`)
   }
 }
-
-// --- Commit, which is the ceiling on this machine -------------------------
 
 const commit = run('powershell', [
   '-NoProfile', '-Command',

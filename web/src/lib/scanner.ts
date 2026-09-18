@@ -1,30 +1,19 @@
 /**
- * Camera access and manual still capture, written for Safari on iOS.
+ * Camera access and manual still capture, written for Safari on iOS. Decoding
+ * happens on the server, from a full-resolution still.
  *
- * There is no barcode decoding here any more. Live decoding in the browser
- * could not read real book barcodes: video frames are motion-blurred and
- * lower resolution than the sensor, and Safari has no BarcodeDetector so it
- * fell to ZXing on downscaled frames. The server now decodes a full-resolution
- * still with zbar plus preprocessing variants, and falls back to OCR, which is
- * what the Python version does.
- *
- * Safari constraints that shape this file:
- *   - getUserMedia needs a user gesture, so the camera starts from a tap
- *   - the video element needs `playsinline` and `muted` or playback never
- *     starts and the frame stays black
- *   - there is no ImageCapture, so a still is a canvas draw of the video
- *     frame, which makes the requested track resolution the only real lever
- *     on quality
+ * The Safari constraints that shape this file: getUserMedia needs a user
+ * gesture, so the camera starts from a tap; the video element needs
+ * `playsinline` and `muted` or playback never starts and the frame stays black;
+ * and there is no ImageCapture, so a still is a canvas draw of the video frame,
+ * which makes the requested track resolution the only real lever on quality.
  */
 
 export type Slot = 'front' | 'back' | 'edge'
 
 /**
- * Shooting order: back first.
- *
- * The back cover carries the barcode and the printed ISBN, so shooting it
- * first means identification starts on shot one and the lookup runs while the
- * remaining photos are being taken, instead of the user waiting at the end.
+ * Shooting order: back first. That cover carries the barcode and the printed
+ * ISBN, so the lookup runs while the remaining photos are being taken.
  */
 export const SLOTS: Slot[] = ['back', 'front', 'edge']
 
@@ -66,12 +55,9 @@ export function rememberLens(deviceId: string): void {
 const TORCH_KEY = 'bookscan.torch'
 
 /**
- * Whether the torch was left on for spines.
- *
- * Remembered rather than asked for again, because somebody who needs it needs
- * it on every spine, and a toggle that resets is a tap per book. Off by
- * default: a torch that came on by itself indoors, in somebody's hands, would
- * be startling and would flare a glossy spine.
+ * Whether the torch was left on for spines. Off by default: a torch that came on
+ * by itself indoors, in somebody's hands, would be startling and would flare a
+ * glossy spine.
  */
 export function rememberedTorch(): boolean {
   return localStorage.getItem(TORCH_KEY) === 'on'
@@ -83,10 +69,8 @@ export function rememberTorch(on: boolean): void {
 }
 
 /**
- * The rear lenses this phone will name.
- *
- * Labels are empty until camera permission has been granted, so this is only
- * worth calling once a stream is open.
+ * The rear lenses this phone will name. Labels are empty until camera permission
+ * has been granted, so this is only worth calling once a stream is open.
  */
 export async function listLenses(): Promise<Lens[]> {
   if (!navigator.mediaDevices?.enumerateDevices) return []
@@ -102,14 +86,10 @@ export async function listLenses(): Promise<Lens[]> {
 }
 
 /**
- * The address this page is actually loaded from.
- *
- * Vite prints eight of these at startup (localhost, lvh.me, and four LAN
- * interfaces including Docker and WSL ranges), and only some of them are
- * reachable from a phone. Both the camera permission and the self-signed
- * certificate exception are scoped to the exact origin, so a phone that once
- * loaded a different one is not the same origin as far as either is
- * concerned, even though it looks like the same app.
+ * The address this page is actually loaded from. Both the camera permission and
+ * the self-signed certificate exception are scoped to the exact origin, so a
+ * phone that once loaded one of the other addresses Vite prints is not the same
+ * origin as far as either is concerned, even though it looks like the same app.
  */
 export function currentOrigin(): string {
   if (typeof location === 'undefined') return 'this address'
@@ -129,20 +109,14 @@ export interface CameraDiagnosis {
 }
 
 /**
- * Why the camera did not open, in words a person can act on.
+ * Why the camera did not open, in words a person can act on. "No camera devices"
+ * on its own reads the same whether the fix is in Settings or the device
+ * genuinely has no camera.
  *
- * "No camera devices" on its own is a dead end: it reads the same whether the
- * fix is in Settings or the device genuinely has no camera. This is #60: a
- * second phone had a stale permission denial and a stale certificate
- * exception, both scoped to one of the eight addresses Vite prints, and the
- * app had no way to say which of those was true.
- *
- * `navigator.permissions.query` only reads the browser's stored decision, it
- * does not request anything, so it is safe to call at any time, including
- * before a user gesture. It is also not supported everywhere (notably not
- * for `camera` on every engine), so a browser that lacks it falls back to
- * reading the error name alone, which still separates permission denial from
- * a genuinely missing camera.
+ * `navigator.permissions.query` only reads the browser's stored decision and
+ * requests nothing, so it is safe to call before a user gesture. It is not
+ * supported everywhere, notably not for `camera` on every engine, so a browser
+ * that lacks it falls back to reading the error name alone.
  */
 export async function diagnoseCameraFailure(error?: unknown): Promise<CameraDiagnosis> {
   const origin = currentOrigin()
@@ -169,8 +143,8 @@ export async function diagnoseCameraFailure(error?: unknown): Promise<CameraDiag
     const status = await navigator.permissions?.query?.({ name: 'camera' as PermissionName })
     permissionState = status?.state
   } catch {
-    // Not every engine supports querying the camera permission. Fall through
-    // to the error name, which is still informative on its own.
+    // Not every engine supports querying the camera permission; the error name
+    // is still informative on its own.
     permissionState = undefined
   }
 
@@ -218,31 +192,18 @@ const ULTRA_WIDE_LENS = /ultra.?wide/i
 const TELEPHOTO_LENS = /tele/i
 
 /**
- * Prefer a single physical lens over the combined one.
+ * Prefer a single physical lens over the combined one. An iPhone offers a
+ * virtual "Back Dual/Triple Camera" alongside the real lenses, and that virtual
+ * device is what silently switches lens mid-shot as the phone guesses at the
+ * subject distance. Pinning gives up lens switching and not steadiness:
+ * stabilisation on an iPhone is optical and lives on the physical wide lens,
+ * which is precisely the one this pins.
  *
- * An iPhone offers a virtual "Back Dual/Triple Camera" alongside the real
- * lenses, and that virtual device is what silently switches lens mid-shot as
- * the phone guesses at the subject distance. Asking for the plain back camera
- * pins it, so the framing stops jumping while you are lining a book up.
- *
- * That reason still holds, and it is now known to cost nothing in steadiness.
- * WebKit's capture source never asks AVFoundation for video stabilisation on
- * any device, and the multi-frame fusion the virtual device can do is a still
- * photo setting that a getUserMedia video track never reaches. Stabilisation
- * on an iPhone is optical, and it lives on the physical wide lens, which is
- * precisely the one this pins. Pinning gives up lens switching, not steadiness.
- *
- * The order below matters, and only its tail changed (#92). "Back Camera" is
- * the wide lens and has optical stabilisation on every iPhone that has any, so
- * it wins outright. What follows is for phones that do not label a lens that
- * way, and it used to be "the first thing that is not virtual", which on an
- * iPhone can be the ultra wide. That is the worst rear lens for this job on
- * two counts: no stabilisation at all on non-Pro models, and a field of view
- * so wide that a spine lands on a fraction of the pixels it otherwise would,
- * in a crop that is already down to a few hundred pixels across. So a virtual
- * device now outranks it: a virtual device sits on the wide lens by default,
- * and an occasional framing jump is a smaller price than a permanently softer,
- * smaller subject. Ultra wide is the last resort rather than an early guess.
+ * The order below matters. "Back Camera" is the wide lens and has optical
+ * stabilisation on every iPhone that has any, so it wins outright. Ultra wide
+ * ranks last, below even a virtual device, on two counts: no stabilisation at
+ * all on non-Pro models, and a field of view so wide that a spine lands on a
+ * fraction of the pixels it otherwise would.
  */
 export function preferredLens(lenses: Lens[]): string {
   const rank = (lens: Lens): number => {
@@ -294,10 +255,9 @@ export async function openCamera(deviceId = ''): Promise<MediaStream> {
 }
 
 /**
- * A crop expressed as fractions of the *displayed* video box.
- *
- * The on-screen guide and the real crop are both driven from this one value,
- * so they cannot drift apart.
+ * A crop expressed as fractions of the displayed video box. The on-screen guide
+ * and the real crop are both driven from this one value, so they cannot drift
+ * apart.
  */
 export interface CropFraction {
   x: number
@@ -307,12 +267,10 @@ export interface CropFraction {
 }
 
 /**
- * Tall, narrow, centred: the shape of a book spine held up to the camera.
- *
- * Height is 0.68 rather than the full frame so the whole rectangle sits in
- * clear screen between the top bar and the shutter row. This one really does
- * discard what falls outside it, so a boundary you cannot see is a boundary
- * you will get wrong.
+ * Tall, narrow, centred: the shape of a book spine held up to the camera. Height
+ * is 0.68 rather than the full frame so the whole rectangle sits in clear screen
+ * between the top bar and the shutter row. This one really does discard what
+ * falls outside it.
  */
 export const SPINE_CROP: CropFraction = {
   width: 0.24,
@@ -322,24 +280,20 @@ export const SPINE_CROP: CropFraction = {
 }
 
 /**
- * Which slots are actually cropped on capture.
- *
- * Only the spine. Cropping a front or back cover would be actively harmful:
- * the printed ISBN often sits close to an edge, and a crop that clips its last
- * character costs the check digit and makes the whole number unusable. That
- * exact failure has already happened here once. The full frame is kept for
- * front and back, and their guides are alignment aids only.
+ * Which slots are actually cropped on capture: only the spine. The printed ISBN
+ * often sits close to an edge of a cover, and a crop that clips its last
+ * character costs the check digit and makes the whole number unusable, so the
+ * full frame is kept for front and back.
  */
 export const SLOT_CROP: Partial<Record<Slot, CropFraction>> = {
   edge: SPINE_CROP,
 }
 
 /**
- * Roughly the proportions of a paperback held up to a phone in portrait.
- *
- * Sat above centre on purpose: the controls occupy the lower fifth of the
- * screen, and a vertically centred rectangle runs underneath them. Safe to
- * position for legibility precisely because this one does not crop anything.
+ * Roughly the proportions of a paperback held up to a phone in portrait. Above
+ * centre on purpose, because the controls occupy the lower fifth of the screen
+ * and a vertically centred rectangle would run underneath them. Safe to position
+ * for legibility precisely because this one crops nothing.
  */
 const BOOK_GUIDE: CropFraction = {
   width: 0.82,
@@ -349,11 +303,9 @@ const BOOK_GUIDE: CropFraction = {
 }
 
 /**
- * The rectangle drawn on the live preview for each slot.
- *
- * For the spine this is the crop, so what is framed is exactly what is saved.
- * For front and back it is guidance only: line the book up the same way every
- * time and the library thumbnails stay comparable, without risking the ISBN.
+ * The rectangle drawn on the live preview for each slot. For the spine this is
+ * the crop, so what is framed is exactly what is saved; for front and back it is
+ * guidance only.
  */
 export const SLOT_GUIDE: Record<Slot, CropFraction> = {
   back: BOOK_GUIDE,
@@ -362,8 +314,8 @@ export const SLOT_GUIDE: Record<Slot, CropFraction> = {
 }
 
 /**
- * A word, not a sentence. It sits inside the frame, where a spine guide is
- * only a couple of centimetres wide, and the toast already explains the slot.
+ * A word, not a sentence: it sits inside the frame, where a spine guide is only a
+ * couple of centimetres wide.
  */
 export const SLOT_GUIDE_LABEL: Record<Slot, string> = {
   back: 'Back',
@@ -372,12 +324,9 @@ export const SLOT_GUIDE_LABEL: Record<Slot, string> = {
 }
 
 /**
- * Translate a crop given in displayed-box fractions into source pixels.
- *
- * The video is rendered with `object-fit: cover`, which scales to fill and
- * clips the overflow, so displayed coordinates are not source coordinates.
- * Getting this wrong puts the saved crop somewhere other than the rectangle
- * the user framed, which is worse than no crop at all.
+ * Translate a crop given in displayed-box fractions into source pixels. The video
+ * is rendered with `object-fit: cover`, which scales to fill and clips the
+ * overflow, so displayed coordinates are not source coordinates.
  */
 export function cropToSource(
   video: HTMLVideoElement,
@@ -416,11 +365,10 @@ export interface CaptureOptions {
 }
 
 /**
- * Grab the current frame as a JPEG data URL.
- *
- * Kept large and lightly compressed: this image goes to a barcode decoder and
- * an OCR pass, and both lose accuracy fast on a downscaled or blocky source.
- * It travels as base64 inside a JSON body, hence the ceiling.
+ * Grab the current frame as a JPEG data URL. Kept large and lightly compressed,
+ * because this image goes to a barcode decoder and an OCR pass and both lose
+ * accuracy fast on a downscaled or blocky source. It travels as base64 inside a
+ * JSON body, hence the ceiling.
  */
 export function captureStill(
   video: HTMLVideoElement,
@@ -477,19 +425,13 @@ export function describeStream(stream: MediaStream | null): string {
 }
 
 /**
- * Nudge the camera towards the subject in the middle of the frame.
- *
- * Everything here is feature-detected and optional, because the browser that
- * matters supports almost none of it. iOS Safari exposes no way to *set* focus:
- * WebKit's capture source understands width, height, aspectRatio, frameRate,
- * facingMode, deviceId, groupId, focusDistance, whiteBalanceMode, zoom and
- * torch, and of those only whiteBalanceMode, zoom and torch are ever applied to
- * the device. There is no focusMode and no tap-to-focus hook. focusDistance is
- * reported but read only, as the lens minimum, which `cameraFacts` surfaces
- * rather than sets. So this helps on Android and is nearly a no-op on an
- * iPhone, and the honest fix for a spine that will not come sharp is distance,
- * not code. Returns what it actually managed to apply, so the UI can say
- * rather than imply.
+ * Nudge the camera towards the subject in the middle of the frame. Everything
+ * here is feature-detected and optional, because iOS Safari exposes no way to set
+ * focus: of the constraints WebKit's capture source understands, only
+ * whiteBalanceMode, zoom and torch are ever applied to the device, there is no
+ * focusMode and no tap-to-focus hook, and focusDistance is reported read only as
+ * the lens minimum. So this helps on Android and is nearly a no-op on an iPhone.
+ * Returns what it actually managed to apply.
  */
 export async function applyFocusHints(
   stream: MediaStream | null,
@@ -536,10 +478,6 @@ export async function applyFocusHints(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Torch
-// ---------------------------------------------------------------------------
-
 /** Read a track's capabilities without caring that some browsers have none. */
 function capabilitiesOf(stream: MediaStream | null): Record<string, unknown> {
   const track = stream?.getVideoTracks()[0]
@@ -552,24 +490,20 @@ function capabilitiesOf(stream: MediaStream | null): Record<string, unknown> {
 }
 
 /**
- * Whether this phone will let the page turn the torch on.
- *
- * WebKit only reports the capability when the device actually has a torch, so
- * this is the honest question rather than a guess from the user agent. Torch
- * is worth more here than any lens choice: a video frame's exposure is capped
- * by the frame interval, about 1/30s, and within that ceiling the only thing
- * that shortens the exposure is more light. A shorter exposure is less motion
- * blur, directly, on every frame of the burst rather than probabilistically.
+ * Whether this phone will let the page turn the torch on. WebKit only reports the
+ * capability when the device actually has a torch, so this is the honest question
+ * rather than a guess from the user agent. A video frame's exposure is capped by
+ * the frame interval, about 1/30s, and within that ceiling more light is the only
+ * thing that shortens the exposure, which is directly less motion blur.
  */
 export function torchAvailable(stream: MediaStream | null): boolean {
   return capabilitiesOf(stream).torch === true
 }
 
 /**
- * Turn the torch on or off, reporting whether it took.
- *
- * Never throws: a phone that advertises the capability and then refuses the
- * constraint must not break the shutter, it must just stay dark.
+ * Turn the torch on or off, reporting whether it took. Never throws: a phone that
+ * advertises the capability and then refuses the constraint must not break the
+ * shutter, it must just stay dark.
  */
 export async function setTorch(stream: MediaStream | null, on: boolean): Promise<boolean> {
   const track = stream?.getVideoTracks()[0]
@@ -582,10 +516,6 @@ export async function setTorch(stream: MediaStream | null, on: boolean): Promise
   }
 }
 
-// ---------------------------------------------------------------------------
-// What this camera actually is
-// ---------------------------------------------------------------------------
-
 export interface CameraFact {
   /** Plain enough to read down a telephone. */
   label: string
@@ -594,21 +524,9 @@ export interface CameraFact {
 
 /**
  * What the camera actually granted, in words a non-developer can report back.
- *
- * This exists because the remaining open questions about steadying a shot
- * cannot be answered without the phone (#92), and the person holding that
- * phone is not going to open a web inspector. Each line is one of those
- * questions: whether the resolution we ask for is the resolution we get, how
- * fast frames arrive (which sets the exposure ceiling and so the burst
- * length), whether a torch is offered at all, and how close the pinned lens
- * can focus, which is the difference between "hold the book further away" and
- * "this lens cannot do it".
- *
- * The spine strip is the one that reframes the whole problem: the spine crop
- * is a narrow slice of an already-cropped frame, so it arrives at the OCR only
- * a few hundred pixels across. That is why the spine is the hardest shot. It
- * is not that hands shake more on it, it is that it has the fewest pixels to
- * lose, so it is worth being able to read the real number off the real phone.
+ * The spine strip is the line that matters: the spine crop is a narrow slice of
+ * an already-cropped frame, so it arrives at the OCR only a few hundred pixels
+ * across, which is why the spine is the hardest shot.
  */
 export function cameraFacts(
   stream: MediaStream | null,

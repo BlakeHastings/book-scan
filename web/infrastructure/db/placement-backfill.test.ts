@@ -1,47 +1,22 @@
 /**
- * The claim this whole step rests on, checked book by book.
+ * The claim this whole step rests on, checked book by book: the new model,
+ * applied to a catalogue, assigns every book to exactly the area the separators
+ * put it in. Every shelved book is placed twice, once by the layout the app
+ * draws and once by the rules, which are two readings of one set of rows, and
+ * the two answers are compared one book at a time.
  *
- * **The new model, applied to a catalogue, assigns every book to exactly the
- * area the current separators put it in.** Not approximately, and not "the
- * counts agree": every shelved book is placed twice, once by the code the app
- * runs today and once by the rows `0013` wrote, and the two answers are compared
- * one book at a time.
- *
- * **#232 dropped `separators` and `shelf_ranges`, and this file did not lose its
- * subject.** The seed still builds the catalogue `0013` reads, because that is
- * the shape the live one had and is what the migration is written against: those
- * tables live until `0027` and `0028`, which run at the end of the folder. What
- * changed is the far side of the comparison. `areaDisagreements` used to place
- * every book by `separators` and by the areas; it now places every book by the
- * layout the app draws and by the rules, which are two readings of one set of
- * rows, and it says `fromLayout` where it used to say `fromSeparators`.
- *
- * It is the check that catches every quiet way this could be wrong:
- *
- * - a boundary walked in the wrong order, so one plank's books draw on another;
- * - `area.starts_at` without `COLLATE "C"`, which does not fail, it reorders;
- * - the two genre rules claiming not quite the books `books.is_fiction` does,
- *   which sends a book to a different bookcase;
- * - two areas on one anchor, which a boundary move that emptied an area leaves
- *   behind, stepped over once instead of twice.
+ * The seed builds the catalogue `0013` reads, because that is the shape the live
+ * one had and is what the migration is written against: `separators` and
+ * `shelf_ranges` live until `0027` and `0028`, which run at the end of the
+ * folder.
  *
  * A check nobody has watched fail is not a check, so three tests here break the
  * model on purpose and watch the comparison name exactly the books it should.
- * One way of breaking it went with the tables, and it is said out loud where it
- * used to be tested rather than quietly dropped: a boundary written into
- * `separators` with no `area` beside it is not an arrangement anything can reach
- * now, because writing a boundary **is** writing an area.
  *
- * **The comparison is `areaDisagreements`, which is production code** and is run
- * on every start by `applySchema`. It was local to this file until #213, which
- * is the defect that says why it could not stay: the claim above holds at the
- * moment of the backfill and expires the first time anybody moves a divider, so
- * a comparison that only a migration's test can make is a comparison about a
- * catalogue that no longer exists. The last describe here moves dividers and
- * asks it again.
- *
- * Nothing in this file connects to anything but a scratch database it made, and
- * nothing anywhere here reads, writes or deletes a cover file.
+ * The comparison is `areaDisagreements`, which is production code and is run on
+ * every start by `applySchema`. The claim above holds at the moment of the
+ * backfill and expires the first time anybody moves a divider, so the last
+ * describe here moves dividers and asks it again.
  */
 
 import { readFileSync } from 'node:fs'
@@ -61,7 +36,7 @@ import { plankAt, type PlankAt, type SeparatorKind } from '../../shared/layout'
 import { MigrationFailed, migrateToLatest } from './migrate'
 import { closeScratchDatabases, migrationsThrough, scratchDatabase } from './testdb'
 
-/** The plank an address names, as `shelves.test.ts` says it. See #359. */
+/** The plank an address names, as `shelves.test.ts` says it. */
 const plank = (label: string): PlankAt => plankAt(label)!
 
 /** The migration this file is about, named once. */
@@ -70,10 +45,6 @@ const FURNITURE = '0013_the_shelves_become_fixtures_and_rules'
 afterAll(async () => {
   await closeScratchDatabases()
 })
-
-// ---------------------------------------------------------------------------
-// A catalogue in the state the owner's is in
-// ---------------------------------------------------------------------------
 
 type Range = 'fiction' | 'nonfiction'
 
@@ -90,12 +61,10 @@ interface SeedSeparator {
 }
 
 /**
- * 236 books, which is what the live catalogue held when #192 measured it, and
- * eleven separators, which is what `server/backup.test.ts` records it having.
- *
- * Every third book is non-fiction, so both ranges are populated and the
- * interesting failure, a migration that gets the big range right and the other
- * one wrong, has somewhere to show up.
+ * A catalogue the size and shape the live one was measured at. Every third book
+ * is non-fiction, so both ranges are populated and the interesting failure, a
+ * migration that gets the big range right and the other one wrong, has somewhere
+ * to show up.
  */
 const LIVE_SIZED: SeedBook[] = Array.from({ length: 236 }, (_, at) => ({
   title: `Book ${String(at).padStart(3, '0')}`,
@@ -104,16 +73,15 @@ const LIVE_SIZED: SeedBook[] = Array.from({ length: 236 }, (_, at) => ({
 }))
 
 /**
- * Eleven boundaries, including the three arrangements that are easy to get
- * wrong.
+ * The boundaries, including the three arrangements that are easy to get wrong.
  *
- * - **Two on one anchor** (`key-0100` twice): what a boundary move that empties
- *   an area leaves behind. A walk that steps over one of them puts a plank's
- *   worth of books one place to the left.
- * - **An anchor no book has** (`key-0142x`): the book it named was deleted, and
- *   the boundary still describes the right *place*.
- * - **A bookcase break and a plank break beside each other**, so the fixture and
- *   the area have to be counted separately.
+ * - Two on one anchor (`key-0100` twice): what a boundary move that empties an
+ *   area leaves behind. A walk that steps over one of them puts a plank's worth
+ *   of books one place to the left.
+ * - An anchor no book has (`key-0142x`): the book it named was deleted, and the
+ *   boundary still describes the right place.
+ * - A bookcase break and a plank break beside each other, so the fixture and the
+ *   area have to be counted separately.
  */
 const LIVE_SEPARATORS: SeedSeparator[] = [
   { range: 'fiction', kind: 'area', startsAt: 'key-0022' },
@@ -130,12 +98,11 @@ const LIVE_SEPARATORS: SeedSeparator[] = [
 ]
 
 /**
- * The catalogue as stage H left it: the pre-Drizzle schema, with the two rows
- * `applySchema` seeds into `shelf_ranges`, and never migrated.
+ * The catalogue before any of these migrations: the pre-Drizzle schema, with the
+ * two rows `applySchema` seeds into `shelf_ranges`, and never migrated.
  *
- * `SCHEMA` rather than `applySchema`, for the reason `state-backfill.test.ts`
- * gives: `applySchema` runs the migrations itself and would hand back a database
- * that had already had the one under test.
+ * `SCHEMA` rather than `applySchema`, because `applySchema` runs the migrations
+ * itself and would hand back a database that had already had the one under test.
  */
 async function catalogueOf(
   books: SeedBook[],
@@ -151,15 +118,13 @@ async function catalogueOf(
   )
 
   /*
-   * One statement each rather than one per row. A round trip per book is 236 of
-   * them per database and a dozen databases across this file, which is enough
-   * to put it, `state-backfill.test.ts` and `capture-backfill.test.ts` over
-   * vitest's five second default between them when the suite is under load.
+   * One statement each rather than one per row. A round trip per book is
+   * hundreds of them per database and a dozen databases across this file, which
+   * is enough to put the suite over vitest's five second default under load.
    *
-   * `unnest` keeps it parameterised, so the seed is still data rather than
-   * built SQL. `WITH ORDINALITY` and the `ORDER BY` are what make the ids
-   * follow the array, which two assertions here read: the lowest id is
-   * `Book 000`.
+   * `unnest` keeps it parameterised, so the seed is still data rather than built
+   * SQL. `WITH ORDINALITY` and the `ORDER BY` are what make the ids follow the
+   * array, which two assertions here read: the lowest id is `Book 000`.
    */
   if (books.length) {
     await pool.query(
@@ -198,13 +163,11 @@ async function catalogueOf(
 }
 
 /**
- * A second genre tag on one book, in a database that has already been migrated.
- *
- * This is what a book corrected before #201 carries: the old book's genre tag
- * left beside the new one. It is written straight into the tables because no
- * code path produces one any more, and it is written **after** the migration
- * because the tag tables do not exist before it. See "One repair the cut-over
- * owes" in docs/data-model.md.
+ * A second genre tag on one book, in a database that has already been migrated:
+ * what a book corrected by an earlier version of the app carries, the old book's
+ * genre tag left beside the new one. Written straight into the tables because no
+ * code path produces one any more, and after the migration because the tag
+ * tables do not exist before it. See docs/data-model.md.
  */
 async function alsoTagged(pool: pg.Pool, title: string, slug: string): Promise<void> {
   await pool.query(
@@ -215,10 +178,6 @@ async function alsoTagged(pool: pg.Pool, title: string, slug: string): Promise<v
     [title, slug],
   )
 }
-
-// ---------------------------------------------------------------------------
-// The two models, each asked where every book goes
-// ---------------------------------------------------------------------------
 
 interface Placement {
   id: number
@@ -233,9 +192,7 @@ async function furnitureIn(pool: pg.Pool): Promise<{ order: Slot[]; rules: Place
   }>('SELECT id, position, kind, name, sort_strategy FROM fixture')
 
   // `position >= 0` for the reason production's own `furnitureIn` reads it that
-  // way: an area a removed boundary left behind is retired rather than deleted
-  // when a book has been placed in it, and a retired area is not furniture the
-  // collection has.
+  // way: a retired area is not furniture the collection has.
   const areas = await pool.query<{
     id: number; fixture_id: number; position: number; name: string;
     starts_at: string; sort_strategy: SortStrategy
@@ -313,20 +270,18 @@ async function underRules(pool: pg.Pool): Promise<Placement[]> {
 }
 
 /**
- * The books the two models disagree about, said the way a reviewer reads it.
- *
- * The comparison itself is `areaDisagreements`, in
- * `infrastructure/shelving/area-drift.ts`, which is what `applySchema` runs on
- * every start. This is the one line of formatting the assertions read.
+ * The books the two models disagree about. The comparison itself is
+ * `areaDisagreements`, in `infrastructure/shelving/area-drift.ts`, which is what
+ * `applySchema` runs on every start; this is the one line of formatting the
+ * assertions read.
  */
 async function disagreements(pool: pg.Pool): Promise<string[]> {
   return (await areaDisagreements(new PgDb(pool))).map(describeAreaDisagreement)
 }
 
 /**
- * The shelf order hash, spelled as `server/backup.ts` and `0013` spell it.
- *
- * The relation is named by the caller because there is not one to name on both
+ * The shelf order hash, spelled as `server/backup.ts` and `0013` spell it. The
+ * relation is named by the caller because there is not one to name on both
  * sides: before the migrations there is no `shelved_books` view, and the shelf
  * was `checked_out_at IS NULL` over `books`. Those are the same rows, which is
  * the point of taking the hash at all.
@@ -345,8 +300,6 @@ function guardOf(tag: string): string {
   return statements[statements.length - 1]!
 }
 
-// ---------------------------------------------------------------------------
-
 describe('the shelves becoming fixtures, areas and rules', () => {
   it('puts every book in exactly the area the separators put it in', async () => {
     const pool = await catalogueOf(LIVE_SIZED, LIVE_SEPARATORS)
@@ -361,10 +314,9 @@ describe('the shelves becoming fixtures, areas and rules', () => {
     expect(now).toHaveLength(LIVE_SIZED.length)
     expect(await disagreements(pool)).toEqual([])
 
-    // Printed rather than only asserted, because these are the two strings the
-    // pull request quotes. Nothing in `0013` writes to `books`, so they are the
-    // same string, read through the view afterwards and through the condition
-    // that view replaced before.
+    // Nothing in `0013` writes to `books`, so they are the same string, read
+    // through the view afterwards and through the condition that view replaced
+    // before.
     const after = await shelfOrder(pool, 'shelved_books')
     console.log(`[placement] shelf order ${before} before, ${after} after; ` +
       `${now.length} books compared across ${new Set(now.map((one) => one.label)).size} areas`)
@@ -375,14 +327,12 @@ describe('the shelves becoming fixtures, areas and rules', () => {
     /*
      * The comparison above would pass if both models were wrong the same way.
      * This says what the answers actually are: fiction fills bookcases 1 to 3
-     * and non-fiction begins on bookcase 4, which is what `start_shelf` has
-     * always meant.
+     * and non-fiction begins on bookcase 4, which is what `start_shelf` means.
      *
-     * **2B is missing on purpose**, and it is the emptied area: the two
-     * separators on `key-0100` leave an area with no books between them, which
-     * is exactly what a boundary move that emptied a plank leaves behind. It has
-     * a row in `area` and nothing on it, and a model that stepped over one of
-     * those two anchors instead of both would put the whole of 2C on it.
+     * 2B is missing on purpose, and it is the emptied area: the two separators
+     * on `key-0100` leave an area with no books between them. It has a row in
+     * `area` and nothing on it, and a model that stepped over one of those two
+     * anchors instead of both would put the whole of 2C on it.
      */
     const pool = await catalogueOf(LIVE_SIZED, LIVE_SEPARATORS)
     await migrateToLatest(pool)
@@ -432,15 +382,11 @@ describe('the shelves becoming fixtures, areas and rules', () => {
 
   it('reproduces books.shelf_range exactly, rather than approximately', async () => {
     /*
-     * The defect this step could have that nobody would see. `shelf_range` is
-     * the column every shelf query reads, and the two rules are written against
-     * the genre tags, so a book the rules and the column disagree about is a
-     * book that files into a different bookcase.
-     *
-     * It was `books.is_fiction` until #227 dropped that column. The claim is the
-     * same one: the seed sets both from one answer, and `0002` derived the tags
-     * from the column, so the two sides of this comparison are still arrived at
-     * independently.
+     * `shelf_range` is the column every shelf query reads, and the two rules are
+     * written against the genre tags, so a book the rules and the column
+     * disagree about is a book that files into a different bookcase. The seed
+     * sets the column and `0002` derives the tags from it, so the two sides of
+     * this comparison are arrived at independently.
      *
      * Asked of the rule rather than of the label, because that is what the rule
      * decides: which run the book joins.
@@ -464,13 +410,12 @@ describe('the shelves becoming fixtures, areas and rules', () => {
     expect(await migrateToLatest(pool)).toBe('migrated')
     expect(await underRules(pool)).toEqual(placed)
 
-    // And run again by hand, which is the belt to the migrator's braces: a
-    // migration somebody is not sure finished should be safe to set going
-    // again, and this one answers by finding the fixtures already there. A
-    // second run without that guard would duplicate every fixture, area and
-    // rule, and the duplicates would claim the same books. It runs on a
-    // catalogue at the end of the folder because it never reaches the tables
-    // `0027` and `0028` drop: it finds the fixtures already there and returns.
+    // And run again by hand: a migration somebody is not sure finished should be
+    // safe to set going again. Without its guard a second run would duplicate
+    // every fixture, area and rule, and the duplicates would claim the same
+    // books. It runs on a catalogue at the end of the folder because it never
+    // reaches the tables `0027` and `0028` drop: it finds the fixtures already
+    // there and returns.
     await pool.query(guardOf(FURNITURE))
     expect(await underRules(pool)).toEqual(placed)
 
@@ -480,16 +425,14 @@ describe('the shelves becoming fixtures, areas and rules', () => {
 
   it('builds the furniture on a database created from nothing, not only an adopted one', async () => {
     /*
-     * The case every developer, every CI run and every end to end run takes, and
-     * the one this migration originally got wrong.
+     * The case every developer, every CI run and every end to end run takes.
      *
-     * `applySchema` seeds `shelf_ranges` **after** running the migrations,
-     * because on an empty database the table does not exist until the baseline
-     * has created it. So a walk that read `shelf_ranges` found nothing, built
-     * nothing, added up correctly and finished quietly, and every test here
-     * passed because the fixture seeds the ranges first, the way an adopted
-     * catalogue already has them. It was found by starting the app and reading
-     * the rows.
+     * `applySchema` seeds `shelf_ranges` after running the migrations, because
+     * on an empty database the table does not exist until the baseline has
+     * created it. So a walk that reads `shelf_ranges` here finds nothing, builds
+     * nothing and finishes quietly, and every other test in this file would pass
+     * anyway because the fixture seeds the ranges first, the way an adopted
+     * catalogue already has them.
      */
     const pool = await scratchDatabase()
     expect(await migrateToLatest(pool)).toBe('created')
@@ -520,21 +463,15 @@ describe('the shelves becoming fixtures, areas and rules', () => {
 describe('the comparison, proving it can fail', () => {
   it('names the books whose range column and genre tag stop agreeing', async () => {
     /*
-     * The sharpest of the quiet failures this comparison still catches, and it
-     * is not the one that used to be here.
+     * The seam between the two readings: the layout takes a book's run off
+     * `books.shelf_range` and the rules take it off the genre tag the book
+     * carries. Those are set from one answer on the way in, and a book whose
+     * column says one range while its tag claims another is drawn on a plank the
+     * rules would never put it on.
      *
-     * Moving one `starts_at` was, while `separators` decided the layout and the
-     * areas decided the rules: one anchor out and a run of books drew on the
-     * plank before. Both readings walk the areas now, so moving one moves both
-     * and there is nothing left to disagree about. What names that is
-     * `Shelves.review`, comparing the ledger against the furniture, and
-     * `placement-cutover.test.ts` watches it do so.
-     *
-     * What is left here is the seam between the two readings: the layout takes
-     * a book's run off `books.shelf_range` and the rules take it off the genre
-     * tag the book carries. Those are set from one answer on the way in, and a
-     * book whose column says one range while its tag claims another is drawn on
-     * a plank the rules would never put it on.
+     * Moving one `starts_at` is not the break to reach for: both readings walk
+     * the areas, so moving one moves both. `Shelves.review` is what names that,
+     * and `placement-cutover.test.ts` watches it do so.
      */
     const pool = await catalogueOf(LIVE_SIZED, LIVE_SEPARATORS)
     await migrateToLatest(pool)
@@ -555,14 +492,12 @@ describe('the comparison, proving it can fail', () => {
 
   it('names the books two rules both claim when their priorities are swapped', async () => {
     /*
-     * `priority` decides which of two rules claiming one book wins, and the
-     * books both rules claim are the ones #201 stopped happening: correcting an
-     * ISBN used to leave the old book's genre tag beside the new one.
+     * `priority` decides which of two rules claiming one book wins, and a book
+     * carrying two genre tags is what makes two rules claim one.
      *
-     * On the catalogue above there are none, so a swap moves nothing, and a
-     * demonstration there would prove only that the check was asleep. Here are
-     * two such books, and reversing the priorities carries both of them off
-     * bookcase 1 and onto bookcase 4.
+     * The catalogue above has none, so a swap there moves nothing and would
+     * prove only that the check was asleep. Here are two such books, and
+     * reversing the priorities carries both off bookcase 1 and onto bookcase 4.
      */
     const pool = await catalogueOf(LIVE_SIZED, LIVE_SEPARATORS)
     await migrateToLatest(pool)
@@ -570,8 +505,8 @@ describe('the comparison, proving it can fail', () => {
     await alsoTagged(pool, 'Book 041', 'genre/non-fiction')
 
     // As it stands, fiction is rule 1, so a doubly tagged fiction book files as
-    // fiction and agrees with `books.is_fiction`. That is the migration's own
-    // NOTICE turned into an assertion.
+    // fiction and agrees with the column. That is the migration's own NOTICE
+    // turned into an assertion.
     expect(await disagreements(pool)).toEqual([])
 
     await pool.query("UPDATE placement_rule SET priority = 3 WHERE name = 'Fiction'")
@@ -584,17 +519,15 @@ describe('the comparison, proving it can fail', () => {
 
   it('names a whole range when its rule stops claiming it', async () => {
     /*
-     * What "fiction and non-fiction are two rules now" costs if a rule claims
-     * nothing: an entire range with nowhere to go, and not one error anywhere.
+     * What a rule claiming nothing costs: an entire range with nowhere to go,
+     * and not one error anywhere.
      *
-     * Turned off rather than written against a slug nothing carries, which is
-     * how this used to be done. `bandsOf` reads where a range begins off the
-     * rule asking for that range's genre slug, so rewriting the slug takes the
-     * range's band away as well, the layout has nowhere to draw those books, and
-     * they drop out of the comparison instead of failing it. Turning the rule
-     * off is the reachable half: a disabled rule still says where its run
-     * begins and stops claiming books, which is exactly the break worth
-     * watching.
+     * Turned off rather than written against a slug nothing carries. `bandsOf`
+     * reads where a range begins off the rule asking for that range's genre
+     * slug, so rewriting the slug takes the range's band away too, the layout
+     * has nowhere to draw those books, and they drop out of the comparison
+     * instead of failing it. A disabled rule still says where its run begins and
+     * stops claiming books, which is the break worth watching.
      */
     const pool = await catalogueOf(LIVE_SIZED, LIVE_SEPARATORS)
     await migrateToLatest(pool)
@@ -611,14 +544,13 @@ describe('a catalogue this migration will not finish on', () => {
   it('refuses a shelved book that carries no genre tag, and says what that means', async () => {
     const pool = await catalogueOf(LIVE_SIZED.slice(0, 3), [])
     // Stopped where this migration stops, because the guard below is about to be
-    // run for real: it reads `shelf_ranges`, which `0028` drops, so a catalogue
-    // carried to the end of the folder is one `0013` could never have met.
+    // run for real: it reads `shelf_ranges`, which `0028` drops.
     await migrationsThrough(pool, FURNITURE)
 
     // The furniture taken back off so the guard runs against a catalogue it has
     // not seen, and one book's genre tag taken off with it. The guard is read
-    // out of the shipped file rather than copied here, because a copy is a
-    // second thing to keep in step and would go green while the file was wrong.
+    // out of the shipped file rather than copied here, because a copy would go
+    // green while the file was wrong.
     await pool.query('DELETE FROM collection')
     await pool.query('DELETE FROM book_tag WHERE book_id = (SELECT min(id) FROM books)')
 
@@ -647,17 +579,12 @@ describe('a catalogue this migration will not finish on', () => {
   })
 })
 
-// ---------------------------------------------------------------------------
-// The same comparison, after somebody moves a divider
-// ---------------------------------------------------------------------------
-
 /**
- * The claim above expires the moment the shelves change, which is #213.
- *
- * Every test here starts from the backfilled catalogue, changes a boundary the
- * way the app does, and asks the same book-by-book question again. The first one
- * is the control: an area written **around** the repository is the defect, and
- * it has to be watched failing or nothing below means anything.
+ * The claim above expires the moment the shelves change. Every test here starts
+ * from the backfilled catalogue, changes a boundary the way the app does, and
+ * asks the same book-by-book question again. The first one is the control: an
+ * area written around the repository has to be watched failing or nothing below
+ * means anything.
  */
 describe('the areas following the boundaries after a divider moves', () => {
   /** A catalogue with the furniture built, and the thing that changes it. */
@@ -673,9 +600,8 @@ describe('the areas following the boundaries after a divider moves', () => {
   }
 
   /**
-   * The id of the boundary anchored at a book, read the way everything reads a
-   * boundary now: off the derived list, where a boundary's id is the id of the
-   * area it opens. There is no `separators` table to look one up in.
+   * The id of the boundary anchored at a book, read off the derived list, where
+   * a boundary's id is the id of the area it opens.
    */
   const boundaryAt = async (
     boundaries: DrizzleSeparatorRepository,
@@ -716,18 +642,11 @@ describe('the areas following the boundaries after a divider moves', () => {
 
   it('drifts, and is caught drifting, when an area is written around them', async () => {
     /*
-     * The defect itself, reproduced in the only shape it still has.
-     *
-     * Between #170 and #213 it was a row in `separators` with no `area` beside
-     * it. That is not reachable any more and cannot be tested: #232 dropped the
-     * table, so writing a boundary **is** writing an area and the two cannot
-     * come apart.
-     *
-     * What can still come apart is the order. `writeBoundaries` is what keeps a
-     * run's anchors in the order the run is walked in; an area written straight
-     * into the table does not. The two readings then part company, because the
-     * layout sorts the boundary list by anchor and the rules walk the areas in
-     * position order, and a plank's worth of books is drawn on the plank after.
+     * What can come apart is the order. `writeBoundaries` is what keeps a run's
+     * anchors in the order the run is walked in; an area written straight into
+     * the table does not. The two readings then part company, because the layout
+     * sorts the boundary list by anchor and the rules walk the areas in position
+     * order, and a plank's worth of books is drawn on the plank after.
      */
     const { pool } = await backfilled()
     expect(await disagreements(pool)).toEqual([])
@@ -743,11 +662,10 @@ describe('the areas following the boundaries after a divider moves', () => {
      * which is where the two walks come back together: past `key-0088` both have
      * stepped over every anchor on bookcase 1 and land on the same rows again.
      *
-     * It used to stop at `key-0055`, and that was the check comparing labels
-     * (#356). Between those two anchors the readings have each stepped over
-     * three boundaries, so both *draw* `1D` and the strings matched, while they
-     * are standing on two different area rows. The row is what a placement
-     * names, so those books are a disagreement and are now reported as one.
+     * The comparison is on the area row rather than on the label, because two
+     * readings that have each stepped over the same number of boundaries draw
+     * the same string while standing on two different rows, and the row is what
+     * a placement names.
      */
     expect(found[0]).toBe('Book 031: the layout says 1C, the rules say 1B')
     expect(found).toHaveLength(fictionFrom('key-0030', 'key-0088'))
@@ -778,17 +696,13 @@ describe('the areas following the boundaries after a divider moves', () => {
   it('will not number a bookcase another range already has, and no longer has to report it', async () => {
     /*
      * Fiction fills bookcases 1 to 3 and non-fiction starts on 4, so a fourth
-     * bookcase in fiction is two runs sharing a number. `0013` refuses that
-     * arrangement outright, and through #213 the write-through could not:
-     * `separators` was authoritative, a shadow table did not get to veto the
-     * shelves, so the boundary was written, the area was not, and the check had
-     * to name every book affected.
+     * bookcase in fiction is two runs sharing a number, which `0013` refuses
+     * outright.
      *
-     * There is one set of rows now, so there is nothing to report. The area
-     * would fall past the bookcase non-fiction's rule claims, so it is not
-     * written, the run comes back exactly as it was, and the boundary simply did
-     * not happen. That is #213's report becoming #232's refusal, and moving
-     * non-fiction's rule onto a later bookcase is still the way out.
+     * The area would fall past the bookcase non-fiction's rule claims, so it is
+     * not written, the run comes back exactly as it was, and the boundary simply
+     * did not happen. Moving non-fiction's rule onto a later bookcase is the way
+     * out.
      */
     const { pool, boundaries } = await backfilled()
     const fixtures = await counted(pool, 'fixture')
@@ -830,18 +744,12 @@ describe('the areas following the boundaries after a divider moves', () => {
 
   it('numbers the boundaries contiguously when one in the middle goes', async () => {
     /*
-     * What `SeparatorRepository.reposition` was there to protect, asserted where
-     * the property now lives instead of through the method, which is gone.
-     *
-     * A separator carried a `position` column, so removing one in the middle
-     * meant renumbering the rest or the range stopped describing the shelves. A
-     * boundary's position is derived now: it is where its area sits in the run,
-     * so the numbering is contiguous by construction and there is nothing left
-     * to renumber. `reposition` was dropped rather than kept as a method that
-     * could only ever be a no-op, and this is what it was holding.
+     * A boundary's position is where its area sits in the run, so the numbering
+     * is contiguous by construction and there is nothing to renumber when one in
+     * the middle goes.
      *
      * `key-0100`, because two boundaries share it, which is the arrangement a
-     * renumbering was most likely to get wrong.
+     * renumbering is most likely to get wrong.
      */
     const { pool, boundaries } = await backfilled()
     const before = await boundaries.inRange('fiction')
@@ -866,22 +774,16 @@ describe('the areas following the boundaries after a divider moves', () => {
 
   it('retires an area a book was placed in, rather than deleting it or leaving it in the run', async () => {
     /*
-     * The interesting case, and the one #232 changes the answer to. Removing a
-     * boundary makes the run one area shorter, so the **last** area of the range
-     * is the one with nothing left to describe. `book_placement.area_id` is
-     * `ON DELETE RESTRICT` on purpose: a placement is a record of where a book
-     * actually was, and furniture taken out later must not quietly rewrite it.
+     * Removing a boundary makes the run one area shorter, so the last area of
+     * the range is the one with nothing left to describe.
+     * `book_placement.area_id` is `ON DELETE RESTRICT` on purpose: a placement is
+     * a record of where a book actually was, and furniture taken out later must
+     * not quietly rewrite it. The row cannot stay in the run either, because an
+     * area still in it would come straight back out of `inRange` as a boundary
+     * nobody asked for and the removal would not have happened.
      *
-     * While `separators` was authoritative the row simply stayed where it was,
-     * the two models then disagreed about the books on it, and the check said
-     * which books by name. It cannot stay now: an area still in the run would
-     * come straight back out of `inRange` as a boundary nobody asked for, and
-     * the removal would not have happened.
-     *
-     * So it is **retired**, which takes it off the fixture's face and leaves the
-     * row and every placement naming it exactly where they are. Nothing is
-     * orphaned, nobody's history is edited, and the drift #213 could only report
-     * is closed rather than named.
+     * So it is retired, which takes it off the fixture's face and leaves the row
+     * and every placement naming it exactly where they are.
      */
     const { pool, boundaries } = await backfilled()
 
@@ -925,12 +827,9 @@ describe('the areas following the boundaries after a divider moves', () => {
 })
 
 /**
- * The same question, asked after the journeys a person actually makes.
- *
- * `Shelves` is not touched by #213 or #232 and that is the point being asserted:
- * the overflow cascade, the boundary move and Remove all reach the three
- * statements in `DrizzleSeparatorRepository`, so they are covered without
- * knowing they are, exactly as #214's two command line tools were.
+ * The same question, asked after the journeys a person actually makes. The
+ * overflow cascade, the boundary move and Remove all reach the three statements
+ * in `DrizzleSeparatorRepository`, so they are covered without knowing they are.
  */
 describe('the areas following the boundaries after a person moves a book', () => {
   async function backfilled(): Promise<{ pool: pg.Pool; shelves: Shelves }> {

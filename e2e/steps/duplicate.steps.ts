@@ -1,30 +1,14 @@
 /**
  * Holding up a book somebody has already photographed.
  *
- * The steps that photograph a front cover drive the front cover camera, which
- * is a second Playwright project rather than a flag a step can set: Chromium is
- * handed the video file on the command line. Everything tagged `@front-camera`
- * runs there and nothing else does.
+ * The steps that photograph a front cover drive the front cover camera, a
+ * second Playwright project rather than a flag a step can set: Chromium is
+ * handed the video file on the command line. Everything tagged
+ * `@front-camera` runs there and nothing else does.
  *
- * The steps about the panel itself are shared with the back cover camera, and
- * that is not an accident of naming. The Add flow asks the same question from
- * the other end (#146) and draws the same panel, in the same words, with the
- * same way past it, because it is the same answer: somebody photographed this
- * book already and has not shelved it yet.
- *
- * The one wait that is not a wait on the screen is the hash. A capture is
- * accepted the moment its photographs exist and read afterwards, so a scenario
- * that photographed a book a moment ago and scanned it straight away would be
- * racing a background job rather than testing anything. Waiting for the column
- * is waiting for the thing the answer actually depends on.
- *
- * That job is no longer the one that reads the photographs (#294). The hash
- * used to be written by the same serial pass, after the reading, which put a
- * few milliseconds of local work behind OCR and a catalogue lookup and every
- * capture queued in front of this one; a reading that hung meant a hash that
- * never arrived, and this wait timing out is how that showed. It is now its
- * own job, fired beside the reading and sharing nothing with it, so what this
- * waits on is a file being read and a number being computed.
+ * The hash is written by its own background job, sharing nothing with the one
+ * that reads the photographs, so a scenario that scanned a book right after
+ * photographing it would otherwise race that job rather than test anything.
  */
 
 import { expect } from '@playwright/test'
@@ -127,14 +111,12 @@ Then('it should stop saying the book is already in the queue', async ({ page }) 
 })
 
 /**
- * The other book this camera can already know about, and the other place the
- * answer comes from (#435).
+ * The other book this camera can already know about.
  *
  * `.queued` is a book somebody photographed and has not shelved; this is a
- * book on a shelf, and the two are answered by two different questions on the
- * same poll. It is a line rather than a panel because it offers nothing to
- * choose between: the book is catalogued, and what to do about that is decided
- * at the shelving step by the person holding it.
+ * book on a shelf, answered by a different question on the same poll. It is a
+ * line rather than a panel because it offers nothing to choose between: what
+ * to do about a catalogued book is decided at the shelving step.
  */
 Then('it should say the book is already catalogued', async ({ page }) => {
   const said = page.locator('.cam__catalogued')
@@ -150,12 +132,10 @@ Then('it should stop saying the book is already catalogued', async ({ page }) =>
 })
 
 /**
- * Nothing named this book, which is the state the warning above has to survive.
- *
- * The line that says what is in your hands is drawn only where the queue has
- * settled on a book, so its absence is the screen saying it has no name for
- * this one. That is the whole situation #435 is about: a person holding a book
- * the app cannot name, with nothing to tell them they already own it.
+ * Nothing named this book, which is the state the warning above has to
+ * survive: the line that says what is in your hands is drawn only where the
+ * queue has settled on one, so its absence is the screen saying it has no
+ * name for this book.
  */
 Then('the camera should not have recognised the book', async ({ page }) => {
   await expect(page.locator('.wf-view__found').filter({ hasText: 'Dune' }))
@@ -163,12 +143,10 @@ Then('the camera should not have recognised the book', async ({ page }) => {
 })
 
 /**
- * Nothing has been put in front of the shutter (#294, and #435's own warning).
- *
  * Pressed rather than looked at, and that is the whole of the check: an
- * enabled button proves nothing about what is floating over it, and Playwright
- * refuses a click that another element would receive. The photograph landing
- * in the next slot is what says the press was a press.
+ * enabled button proves nothing about what is floating over it, and
+ * Playwright refuses a click that another element would receive. The
+ * photograph landing in the next slot is what says the press was a press.
  */
 Then('the shutter should still take a photograph', async ({ page }) => {
   const before = await page.locator('.wf-shot--taken').count()

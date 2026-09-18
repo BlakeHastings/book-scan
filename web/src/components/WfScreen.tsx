@@ -1,14 +1,8 @@
 /**
- * A screen drawn with the design system, inside the scope its tokens live in.
- *
- * `.wf` is where every colour, size and radius in `src/design` is defined, so a
- * screen made of those components has to sit inside one. The app's own
- * stylesheet keeps `:root` and is untouched by it.
- *
- * `HomePane` has its own copy of this, from before there was a second converted
- * screen to share one with. Folding that one into this is a change to a screen
- * somebody else is converting, so it is left where it is and this is what the
- * carry screens use; the two should become one when the conversion settles.
+ * `.wf` scopes the design system's tokens; a screen made of those components
+ * must sit inside one. `HomePane` has its own copy of this rather than
+ * sharing it: merging them would touch a screen somebody else is converting,
+ * so the two stay separate until that settles.
  */
 
 import type { ReactElement, ReactNode } from 'react'

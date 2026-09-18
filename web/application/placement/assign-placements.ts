@@ -1,31 +1,18 @@
 /**
- * Running the rules over a catalogue, and writing down only what changed.
+ * Runs the rules over a catalogue, writing down only what changed.
  *
- * **`assigned` is what the rules want; `placed` is what somebody did**, and the
- * whole value of keeping both is lost if the first is written indiscriminately.
- * A run over a settled catalogue that appended a row per book would double the
- * ledger every time it ran, say nothing in any of the rows, and bury the ones
- * that mean something. So this writes a row for a book **only where the rules'
- * answer differs from where that book already is**, which is `assignmentFor` in
- * `domain/placement/ledger.ts` and is asserted here by counting: a second run
- * that changes nothing writes nothing.
+ * `assigned` is what the rules want, `placed` is what somebody did. A row is
+ * written only where the rules' answer differs from where a book already is
+ * (`assignmentFor` in `domain/placement/ledger.ts`); otherwise a settled
+ * catalogue would double the ledger on every run.
  *
- * Three kinds of book are skipped and each is reported rather than dropped:
+ * Skipped and reported, not dropped: pinned (a person overruling the rules),
+ * withdrawn or checked out (not anywhere to be placed), and unclaimed (no
+ * rule matches, so the rules have nowhere to put the book).
  *
- * - **pinned**, because a pin beats every rule forever. That is the escape hatch
- *   from the rule system and it is a person overruling it, so the engine leaves
- *   the book alone and unpinning is another row.
- * - **withdrawn and checked out**, because neither is anywhere. A book that comes
- *   back is placed again then, not now.
- * - **unclaimed**, where no rule matches the book at all. Null is a real answer
- *   from `placementOf` and it is reported here rather than papered over: a book
- *   no rule claims has nowhere the rules can put it, and saying so is how the
- *   person who wrote the rules finds out.
- *
- * Nothing here reads a clock or a database directly. The furniture, the rules
- * and the moment all arrive on the command, so the same run can be made over a
- * catalogue in a test and over one in a migration rehearsal and give the same
- * answer.
+ * Nothing here reads a clock or a database directly: furniture, rules and
+ * moment all arrive on the command, so a test and a migration rehearsal give
+ * the same answer.
  */
 
 import { assignmentFor, standingOf, type Placement, type PlacementActor } from '../../domain/placement/ledger'
@@ -50,14 +37,7 @@ export interface AssignPlacements {
   now: string
 }
 
-/**
- * What a run did, in the four numbers worth reporting, plus the books nothing
- * claimed.
- *
- * `unchanged` is the one to watch. On a catalogue in agreement with its rules it
- * is every book, and a run that reports otherwise is either the first one or a
- * sign that something moved.
- */
+/** `unchanged` is the one to watch: on a catalogue in agreement with its rules, it is every book. */
 export interface AssignmentReport {
   assigned: number
   unchanged: number
@@ -111,8 +91,7 @@ export class AssignPlacementsHandler {
         sortKey: book.sortKey,
         ruleId: found.rule.id,
         actor,
-        // The rule's name, because the question a person asks of an assignment
-        // is why, and the answer is which rule claimed the book.
+        // The rule's name: the question a person asks of an assignment is why.
         reason: found.rule.name,
         createdAt: now,
       })

@@ -1,13 +1,8 @@
 /**
- * The reconciliation rules, argued with directly (#305).
+ * The reconciliation rules: which catalogue to believe when two disagree.
+ * No network, no MARC, no lookup, tested as a pure decision.
  *
- * No network, no MARC, no lookup: this is the part of "what do you believe when
- * two catalogues answer" that is a decision rather than a fetch, so it is tested
- * as one. `server/catalogue-sru.test.ts` covers reading a record and
- * `server/lookup-supplement.test.ts` covers the two ends joined together.
- *
- * The cases below are the ones `docs/catalogue-sources.md` actually met while
- * asking five catalogues about 238 real books, and each names which.
+ * Cases below are from docs/catalogue-sources.md, checked against 238 real books.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -36,8 +31,7 @@ const GAP = { title: 'Dune', pages: '', genreStated: false }
 
 describe('normaliseTitle', () => {
   it('takes the ISBD punctuation MARC carries as data', () => {
-    // A 245 subfield is written with the punctuation that would introduce the
-    // next one, so this is what a title proper actually arrives as.
+    // A MARC 245 subfield carries the punctuation that would introduce the next one.
     expect(normaliseTitle('Dune /')).toBe('dune')
     expect(normaliseTitle('The hobbit, or, There and back again :')).toBe(
       'hobbit or there and back again',
@@ -61,9 +55,7 @@ describe('normaliseTitle', () => {
   })
 
   it('does not transliterate across scripts', () => {
-    // Deliberate. One of the two K10plus mismatches the measurement found was a
-    // Russian translation of a book we hold in English, and its page count is
-    // not our book's page count.
+    // Deliberate: a transliterated match would treat a translation as the same book.
     expect(normaliseTitle('Дюна')).not.toBe(normaliseTitle('Dune'))
   })
 })
@@ -75,8 +67,6 @@ describe('sameBook', () => {
   })
 
   it('accepts a record that carries a subtitle we do not', () => {
-    // One of the two K10plus title disagreements in the measurement. The record
-    // was the right book; it just spelled more of the title.
     expect(sameBook(
       'The Hitchhiker\'s Guide to the Galaxy',
       'The hitchhiker\'s guide to the galaxy : a trilogy in four parts',
@@ -84,11 +74,7 @@ describe('sameBook', () => {
   })
 
   it('refuses a one-word title that is merely a prefix of theirs', () => {
-    /*
-     * The guard that makes this more than `startsWith`, and the reason it is
-     * worth a missed page count. `Dune` and `Dune Messiah` are two books, and a
-     * spine drawn to the wrong one is drawn wrong with nothing reporting it.
-     */
+    // Guards against a plain startsWith match: "Dune" is a prefix of "Dune Messiah" but a different book.
     expect(sameBook('Dune', 'Dune Messiah')).toBe(false)
     expect(sameBook('It', 'It happened one night')).toBe(false)
   })
@@ -115,13 +101,7 @@ describe('a supplement fills a gap and never overrides', () => {
   })
 
   it('refuses to touch a page count we already hold', () => {
-    /*
-     * The rule the whole change rests on. The measurement's case is 33 books
-     * that have no page count, not a claim that the 183 that do are wrong, and a
-     * rule that could rewrite one of those turns a gain into a risk that nothing
-     * would report: a spine drawn to a different printing's extent looks exactly
-     * like a spine drawn correctly.
-     */
+    // Existing data is never overwritten, even by a match: a different printing's extent looks identical to a mistake.
     const taken = reconcile({ ...GAP, pages: '535' }, [record({ pages: 604 })])
 
     expect(taken.pages).toBe('')
@@ -132,8 +112,7 @@ describe('a supplement fills a gap and never overrides', () => {
   })
 
   it('refuses to put a heading in front of the classifier when a genre was stated', () => {
-    // Shelf 4 is the only non-fiction bookcase, so a supplement able to flip a
-    // genre is a supplement able to send a book to the wrong room. It cannot.
+    // A flipped genre would send a book to the wrong bookcase.
     const taken = reconcile(
       { ...GAP, genreStated: true },
       [record({ subjects: ['History'], dewey: ['973.7'] })],
@@ -147,13 +126,7 @@ describe('a supplement fills a gap and never overrides', () => {
 
 describe('is it even the same book', () => {
   it('takes nothing from a record whose title disagrees', () => {
-    /*
-     * The step the measurement kept and #305 does not mention. The Deutsche
-     * Nationalbibliothek answered for 14 of the 238 books and most of those
-     * answers were a different book entirely; its apparent gain of nine authors
-     * was nine mistakes. A page count off the wrong record is worse than no page
-     * count.
-     */
+    // A page count from the wrong record is worse than no page count at all.
     const taken = reconcile(GAP, [
       record({ source: K10, title: 'Sandworms of Dune', pages: 494, subjects: ['Science fiction'] }),
     ])
@@ -186,15 +159,8 @@ describe('is it even the same book', () => {
 
 describe('when two of them disagree', () => {
   it('settles a page count by rank, and says who disagreed', () => {
-    /*
-     * Rank is the order the caller passed, and `server/catalogue-sru.ts` puts
-     * Library of Congress first because the measurement verified 34 of 34 of its
-     * records as the right book against 29 of 31 for K10plus.
-     *
-     * Taking nothing was the other option and it is worse: a book with no page
-     * count is drawn at the collection-wide median, which is a guess about every
-     * book, where one real edition's extent is right for that edition.
-     */
+    // Rank is the order the caller passed. Taking one is better than the
+    // collection-wide median a blank page count would fall back to.
     const taken = reconcile(GAP, [
       record({ source: LOC, pages: 535 }),
       record({ source: K10, pages: 604 }),
@@ -229,13 +195,7 @@ describe('when two of them disagree', () => {
   })
 
   it('merges headings in rank order rather than choosing between them', () => {
-    /*
-     * The genre is not settled here at all. `server/classify.ts` has a
-     * precedence ladder and already answers `unknown` where two confident
-     * signals contradict each other, and `docs/catalogue-sources.md` is explicit
-     * that a second opinion about what counts as a stated genre must not be
-     * written. All this does is put the headings in front of it, best first.
-     */
+    // Genre is not decided here; this only orders headings, best first, for `server/classify.ts`'s ladder to consume.
     const taken = reconcile(GAP, [
       record({ source: LOC, subjects: ['Science fiction'], lc: ['PS3558.E63'] }),
       record({ source: K10, subjects: ['Belletristik'], dewey: ['813.54'] }),
@@ -260,8 +220,6 @@ describe('when two of them disagree', () => {
 
 describe('nobody answered', () => {
   it('is an ordinary answer rather than an error', () => {
-    // The normal case, and the reason #305 exists. Four of the nineteen
-    // unclassified books are gained by nobody and never will be.
     const taken = reconcile(GAP, [])
 
     expect(taken).toEqual({

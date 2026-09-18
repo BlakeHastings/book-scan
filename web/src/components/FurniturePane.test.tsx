@@ -1,14 +1,4 @@
-/**
- * The room screen, against a room rather than a tidy one.
- *
- * Rendered as markup and read as markup, the way `HomePane.test.tsx` does it:
- * this project has no DOM in its test setup, and this pane holds no state.
- *
- * What is checked is what a wireframe never had to survive, which is every
- * awkward thing about the owner's actual house: **two pieces both standing at
- * 4**, a piece nothing files onto, a piece that is a crate, an area holding one
- * book, and a room nobody has described yet.
- */
+/** Rendered as markup: this project has no DOM in its test setup, and this pane holds no state. */
 
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
@@ -73,11 +63,6 @@ describe('the room, drawn', () => {
     expect(said).not.toMatch(/Bookcase 4/)
   })
 
-  /**
-   * The question the whole screen exists for. Every area says what files onto
-   * it, and a piece nothing files onto says that rather than saying nothing,
-   * because "nothing" is the answer for a crate by the door.
-   */
   it('says what belongs on every piece and in every area', () => {
     const said = words(drawn(furniture([
       fixture(),
@@ -92,12 +77,8 @@ describe('the room, drawn', () => {
     expect(said).toMatch(/Put here by hand/)
   })
 
-  /**
-   * The owner has two pieces both called 4, which the catalogue reports rather
-   * than refuses. Both draw areas labelled `4A`, so a screen that did not say
-   * so would show one twice with no explanation and somebody would go looking
-   * for the mistake in the wrong place.
-   */
+  // Two fixtures can legally share a position number; without saying so, the
+  // screen would show `4A` twice with no explanation.
   it('survives two pieces standing on one number, and says they do', () => {
     const said = words(drawn(furniture([
       fixture({ id: 1, sharing: [2] }),
@@ -126,10 +107,6 @@ describe('the room, drawn', () => {
     expect(() => drawn(furniture([fixture({ areas: [], books: 0 })]))).not.toThrow()
   })
 
-  /**
-   * Drawing an empty room while the first request is in flight would be saying
-   * something false about somebody's house for as long as it takes.
-   */
   it('says nothing at all before the room has come back', () => {
     const said = words(drawn(null))
     expect(said).not.toMatch(/Nothing is in the room/)
@@ -140,7 +117,6 @@ describe('the room, drawn', () => {
     expect(words(drawn(furniture([])))).toMatch(/Nothing is in the room yet/)
   })
 
-  /** One piece cannot be put in a different order to itself. */
   it('offers to change the order only where there is an order to change', () => {
     expect(words(drawn(furniture([fixture()])))).not.toMatch(/Change the order/)
     expect(words(drawn(furniture([fixture(), fixture({ id: 2 })])))).toMatch(/Change the order/)
@@ -159,39 +135,22 @@ describe('putting the room in order', () => {
     expect(said.indexOf('Bookcase 4')).toBeLessThan(said.indexOf('Bookcase 1'))
   })
 
-  /**
-   * The number beside each piece was `fixture.position`, and beside four
-   * bookshelves it read one, four, five, six (#367). It is correct in the model
-   * and it is not a fact about the room a person is putting in order, so it is
-   * gone and the order is left to say what order is. The names stay: a piece
-   * nobody has named still reads as what it is and where it stands.
-   */
   it('draws no number beside a piece', () => {
     const markup = drawn(three, [2, 0, 1])
     expect(markup).toMatch(/wf-order__name/)
     expect(markup).not.toMatch(/wf-order__n"/)
   })
 
-  /**
-   * What saving does, in what a person reads. The numbers are this room's own,
-   * gap and all, and they stay where they are: renumbering 1, 2, 4 to 1, 2, 3
-   * would rewrite the recorded location of every book on the piece called 4.
-   * What actually changes is what an unnamed piece and its areas are called.
-   */
+  // Position numbers are the room's own and stay fixed: renumbering 1, 2, 4
+  // to 1, 2, 3 would rewrite the recorded location of every book on the
+  // piece currently called 4.
   it('promises what the pieces will be called, and not what they will be numbered', () => {
     const said = words(drawn(three, [2, 0, 1]))
     expect(said).toMatch(/What they will be called/)
     expect(said).toMatch(/Bookcase 4 becomes Bookcase 1/)
-    // The areas as a count and an example rather than as eleven clauses of the
-    // same fact, which is what reading it on a phone settled.
     expect(said).toMatch(/That changes 3 area labels as well, 4A to 1A/)
   })
 
-  /**
-   * The owner's four bookshelves are named, which is why the number beside them
-   * meant nothing: nothing about them is worked out from where they stand. The
-   * card says that rather than showing numbers to prove it.
-   */
   it('says a named room is renamed by nothing', () => {
     const named = furniture([
       fixture({ id: 1, position: 1, name: 'Bookshelf 1' }),
@@ -201,12 +160,6 @@ describe('putting the room in order', () => {
     expect(words(drawn(named, [2, 0, 1]))).toMatch(/Nothing is renamed/)
   })
 
-  /**
-   * Found by opening it on a room of four unnamed bookcases. Nothing dragged
-   * means nothing renamed, and saying so because the pieces are named would be
-   * a true answer with a false reason on it: every piece there is called after
-   * where it stands, and every one would read differently the moment it moved.
-   */
   it('does not credit a name for a room nobody has dragged yet', () => {
     const said = words(drawn(three, [0, 1, 2]))
     expect(said).toMatch(/Nothing has moved yet/)
@@ -220,17 +173,6 @@ describe('putting the room in order', () => {
   })
 })
 
-/**
- * #401: the piece that read as empty while forty-six books stood on it.
- *
- * Moving a stretch of books to another bookcase takes every area off the one it
- * left, and the books stay recorded there until somebody carries them. So the
- * room's honest drawing of that piece is no areas, the areas that were taken
- * out, and the books that are on it.
- *
- * The counts are the owner's own: 8, 20 and 18 across three areas of a bookcase
- * whose stretch of books has been sent to bookcase 2.
- */
 describe('a piece whose areas were taken out with books still on them', () => {
   const emptied = fixture({
     id: 9,

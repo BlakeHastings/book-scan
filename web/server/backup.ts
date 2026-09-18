@@ -1,96 +1,60 @@
 /**
  * Backing up the Postgres catalogue, and proving the backup restores.
  *
- * The library half. `backup-catalogue.ts` is the command line front end and the
- * thing the scheduled task runs; everything decidable without a database or a
- * subprocess lives here so it can be tested without either.
+ * The library half. `backup-catalogue.ts` is the command line front end;
+ * everything decidable without a database or a subprocess lives here so it can be
+ * tested without either.
  *
- * The shape of this follows one idea: **a dump nobody has restored is a
- * hypothesis.** So a run produces two artefacts, not one. The dump itself, and
- * a manifest holding the digest of the catalogue *as of the instant the dump
- * was taken*. Verification restores the dump into a scratch database and
- * compares it against that manifest.
- *
- * Comparing against the manifest rather than against the live catalogue is
- * deliberate and it is not laziness. The catalogue is added to most days, often
- * while a background job is running. Comparing a restore against a source that
- * has moved on since the dump was taken produces a failure every time somebody
- * scans a book during the backup window, and an alarm that cries wolf is an
- * alarm nobody reads. The manifest and the dump are pinned to the same snapshot
- * by `pg_export_snapshot`, so the comparison is between two views of one
- * instant and any difference is a real one.
+ * A run produces two artefacts. The dump itself, and a manifest holding the
+ * digest of the catalogue as of the instant the dump was taken. Verification
+ * restores the dump into a scratch database and compares it against that
+ * manifest rather than against the live catalogue, which is added to most days:
+ * the manifest and the dump are pinned to the same snapshot by
+ * `pg_export_snapshot`, so any difference is a real one.
  */
 
 import { connectionConfig } from './db.pg'
 
 /**
  * The Postgres client image used when no `pg_dump` is on PATH, which is the
- * situation on the owner's machine: the server runs in a container and the
- * client tools were never installed.
+ * situation on the owner's machine.
  *
- * **This must be at least the major version of the server being dumped.**
- * `pg_dump` refuses a server newer than itself, and a `pg_restore` older than
- * the archive refuses the archive. The live catalogue runs `postgres:18.3`, so
- * this does too. Changing it is a decision rather than a refresh, for the same
- * reason POSTGRES_IMAGE in pgcontainer.ts is pinned.
+ * This must be at least the major version of the server being dumped. `pg_dump`
+ * refuses a server newer than itself, and a `pg_restore` older than the archive
+ * refuses the archive. The live catalogue runs `postgres:18.3`, so this does too.
  */
 export const DEFAULT_IMAGE = 'postgres:18.3'
 
-/**
- * How many dumps are kept. Fourteen daily dumps is two weeks, which is long
- * enough to notice that something has been quietly wrong for a while and short
- * enough to bound.
- */
+/** How many dumps are kept. Fourteen daily dumps is two weeks. */
 export const DEFAULT_KEEP = 14
 
 /**
- * The other bound, and the one that matters on this machine. Disk here has
- * twice dropped under 2 GB in a day, and a backup scheme that fills a disk
- * turns one problem into two. Retention is whichever of the two limits bites
- * first: never more than `keep` dumps, and never more than this many bytes of
- * them.
+ * The other bound. Retention is whichever of the two limits bites first: never
+ * more than `keep` dumps, and never more than this many bytes of them.
  */
 export const DEFAULT_MAX_BYTES = 512 * 1024 * 1024
 
 /**
- * A dump is not attempted when the volume has less than this free. Refusing to
- * start is a better outcome than a half-written dump beside a full disk, and a
- * half-written dump is exactly what an interrupted `pg_dump` leaves.
+ * A dump is not attempted when the volume has less than this free, because a
+ * half-written dump is what an interrupted `pg_dump` leaves.
  */
 export const DEFAULT_MIN_FREE_BYTES = 1024 * 1024 * 1024
 
 /**
- * Every table the catalogue lives in, asked of the catalogue rather than
- * written down here.
+ * Every table the catalogue lives in, asked of the catalogue rather than written
+ * down here, so a table added tomorrow is covered by existing.
  *
- * **This used to be a list of six names and that is the defect it is fixing.**
- * The list was written when the schema had six tables. The remodel has since
- * added thirteen more, and every one of them was dumped by `pg_dump`, which
- * does not read this file, and then not checked by the verification, which did.
- * A restore that lost `book_tag` entirely still printed `RESTORED AND VERIFIED`.
- * Nothing read those tables yet so nothing broke; at the cut-over that inverts,
- * and the verification would be checking the legacy columns while the
- * authoritative data went unchecked.
- *
- * So the coverage is derived, and **a table added tomorrow is covered by
- * existing**. There is nothing here for the next person to remember to update,
- * which is the only property that would have prevented this.
- *
- * Three exclusions, each of which is the query rather than a filter applied
+ * Three exclusions, each of which is in the query rather than a filter applied
  * afterwards:
  *
- * - **`nspname = 'public'`** keeps `drizzle.__drizzle_migrations` out. That is
- *   the migrator's bookkeeping about which files it has run, not the owner's
- *   catalogue, and it lives in its own schema precisely so it can be told
- *   apart. See `infrastructure/db/migrate.ts`.
- * - **`relkind = 'r'`** keeps `shelved_books`, `catalogued_books` and
- *   `queued_books` out. They are views over `books`, so digesting one would
- *   count rows a second time and report a difference in four places whenever
- *   `books` moved in one. It also excludes sequences and indexes, which are
- *   not rows anybody owns.
- * - Partitioned tables (`relkind = 'p'`) are deliberately not matched either.
- *   This schema has none, and if it grows one its partitions are `'r'` and
- *   would be digested individually; matching both would count every row twice.
+ * - `nspname = 'public'` keeps `drizzle.__drizzle_migrations` out. That is the
+ *   migrator's bookkeeping about which files it has run, not the catalogue.
+ * - `relkind = 'r'` keeps `shelved_books`, `catalogued_books` and `queued_books`
+ *   out. They are views over `books`, so digesting one would count rows a second
+ *   time. It also excludes sequences and indexes, which are not rows anybody owns.
+ * - Partitioned tables (`relkind = 'p'`) are deliberately not matched either. A
+ *   partition is itself `'r'` and would be digested individually, so matching both
+ *   would count every row twice.
  */
 export const CATALOGUE_TABLES_SQL =
   `select c.relname as name, quote_ident(c.relname) as sql_name
@@ -102,30 +66,22 @@ export const CATALOGUE_TABLES_SQL =
  * The shelf order, hashed.
  *
  * This is the check that catches what a row count cannot. A count does not move
- * when a collation or an encoding difference does, and the failure a collation
- * difference produces is not an error: it is the same books in a different
- * order, which is to say the app telling somebody to put a book in the wrong
- * place. `books.sort_key` is declared `COLLATE "C"` for that reason (see
- * SORT_KEY_COLUMNS in db.pg.ts) and this is how the declaration is proved to
- * have survived the round trip rather than assumed to have.
+ * when a collation or an encoding difference does, and what a collation
+ * difference produces is the same books in a different order. `books.sort_key` is
+ * declared `COLLATE "C"` for that reason (see SORT_KEY_COLUMNS in db.pg.ts), and
+ * this is how the declaration is proved to have survived the round trip.
  */
 export const SHELF_ORDER_SQL =
   "select md5(string_agg(id::text, ',' order by sort_key, id)) as hash from books"
 
 /**
- * Which table holds the shelf boundaries, on whichever schema the catalogue
- * this run opened turns out to have.
+ * Which table holds the shelf boundaries, on whichever schema the catalogue this
+ * run opened turns out to have.
  *
- * `area` is what `separators` became at #232, and the live catalogue was not
- * on the far side of that migration when #240 found it: master had already
- * dropped `separators` from the schema it assumes, the catalogue had not been
- * migrated yet, and the tool died reading a table that was not there,
- * *after* it had already printed the name of the dump it was about to write.
- *
- * So this is asked of the catalogue, the way `CATALOGUE_TABLES_SQL` already
- * asks it for the table list, rather than assumed from the code's own schema.
- * A catalogue naming neither is not one of the two schemas this tool has ever
- * known, and it says so before anything is written rather than after.
+ * Asked of the catalogue, the way `CATALOGUE_TABLES_SQL` already asks it for the
+ * table list, rather than assumed from the code's own schema. A catalogue naming
+ * neither is not one of the two schemas this tool has ever known, and it says so
+ * before anything is written rather than after.
  */
 export type DividerTable = 'area' | 'separators'
 
@@ -144,19 +100,15 @@ export function chooseDividerTable(tables: readonly string[]): DividerTable {
  * The divider order hash, for whichever of the two boundary tables the
  * catalogue actually has.
  *
- * This is the same check under two names rather than two checks: an area is a
- * separator grown a parent, `area.starts_at` is `separators.starts_at`,
- * `COLLATE "C"` and all, and either is compared against `books.sort_key` to
- * find where a run of shelving begins. An ordering difference too small to
- * change the book list can still be large enough to move one book past a
- * boundary.
+ * Either table's `starts_at` is compared against `books.sort_key` to find where a
+ * run of shelving begins, and an ordering difference too small to change the book
+ * list can still be large enough to move one book past a boundary.
  *
- * `position >= 0` on `area` because a negative position is how an area says
- * it has been retired, and a retired area is not one anybody files against.
- * Leaving those rows out loses no coverage: they are still counted and
- * content-digested with every other row of `area` by the per-table digest
- * below. `separators` predates that idea and has no equivalent: every row in
- * it is live.
+ * `position >= 0` on `area` because a negative position is how an area says it
+ * has been retired, and a retired area is not one anybody files against. Leaving
+ * those rows out loses no coverage: they are still counted and content-digested
+ * by the per-table digest below. `separators` has no equivalent, because every
+ * row in it is live.
  */
 export function dividerOrderSql(table: DividerTable): string {
   if (table === 'area') {
@@ -169,20 +121,15 @@ export function dividerOrderSql(table: DividerTable): string {
 /**
  * Count and content digest for one table, in one statement.
  *
- * The content digest is a digest of the *set* of rows: each row cast to text
- * and hashed, then those hashes concatenated in order of themselves. Two
- * properties follow, and both are on purpose.
- *
- * It is independent of collation and of physical row order, so it does not
- * produce a spurious difference just because `pg_restore` inserted rows in a
- * different sequence, and it does not double up on the check SHELF_ORDER_SQL
- * already makes.
+ * The content digest is a digest of the *set* of rows: each row cast to text and
+ * hashed, then those hashes concatenated in order of themselves. So it is
+ * independent of collation and of physical row order, and does not produce a
+ * spurious difference just because `pg_restore` inserted rows in a different
+ * sequence.
  *
  * It is sensitive to type as well as to value, because `row::text` renders an
- * integer and the string of the same digits differently. That is the failure
- * the stage H verification was built to catch and it is worth catching here
- * too: a value that arrives as the wrong type reads correctly on a page and
- * sorts wrongly.
+ * integer and the string of the same digits differently: a value that arrives as
+ * the wrong type reads correctly on a page and sorts wrongly.
  */
 function tableDigestSql(table: string): string {
   return `select count(*)::text as count,
@@ -200,9 +147,8 @@ export interface CatalogueDigest {
    * content digest either way, so this line is the only thing that would say a
    * whole table did not come back.
    *
-   * **Optional only because a manifest on disk may predate it.** `readDigest`
-   * always fills it in. A manifest written when the six table names were
-   * hard-coded has no such field, and `tablesIn` says what to do about that.
+   * Optional only because a manifest on disk may predate it, and `tablesIn` says
+   * what to do about that. `readDigest` always fills it in.
    */
   tables?: string[]
   /** Row count per table, keyed by table name. */
@@ -214,8 +160,7 @@ export interface CatalogueDigest {
   /** The area order hash. Null when there are no areas still in use. */
   areaOrder: string | null
   /**
-   * Which table `areaOrder` was read from: `area` on the schema since #232,
-   * `separators` on the one before it. Optional for the same reason `tables`
+   * Which table `areaOrder` was read from. Optional for the same reason `tables`
    * is: a manifest written before this was derived predates the field.
    */
   dividerTable?: DividerTable
@@ -241,20 +186,17 @@ export interface CatalogueTable {
 }
 
 /**
- * Every ordinary table the catalogue currently has, read out of `pg_class`
- * rather than assumed.
- *
- * Split out of `readDigest` so a caller can ask it first and know which
- * schema it is talking to, in particular which table the divider order hash
- * has to read, **before** committing to anything a schema mismatch would
- * leave half done.
+ * Every ordinary table the catalogue currently has, read out of `pg_class` rather
+ * than assumed. Split out of `readDigest` so a caller can ask it first and know
+ * which table the divider order hash has to read, before committing to anything a
+ * schema mismatch would leave half done.
  */
 export async function listCatalogueTables(client: Queryable): Promise<CatalogueTable[]> {
   const listing = await client.query(CATALOGUE_TABLES_SQL)
   return listing.rows.map((row) => ({
     name: String(row.name),
     // Quoted by the server, so a table name that needs quoting is spelled the
-    // way Postgres would spell it rather than the way this file guesses.
+    // way Postgres would spell it.
     sql: String(row.sql_name),
   }))
 }
@@ -262,19 +204,17 @@ export async function listCatalogueTables(client: Queryable): Promise<CatalogueT
 /**
  * Read a catalogue's digest.
  *
- * **Every statement here reads.** This runs against the live catalogue on the
- * dump side, so it may not write, and there is nothing in it that could: two
- * catalogue lookups, then a count and a digest per table, then two aggregates.
+ * Every statement here reads. This runs against the live catalogue on the dump
+ * side, so it may not write.
  *
  * The table list is read first and everything else follows from it, so a table
  * that arrived in a migration this file has never heard of is digested anyway,
- * and so is which of `area` or `separators` this catalogue's divider order
- * hash has to read (#240). Read inside the caller's transaction like the rest,
- * so the list describes the same instant the rows do.
+ * and so is which of `area` or `separators` the divider order hash has to read.
+ * It is read inside the caller's transaction like the rest, so the list describes
+ * the same instant the rows do.
  *
- * Pass the client that holds the repeatable-read transaction the dump's
- * snapshot was exported from, and the digest describes the same instant the
- * dump does.
+ * Pass the client that holds the repeatable-read transaction the dump's snapshot
+ * was exported from, and the digest describes the same instant the dump does.
  */
 export async function readDigest(client: Queryable): Promise<CatalogueDigest> {
   const counts: Record<string, number> = {}
@@ -324,12 +264,10 @@ export interface Difference {
  * The tables a digest describes.
  *
  * A manifest written before the coverage was derived has no `tables` and names
- * its six tables only as the keys of `counts`. There is nothing in such a
- * manifest to compare the other thirteen against, so those are left out and
- * `manifestPredatesDerivedTables` is what makes the run say so. Reporting them
- * as missing instead would print thirteen failures for a dump that has every
- * one of them, on a day somebody is already reading this log because something
- * else went wrong.
+ * its tables only as the keys of `counts`. There is nothing in such a manifest to
+ * compare the rest against, so those are left out and
+ * `manifestPredatesDerivedTables` is what makes the run say so, rather than
+ * reporting them as missing for a dump that has every one of them.
  */
 export function tablesIn(digest: CatalogueDigest): string[] {
   return digest.tables ?? Object.keys(digest.counts).sort()
@@ -341,13 +279,10 @@ export function manifestPredatesDerivedTables(digest: CatalogueDigest): boolean 
 }
 
 /**
- * Which tables a comparison is about.
- *
- * The union of the two sides, so a table on one alone is compared rather than
- * skipped, except against an older manifest, which can only speak for the
- * tables it named. Exported so the report prints the same set the comparison
- * used: a row in that table the comparison never looked at is worse than no row
- * at all.
+ * Which tables a comparison is about: the union of the two sides, so a table on
+ * one alone is compared rather than skipped, except against an older manifest,
+ * which can only speak for the tables it named. Exported so the report prints the
+ * same set the comparison used.
  */
 export function tablesCompared(expected: CatalogueDigest, actual: CatalogueDigest): string[] {
   if (manifestPredatesDerivedTables(expected)) return tablesIn(expected)
@@ -357,17 +292,14 @@ export function tablesCompared(expected: CatalogueDigest, actual: CatalogueDiges
 /**
  * Compare a restored catalogue against the manifest taken when it was dumped.
  *
- * An empty array is the only result that means the backup restored. Everything
- * here is a hard difference: `serverVersionNum` is deliberately not compared,
- * because restoring onto a newer server is a legitimate thing to do and is what
- * a real recovery may well have to do.
+ * An empty array is the only result that means the backup restored.
+ * `serverVersionNum` is deliberately not compared, because restoring onto a newer
+ * server is a legitimate thing to do. The collation is compared: a database
+ * restored under a different collation is not the same database, and the
+ * difference is silent everywhere else.
  *
- * The collation *is* compared. A database restored under a different collation
- * is not the same database, and the whole reason `COLLATE "C"` exists on four
- * columns is that the difference is silent everywhere else.
- *
- * **Which tables are compared comes from the two digests**, not from a list
- * here, and it is the union of them so that a table on either side alone is a
+ * Which tables are compared comes from the two digests rather than from a list
+ * here, and it is the union of them, so a table on either side alone is a
  * difference rather than a table nobody looked at.
  */
 export function compareDigests(expected: CatalogueDigest, actual: CatalogueDigest): Difference[] {
@@ -405,7 +337,7 @@ export interface Manifest {
   digest: CatalogueDigest
   /** Size of the dump in bytes, so retention can be planned without stat-ing every file. */
   bytes: number
-  /** How the client tools were run, for when a version question comes up later. */
+  /** How the client tools were run. */
   client: string
   /** Filled in by a verification run, so the last known state of a dump is on disk. */
   verified?: {
@@ -420,11 +352,8 @@ export interface Manifest {
 const NAME_PATTERN = /^bookscan-(\d{8}T\d{6})Z\.dump$/
 
 /**
- * The name of the dump taken at `at`.
- *
- * Sortable, unambiguous, and UTC. Local time would collide with itself for an
- * hour every autumn, which is precisely the sort of detail that turns a
- * retention sweep into a lost backup.
+ * The name of the dump taken at `at`. Sortable, unambiguous, and UTC: local time
+ * would collide with itself for an hour every autumn.
  */
 export function dumpFileName(at: Date): string {
   const iso = at.toISOString()
@@ -439,11 +368,9 @@ export function manifestFileName(dump: string): string {
 
 /**
  * When a dump was taken, read back out of its name, or undefined if the name is
- * not one of ours.
- *
- * Retention sorts on this rather than on a filesystem timestamp, because a
- * copied or restored-from-elsewhere directory has mtimes that say when the
- * files were copied and nothing about when the catalogue was read.
+ * not one of ours. Retention sorts on this rather than on a filesystem timestamp,
+ * because a copied directory has mtimes that say when the files were copied and
+ * nothing about when the catalogue was read.
  */
 export function dumpTimestamp(name: string): Date | undefined {
   const match = NAME_PATTERN.exec(name)
@@ -455,7 +382,6 @@ export function dumpTimestamp(name: string): Date | undefined {
   return Number.isNaN(at.getTime()) ? undefined : at
 }
 
-/** A dump on disk, as retention sees it. */
 export interface DumpFile {
   name: string
   bytes: number
@@ -477,10 +403,8 @@ export interface RetentionPlan {
  * Decide which dumps stay.
  *
  * Two bounds, applied in that order: at most `keep` dumps, then at most
- * `maxBytes` of them. Both are hard. The newest dump is never removed even if
- * it alone exceeds the byte limit, because deleting the only copy of the
- * catalogue to satisfy a disk budget is a worse outcome than every outcome the
- * disk budget exists to prevent. A dump that big is reported instead.
+ * `maxBytes` of them. The newest dump is never removed even if it alone exceeds
+ * the byte limit, and a dump that big is reported instead.
  */
 export function planRetention(files: readonly DumpFile[], limits: RetentionLimits): RetentionPlan {
   const newestFirst = [...files].sort((a, b) => b.takenAt.getTime() - a.takenAt.getTime())
@@ -505,14 +429,13 @@ export function planRetention(files: readonly DumpFile[], limits: RetentionLimit
  * The connection as seen from inside a container, and the password kept out of
  * it.
  *
- * `pg_dump` runs in a `postgres:` container here because the client tools are
- * not installed on the machine. A container cannot reach `127.0.0.1` on the
- * host, so a loopback host has to become `host.docker.internal`, which Docker
- * Desktop provides and which `--add-host` supplies elsewhere.
+ * A container cannot reach `127.0.0.1` on the host, so a loopback host has to
+ * become `host.docker.internal`, which Docker Desktop provides and which
+ * `--add-host` supplies elsewhere.
  *
- * The password comes back separately rather than in the URL because the URL
- * goes in the `docker run` argument list, where anything with a process listing
- * can read it. It is passed through the environment instead, by name only
+ * The password comes back separately rather than in the URL because the URL goes
+ * in the `docker run` argument list, where anything with a process listing can
+ * read it. It is passed through the environment instead, by name only
  * (`docker run -e PGPASSWORD`), so it never appears in an argument vector.
  */
 export function containerConnection(value: string): { url: string; password: string } {
@@ -561,12 +484,8 @@ export function describeSource(value: string): string {
 
 /**
  * The major version an image tag names, or undefined if it does not name one.
- *
- * Used to refuse a client older than the server before a dump is attempted
- * rather than after. `pg_dump` does report this itself, but it reports it as
- * `aborting because of server version mismatch` after the scheduled task has
- * already been running for a week, and the point of this check is that the
- * refusal names the fix.
+ * Used to refuse a client older than the server before a dump is attempted rather
+ * than after, with a refusal that names the fix.
  */
 export function imageMajor(image: string): number | undefined {
   const tag = image.includes(':') ? image.slice(image.lastIndexOf(':') + 1) : ''
@@ -580,7 +499,6 @@ export function serverMajor(versionNum: number): number {
   return Math.floor(versionNum / 10000)
 }
 
-/** Bytes, for a human, in the report. */
 export function humanBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   const units = ['KiB', 'MiB', 'GiB', 'TiB']
@@ -594,12 +512,9 @@ export function humanBytes(bytes: number): string {
 }
 
 /**
- * A scratch database name that nothing else will pick.
- *
- * Named so it is obvious in a `\l` what it is and that it is disposable, and
- * random so two verifications on one server cannot collide. The verification
- * drops it; the name is what tells an operator who finds one left behind after
- * a crash that dropping it is safe.
+ * A scratch database name that nothing else will pick. Random so two
+ * verifications on one server cannot collide, and named so an operator who finds
+ * one left behind after a crash can see that dropping it is safe.
  */
 export function scratchDatabaseName(suffix: string): string {
   return `bookscan_verify_${suffix}`

@@ -1,22 +1,4 @@
-/**
- * The things that are only true of Postgres, and that no SQLite test can say
- * anything about.
- *
- * The four store-level test files carry the weight of stage F: they run
- * unchanged against both databases, so anything the migration broke shows up
- * as one of the assertions that already guarded SQLite. What is left is what
- * those files cannot see, and all of it is a silent failure rather than a loud
- * one:
- *
- *   - the collation, which reorders a shelf without erroring
- *   - a transaction that is not pinned to one connection, which Postgres
- *     accepts and which passes on a quiet machine
- *   - the parameters with nothing to take a type from, which stage E cast and
- *     could not check
- *   - the aggregates that come back as strings, which render identically
- *
- * Runs only in the `postgres` project. See vitest.config.ts.
- */
+// Runs only in the `postgres` project. See vitest.config.ts.
 
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeTestDatabase, openTestDatabase } from './testdb'
@@ -36,22 +18,11 @@ beforeEach(async () => {
 
 afterAll(closeTestDatabase)
 
-// ---------------------------------------------------------------------------
-// The connection string, which is not the shape the plan assumed.
-// ---------------------------------------------------------------------------
-
 describe('reading the connection Aspire hands over', () => {
   /**
-   * Copied from a real run, with the password replaced. Obtained with:
-   *
-   *     aspire start --non-interactive && aspire describe --format Json
-   *
-   * That is the whole reason this test exists. The plan said the connection
-   * "arrives as ConnectionStrings__bookscan ... read it the way PORT is read",
-   * which is true of getting it and not of using it: it is ADO.NET keywords,
-   * not a URL, because Aspire produces connection strings for .NET clients.
-   * node-postgres reads only the URL form and would have taken this entire
-   * string as a hostname.
+   * A connection string as Aspire actually produces it: ADO.NET keyword form,
+   * not a URL. node-postgres reads only the URL form and would have taken
+   * this entire string as a hostname.
    */
   const FROM_ASPIRE =
     'Host=localhost;Port=65156;Username=postgres;Password=-sSjngFS4p9gcuDZJPMHFV;Database=bookscan'
@@ -92,10 +63,6 @@ describe('reading the connection Aspire hands over', () => {
   })
 })
 
-// ---------------------------------------------------------------------------
-// Collation. Risk 1 in docs/postgres-migration.md, and the biggest.
-// ---------------------------------------------------------------------------
-
 /**
  * The fixture from store.test.ts, "text ordering, which every shelf depends
  * on". Same books, deliberately: the sort keys these produce are the real
@@ -119,12 +86,10 @@ const byBytes = (keys: string[]) =>
 
 describe('collation, which the entire shelving order rests on', () => {
   it('is not running on a byte-order database, or the checks below prove nothing', async () => {
-    // The guard on everything else in this file. A cluster created with a
-    // `C` or `C.UTF-8` collation orders every column byte by byte whatever the
-    // column says, so `COLLATE "C"` could be deleted from the schema and every
-    // test here would stay green until a managed Postgres handed the app a
-    // linguistic collation. testdb.ts creates its databases with `en_US.utf8`
-    // for exactly this reason, and this is the assertion that it worked.
+    // The guard on everything else in this file: without a linguistic
+    // collation, `COLLATE "C"` could be deleted from the schema and every
+    // test here would stay green. testdb.ts creates its databases with
+    // `en_US.utf8` for exactly this reason.
     const row = await db.get<{ datcollate: string }>(
       'SELECT datcollate FROM pg_database WHERE datname = current_database()',
     )
@@ -159,10 +124,9 @@ describe('collation, which the entire shelving order rests on', () => {
   })
 
   it('orders these very keys differently without COLLATE "C", which is the point of it', async () => {
-    // The confirmation the plan asks for: a test that has only ever passed
-    // proves nothing, so here is the same fixture in a column that took the
-    // database's own collation. If this ever stops finding a difference, the
-    // database is not the one described above and the checks here are hollow.
+    // A negative control: the same fixture read through the database's own
+    // collation. If this ever stops finding a difference, the database is not
+    // the one described above and the checks here are hollow.
     for (const book of FIXTURE) await store.addBook(book)
     const keys = (await store.listRange('fiction')).map((row) => row.sort_key)
 
@@ -176,9 +140,9 @@ describe('collation, which the entire shelving order rests on', () => {
 
     expect(linguistic).not.toEqual(byBytes(keys))
 
-    // And specifically the pair the fixture was chosen for. A collation that
-    // ignores the separator compares SMITHZOE against SMITHERSED and puts
-    // Smithers first, which is a real book on a real shelf in the wrong place.
+    // The pair the fixture was chosen for: a collation that ignores the
+    // separator compares SMITHZOE against SMITHERSED and puts Smithers first,
+    // a real book on the wrong shelf position.
     const surname = (key: string) => key.split(String.fromCharCode(31))[0]!
     expect(linguistic.map(surname).indexOf('SMITHERS ED'))
       .toBeLessThan(linguistic.map(surname).indexOf('SMITH ZOE'))
@@ -188,22 +152,17 @@ describe('collation, which the entire shelving order rests on', () => {
 
   it('decides which books are past an area anchor by bytes, which is where a plank begins', async () => {
     /*
-     * `area.starts_at` is the fourth column in SORT_KEY_COLUMNS and since #232 it
-     * is the only one a plank's beginning is written in: `separators.starts_at`
-     * held the same anchor until the table went. The declaration is read out of
-     * the catalogue above, and this is what the declaration is for. A plank is
-     * every book from its anchor to the next one, so the comparison below is the
-     * question "which books are on this shelf", and under a linguistic collation
-     * it does not fail. It answers with one more book than it should, which is a
-     * real book drawn on the wrong plank of a diagram somebody is holding.
+     * A plank is every book from its anchor to the next one. Under a
+     * linguistic collation the comparison below does not fail outright: it
+     * answers with one book too many, a real book drawn on the wrong plank of
+     * a diagram somebody is holding.
      */
     for (const book of FIXTURE) await store.addBook(book)
     const keys = (await store.listRange('fiction')).map((row) => row.sort_key)
     const anchor = keys.find((key) => key.startsWith('SMITHERS ED'))!
 
-    // An area hangs on a fixture, and a fixture cannot hold two areas at one
-    // position, so the plank the run opens on and the plank this anchors are
-    // positions 0 and 1 of a bookcase built for this test.
+    // A fixture cannot hold two areas at one position, so this uses positions
+    // 0 and 1 of a bookcase built for the test.
     const fixture = await db.get<{ id: number }>(
       `INSERT INTO fixture (collection_id, kind, name, position, sort_strategy, note)
        SELECT id, 'bookshelf', '', 9002, 'inherit', '' FROM collection ORDER BY id LIMIT 1
@@ -216,11 +175,9 @@ describe('collation, which the entire shelving order rests on', () => {
       [fixture!.id, fixture!.id, anchor],
     )
 
-    // The anchor compared against the sort key, which is the comparison the whole
-    // model rests on, made twice: once as the two columns declare themselves and
-    // once as the database would have compared them. The first spells no
-    // collation on purpose, so it reads the declaration rather than restating it
-    // and a column that lost `COLLATE "C"` shows up here as well as above.
+    // Compared twice: once as the columns declare themselves (no collation
+    // named, on purpose, so a column that lost COLLATE "C" shows up here too)
+    // and once forcing the database's own collation.
     const pastTheAnchor = async (collation = '') => (await db.all<{ sort_key: string }>(
       `SELECT b.sort_key FROM shelved_books b
          JOIN area a ON a.fixture_id = ? AND a.position = 1
@@ -235,19 +192,17 @@ describe('collation, which the entire shelving order rests on', () => {
     const linguistic = await pastTheAnchor('COLLATE "default"')
     expect(linguistic).not.toEqual(byteOrder)
 
-    // And the book the difference is: Smith, Zoe files before Smithers, Ed by
-    // bytes and after her by a collation that ignores the separator, so she is
-    // either on this plank or on the one before it.
+    // Smith, Zoe files before Smithers, Ed by bytes, but after her under a
+    // collation that ignores the separator.
     const smithZoe = (found: string[]) => found.some((key) => key.startsWith('SMITH ZOE'))
     expect(smithZoe(byteOrder)).toBe(false)
     expect(smithZoe(linguistic)).toBe(true)
   })
 
   it('seeks the same neighbours through < and > as it orders by', async () => {
-    // Placement does not sort, it seeks either side of a key with two
-    // inequalities. An index or a comparison under a different collation from
-    // the ORDER BY would answer the two questions inconsistently, and only the
-    // placement half is what tells somebody where to put the book.
+    // Placement seeks either side of a key with two inequalities rather than
+    // sorting; a comparison under a different collation from the ORDER BY
+    // would answer the two questions inconsistently.
     for (const book of FIXTURE) await store.addBook(book)
 
     const shelf = await store.listRange('fiction')
@@ -260,10 +215,6 @@ describe('collation, which the entire shelving order rests on', () => {
     expect(successor?.title).toBe('Alpha') // Smithers, after Smith
   })
 })
-
-// ---------------------------------------------------------------------------
-// Transactions, and the connection they are pinned to.
-// ---------------------------------------------------------------------------
 
 describe('a transaction is pinned to one connection', () => {
   const pid = async (handle: Db) =>
@@ -278,11 +229,10 @@ describe('a transaction is pinned to one connection', () => {
     handle.run('INSERT INTO author_filing (display_key, filing_name) VALUES (?, ?)', [key, key])
 
   it('runs every statement in the work on one backend, and not on the pool', async () => {
-    // The direct measurement. A pool hands out whichever connection is free,
-    // so an implementation that took one per statement would send BEGIN to one
-    // backend and the INSERT to another. Postgres accepts all of it, the
-    // rollback undoes nothing, and on a quiet machine the pool hands back the
-    // same idle connection every time and nothing ever notices.
+    // A pool hands out whichever connection is free, so an implementation
+    // that took one connection per statement would send BEGIN to one backend
+    // and the INSERT to another; Postgres accepts it silently, and a quiet
+    // machine might hand back the same idle connection every time.
     const inside: number[] = []
     let begun = () => {}
     const hasBegun = new Promise<void>((resolve) => { begun = resolve })
@@ -291,19 +241,18 @@ describe('a transaction is pinned to one connection', () => {
 
     const open = db.tx(async (tx) => {
       inside.push(await pid(tx))
-      // Through the handle the class holds, not the one tx was given.
-      // Shelves.moveAcrossBoundary does exactly this.
+      // Through the handle the class holds, not the one tx was given, as
+      // Shelves.moveAcrossBoundary does.
       inside.push(await pid(db))
       begun()
       await held
       inside.push(await pid(tx))
     })
 
-    // Measured from this test's async context rather than from inside the
-    // work, which is the difference that matters. Anything scheduled inside the
-    // work, a setImmediate or a promise chain, inherits the AsyncLocalStorage
-    // and so belongs to the transaction, correctly: it is the transaction's own
-    // continuation. An unrelated request is one that never entered it.
+    // Measured from this test's own async context, not from inside the work:
+    // anything scheduled inside the work inherits the AsyncLocalStorage and
+    // belongs to the transaction, so only code that never entered it counts
+    // as unrelated.
     await hasBegun
     const outside = await pid(db)
     release()
@@ -315,9 +264,8 @@ describe('a transaction is pinned to one connection', () => {
   })
 
   it('rolls its own writes back and leaves an unrelated one alone', async () => {
-    // The same fact without reading a pid, and the reason the pid matters. An
-    // unpinned insert would be its own autocommitted transaction on another
-    // connection, so it would survive this rollback.
+    // An unpinned insert would be its own autocommitted transaction on
+    // another connection, so it would survive this rollback.
     let release = () => {}
     const held = new Promise<void>((resolve) => { release = resolve })
 
@@ -336,10 +284,9 @@ describe('a transaction is pinned to one connection', () => {
   })
 
   it('does not need SqliteDb\'s lock: the unrelated statement does not wait', async () => {
-    // The behaviour that is genuinely different, and the reason for moving.
     // SqliteDb has one connection, so everything queues behind an open
-    // transaction. Here the outside write completes while the transaction is
-    // still open, which is what "accepts concurrent connections" buys.
+    // transaction; here the outside write completes while the transaction is
+    // still open.
     let release = () => {}
     const held = new Promise<void>((resolve) => { release = resolve })
     let outsideFinished = false
@@ -382,9 +329,9 @@ describe('a transaction is pinned to one connection', () => {
   })
 
   it('nests through the handle the store holds, not only the one it was handed', async () => {
-    // Shelves.moveAcrossBoundary opens a transaction and calls `remove`, which
-    // opens one of its own against `this.db`. A nested BEGIN would be a warning
-    // and a no-op here, so the inner rollback would take the outer one's work.
+    // A nested BEGIN is a warning and a no-op here, so the inner rollback
+    // would take the outer one's work with it, as it would for
+    // Shelves.moveAcrossBoundary calling remove against `this.db`.
     await db.tx(async () => {
       await write(db, 'outer')
       await db.tx(async () => { await write(db, 'inner') })
@@ -411,8 +358,6 @@ describe('a transaction is pinned to one connection', () => {
   })
 
   it('gives the connection back whether the work commits or throws', async () => {
-    // A leak here costs the process one of ten. Twenty transactions, half of
-    // them failing, and the twenty-first still runs.
     for (let i = 0; i < 20; i += 1) {
       if (i % 2 === 0) {
         await db.tx(async (tx) => { await write(tx, `k${i}`) })
@@ -427,27 +372,17 @@ describe('a transaction is pinned to one connection', () => {
   })
 })
 
-// ---------------------------------------------------------------------------
-// The parameters stage E cast and could not check, and the aggregates.
-// ---------------------------------------------------------------------------
-
 describe('the parameters with nothing to take a type from', () => {
   /**
-   * All four statements as the stores spell them, plus the fifth shape stage E
-   * deliberately left alone. Every one of these is a candidate for
-   * "could not determine data type of parameter", and none of them could be
-   * checked before this stage because there was no Postgres to check against.
-   *
-   * The stores run these through the parameterised suite as well. They are
-   * repeated here so a failure names the statement rather than the feature.
+   * Each of these could fail with "could not determine data type of
+   * parameter". Repeated here, on top of the parameterised suite, so a
+   * failure names the statement rather than the feature.
    */
   it('writeBoundaries: an anchor compared with IS DISTINCT FROM an untyped parameter', async () => {
-    // `Store.updateBook`'s `NULLIF(CAST(@location AS TEXT), '')` was here until
-    // #232 dropped `books.location`. This is the statement that inherited the
-    // shape: `recordAreasOf` writes an anchor only when it differs from the one
-    // already there, so the parameter appears twice, once being assigned to a
-    // `text COLLATE "C"` column and once compared against it, and the comparison
-    // is the half with nothing to take a type from.
+    // `recordAreasOf` writes an anchor only when it differs from the one
+    // already there, so the parameter appears twice: once assigned to a
+    // `text COLLATE "C"` column and once compared against it, and the
+    // comparison is the half with nothing to take a type from.
     const fixture = await db.get<{ id: number }>(
       `INSERT INTO fixture (collection_id, kind, name, position, sort_strategy, note)
        SELECT id, 'bookshelf', '', 9001, 'inherit', '' FROM collection ORDER BY id LIMIT 1
@@ -509,10 +444,9 @@ describe('the parameters with nothing to take a type from', () => {
   })
 
   it("CaptureQueue.attach: a parameter concatenated with two string literals", async () => {
-    // The shape stage E refused to guess at: `',' || @slot || ','` is a
-    // parameter between two literals, all three of them untyped. Postgres
-    // resolves an operator whose inputs are all unknown as text, so this runs
-    // as written and the statement was left as it was.
+    // `',' || @slot || ','` concatenates a parameter between two literals,
+    // all three untyped; Postgres resolves an operator whose inputs are all
+    // unknown as text, so this runs as written.
     await db.run(
       "INSERT INTO captures (status, analysed, created_at) VALUES ('pending', 'back,front', ?)",
       [new Date().toISOString()],
@@ -525,9 +459,6 @@ describe('the parameters with nothing to take a type from', () => {
       { slot: 'front', id: 1 },
     )).resolves.toEqual({ changes: 1 })
 
-    // The list, and nothing either side of it. It came back as ",back," until
-    // #431: the separators the match is made exact with were left on the ends,
-    // so every retake wrote a list with an empty entry at each end of it.
     const row = await db.get<{ analysed: string }>('SELECT analysed FROM captures WHERE id = ?', [1])
     expect(row!.analysed).toBe('back')
   })
@@ -545,10 +476,10 @@ describe('aggregates, which come back as strings without a cast', () => {
   })
 
   it('hands back a string without the cast, which is why the cast is there', async () => {
-    // Not hypothetical and not cosmetic. COUNT returns bigint, node-postgres
-    // will not narrow a bigint to a JavaScript number because it does not fit,
-    // and /api/health and every save response carry these. A total of "57"
-    // renders identically and fails every piece of arithmetic downstream.
+    // COUNT returns bigint, and node-postgres will not narrow a bigint to a
+    // JavaScript number because it does not fit. /api/health and every save
+    // response carry these, and a total of "57" renders identically while
+    // failing every piece of arithmetic downstream.
     await store.addBook({ title: 'A', authors: ['Ann Author'], genre: FICTION_SLUG })
     const row = await db.get<{ n: unknown }>('SELECT COUNT(*) AS n FROM books')
 
@@ -557,25 +488,21 @@ describe('aggregates, which come back as strings without a cast', () => {
 })
 
 /**
- * The lock that makes a read-then-write sequence the only one in flight.
- *
- * A transaction alone does not do this on Postgres, which is the fact stage G
- * had to unpick and the reason `TxOptions.serialiseOn` exists at all: READ
- * COMMITTED gives every statement its own snapshot, so a SELECT and the INSERT
- * decided from it can still have somebody else's row appear between them. The
- * first test below is the negative control for that sentence, and it is not
- * decoration: without it, a suite in which everything happened to be
- * serialised by something else would read as proof that the lock works.
+ * A transaction alone does not serialise a read-then-write sequence on
+ * Postgres: READ COMMITTED gives every statement its own snapshot, so a
+ * SELECT and the INSERT decided from it can still have somebody else's row
+ * appear between them. This is why `TxOptions.serialiseOn` exists. The first
+ * test below is a negative control: without it, a suite where everything
+ * happened to be serialised by something else would look like proof the lock
+ * works.
  */
 describe('serialising a transaction against another one', () => {
   /**
-   * How long to go on asking before giving up and saying so.
-   *
-   * Not the bound the answer is decided by. The answer is decided by one of two
-   * observable facts below, whichever appears; this is only how long to wait for
-   * one of them to appear before concluding that neither ever will and failing
-   * loudly. Comfortably under vitest's twenty second `testTimeout`, so the
-   * message below is what gets printed rather than "test timed out".
+   * Not the bound the answer is decided by: the answer comes from one of two
+   * observable facts below, whichever appears first. This is only how long
+   * to wait before concluding neither will and failing loudly. Kept
+   * comfortably under vitest's twenty second `testTimeout`, so this message
+   * is what prints rather than "test timed out".
    */
   const NEITHER_FACT_YET_MS = 10_000
 
@@ -587,25 +514,14 @@ describe('serialising a transaction against another one', () => {
   /**
    * Whether Postgres is holding a transaction back on an advisory lock.
    *
-   * This is the fact the probe is written against, and it is a fact about the
-   * lock rather than about how fast the machine is. A backend blocked inside
-   * `pg_advisory_xact_lock` has a `pg_locks` row with `granted` false, and that
-   * row exists for exactly as long as the wait does. Nothing here is timed.
+   * A backend blocked inside `pg_advisory_xact_lock` has a `pg_locks` row
+   * with `granted` false, for exactly as long as the wait does; nothing here
+   * is timed.
    *
-   * It replaced a bound that was about the machine: five sequential round trips
-   * to the server, on the reasoning that a transaction which is not blocked has
-   * answered within them. That is true on an idle machine and untrue on a
-   * loaded one, which is why `does not make an unrelated name wait` failed twice
-   * in CI on changes that go nowhere near a lock (#261). A count of round trips
-   * cannot tell "it is waiting" from "it has not got there yet"; this can,
-   * because Postgres writes the difference down.
-   *
-   * Scoped to this file's own database, which `openTestDatabase` creates fresh
-   * per test. `pg_locks` is cluster wide and this suite runs many files against
-   * one server, so without the filter another worker's lock would answer the
-   * question. Within that database the only advisory locks are the ones these
-   * tests take, and the holding transaction is provably granted before the
-   * probing one starts, so an ungranted row is the probe and nothing else.
+   * Scoped to this file's own database, which `openTestDatabase` creates
+   * fresh per test: `pg_locks` is cluster wide and this suite runs many
+   * files against one server in parallel, so without the filter another
+   * worker's lock would answer the question.
    */
   const blockedOnAnAdvisoryLock = async (): Promise<boolean> => {
     const row = await db.get<{ waiting: boolean }>(
@@ -620,14 +536,8 @@ describe('serialising a transaction against another one', () => {
   }
 
   /**
-   * Ask until one of the two outcomes has happened, and answer which.
-   *
-   * The two are exhaustive for a transaction that has been started: it either
-   * ran, or it is queued behind a lock. Waiting for either is what makes this
-   * bound about the lock. There is no number of round trips, no sleep before
-   * deciding, and no arrangement where a slow machine turns "it ran late" into
-   * "it waited": running late still returns true, it just takes longer to say
-   * so.
+   * Ask until one of two exhaustive outcomes has happened: the transaction
+   * ran, or it is queued behind a lock.
    *
    * `ran` is checked first on each pass, because a probe that acquired and
    * finished leaves no `pg_locks` row behind to find.
@@ -653,24 +563,22 @@ describe('serialising a transaction against another one', () => {
   }
 
   /**
-   * Make the pool hold more than one connection before anything is held open.
-   *
-   * Not optional and not a speed-up. A pool with one connection serialises
-   * everything by starvation, so every test here would report "the second
-   * transaction waited" whatever the lock did, and the whole file would pass
-   * while proving nothing. It cost a round of exactly that before it was added.
+   * Not a speed-up: a pool with one connection serialises everything by
+   * starvation, so every test here would report the second transaction
+   * waited regardless of the lock, and the whole file would pass while
+   * proving nothing.
    */
   const warmTheConnections = () =>
     Promise.all([db.get('SELECT 1'), db.get('SELECT 1'), db.get('SELECT 1'), db.get('SELECT 1')])
 
   /**
-   * Hold one transaction open, start another alongside it, and answer whether
-   * the second got through while the first was still open.
+   * Hold one transaction open, start another alongside it, and answer
+   * whether the second got through while the first was still open.
    *
-   * The first transaction is released in a `finally` whatever an assertion did,
-   * because a held transaction that outlives its test takes a connection with
-   * it and every test after this one then fails for a reason that is not its
-   * own.
+   * The first transaction is released in a `finally` regardless of what the
+   * assertion did: a held transaction that outlives its test takes a
+   * connection with it, and every test after this one then fails for a
+   * reason that is not its own.
    */
   async function ranAlongside(
     holding: TxOptions | undefined,
@@ -685,13 +593,9 @@ describe('serialising a transaction against another one', () => {
     let through = false
 
     const first = db.tx(async () => { holdingNow(); await held }, holding)
-    // Awaited before the second one starts, and this too is an observable fact
-    // rather than a wait: `tx` takes the lock as the first statement inside
-    // BEGIN and only then runs the work, so a body that has begun is a
-    // transaction that is open and already holding whatever it named. The
-    // previous spelling waited five round trips for the same thing, and got it
-    // wrong in the same direction under load, with the second transaction
-    // reaching the lock first.
+    // An observable fact, not a wait: `tx` takes the lock as the first
+    // statement inside BEGIN and only then runs the work, so a body that has
+    // begun is a transaction already holding whatever it named.
     await inside
 
     const second = db.tx(async () => { through = true }, probing)
@@ -739,10 +643,10 @@ describe('serialising a transaction against another one', () => {
   })
 
   it('releases the lock when the transaction rolls back, not when the code says so', async () => {
-    // The reason it is pg_advisory_xact_lock and not the session-scoped
-    // spelling. A lock released by a `finally` block outlives a crash, and on a
-    // pool it outlives it on a connection handed to the next request, which
-    // then blocks forever on something it never asked for.
+    // This is why it is pg_advisory_xact_lock and not the session-scoped
+    // spelling: a session lock outlives a crash on a pooled connection, so
+    // the next request to get that connection would block forever on
+    // something it never asked for.
     await expect(
       db.tx(async () => { throw new Error('no') }, { serialiseOn: 'shelf:fiction' }),
     ).rejects.toThrow('no')
@@ -753,9 +657,9 @@ describe('serialising a transaction against another one', () => {
   })
 
   it('lets a nested transaction re-take a lock its outer one already holds', async () => {
-    // Shelves.moveAcrossBoundary calls Shelves.remove and both name the range.
-    // Advisory locks count per transaction rather than blocking, which is what
-    // makes that a savepoint rather than a deadlock against itself.
+    // Advisory locks count per transaction rather than blocking, which is
+    // what lets Shelves.moveAcrossBoundary call Shelves.remove, both naming
+    // the same range, without deadlocking against itself.
     await expect(db.tx(
       async () => db.tx(async () => 'nested', { serialiseOn: 'shelf:fiction' }),
       { serialiseOn: 'shelf:fiction' },

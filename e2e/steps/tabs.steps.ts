@@ -1,23 +1,14 @@
 /**
  * Where the four places are, which is a question only a browser can answer.
  *
- * `.wf-tabs` is one line of CSS and a `<nav>` of four buttons, and the markup
- * is the same markup whether the bar is against the bottom of the glass or
- * halfway up the phone. `renderToStaticMarkup` has no layout and no scroll
- * position, so nothing under `web/src` can tell the two apart; #393 found the
- * same thing about the corner sheet. So this drives a real page, scrolls it,
- * and reads boxes.
+ * `renderToStaticMarkup` has no layout and no scroll position, so nothing
+ * under `web/src` can tell a stuck bar from a floating one. So this drives a
+ * real page, scrolls it, and reads boxes.
  *
- * Two things are asked of every screen here, because the fix has two halves and
- * either one alone is a different defect.
- *
- * **Where the bar is.** Its bottom edge is the bottom edge of the glass, at
- * every scroll position rather than only at the top of the page.
- *
- * **What it covers.** A bar taken out of the flow reserves no room, so the last
- * thing on the screen would end up underneath it and the change would trade a
- * floating tab bar for a button nobody can press. Nothing drawn in the body of
- * the screen may reach the top edge of the bar.
+ * Two things are asked of every screen: where the bar is (its bottom edge
+ * should be the bottom edge of the glass, at every scroll position) and what
+ * it covers (nothing drawn in the body may reach its top edge, since a bar
+ * taken out of the flow reserves no room).
  */
 
 import { expect, type Page } from '@playwright/test'
@@ -38,10 +29,10 @@ async function offTheGlass(page: Page): Promise<number> {
 
 When('I scroll to the bottom of the screen', async ({ page }) => {
   /*
-   * A page that does not scroll cannot come unstuck, so a scenario that ends up
-   * on one has quietly stopped asking anything. It is waited for rather than
-   * asserted outright because a screen full of books is only full once the
-   * books have arrived, and the tab is drawn before they have.
+   * A page that does not scroll cannot come unstuck, so a scenario that ends
+   * up on one has quietly stopped asking anything. Polled rather than
+   * asserted outright: a screen full of books is only full once they have
+   * arrived, and the tab is drawn before they have.
    */
   await expect
     .poll(
@@ -59,15 +50,9 @@ When('I scroll to the bottom of the screen', async ({ page }) => {
 })
 
 /**
- * The whole of the complaint, in one number.
- *
- * > Whenever I scroll down, the bar at the bottom with Today, Library, Scan and
- * > Queue ends up scrolling up a bit for some reason, so it ends up in the
- * > middle of the screen, which is not ideal.
- *
- * Zero, and nothing else. Not "near the bottom": the bar was 47px up the phone
- * when this was reported, which is small enough that a tolerance written to be
- * safe would have accepted the defect.
+ * The whole of the complaint, in one number: zero, and nothing else. A
+ * tolerance written to feel safe would still accept a bar that has come
+ * unstuck.
  */
 Then('the four places should be against the bottom of the glass', async ({ page }) => {
   const off = await offTheGlass(page)
@@ -103,11 +88,10 @@ Then('nothing on the screen should be hidden behind them', async ({ page }) => {
 /**
  * The gallery, which is where this was seen and the only place it happens.
  *
- * The wireframe draws its way on to the next screen after the screen, inside
- * the same scroller, and that is exactly the shape that took the bar off the
- * glass: a sticky box stops sticking where its containing block ends. The
- * working app draws nothing after a screen today, so a scenario written only
- * against the app would have passed on the broken revision.
+ * The wireframe draws its way on to the next screen inside the same scroller,
+ * which is the shape that takes a sticky bar off the glass: a sticky box stops
+ * sticking where its containing block ends. The working app does not draw
+ * this shape today, so a scenario written only against it would miss the bug.
  */
 When('I open the wireframe of the library', async ({ page, webUrl }) => {
   await openTheApp(page, `${webUrl}#/design/library`, page.locator('.wf-next'))
@@ -127,14 +111,11 @@ Then('the way on to the next screen should be above them', async ({ page }) => {
 })
 
 /**
- * The trap #412 laid, checked rather than reasoned about.
- *
- * A `transform` on an ancestor makes a `fixed` descendant position against that
- * ancestor instead of against the viewport, and the cat lies across the first
- * screen with two animated transforms in him. He is not an ancestor of the tab
- * bar, so this should hold; the point is that "should" is the word that made it
- * worth watching. Longer than his slowest cycle, for the reason the cat's own
- * scenarios give: he rests for about half of eleven seconds.
+ * A `transform` on an ancestor makes a `fixed` descendant position against
+ * that ancestor instead of the viewport. The cat, which animates two
+ * transforms across the first screen, is not an ancestor of the tab bar, so
+ * this should hold regardless. Watched for longer than his slowest cycle: he
+ * rests for about half of eleven seconds.
  */
 Then(
   'the four places should stay against the bottom of the glass for {int} seconds',
