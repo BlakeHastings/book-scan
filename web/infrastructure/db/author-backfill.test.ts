@@ -1,21 +1,15 @@
 /**
- * The migration that turns `book_authors` into authors, aliases and credits,
- * run on a database in the state the owner's catalogue is actually in.
+ * The migration that turns `book_authors` into authors, aliases and
+ * credits, run on a database in the state the owner's catalogue is
+ * actually in: built by `applySchema` and never migrated, so a run here
+ * adopts the baseline and then applies every migration after it.
  *
- * That state is specific, and it is why this file exists rather than a paragraph
- * in a pull request. The live catalogue was built by `applySchema` during stage
- * H, so a run there **adopts** the baseline and then applies every migration
- * after it. That is what is done below, on a database seeded here, and the
- * counts asserted are the ones a real run would report.
+ * The claim this file exists for above all others: no book moves. The
+ * shelf order is hashed the way `server/backup.ts` hashes it, before and
+ * after, and the two are compared.
  *
- * The claim this file exists for above all others: **no book moves.** The shelf
- * order is hashed the way `server/backup.ts` hashes it, before and after, and
- * the two are compared. A count does not move when an ordering does, and an
- * ordering that moves is the app telling somebody to put a book in the wrong
- * place.
- *
- * Nothing in this file, or in the migration it exercises, connects to anything
- * but a scratch database this test made.
+ * Nothing in this file, or in the migration it exercises, connects to
+ * anything but a scratch database this test made.
  */
 
 import pg from 'pg'
@@ -41,21 +35,17 @@ interface Seed {
 }
 
 /**
- * A database with the pre-Drizzle schema and some books in it.
+ * A database with the pre-Drizzle schema and some books in it. Uses
+ * `SCHEMA` rather than `applySchema`, which runs the migrations itself and
+ * would hand back a database that had already had this one.
  *
- * `SCHEMA` rather than `applySchema`, which runs the migrations itself and would
- * hand back a database that had already had this one. `SCHEMA` is the fixed
- * point the baseline is proved against, and it is what stage H left on the live
- * catalogue.
+ * The filing name and the sort key are computed here by the same
+ * functions the server computes them with, so the rows are the rows the
+ * app would have written rather than fixtures that happen to look like them.
  *
- * The filing name and the sort key are computed here by the same functions the
- * server computes them with, so the rows are the rows the app would have
- * written rather than fixtures that happen to look like them.
- *
- * Two statements however many books, and ids supplied rather than generated.
- * A round trip per row is what it was, and against a container shared by a dozen
- * test files that is enough to blow through vitest's five second default while
- * proving nothing extra.
+ * Two statements however many books, and ids supplied rather than
+ * generated: a round trip per row is enough to blow through vitest's five
+ * second default against a container shared by a dozen test files.
  */
 async function catalogueOf(books: Seed[]): Promise<pg.Pool> {
   const pool = await scratchDatabase()
@@ -142,20 +132,19 @@ describe('book_authors becoming authors and aliases', () => {
       { title: 'The Talisman', authors: ['Stephen King', 'Peter Straub'] },
     ])
 
-    // Adopted, because this database has the baseline tables and has never been
-    // migrated. That is the path the real catalogue would take.
+    // Adopted: this database has the baseline tables and has never been migrated.
     expect(await migrateToLatest(pool)).toBe('adopted')
 
-    // Four names, four authors. Banks and Banks M are one person and this
-    // migration deliberately does not know that: see the migration's own note.
+    // Banks and Banks M are one person, and this migration deliberately
+    // does not know that; see the migration's own note.
     expect(await aliasesOf(pool)).toEqual([
       'Iain Banks | Banks, Iain | 0 | 1',
       'Iain M. Banks | Banks, Iain M. | 0 | 1',
       'Peter Straub | Peter Straub | 0 | 1',
       'Stephen King | King, Stephen | 0 | 1',
     ])
-    // Peter Straub is never first-listed, so no filing name was ever computed
-    // for him and the printed name stands. Which authors those are is on the row.
+    // Peter Straub is never first-listed, so no filing name was ever
+    // computed for him and the printed name stands.
     const unfiled = await pool.query<{ note: string }>(
       `SELECT a.note FROM author a JOIN author_alias al ON al.author_id = a.id
         WHERE al.display_name = 'Peter Straub'`,
@@ -164,24 +153,18 @@ describe('book_authors becoming authors and aliases', () => {
   })
 
   it('does not carry an empty stored filing name in as data', async () => {
-    // Issue #195: `Store.filingFor` used to skip the heuristic when a name
-    // normalised to nothing, which every name written entirely in a non-Latin
-    // script did, so the book was saved with author_filing = ''. Copying that
-    // would have turned a defect in one function into rows, where it is much
-    // harder to fix. The printed name stands instead.
-    //
-    // #195 is fixed and this fixture is still worth having: it is a row saved
-    // before the fix, which is exactly what an adopted catalogue holds, and the
-    // migration must read it as no answer rather than as an answer of nothing.
+    // `Store.filingFor` used to skip the heuristic when a name normalised
+    // to nothing, saving `author_filing = ''`. Copying that in would turn
+    // a defect in one function into rows, so the migration must read an
+    // empty stored value as no answer and use the printed name instead.
     const pool = await catalogueOf([
       { title: 'Norwegian Wood', authors: ['村上春樹'], filingOverride: '' },
     ])
     await migrateToLatest(pool)
 
     expect(await aliasesOf(pool)).toEqual(['村上春樹 | 村上春樹 | 0 | 1'])
-    // And the book still sorts under nobody, which is the defect this declined
-    // to copy. The column it was in is gone (#227), so what is left of it is the
-    // key's first component, which is what actually decided the shelf.
+    // The book still sorts under nobody, the defect this declined to
+    // copy: what is left of that column is the key's first component.
     const book = await pool.query<{ sort_key: string }>('SELECT sort_key FROM books')
     expect(book.rows[0]!.sort_key.startsWith(SEP)).toBe(true)
   })
@@ -225,9 +208,9 @@ describe('book_authors becoming authors and aliases', () => {
   })
 
   it('takes the filing name from the row, so an override survives', async () => {
-    // The two cases docs/shelving.md says no heuristic gets right. The app files
-    // them by an override, which is already baked into books.author_filing, so
-    // the alias gets the corrected name without this migration knowing why.
+    // The two cases docs/shelving.md says no heuristic gets right. The
+    // override is already baked into `books.author_filing`, so the alias
+    // gets the corrected name without this migration knowing why.
     const pool = await catalogueOf([
       {
         title: 'One Hundred Years of Solitude',
@@ -267,9 +250,9 @@ describe('book_authors becoming authors and aliases', () => {
   })
 
   it('leaves a book with no credited rows out rather than splitting its string', async () => {
-    // A comma separates two authors and also separates `Last, First`, which is
-    // why `book_authors` exists. Guessing would put a fabricated name in the
-    // vocabulary permanently; the string is still on the row either way.
+    // A comma separates two authors and also separates `Last, First`,
+    // which is why `book_authors` exists. Guessing would put a fabricated
+    // name in the vocabulary permanently.
     const pool = await catalogueOf([
       { title: 'Dune', authors: ['Frank Herbert'] },
       { title: 'An old import', authors: ['Herbert, Frank'], withoutCredits: true },
@@ -290,10 +273,9 @@ describe('book_authors becoming authors and aliases', () => {
     ])
     await migrateToLatest(pool)
 
-    // `books.author_filing` was in here until #227 dropped it. What that column
-    // held is now `author_alias.filing_name`, which this migration is what
-    // fills in, so the columns left to be unchanged are the joined display
-    // string and the key the shelf is ordered by.
+    // What `books.author_filing` held is now `author_alias.filing_name`,
+    // which this migration fills in; the columns left unchanged are the
+    // joined display string and the key the shelf is ordered by.
     const row = await pool.query<{ authors: string; sort_key: string }>(
       'SELECT authors, sort_key FROM books',
     )
@@ -308,9 +290,8 @@ describe('book_authors becoming authors and aliases', () => {
   })
 
   it('does not move a single book on the shelf', async () => {
-    // The claim the whole migration turns on, proved rather than asserted: the
-    // shelf order hash from server/backup.ts, taken before and after. It is a
-    // digest of every book id in sort_key order, so a book that changed places
+    // Proved rather than asserted: the shelf order hash is a digest of
+    // every book id in sort_key order, so a book that changed places
     // changes it and a book that did not cannot.
     const pool = await catalogueOf(
       Array.from({ length: 120 }, (_, at) => ({
@@ -325,16 +306,15 @@ describe('book_authors becoming authors and aliases', () => {
     await migrateToLatest(pool)
     const after = await shelfOrder(pool)
 
-    // Printed rather than only compared, because the pull request quotes them.
     console.log(`[shelf order] before ${before} after ${after}`)
     expect(after).toBe(before)
     expect(before).not.toBeNull()
   })
 
   it('numbers the sequences past the ids it supplied', async () => {
-    // The ids are written rather than generated, so the sequence still points at
-    // 1 unless it is moved, and the first author somebody adds afterwards
-    // collides with one of these.
+    // The ids are written rather than generated, so the sequence still
+    // points at 1 unless moved; the first author added afterwards would
+    // collide with one of these otherwise.
     const pool = await catalogueOf([
       { title: 'Dune', authors: ['Frank Herbert'] },
       { title: 'The Hobbit', authors: ['J. R. R. Tolkien'] },

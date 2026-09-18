@@ -31,10 +31,7 @@ describe('what the detector made of a photograph', () => {
   })
 
   it('separates looking and declining from never having looked', () => {
-    // The distinction this table exists to keep. Two photographs with an empty
-    // crop, and they are not the same fact: one of them has been through the
-    // detector and one of them has not, and only the first licenses a view to
-    // say the book could not be picked out of it.
+    // Only "looked and declined" licenses a view to say the book could not be picked out of the photo.
     const neverLooked = photograph({ examined: false, cropFile: '' })
     const lookedAndDeclined = photograph({ examined: true, cropFile: '' })
 
@@ -44,8 +41,7 @@ describe('what the detector made of a photograph', () => {
   })
 
   it('reports a crop as a crop, whatever the flag says', () => {
-    // The file is evidence and the flag is bookkeeping. A crop that exists was
-    // produced by a detector that was looking at the time.
+    // The file is evidence, the flag is bookkeeping: a crop that exists was necessarily produced while looking.
     expect(verdictOf(photograph({ examined: false, cropFile: 'front_crop.jpg' }))).toBe('cropped')
     expect(verdictOf(photograph({ examined: true, cropFile: 'front_crop.jpg' }))).toBe('cropped')
   })
@@ -77,8 +73,7 @@ describe('a book with several photographs of one kind', () => {
     times.map((takenAt, at) => photograph({ kind, file: `${kind}-${at}.jpg`, takenAt }))
 
   it('answers "the spine" with the newest one, and keeps the rest', () => {
-    // The feature this whole table is for: a blurred spine is re-shot and the
-    // blurred one is still there afterwards.
+    // A blurred spine can be re-shot without losing the blurred original.
     const photographs = Photographs.of(shots(
       'spine',
       '2026-01-01T00:00:00.000Z',
@@ -92,10 +87,7 @@ describe('a book with several photographs of one kind', () => {
   })
 
   it('keeps the order they were handed over in when two share a timestamp', () => {
-    // Every row the migration writes carries books.scanned_at, which was one
-    // value for all three slots, so ties are the normal case rather than a
-    // corner. A sort that reordered them would make "the front" unstable
-    // between two reads of the same rows.
+    // Ties are the normal case, not a corner: a sort that reordered them would make "the front" unstable between reads.
     const photographs = Photographs.of(shots(
       'front',
       '2026-01-01T00:00:00.000Z',

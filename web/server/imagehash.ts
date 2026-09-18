@@ -1,33 +1,12 @@
 /**
- * Recognising a book by its cover rather than its barcode.
+ * Recognising a book by its cover rather than its barcode: a frequency hash
+ * of the coarse arrangement of light and dark, which survives different
+ * framing and lighting better than a pixel-by-pixel comparison.
  *
- * A frequency hash. Shrink the middle of the frame to a 32x32 grey square,
- * take a two dimensional discrete cosine transform of it, then keep only the
- * lowest eight by eight frequencies and record which of them sit above the
- * median of that block. What survives is the coarse arrangement of light and
- * dark across the cover, described as frequency rather than as pixels, which
- * is what a phone photo of a cover still resembles under different light, at
- * a different distance, held slightly crooked.
- *
- * This replaced a difference hash, which compared each shrunken pixel with
- * the one to its right. That reads only horizontal edges, and a book cover is
- * mostly flat: rows of a jacket that carry no horizontal edge produced a bit
- * decided by rounding rather than by the cover, so a re-photograph moved bits
- * that a genuinely different book left alone. Measured over thirty generated
- * covers and five kinds of re-photograph, the difference hash put the right
- * book first 82 to 86 percent of the time and put a wrong book first and
- * inside the shortlist cutoff on 21 to 25 of 150 queries. This puts the right
- * book first 89 to 91 percent of the time and a wrong book first on 13 to 15.
- * On covers that are mostly type on a plain ground, where horizontal edges
- * are scarcest, the difference hash was at 48 to 52 percent, a coin toss, and
- * this is at 70 to 78.
- *
- * A frame with no detail in it is refused rather than hashed, because there
- * the bits would be decided by rounding rather than by a book. See DETAIL.
- *
- * It is still not scale or rotation invariant and it never will be, so this
- * is a shortlist generator, not an identification. Everything it produces is
- * put in front of a person to confirm.
+ * A frame with no detail in it is refused rather than hashed; see DETAIL. It
+ * is not scale or rotation invariant and never will be, so this is a
+ * shortlist generator, not an identification; everything it produces is put
+ * in front of a person to confirm.
  */
 
 import sharp from 'sharp'
@@ -39,24 +18,16 @@ const GRID = 32
 const SIDE = 8
 
 /**
- * Names the algorithm that wrote the hash.
- *
- * Two hashes from different algorithms are not comparable, and comparing them
- * anyway yields a plausible looking number rather than an error. A cover hash
- * decides which book a camera is being pointed at, and the wrong answer gets
- * written to the catalogue, so a stale hash has to fail to match rather than
- * match something. The tag makes the strings differ in length, which
- * `distance` already treats as no likeness at all.
+ * Names the algorithm that wrote the hash. Two hashes from different
+ * algorithms are not comparable; the tag makes the strings differ in length,
+ * which `distance` already treats as no likeness at all.
  */
 const FORMAT = 'p1'
 
 /**
- * The middle of the frame, which is where the book is.
- *
- * A held-up book leaves table, hands and wall around the edges, and those
- * change between one session and the next while the cover does not. Cropping
- * in throws away most of that. Applied identically when storing and when
- * matching, so the two are always comparing like with like.
+ * The middle of the frame, where the book is: a held-up book leaves table,
+ * hands and wall around the edges that change between sessions while the
+ * cover does not. Applied identically when storing and matching.
  */
 const CENTRE = 0.7
 
@@ -72,32 +43,11 @@ const GAIN = (GRID * GRID) / 4
  * How far the strongest kept frequency has to sit from the median before the
  * bits mean anything, in grey levels out of 255.
  *
- * Every bit is the sign of one coefficient against the median of the block.
- * Point the camera at a wall, a shadowed desk or a solid cover and, once the
- * crop is shrunk to 32x32, every pixel is the same value: the transform then
- * returns the average brightness and sixty three coefficients that are pure
- * floating point residue, and so is the median between them. The bits are
- * then decided by rounding, and rounding is not random. It repeats. Measured
- * over ten solid colours and three grain patterns that survive the shrink,
- * every one of them lands within 24 bits of some other flat frame and six
- * pairs land at zero, which is an exact match on nothing at all.
- *
- * 0.01 was picked from the two ends of the measurement, not guessed:
- *
- *   flat frames        solid colours from black to white, plain colours,
- *                      the same re-encoded as JPEG, and per pixel grain that
- *                      averages out: strongest deviation 0 to 9.6e-14
- *   near black grain   0.0039
- *   plainest real      one small line of low contrast type on a plain
- *                      ground, then darkened to a third: 0.0816
- *   a plain cover      0.21 to 0.70
- *   an ordinary cover  4.6 to 79
- *
- * So the cut sits eight times below the plainest cover that could be
- * generated while still being legible, and eleven orders of magnitude above
- * anything a genuinely blank frame produces. There is no useful precision to
- * be had between those two, which is the point: a frame either has detail in
- * it or it has none.
+ * A blank or near-uniform frame produces coefficients that are floating point
+ * residue, and rounding that into bits is not random: it repeats, so two
+ * blank frames can land close together or at an exact match. This threshold
+ * sits far below the weakest legible cover and far above a blank frame, so
+ * there is no useful precision to lose between the two.
  */
 const DETAIL = 0.01
 
@@ -113,12 +63,11 @@ const COSINE = Array.from({ length: GRID }, (_, u) =>
 )
 
 /**
- * A separable DCT-II of a GRID x GRID grey square.
- *
- * Rows first, then columns, which is GRID^3 multiplications each way rather
- * than the GRID^4 a direct transform would take. The usual orthonormal
- * scaling is left off: every coefficient is compared with the median of its
- * own block, and a constant factor moves both sides equally.
+ * A separable DCT-II of a GRID x GRID grey square: rows first, then columns,
+ * which is GRID^3 multiplications each way rather than the GRID^4 a direct
+ * transform would take. The usual orthonormal scaling is left off, since every
+ * coefficient is compared with the median of its own block and a constant
+ * factor moves both sides equally.
  */
 function transform(pixels: Uint8Array | Buffer): Float64Array {
   const rows = new Float64Array(GRID * GRID)
@@ -182,14 +131,9 @@ export async function coverHash(input: Buffer): Promise<string> {
   const sorted = [...kept].sort((a, b) => a - b)
   const median = (sorted[30]! + sorted[31]!) / 2
 
-  // Nothing in the frame, so nothing to say about it.
-  //
-  // Refusing costs a caller one branch. Answering costs the catalogue: a hash
-  // of a blank surface is the same width, the same format and the same shape
-  // as a hash of a book, so it goes on to be compared, to land inside the
-  // shortlist cutoff, and to be offered to somebody as the book they are
-  // holding while they are in fact holding nothing. This is the same failing
-  // closed the format tag does, one step earlier.
+  // Nothing in the frame, so nothing to say about it: a hash of a blank
+  // surface would be the same shape as a hash of a book, and would go on to
+  // be compared and mistaken for one.
   const strongest = Math.max(...kept.map((value) => Math.abs(value - median)))
   if (strongest / GAIN < DETAIL) {
     throw new Error(
@@ -216,9 +160,8 @@ const BITS = [0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4]
  * How many of the 64 bits differ. Lower is more alike; 0 is identical and 32
  * is what two unrelated images average, since half the bits agree by chance.
  *
- * Anything that is not a hash of the current format, including one written by
- * an earlier algorithm, counts as no likeness at all rather than as a number
- * somebody might act on.
+ * Anything that is not a hash of the current format counts as no likeness at
+ * all rather than as a number somebody might act on.
  */
 export function distance(a: string, b: string): number {
   if (!a || !b || a.length !== b.length) return 64

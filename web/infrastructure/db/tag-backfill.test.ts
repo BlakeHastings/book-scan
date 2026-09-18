@@ -1,16 +1,11 @@
 /**
- * The migration that turns `is_fiction` into tags, run on a database in the
- * state the owner's catalogue is actually in.
+ * The migration that turns `is_fiction` into tags, run on a database in
+ * the state the owner's catalogue is actually in: built by `applySchema`
+ * and never migrated, so a run here adopts the baseline and then applies
+ * the two migrations after it.
  *
- * That state is specific and it is why this file exists rather than a paragraph
- * in a pull request: the live catalogue was built by `applySchema` during stage
- * H and has never had a migration recorded against it, so a run there **adopts**
- * the baseline and then applies the two migrations after it. That is exactly what
- * is done below, on a database seeded here, and the counts asserted are the ones
- * a real run would report.
- *
- * Nothing in this file, or in the migration it exercises, connects to anything
- * but a scratch database this test made.
+ * Nothing in this file, or in the migration it exercises, connects to
+ * anything but a scratch database this test made.
  */
 
 import pg from 'pg'
@@ -32,22 +27,18 @@ interface Seed {
 }
 
 /**
- * A database with the pre-Drizzle schema and some books in it.
- *
- * `SCHEMA` rather than `applySchema`, which since #172 runs the migrations
- * itself and would therefore hand back a database that had already had this
- * one. `SCHEMA` is the fixed point the baseline is proved against, and it is
- * what stage H left on the live catalogue.
+ * A database with the pre-Drizzle schema and some books in it. Uses
+ * `SCHEMA` rather than `applySchema`, which runs the migrations itself and
+ * would hand back a database that had already had this one.
  */
 async function catalogueOf(books: Seed[]): Promise<pg.Pool> {
   const pool = await scratchDatabase()
   await pool.query(SCHEMA)
   if (!books.length) return pool
 
-  // One statement however many books. A round trip per row is what this was,
-  // and against a container shared by a dozen test files that is enough to blow
-  // through vitest's five second default: the 236 book case timed out here
-  // twice while #180 was being written, with nothing wrong but the queue.
+  // One statement however many books: a round trip per row is enough to
+  // blow through vitest's five second default against a container shared
+  // by a dozen test files.
   await pool.query(
     `INSERT INTO books (title, shelf_range, is_fiction, classification_source,
                         classification_confidence, sort_key, scanned_at)
@@ -87,8 +78,7 @@ describe('the fiction flag becoming tags', () => {
       { title: 'Corrected to non-fiction', isFiction: false, source: 'manual', confidence: 'weak' },
     ])
 
-    // Adopted, because this database has the baseline tables and has never been
-    // migrated. That is the path the real catalogue would take.
+    // Adopted: this database has the baseline tables and has never been migrated.
     expect(await migrateToLatest(pool)).toBe('adopted')
 
     expect(await tagsOf(pool)).toEqual([
@@ -120,18 +110,15 @@ describe('the fiction flag becoming tags', () => {
               (SELECT count(*) FROM book_tag WHERE source = 'person')::text AS person,
               (SELECT count(*) FROM book_tag WHERE source = 'guess')::text AS guess`,
     )
-    // 236 books, 236 tags, one each: 48 whose flag a person set, 188 guessed.
     expect(counted.rows[0]).toEqual({
       books: '236', tagged: '236', person: '48', guess: '188',
     })
   })
 
   it('leaves the columns it came from exactly as they were', async () => {
-    // Nothing is dropped by *this* migration, and a run that lost a column
-    // would be a run that reordered somebody's shelves. `books.is_fiction` is
-    // no longer among them: `0018` drops it, four migrations after this one,
-    // once nothing decides anything by it. `shelf_range` is what a shelf is
-    // drawn from and is what this has to leave alone.
+    // Nothing is dropped by this migration: `books.is_fiction` persists
+    // until `0018`, once nothing decides anything by it, and `shelf_range`
+    // is what a shelf is drawn from and must be left alone.
     const pool = await catalogueOf([
       { title: 'Dune', isFiction: true, source: 'manual', confidence: 'high' },
     ])

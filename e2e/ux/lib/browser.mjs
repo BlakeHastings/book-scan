@@ -1,16 +1,14 @@
 /**
  * One phone, kept alive between commands.
  *
- * Every command in this harness is a separate process, because the thing
- * driving it is an agent taking one decision at a time and a long-lived REPL
- * would hide how long each decision took. So the browser is launched detached,
- * with a debugging port, and each command attaches to it over CDP, does one
- * thing, and lets go. The page, its history and its scroll position survive
- * between commands exactly as a phone in somebody's hand would.
+ * Every command is a separate process: the browser is launched detached with a
+ * debugging port, and each command attaches to it over CDP, does one thing,
+ * and lets go. The page, its history and its scroll position survive between
+ * commands.
  *
- * The viewport is 414x896 and touch is on, which is the phone this app is for.
- * It is applied through CDP on every attach rather than once at launch: the
- * overrides belong to the debugging session, so they go when the session does.
+ * The viewport (414x896, touch on) is applied through CDP on every attach
+ * rather than once at launch, since the overrides belong to the debugging
+ * session and go when it does.
  */
 
 import { spawn } from 'node:child_process'

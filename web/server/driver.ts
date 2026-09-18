@@ -1,55 +1,23 @@
 /**
- * The seam between the stores and the database underneath them.
+ * The seam between the stores and the database underneath them. Nothing here
+ * knows what a driver is: this interface is what the stores may see, and
+ * db.pg.ts is what they may not.
  *
- * Nothing in this file knows what a driver is. It holds the interface the three
- * stores are written against and the placeholder translation the driver needs.
- * It stays a separate file from db.pg.ts now that there is one implementation
- * again, because it is what the stores may see and db.pg.ts is what they may
- * not.
- *
- * The interface is deliberately the smallest thing that answers what
- * `Store`, `Shelves` and `CaptureQueue` actually ask for. What is missing from
- * it is the point:
- *
- * - No `prepare`, and no statement object. A prepared statement is a handle
- *   whose lifetime the caller then owns, and better-sqlite3's version of it ran
- *   synchronously. Both were properties of one driver, and a store that could
- *   see either would have been written to them.
- * - No `exec` for arbitrary multi-statement SQL. The only caller that wants it
- *   is schema creation, which is per-dialect and stays with the driver.
- * - No `pragma`. SQLite had them, Postgres does not, and the stores never
- *   asked.
- * - No `lastInsertRowid`. Stage D replaced the three reads of it with
- *   `INSERT ... RETURNING id`, so there is nothing left to expose.
- * - No escape hatch to the underlying handle. An escape hatch is how a
- *   driver-specific call gets to hide until production.
+ * Deliberately missing: `prepare` and any statement handle, `exec` for
+ * multi-statement SQL (only schema creation wants it, and that stays with the
+ * driver), `pragma`, `lastInsertRowid` (use `INSERT ... RETURNING id` instead),
+ * and any escape hatch to the underlying handle.
  */
 
-/**
- * What a statement is given: a list for `?` placeholders, or a map for the
- * `@name` and `:name` ones. Both styles are in the SQL as stage D left it, and
- * translating them is this file's job rather than each call site's.
- */
+/** What a statement is given: a list for `?` placeholders, or a map for `@name`/`:name` ones. */
 export type Params = readonly unknown[] | Readonly<Record<string, unknown>>
 
 /**
- * What a transaction is asked for beyond atomicity.
- *
- * **A transaction is not mutual exclusion, and assuming it is was the mistake
- * stage G had to unpick.** A transaction commits or rolls back as one unit, and
- * that does not stop another transaction committing a row in the middle of this
- * one: Postgres runs at READ COMMITTED, where every statement takes its own
- * fresh snapshot. A `SELECT` and the `INSERT` decided from it, inside one
- * `BEGIN`/`COMMIT`, can still have somebody else's row appear between them.
- *
- * The SQLite driver happened to be safe here, and for a reason that was a
- * property of that driver rather than of transactions: there was one connection
- * and a transaction held it for its whole length. That is exactly the lock
- * `PgDb` deliberately does not carry over, because Postgres has real
- * connections and an unrelated statement running alongside is the point of
- * having moved to it.
- *
- * So a read-then-write that has to be *the only one* in flight has to say so.
+ * A transaction is not mutual exclusion. Postgres runs at READ COMMITTED,
+ * where every statement takes its own fresh snapshot, so a `SELECT` and the
+ * `INSERT` decided from it, inside one `BEGIN`/`COMMIT`, can still have
+ * somebody else's row appear between them. A read-then-write that has to be
+ * the only one in flight has to say so.
  */
 export interface TxOptions {
   /**
@@ -60,10 +28,8 @@ export interface TxOptions {
    * and a book going into nonfiction do not, and nothing that only reads waits
    * for either. See `rangeLock` in shelves.ts for the one namespace in use.
    *
-   * Held for the length of the transaction and released by the commit or the
-   * rollback, never by this code. A lock whose release is somebody's `finally`
-   * block is a lock that outlives a crash, and on a pooled connection it would
-   * outlive it on a connection handed to the next request.
+   * Held for the length of the transaction and released only by commit or
+   * rollback, never by this code.
    */
   serialiseOn?: string
 }
@@ -76,24 +42,20 @@ export interface Db {
    * Run `work` in a transaction, committing when it resolves and rolling back
    * when it rejects.
    *
-   * Nests. `Store.addBook` opens a transaction and a caller may already be
-   * inside one, so an implementation opens a savepoint rather than refusing or
-   * silently flattening the inner one into the outer.
-   *
-   * `options.serialiseOn` is the part that is about concurrency rather than
-   * atomicity. See `TxOptions`.
+   * Nests: a caller may already be inside a transaction, so an implementation
+   * opens a savepoint rather than refusing or flattening the inner one into
+   * the outer. `options.serialiseOn` is about concurrency, not atomicity; see
+   * `TxOptions`.
    */
   tx<T>(work: (db: Db) => Promise<T>, options?: TxOptions): Promise<T>
   close(): Promise<void>
 }
 
 /**
- * A stable 64-bit signed key for a lock name.
- *
- * FNV-1a, because the only properties wanted are that the same name always
- * produces the same number and that two names rarely collide. A collision is
- * not a correctness bug here: two unrelated ranges would serialise against each
- * other, which costs concurrency and nothing else.
+ * A stable 64-bit signed key for a lock name, using FNV-1a: the same name
+ * always produces the same number and two names rarely collide. A collision is
+ * not a correctness bug here, just two unrelated ranges serialising against
+ * each other.
  *
  * Written here rather than in db.pg.ts so it can be tested without a server.
  */
@@ -109,7 +71,6 @@ export function lockKey(name: string): bigint {
   return hash >= 0x8000000000000000n ? hash - 0x10000000000000000n : hash
 }
 
-/** A statement with every placeholder rewritten, and the values in order. */
 export interface BoundStatement {
   text: string
   values: unknown[]
@@ -122,31 +83,13 @@ const NAME_BODY = /[A-Za-z0-9_]/
  * Rewrite every placeholder in `sql` as `$1`, `$2`, and put the values in the
  * order Postgres will read them.
  *
- * Until stage I the output spelling was an argument, because SQLite wanted `?`
- * where Postgres wants `$n`, and routing SQLite through this translator from
- * stage E is what got the translation exercised by the whole suite a stage
- * before the driver that needed it existed. There is one output spelling now.
- *
- * Three input styles reach this function, and they are not a matter of taste.
- * `?` is in most statements; `@name` is in the two big writes, `attach`, `claim`,
- * `edit` and the worker's settle; `:name` is in `findByIsbn` and
- * `missingCovers`. Stage D left them alone on purpose: hand-rewriting a
- * 26-column insert into positional parameters is how an author ends up in a
- * publisher column with nothing noticing.
- *
  * A name that appears twice gets a placeholder and a value each time it
  * appears, rather than a second reference to the first placeholder.
- * `CaptureQueue.attach` mentions `@slot` twice, so this is exercised
- * rather than theoretical, as is a statement whose placeholder count varies per
- * call: `CaptureQueue.list` builds its `IN (?, ?, ...)` from however many
- * statuses it was asked for, and a translator that walked the placeholders in
- * order needs to know nothing about that.
  *
- * **Quoted text and comments are skipped**, which is not a nicety. The SQL in
- * this repository carries `--` comments explaining the statements they sit in,
- * and those comments contain apostrophes ("the row's own columns") and colons.
- * A scanner that took either for SQL would either rewrite a comment or lose
- * track of where the string literals end.
+ * Quoted text and comments are skipped rather than scanned as SQL: the SQL in
+ * this repository carries `--` comments containing apostrophes and colons, and
+ * a scanner that took either for SQL would rewrite a comment or lose track of
+ * where a string literal ends.
  */
 export function bindParams(sql: string, params?: Params): BoundStatement {
   const positional = Array.isArray(params) ? (params as readonly unknown[]) : undefined
@@ -203,8 +146,8 @@ export function bindParams(sql: string, params?: Params): BoundStatement {
 
     if (char === '?') {
       // `?1` is SQLite's repeated-parameter syntax, which Postgres has no
-      // spelling for. Stage B removed the one use of it; this refuses rather
-      // than reading it as an anonymous placeholder followed by a stray digit.
+      // spelling for; this refuses rather than reading it as an anonymous
+      // placeholder followed by a stray digit.
       if (NAME_BODY.test(sql[i + 1] ?? '')) {
         throw new Error(`numbered placeholders are not supported: ${sql.slice(i, i + 4)}`)
       }
@@ -223,9 +166,8 @@ export function bindParams(sql: string, params?: Params): BoundStatement {
       continue
     }
 
-    // `::` is a cast, not a name. Stage D took the one use of it out for being
-    // Postgres-only, and reading the second colon as a placeholder would turn
-    // any that came back into a parameter nobody passed.
+    // `::` is a cast, not a name: reading the second colon as a placeholder
+    // would turn a cast into a parameter nobody passed.
     if (char === ':' && sql[i + 1] === ':') {
       text += '::'
       i += 2
@@ -254,9 +196,8 @@ export function bindParams(sql: string, params?: Params): BoundStatement {
     i += 1
   }
 
-  // Both mismatches are refused for the same reason better-sqlite3 refuses
-  // them: a value nobody read is a name somebody mistyped, and finding that at
-  // the call site beats finding it in a row that quietly kept its old value.
+  // Both mismatches are refused: a value nobody read is likely a name
+  // somebody mistyped.
   if (positional && taken !== positional.length) {
     throw new Error(
       `too many values: ${positional.length} given, ${taken} ? placeholders in the statement`,

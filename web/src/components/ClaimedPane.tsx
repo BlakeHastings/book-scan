@@ -1,45 +1,8 @@
 /**
- * Why this book is here: which rule claimed it, which ones lost, and what would
- * happen if the winner changed.
- *
- * **The one screen that makes the rules legible to somebody who did not write
- * them**, which is the whole household except the owner. Two screen groups reach
- * it, the furniture and the book page, and it is one component so that the two
- * cannot drift into two explanations of one decision.
- *
- * ## The losers are the point
- *
- * A book that lands somewhere surprising is the moment the whole idea either
- * explains itself or turns into magic, and the explanation is always the same
- * two sentences: which rules asked for this book, and why that one beat this
- * one. So every rule that wanted it is drawn, in the order the decision was
- * made, and the ones that lost say why.
- *
- * ## A book no rule claims
- *
- * A real state since #304 and the first thing this screen has to survive:
- * nothing states a genre, no tag is written, no rule matches. There is no
- * winner, no loser, and nowhere the rules would put it. That is said plainly and
- * the way out is said with it, because a book in that state stands exactly where
- * somebody left it and no plan will ever move it.
- *
- * **And since #341 the way out is a button rather than a sentence.** That issue
- * named this screen by name: it explained an unclaimed book and offered it no
- * action at all, on the one screen somebody reaches while holding the book and
- * wondering. It offers #377's panel now, which is the one way this app adds a
- * tag by hand, and it is the same panel the list of these books opens. Nothing
- * here writes a tag by itself, which is #304 and was the owner's explicit
- * instruction.
- *
- * ## Where it is and where the rules want it are two facts
- *
- * They disagree exactly when the book is waiting to be carried, and that
- * disagreement is the carry list rather than something this screen reconciles.
- * Saying both is how somebody sees that for themselves.
- *
- * **`pinned` beats every rule, forever**, so a pinned book still names the rule
- * that would otherwise have claimed it. Hiding it would leave nobody able to see
- * what the pin is overruling.
+ * Where a book is and where the rules want it are two separate facts: they
+ * disagree only while the book is waiting to be carried, which the carry list
+ * resolves rather than this screen. A pinned book still names the rule it
+ * would otherwise have followed, so it stays visible what the pin overrules.
  */
 
 import { Card, Instruction } from '../design/Card'
@@ -53,38 +16,14 @@ import { RoomFrame, Trouble } from './RoomFrame'
 
 interface Props {
   claim: BookClaim | null
-  /**
-   * The room, so a rule about a whole piece can be named the way a person names
-   * one.
-   *
-   * A rule carries `place`, and for a piece that is its **label**, which is the
-   * bare number `4`. Nobody says "the rule about 4". The piece knows it is
-   * called Bookcase 4, or By the window, so it is asked: `rulePlace`.
-   */
+  /** A rule about a piece carries its bare number as `place`; `rulePlace` looks up what the piece is actually called, since nobody says "the rule about 4". */
   room: FurnitureDto | null
   error: string
   tabs: Record<TabName, () => void>
   onBack: () => void
-  /**
-   * Open a rule, which is the screen it can be changed from.
-   *
-   * The whole rule rather than its id, because where a rule is drawn is decided
-   * by the place it points at, and this screen has that already. Handing over an
-   * id would make somebody look it up again.
-   */
+  /** Takes the whole rule rather than an id: where a rule is drawn depends on the place it points at, which this screen already has. */
   onRule: (rule: RuleDto) => void
-  /**
-   * Say what this book is, for the state that used to offer nothing (#341).
-   *
-   * A book no rule claims is the one state on this screen with no way out drawn
-   * on it: every other one has a rule to open or a pin to make, and this one
-   * explained itself and stopped, on the screen somebody arrives at holding the
-   * book and wondering.
-   *
-   * It opens the screen the list of these books opens, rather than a panel of
-   * its own. Two screens reaching one way of saying what a book is, the way two
-   * screens already reach this one.
-   */
+  /** Opens the same screen the unclaimed list opens, rather than its own panel. */
   onSay: () => void
 }
 
@@ -123,15 +62,8 @@ export function ClaimedPane({ claim, room, error, tabs, onBack, onRule, onSay }:
   const won = claim.claims.find((one) => one.won) ?? null
   const said = wanted(claim)
 
-  /*
-   * Whether saying something more about this book is work worth offering.
-   *
-   * Not for a withdrawn book: it has left the collection and no rule places it
-   * by design, which the sentence above already says, and inviting somebody to
-   * classify a book they no longer own is the count that trains people to
-   * ignore a screen. A checked-out book is still owned and still needs filing
-   * when it comes back, so it is offered.
-   */
+  // Excludes withdrawn books (already excluded from the rules by design) but
+  // includes checked-out ones, since those still need filing when they return.
   const unclaimed = !won && !claim.withdrawn
 
   return (
@@ -224,28 +156,11 @@ export function ClaimedPane({ claim, room, error, tabs, onBack, onRule, onSay }:
         </Card>
       )}
 
-      {/*
-        The state that used to end here (#341). Every other one on this screen
-        offers something and this one said the true thing and stopped, on the
-        screen somebody arrives at while holding the book.
-
-        One button and not the two the drawing has. The other one there writes a
-        rule that asks for the tag the book already carries, and it is the better
-        answer for a household that reads crime: one rule takes all nine at once
-        rather than nine books being told they are also Fiction. Nothing in this
-        app creates a rule, so it is said as the fact it is rather than drawn as
-        a button that would have nowhere to go.
-
-        The one button opens the screen the list of these books opens, so there
-        is one way of saying what a book is however somebody arrived at it.
-      */}
+      {/* Only one button, not two: nothing in this app creates a rule directly, so that option is said as a fact rather than drawn as a button with nowhere to go. */}
       {unclaimed && (
         <Card
           weight="quiet"
           kind="What you can do about it"
-          /* The title carries the thought and the button carries the act. They
-             both read "Say what it is" until this was looked at, which is the
-             instruction written twice in two sizes. */
           title={claim.tags.length > 0
             ? `A rule about ${claim.tags[0]} would take them all`
             : 'Nobody has said anything about it'}

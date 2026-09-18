@@ -1,34 +1,9 @@
 /**
- * A whole sign-in, end to end, against a provider this repository does not know
- * the name of (#521).
- *
- * ## Why the provider is not Google
- *
- * #510 asked for the seam to be built so that a second provider is configuration
- * rather than surgery, and a claim like that is worth nothing until something
- * has been the second provider. So the provider driven here is invented in this
- * file: `acme`, with its own issuer, its own endpoints and its own client id,
- * handed to `createApp` as configuration and nowhere named in `server/`,
- * `infrastructure/` or `shared/`. Everything it exercises — the flow row, the
- * PKCE pair, the state cookie, the nonce, the token exchange, the user, the
- * session, the gate — is the same code Google walks.
- *
- * It also means these cases do not depend on Google being up, which matters for
- * a suite that runs on every pull request.
- *
- * ## What the stub is, and what it is not
- *
- * A four-line HTTP server on an ephemeral port that answers the token endpoint.
- * It is not an OpenID Connect implementation and does not pretend to be: what it
- * exists for is to be the far end of one `POST`, to record what arrived, and to
- * hand back whatever ID token a case wants — including the malformed ones,
- * which are half the point.
- *
- * The authorization endpoint is never visited. That half of the flow happens in
- * a browser at the provider's own site, and what this server does with it is
- * build a URL; so the URL is read rather than followed, which is also the only
- * way to get at the `state` and the `code_challenge` a real browser would have
- * carried invisibly.
+ * These tests run against `acme`, an invented OIDC provider stubbed by a bare
+ * HTTP server that only answers the token endpoint, so the suite does not
+ * depend on Google being up. The authorization endpoint is never visited: that
+ * half of the flow happens in a real browser, so its URL is read here (for
+ * `state` and `code_challenge`) rather than followed.
  */
 
 import { createHash, randomBytes } from 'node:crypto'
@@ -67,34 +42,21 @@ let received: URLSearchParams | undefined
 /** What the next token exchange gets back. A case sets this before calling. */
 let nextToken: string
 /**
- * What the token endpoint answers with, and whether it answers at all (#557).
- *
- * Two more knobs on the stub, and they are here because the two shapes they
- * produce are the two the callback has to tell apart: a provider that said no,
- * and a provider that could not be asked. Nothing else in this file could
- * produce either, which is why the difference between "try again in a minute"
- * and "trying again will not help" had never been driven.
+ * Distinguishes a provider that said no from one that could not be asked at
+ * all, since the callback has to tell those apart.
  */
 let tokenStatus: number
 let tokenEndpointDown: boolean
 /**
- * How many discovery documents the stub has handed out, per authority (#537).
- *
- * Counted rather than assumed, because "the issuer is fetched rather than
- * hardcoded" and "the document is read once per process" are both claims about
- * requests, and the only honest way to check a claim about requests is to count
- * them at the far end.
+ * Counted per authority, so a claim like "the document is read once per
+ * process" can be checked by counting requests rather than assumed.
  */
 let documentsAsked: Record<string, number>
 
 /**
- * The authorities this stub answers for, and what each one says about itself.
- *
- * Shaped like Microsoft's, which is the only reason a stub is worth anything
- * here: `wellhouse` answers with an issuer and is the case that works,
- * `templated` answers with a `{tenantid}` placeholder exactly as `common` and
- * `organizations` do, and `elsewhere` tries to nominate an issuer this stub does
- * not own.
+ * Shaped like Microsoft's: `templated` answers with a `{tenantid}` placeholder
+ * as `common` and `organizations` do, and `elsewhere` nominates an issuer the
+ * stub does not own.
  */
 type Authorities = Record<string, (base: string) => Record<string, unknown>>
 
@@ -130,11 +92,7 @@ beforeAll(async () => {
   provider = createServer((req, res) => {
     const path = req.url ?? ''
 
-    /*
-     * The discovery half, added by #537. The token endpoint below was the whole
-     * of this stub when there was only one shape of provider; a provider whose
-     * issuer is not written down has to ask somebody, and this is the somebody.
-     */
+    /* A provider whose issuer is not written down has to ask somebody; this answers that. */
     const authority = /^\/([^/]+)\/v2\.0\/\.well-known\/openid-configuration$/.exec(path)?.[1]
     if (authority) {
       documentsAsked[authority] = (documentsAsked[authority] ?? 0) + 1
@@ -154,9 +112,8 @@ beforeAll(async () => {
     req.on('end', () => {
       received = new URLSearchParams(body)
       /*
-       * Hung up on rather than answered, which is the only honest way to make
-       * `fetch` fail the way an unreachable host does. A stub that answered
-       * `503` would exercise the branch above this one instead.
+       * Hung up on rather than answered: the only honest way to make `fetch`
+       * fail like an unreachable host, as opposed to a stub that answered 503.
        */
       if (tokenEndpointDown) {
         req.socket.destroy()
@@ -186,8 +143,7 @@ function acme(): SignInProviderConfig {
     label: 'Acme',
     kind: 'oidc',
     issuer: ISSUER,
-    // Its issuer is written down, so it asks nobody. That is the shape Google
-    // has and the shape every provider had before #537.
+    // Its issuer is written down, so it asks nobody, the same shape Google has.
     discovery: '',
     authorizationEndpoint: `${providerUrl}/authorize`,
     tokenEndpoint: `${providerUrl}/token`,
@@ -342,9 +298,8 @@ describe('the exchange, which happens server to server', () => {
     expect(received?.get('client_secret')).toBe(CLIENT_SECRET)
     expect(received?.get('redirect_uri')).toBe('http://books.test/api/auth/acme/callback')
 
-    // The whole point of PKCE: the verifier is what the challenge in the
-    // authorization request was the SHA-256 of, and only the server that made
-    // the request has it.
+    // The verifier is what the challenge in the authorization request was the
+    // SHA-256 of; only the server that made the request has it.
     const verifier = received?.get('code_verifier') ?? ''
     expect(verifier).not.toBe('')
     expect(createHash('sha256').update(verifier).digest('base64url')).toBe(started.challenge)
@@ -361,11 +316,7 @@ describe('the exchange, which happens server to server', () => {
     const session = cookieIn(back.headers.get('set-cookie'), SESSION_COOKIE)
     expect(session).not.toBe('')
 
-    /*
-     * 403 and not 200, and that is the whole of #510's answer to "login with":
-     * this person proved exactly who they are and is not admitted. Every person
-     * on earth can get this far.
-     */
+    /* 403, not 401: this person proved who they are and is simply not admitted yet. */
     const asked = await fetch(`${baseUrl}/api/health`, { headers: { cookie: session } })
     expect(asked.status).toBe(403)
     expect(await asked.json()).toMatchObject({ state: 'waiting' })
@@ -413,31 +364,9 @@ describe('the exchange, which happens server to server', () => {
 })
 
 /**
- * Every way a sign-in can fail, driven one at a time, and what a browser is
- * handed by each (#557).
- *
- * ## Why this block is where the answer had to be proved
- *
- * The defect these cases now pin was reachable by nobody. **The development door
- * has no failure path**: `GET /api/auth/dev/start` finds or creates a user,
- * opens a session and redirects, with no provider to refuse, no flow row to
- * expire and no token to check. Every test in this repository and every driven
- * verification of the gate had gone through that door, so eleven exits sat there
- * for months answering a browser with a JSON body that filled the tab.
- *
- * `acme` is what makes them reachable. It is an invented provider run through
- * the whole flow against a local stub, which is the only way this repository can
- * hold a failing sign-in at all: a real Google or Microsoft credential cannot
- * exist here, and these exits are precisely the ones a real one would be needed
- * for.
- *
- * ## Each case reads the redirect and not the status
- *
- * These two routes are the only ones a browser reaches by a top-level
- * navigation, so their answer is the page. Asserting a `400` would be asserting
- * the shape of the defect, because a `400` carrying a JSON body is exactly what
- * somebody was reading. What matters is that the browser is sent back to a
- * screen and told which of the six this was.
+ * These routes are reached only by a top-level browser navigation, so the
+ * answer must be a redirect back to a screen, not a JSON body; each case
+ * checks for that plus which of the six reasons it carries.
  */
 describe('every way a sign-in can fail, and what a browser is handed', () => {
   /** The reason a redirect carries, or empty when it carries none. */
@@ -453,19 +382,10 @@ describe('every way a sign-in can fail, and what a browser is handed', () => {
   }
 
   /**
-   * The property that is true of every case below, asked once.
-   *
-   * Three things and not just the status, because the defect was never a status
-   * code: it was a body somebody read. A route answering `302` while still
-   * writing an object would pass a status check and be exactly as broken for the
-   * one reader this is about.
-   *
-   * So: it redirects, it goes back to a screen on this origin carrying one of
-   * the six, and **it is not JSON**. Express writes `Found. Redirecting to ...`
-   * into every redirect it makes, which a browser never shows and which the
-   * successful sign-in has carried since #521; that is the courtesy line, not a
-   * message this app wrote for anybody, and the content type is what tells the
-   * two apart.
+   * Checks three things, not just the status: a `302` that still writes a JSON
+   * object would pass a status check and be exactly as broken. Express's
+   * default redirect body ("Found. Redirecting to ...") is not a message this
+   * app wrote; content type is what tells the two apart.
    */
   async function sendsBackSaying(response: Response, trouble: string) {
     expect(response.status, 'answered a browser with something to render').toBe(302)
@@ -473,7 +393,6 @@ describe('every way a sign-in can fail, and what a browser is handed', () => {
       .not.toContain('application/json')
     expect(response.headers.get('location') ?? '').toMatch(/^\/\?/)
     expect(troubleIn(response)).toBe(trouble)
-    // No session was opened on the way past, whichever exit this was.
     expect(cookieIn(response.headers.get('set-cookie'), SESSION_COOKIE)).toBe('')
   }
 
@@ -485,15 +404,9 @@ describe('every way a sign-in can fail, and what a browser is handed', () => {
   }
 
   /*
-   * The five token checks and the nonce: six sentences in the log and one
-   * situation to a person.
-   *
-   * `refused` for all of them, and that is a decision rather than a shortcut.
-   * Nobody can act differently on "that ID token has expired" than on "Acme
-   * answered without an ID token"; both mean this app will not accept what came
-   * back, and both mean pressing the button again lands in the same place.
-   * `oidc.ts` keeps the exact sentence and sends it to the log, where whoever
-   * runs this app is.
+   * All six of these collapse to `refused`: none of them give a person a
+   * different next action, so the distinct reasons are kept in the log
+   * (`oidc.ts`) rather than shown.
    */
   it('refuses a token from a different issuer', async () => {
     await sendsBackSaying(await refusedBecause({ iss: 'https://someone-else.test' }), 'refused')
@@ -541,11 +454,8 @@ describe('every way a sign-in can fail, and what a browser is handed', () => {
   })
 
   /**
-   * `unavailable` and not `refused`, and this pair of exits is the whole reason
-   * the two are separate words.
-   *
-   * Nobody was asked, so nothing about this sign-in was decided, and "try again
-   * in a minute" is real advice here and a lie in every case above.
+   * `unavailable`, not `refused`: nobody was asked, so nothing was decided, and
+   * "try again in a minute" is honest advice here, unlike in the refused cases above.
    */
   it('says nobody could be asked when the token endpoint cannot be reached', async () => {
     tokenEndpointDown = true
@@ -576,15 +486,10 @@ describe('every way a sign-in can fail, and what a browser is handed', () => {
   })
 
   /**
-   * **Pressing Back after signing in, which is one of the two #557 observed, and
-   * it lands on `stale` rather than on `already-used`.**
-   *
-   * Worth a case of its own because the wording rests on it. The callback clears
-   * the flow cookie on its way past, so a browser going back to the callback URL
-   * carries a state and no cookie, which is the same exit an attacker's link
-   * reaches. That is why `stale` opens by naming Back and a reopened link: the
-   * branch is mostly innocent people, and the sentence `already-used` would give
-   * them is about a mechanism they never touched.
+   * The callback clears the flow cookie on its way past, so pressing Back lands
+   * here with a state and no cookie, the same exit a reopened link reaches.
+   * `stale` covers both, since `already-used` would describe a mechanism this
+   * (mostly innocent) case never touched.
    */
   it('lands a Back press after a finished sign-in on the stale exit, not the used one', async () => {
     const started = await begin()
@@ -593,8 +498,6 @@ describe('every way a sign-in can fail, and what a browser is handed', () => {
     const first = await callback({ state: started.state, cookie: started.flowCookie })
     expect(first.status).toBe(302)
     expect(first.headers.get('location')).toBe('/')
-    // The browser kept what the callback told it to keep, which is no flow
-    // cookie, and Back re-issues the same navigation without one.
     const cleared = (first.headers.get('set-cookie') ?? '').includes('bookscan_signin=;')
     expect(cleared, 'the callback did not clear the flow cookie').toBe(true)
 
@@ -602,14 +505,10 @@ describe('every way a sign-in can fail, and what a browser is handed', () => {
   })
 
   /**
-   * Single use, which is why the flow is a row rather than a cookie: the row is
-   * deleted by the callback that consumes it, so a replayed authorization code
-   * arrives with nothing left to check it against.
-   *
-   * `already-used` rather than `stale` because the cookie is still presented,
-   * which no browser does after the case above. Something is replaying a whole
-   * callback, and the honest sentence for that is that the sign-in had been
-   * used.
+   * The flow is a row, not a cookie, so it can be deleted on first use: a
+   * replayed callback then has nothing left to check against. `already-used`,
+   * not `stale`, because the cookie is still presented here, unlike a genuine
+   * Back press.
    */
   it('refuses the same callback a second time', async () => {
     const started = await begin()
@@ -622,13 +521,9 @@ describe('every way a sign-in can fail, and what a browser is handed', () => {
   })
 
   /**
-   * Both doors, and this is the assertion that changed rather than being added.
-   *
-   * It read `404` on each of these, which is the right answer to a machine and
-   * the wrong one to the browser that is the only caller either route has. A
-   * person reaches this from a bookmark that outlived a provider, and a page
-   * saying `{"error":"There is no such way to sign in."}` is not an answer they
-   * can do anything with.
+   * These routes are reached only by a browser (for example, a bookmark that
+   * outlived a provider), so a `404` with a JSON body is not an answer anybody
+   * can act on; it redirects instead, like every other exit in this block.
    */
   it('refuses a provider it was never configured with, on both doors', async () => {
     await sendsBackSaying(
@@ -641,9 +536,8 @@ describe('every way a sign-in can fail, and what a browser is handed', () => {
   })
 
   /**
-   * **The case #557 opens with**, and the one that must not be told the same
-   * thing as the two above it. Somebody pressed Cancel. Nothing is broken, they
-   * did nothing irregular, and the sentence they get says so.
+   * Must not be told the same thing as the two cases above: somebody pressed
+   * Cancel, nothing is broken, and the sentence they get should say so.
    */
   it('tells somebody who cancelled that they cancelled, and does not repeat what the provider said', async () => {
     const started = await begin()
@@ -652,18 +546,14 @@ describe('every way a sign-in can fail, and what a browser is handed', () => {
       { redirect: 'manual', headers: { cookie: started.flowCookie } },
     )
     await sendsBackSaying(back, 'cancelled')
-    // The provider's own words are somebody else's text in a query string. That
-    // was already true of the body and now has to be true of the redirect.
+    // The provider's own words are untrusted text; they must not appear in the redirect either.
     expect(back.headers.get('location') ?? '').not.toContain('access_denied')
   })
 
   /**
-   * And every other value of that parameter is not a cancellation.
-   *
-   * `server_error`, `invalid_client` and the rest of OAuth 2.0 section 4.1.2.1
-   * are faults rather than choices, and telling somebody they cancelled when
-   * their sign-in is broken is this app saying something untrue about them. One
-   * comparison separates them.
+   * `server_error`, `invalid_client`, and the rest of OAuth 2.0 section 4.1.2.1
+   * are faults, not choices; telling somebody they cancelled when their sign-in
+   * is broken would be untrue.
    */
   it('does not tell somebody they cancelled when the provider reported a fault', async () => {
     for (const said of ['server_error', 'invalid_client', 'temporarily_unavailable']) {
@@ -686,12 +576,9 @@ describe('every way a sign-in can fail, and what a browser is handed', () => {
   })
 
   /**
-   * Which way in it was, so the screen can name it.
-   *
-   * The id and never the label, and the client turns it into a label by looking
-   * it up in what `GET /api/auth/providers` sent. What travels in the URL
-   * selects a name this server published rather than supplying one, which is the
-   * property that keeps a screen from reading a stranger's text out loud.
+   * Only the id travels in the URL; the client looks up the label from
+   * `GET /api/auth/providers`, so nothing here lets a screen read a stranger's
+   * text out loud.
    */
   it('names which way in it was, by id, on the exits that know', async () => {
     const started = await begin()
@@ -710,14 +597,8 @@ describe('every way a sign-in can fail, and what a browser is handed', () => {
   })
 
   /**
-   * The rule rather than the branches, asserted as a rule.
-   *
-   * A reviewer can check every exit above one at a time and still miss the one
-   * added next year, which is exactly how these eleven came to exist: each was
-   * written correctly for an API, and none of their authors was thinking about a
-   * browser. So this asks the property directly of every failing shape this file
-   * can reach without a stub, and a new exit that answers with a body has to be
-   * written past a case saying it must not.
+   * Asserts the property directly, since a new exit added later could easily
+   * reproduce the same mistake without being caught by the individual cases above.
    */
   it('never answers either door with a body, whatever went wrong', async () => {
     const started = await begin()
@@ -765,14 +646,9 @@ describe('who a person is, across sign-ins', () => {
   })
 
   /**
-   * The one #510 calls an account takeover if it is got wrong: two providers,
-   * or two subjects, asserting one address is not proof of one person.
-   *
-   * Here it is the same provider and two subjects, which is the same claim and
-   * is the case this code can be driven through. A `user_identity` keyed on
-   * email would fold these two into one account; keyed on `(issuer, subject)` it
-   * cannot, and this is what would fail the day somebody "helpfully" added a
-   * lookup by address.
+   * `user_identity` is keyed on `(issuer, subject)`, not email: an address is
+   * not proof of one person, and a lookup by email would wrongly fold these two
+   * accounts into one.
    */
   it('does not join two subjects into one person because they share an address', async () => {
     await signIn({ sub: 'acme-subject-1', email: 'shared@acme.test' })
@@ -838,10 +714,9 @@ describe('what the client is told, in each of the three states', () => {
   })
 
   /**
-   * Open, and this one is a judgement rather than a necessity. Somebody on the
-   * waiting-list screen is refused 403 everywhere; if signing out were behind
-   * the gate they could not sign out, which is the one thing that screen has to
-   * offer a person who picked the wrong account.
+   * Sign out must stay open: somebody on the waiting list is refused everywhere
+   * else, and being unable to sign out would leave them with no way to pick a
+   * different account.
    */
   it('lets somebody on the waiting list sign out', async () => {
     const started = await begin()
@@ -867,29 +742,11 @@ describe('what the client is told, in each of the three states', () => {
 })
 
 /**
- * A provider whose issuer is not written down anywhere, driven end to end
- * (#537).
- *
- * ## What this is, and what it is not
- *
- * **It is not Microsoft.** Driving Microsoft needs an app registration with a
- * client id and a secret the owner has not created and which must never enter
- * this repository, so nothing in this file has ever spoken to Microsoft and
- * nothing claims to have. What it is, is the *shape* Microsoft has, run through
- * the whole flow: an authority that answers a discovery document, an issuer that
- * exists only in that answer, and a second tenant on the same authority whose
- * tokens must be refused.
- *
- * **A stub is honest here and a claim is not**, which is the precedent #523 set
- * with `acme` above. What it can prove is what `auth/discovery.ts` and this
- * server do with a document and with a token; what it cannot prove is that
- * Microsoft answers the way `discovery.test.ts`'s fixtures say it does. Those
- * fixtures were read from Microsoft's own public documents and say where and
- * when, which is the closest a repository with no registration can get.
- *
- * The case that matters is `refuses a token from another tenant`. Everything
- * else here is a sign-in that works, and #537's whole point is that a sign-in
- * that works is exactly what the defect looks like.
+ * Runs the shape Microsoft's discovery flow has (an authority whose issuer
+ * only exists in its discovery document, and a second tenant whose tokens must
+ * be refused) without a real app registration; it proves what this server does
+ * with a document and a token, not that Microsoft answers the way
+ * `discovery.test.ts`'s fixtures say it does.
  */
 describe('a provider whose issuer is discovered rather than written down', () => {
   let discovered: BookScanApp
@@ -935,9 +792,9 @@ describe('a provider whose issuer is discovered rather than written down', () =>
       { redirect: 'manual' },
     )
     /*
-     * Against a base, because a start now redirects to one of two places: out
-     * to the authority, absolutely, or back to the login screen on a path
-     * (#557). Both are read the same way and the base is ignored by the first.
+     * Parsed against a base since a start redirects to one of two places: out
+     * to the authority (absolute) or back to the login screen (a path); the
+     * base is ignored by the first.
      */
     const location = response.status === 302
       ? new URL(response.headers.get('location') ?? '', 'http://books.test')
@@ -997,20 +854,13 @@ describe('a provider whose issuer is discovered rather than written down', () =>
      */
     expect(person?.identities[0]?.issuer).toBe(`${providerUrl}/wellhouse/v2.0`)
     expect(person?.identities[0]?.subject).toBe('a-pairwise-subject')
-    // A real provider, so the waiting list, as Google's first sign-in gives.
     expect(person?.enabled).toBe(false)
   })
 
   /**
-   * **The case #537 exists for.**
-   *
-   * Every claim in this token is right except one: it was issued by a different
-   * tenant on the same authority. That is exactly what a real Microsoft token
-   * from somebody else's Entra tenant looks like, and it is what a check written
-   * as "the issuer starts with the authority's host" would let through while
-   * still producing a sign-in that succeeds and a session that works.
-   *
-   * A wrong issuer check is not visible from a happy path. It is visible here.
+   * A check written as "the issuer starts with the authority's host" would let
+   * this through while still producing a sign-in that succeeds: a wrong issuer
+   * check is not visible from a happy path, only from a case like this.
    */
   it('refuses a token from another tenant on the same authority', async () => {
     await boot(wellhouse())
@@ -1026,9 +876,8 @@ describe('a provider whose issuer is discovered rather than written down', () =>
 
     const back = await comeBack(began.state, began.cookie)
 
-    // Sent back to the login screen like every other refusal (#557), and told
-    // `refused` rather than `cancelled`: nobody chose this and nobody undoes it
-    // by pressing the button again.
+    // Told `refused` rather than `cancelled`: nobody chose this and nobody
+    // undoes it by pressing the button again.
     expect(back.status).toBe(302)
     expect(new URL(back.headers.get('location') ?? '', 'http://books.test')
       .searchParams.get('signin')).toBe('refused')
@@ -1050,35 +899,25 @@ describe('a provider whose issuer is discovered rather than written down', () =>
       expect((await comeBack(began.state, began.cookie)).status).toBe(302)
     }
 
-    // Three sign-ins, three authorization requests, three exchanges, and one
-    // document.
     expect(documentsAsked.wellhouse).toBe(1)
     expect(await new AuthStore(db).everybody()).toHaveLength(1)
   })
 
   /**
-   * `common` and `organizations`, in the only form a stub can have them:
-   * an authority whose document answers `{tenantid}` instead of an issuer.
-   * `providers.ts` also refuses those two by name at start, which is the same
-   * answer arriving sooner; this is the refusal that would still hold for an
-   * authority nobody has thought of.
+   * `providers.ts` also refuses `common` and `organizations` by name at start;
+   * this is the more general refusal that would still hold for an authority
+   * nobody has named.
    */
   it('refuses an authority that answers with a template, and signs nobody in', async () => {
     await boot(wellhouse('templated'))
 
     const began = await start()
-    /*
-     * `unavailable`, which is what the `502` this used to assert became when
-     * these routes stopped answering a browser with a body (#557). The same
-     * distinction, said in the vocabulary a person is told in: an authority
-     * that will not say what its issuer is has nothing to do with whoever
-     * pressed the button.
-     */
+    /* `unavailable`: an authority that will not say what its issuer is has nothing to do with whoever pressed the button. */
     expect(began.status).toBe(302)
     expect(began.trouble).toBe('unavailable')
     expect(began.cookie).toBe('')
 
-    // And nothing was half-started: no flow row to replay and no user.
+    // Nothing was half-started: no flow row to replay and no user.
     expect(await db.all('SELECT * FROM sign_in_flow')).toHaveLength(0)
     expect(await new AuthStore(db).everybody()).toHaveLength(0)
   })
@@ -1094,21 +933,17 @@ describe('a provider whose issuer is discovered rather than written down', () =>
   })
 
   /**
-   * The callback resolves too, and it has to.
-   *
-   * The situation is ordinary rather than contrived: a sign-in that began before
-   * a restart comes back after one, so nothing is cached and the document is
-   * asked for again. If the authority has stopped being able to say what its
-   * issuer is, the answer is to refuse, because the alternative shape, "carry on
-   * and sort the issuer out later", is how a provider ends up admitting a token
-   * nothing checked.
+   * A sign-in that began before a restart comes back after one, so nothing is
+   * cached and the document is asked for again; if the authority cannot say
+   * what its issuer is, refusing is the only safe answer, since "sort it out
+   * later" is how a provider ends up admitting an unchecked token.
    */
   it('refuses at the callback when the authority stops answering usefully', async () => {
     await boot(wellhouse())
     const began = await start()
     expect(began.status).toBe(302)
 
-    // The restart, and the authority now answering the way `common` does.
+    // Simulates the restart: the authority now answers the way `common` does.
     forgetDiscovered()
     authorities.wellhouse = authorities.templated!
 
@@ -1130,15 +965,7 @@ describe('a provider whose issuer is discovered rather than written down', () =>
   })
 })
 
-/**
- * The development door, driven rather than described.
- *
- * It is the answer to "development must keep working" and #521 asked for the
- * argument as well as the mechanism. The mechanism is here; the argument is on
- * `devProvider` and in `docs/the-gate.md`. What these cases pin is the part of
- * the argument that is checkable: it is a provider rather than a bypass, and it
- * cannot be on at the same time as a real one.
- */
+/** A provider rather than a bypass; it cannot be on at the same time as a real one. See `docs/the-gate.md`. */
 describe('the development door', () => {
   let dev: BookScanApp
   let devServer: import('node:http').Server
@@ -1187,14 +1014,12 @@ describe('the development door', () => {
     await new Promise<void>((resolve) => listener.once('listening', resolve))
     const url = `http://127.0.0.1:${(listener.address() as AddressInfo).port}`
     try {
-      // Not a 404 any more (#557): a browser is what asks this, so it is sent
-      // back to the login screen, which on this server draws "there is no way
-      // to sign in to this app yet" and is the true thing to show.
+      // A browser asks this, so it is sent back to the login screen rather than a 404.
       const shutDoor = await fetch(`${url}/api/auth/dev/start`, { redirect: 'manual' })
       expect(shutDoor.headers.get('location')).toBe('/?signin=no-such-way')
       expect(await (await fetch(`${url}/api/auth/providers`)).json()).toEqual({ providers: [] })
-      // And with no way in, everything is refused. A server with no gate and a
-      // server with no way through it look nothing alike.
+      // With no way in configured, the gate still refuses everything: no
+      // providers is not the same as no gate.
       expect((await fetch(`${url}/api/health`)).status).toBe(401)
     } finally {
       await shut.settled()
@@ -1204,37 +1029,16 @@ describe('the development door', () => {
 })
 
 /**
- * The thirty days the browser is holding, which are the ones that decide (#558).
- *
- * `docs/the-gate.md` promises thirty days "renewed on use", and gives the reason
- * in the owner's terms: "a phone at a bookshelf that asks for a sign-in every
- * visit gets abandoned". The renewal was written and it wrote one of the two
- * things it had to. The `session` row's window slid forward and the cookie
- * addressing it never did, because `Max-Age` was set once, by `admit`, so a
- * daily user was signed out on day thirty holding a row good to day sixty.
- *
- * **Nothing that existed could have gone red for it.** The row moved, which is
- * what a test of `renewSession` asks about; the request was answered, which is
- * what a test of the gate asks about; and the half that reaches a person was the
- * absence of a header nobody was looking at. So this asks about the header, and
- * it asks by comparison rather than by a literal: the sign-in door is driven for
- * real, what `admit` wrote is kept, and the renewal is required to be that same
- * cookie again. A renewal that quietly dropped `Secure` would then be a failure
- * here rather than a deployment where the browser stops storing the credential
- * and nobody can sign in (`deploy/contract.json`, `network.tls`).
- *
- * The development door is what it is driven through because it is the one whose
- * sign-in is a single `GET` with no provider to stub, and `admit` is the same
- * code whichever door reaches it.
+ * Compares the renewed cookie against what `admit` wrote, rather than a
+ * literal, so a change that quietly drops `Secure` fails here instead of in
+ * production. Driven through the development door because it is a single
+ * `GET` with no provider to stub, and `admit` is the same code whichever door reaches it.
  */
 describe('the thirty days the browser is holding', () => {
   let renewing: BookScanApp
   let renewingServer: import('node:http').Server
   let renewingUrl: string
-  /*
-   * Moved by the cases rather than waited for. The staleness the renewal hangs
-   * on is an hour, and a suite that waited for one would not be a suite.
-   */
+  /* Moved by the cases rather than waited for real time: the staleness the renewal hangs on is an hour. */
   let clock: Date
 
   beforeEach(async () => {
@@ -1257,12 +1061,8 @@ describe('the thirty days the browser is holding', () => {
   })
 
   /**
-   * Everything a browser is told about a cookie except when it dies.
-   *
-   * `Expires` is dropped because it is the thing under test moving: a renewal
-   * two hours later is supposed to say a later date. `Max-Age` is kept, and is
-   * the assertion that matters, because it is the same thirty days counted from
-   * whenever it was said.
+   * `Expires` is dropped since it is expected to change on renewal; `Max-Age`
+   * is kept because it should stay the same thirty days counted afresh.
    */
   const keptFrom = (header: string | null) => {
     const said = (header ?? '')
@@ -1287,11 +1087,7 @@ describe('the thirty days the browser is holding', () => {
     const soon = await fetch(`${renewingUrl}/api/health`, { headers: { cookie: admitted } })
 
     expect(soon.status).toBe(200)
-    /*
-     * The half that keeps this affordable. Re-issuing on every request would
-     * put a `Set-Cookie` on every response including each of the twenty-five
-     * photographs a scan run asks for, and the staleness test is what stops it.
-     */
+    /* Re-issuing a `Set-Cookie` on every request would add one to every response in a scan run; staleness is what avoids that. */
     expect(soon.headers.get('set-cookie')).toBeNull()
   })
 
@@ -1306,22 +1102,13 @@ describe('the thirty days the browser is holding', () => {
     // The same credential, addressing the same row: a renewal that minted a new
     // token would strand every request already in flight carrying the old one.
     expect(cookieIn(later.headers.get('set-cookie'), SESSION_COOKIE)).toBe(admitted)
-    // And every attribute the sign-in wrote, `Secure` among them, said again.
     expect(keptFrom(later.headers.get('set-cookie'))).toEqual(keptFrom(written))
   })
 
   /**
-   * The two windows move in the same breath, which is the whole defect said as
-   * a case: the row moving on its own is what #558 was, and it looked like this
-   * test passing on the row alone.
-   *
-   * **The browser is asked about `Max-Age` rather than about `Expires`**, and
-   * the reason is the injected clock above rather than a preference. Express
-   * computes `Expires` from the real `Date.now()` and the row's `expires_at`
-   * comes from `clock`, so under a fake clock the two are two hours apart and
-   * the difference is this file's, not this server's. `Max-Age` is counted from
-   * whenever the browser is told, so it is the same number either way, and it
-   * is also the one a browser prefers where both are present.
+   * Checked via `Max-Age`, not `Expires`: Express computes `Expires` from the
+   * real clock while the row's `expires_at` comes from the injected `clock`, so
+   * under a fake clock the two would differ by an artifact of this file, not a defect.
    */
   it('slides the row and the browser by the same thirty days', async () => {
     const admitted = cookieIn(await signIn(), SESSION_COOKIE)
@@ -1344,10 +1131,8 @@ describe('the thirty days the browser is holding', () => {
 })
 
 /**
- * What configuration is allowed to say, and the three things it is refused.
- *
- * A process that exits naming a variable is recoverable in one command; one that
- * comes up with the wrong door open is not obviously anything.
+ * A process that exits naming a missing variable is recoverable in one
+ * command; a misconfigured door left open is not obviously anything.
  */
 describe('reading the environment', () => {
   it('builds Google out of two variables and an origin', () => {
@@ -1385,9 +1170,8 @@ describe('reading the environment', () => {
   })
 
   /**
-   * The one with teeth. A deployment that has configured Google cannot also be
-   * carrying the development door, which is the moment somebody would otherwise
-   * have left it on.
+   * Prevents a deployment that has configured Google from also carrying the
+   * development door, the moment somebody would otherwise leave it on.
    */
   it('refuses the development door beside a real provider', () => {
     expect(() => signInFrom({

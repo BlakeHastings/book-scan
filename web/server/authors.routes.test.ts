@@ -1,20 +1,12 @@
 /**
  * The author routes, driven over real HTTP against a real Postgres.
  *
- * Postgres, because `author`, `author_alias` and `book_author` are created by a
- * migration and there are migrations only for Postgres. The database is built by
- * running them, which is also what an ordinary start does: `applySchema` calls
- * `migrateToLatest`.
+ * Postgres, because `author`, `author_alias` and `book_author` are created
+ * by a migration and there are migrations only for Postgres.
  *
- * The app is built with `createApp()` and started on an ephemeral port, the same
- * way `tags.routes.test.ts` does it, and for the same reason: there is no
- * supertest in this project and this suite must not add one. Open Library and
- * Google Books are stubbed, so nothing here touches the network.
- *
- * Two tests matter more than the rest. One is that saving a book credits an
- * alias without moving where the book files, which is the promise #180 makes to
- * every shelf. The other is that merging two authors moves no book, which is why
- * the backfill was allowed to be conservative.
+ * Two tests matter more than the rest: that saving a book credits an alias
+ * without moving where the book files, and that merging two authors moves
+ * no book, which is why the backfill was allowed to be conservative.
  */
 
 import type { AddressInfo } from 'node:net'
@@ -47,10 +39,9 @@ vi.mock('./covers', () => ({
 
 const answers = vi.mocked(lookupIsbn)
 
-// One `Db` for the file, not one per test. Each `PgDb` registers an `error`
-// listener on the pool, and a dozen of them trips node's max-listeners warning.
-// `openTestDatabase` hands back the same one every call, which is what keeps
-// that true now the reset is its job rather than this file's.
+// One `Db` for the file, not one per test: each `PgDb` registers an `error`
+// listener on the pool, and a dozen of them trips node's max-listeners
+// warning. `openTestDatabase` hands back the same one every call.
 let db: Db
 /** This file's own scratch root, which no other test file can name. */
 let scratch: string
@@ -94,8 +85,8 @@ afterAll(async () => {
 async function call(path: string, init: RequestInit = {}) {
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,
-    // The suite arrives holding a session, because every route under /api is
-    // behind the gate since #521 and a request without one is refused 401.
+    // Every route under /api is behind the gate, so a request without a
+    // session cookie is refused 401.
     headers: {
       cookie,
       ...(init.body ? { 'content-type': 'application/json' } : {}),
@@ -135,12 +126,9 @@ async function everyone(): Promise<AuthorView[]> {
 }
 
 /**
- * What the shelf actually orders by.
- *
- * `catalogued_books` rather than `books`, because `author_filing` is a column on
- * the view now (#227): what a book files under is a fact about its first
- * credit's alias, joined back on so that every listing reads what it always
- * read. `sort_key` is still the row's, and is what a shelf is ordered by.
+ * `catalogued_books` rather than `books`, because what a book files under
+ * is a fact about its first credit's alias, joined back on here. `sort_key`
+ * is still the row's own, and is what a shelf is ordered by.
  */
 async function shelving(bookId: number) {
   return (await db.get<{ author_filing: string; sort_key: string; authors: string }>(
@@ -160,9 +148,9 @@ describe('saving a book', () => {
   })
 
   it('does not touch what the shelf orders by', async () => {
-    // The promise #180 makes to every shelf. `books.author_filing` and
-    // `books.sort_key` are still what the shelving code reads, and the new
-    // tables are written beside them rather than instead of them.
+    // `books.author_filing` and `books.sort_key` are still what the
+    // shelving code reads, and the new tables are written beside them
+    // rather than instead of them.
     const id = await aBook({ authors: ['Frank Herbert'] })
     const before = await shelving(id)
 
@@ -183,13 +171,11 @@ describe('saving a book', () => {
 
   it('files a name this collection has already met, which introduce will not', async () => {
     /*
-     * `Store.saveFilingOverride`, arrived at the alias (#227).
-     *
-     * The correction usually arrives on the second book, because the first one
-     * is where somebody notices the heuristic got it wrong. `introduce` will not
-     * touch a name it has seen, deliberately, so this is the case that used to
-     * reach the `author_filing` table and now has to reach the alias, or the
-     * next book by that author files under the heuristic again.
+     * The correction usually arrives on the second book, because the first
+     * one is where somebody notices the heuristic got it wrong. `introduce`
+     * will not touch a name it has seen, deliberately, so the override has
+     * to reach the alias, or the next book by that author files under the
+     * heuristic again.
      */
     await aBook({ title: 'No One Writes to the Colonel', authors: ['Gabriel García Márquez'] })
     expect((await everyone())[0]!.aliases[0]!.filingName).toBe('Márquez, Gabriel García')
@@ -210,9 +196,6 @@ describe('saving a book', () => {
   })
 
   it('files it on an edit as well as on the first save', async () => {
-    // The path that used to lose it entirely: the flag that saved an override
-    // was on `POST /api/books` alone, so a filing name typed against a book
-    // already in the catalogue moved that one book and vanished.
     const id = await aBook({ title: 'Dune', authors: ['Frank Herbert'] })
     await put(`/api/books/${id}`, {
       title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG,
@@ -234,12 +217,9 @@ describe('saving a book', () => {
   })
 
   it('files a name written in a non-Latin script, and the book row agrees', async () => {
-    // Issue #195, seen from both sides at once. The alias always got a real
-    // filing name, because `nameKey` folds on Unicode letters, while the book
-    // row got an empty one, because `normalise()` folded the whole name away
-    // and `Store.filingFor` answered nothing rather than filing it. This asserted
-    // that split until #195 closed it; the two answering the same thing is the
-    // point, because `books.author_filing` is still what the shelf orders by.
+    // The alias always gets a real filing name, because `nameKey` folds on
+    // Unicode letters. The two answering the same thing matters because
+    // `books.author_filing` is still what the shelf orders by.
     const id = await aBook({ title: 'Norwegian Wood', authors: ['村上春樹'] })
 
     expect((await shelving(id)).author_filing).toBe('村上春樹')
@@ -295,16 +275,12 @@ describe('filing a name differently', () => {
       .toEqual(['Gabriel García Márquez', 'García Márquez, Gabriel'])
 
     /*
-     * The book has not moved, and this is where #227 changes what that sentence
-     * means.
-     *
-     * `books.sort_key` is written by a save and by `server/refile-books.ts`, and
-     * filing a name is neither, so the row is exactly where it was and so is
-     * every book around it. What does change is what the catalogue says the book
-     * files under, because that is read from the alias now rather than from a
-     * copy taken when the book was last saved. The two disagreeing is the
-     * ordinary state of a name somebody has just corrected: the next save of
-     * that book puts it where the corrected name says.
+     * `books.sort_key` is written by a save and by `server/refile-books.ts`,
+     * and filing a name is neither, so the row is exactly where it was and
+     * so is every book around it. What does change is what the catalogue
+     * says the book files under, since that is read from the alias now
+     * rather than from a copy taken when the book was last saved. The next
+     * save of that book puts it where the corrected name says.
      */
     const now = await shelving(id)
     expect(now.sort_key).toBe(before.sort_key)

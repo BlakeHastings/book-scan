@@ -1,13 +1,8 @@
 /**
- * The repair, and that running it is two decisions rather than one (#505).
- *
- * `rebuildProjection` had no runtime caller at all. #505 said that is either the
- * repair somebody runs after a disagreement is found, in which case it needs a
- * way to be run, or dead code that should go. It is the first, and what is
- * tested here is the part that makes it safe to keep: **asking does not write.**
- *
- * `placement-ledger.test.ts` is where the check and the fold themselves are put
- * through their cases against a live-sized catalogue. This is the wrapper.
+ * What is tested here is the part that makes the repair safe to keep: asking
+ * does not write. `placement-ledger.test.ts` is where the check and the fold
+ * themselves are put through their cases against a live-sized catalogue;
+ * this is the wrapper.
  */
 
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
@@ -67,10 +62,8 @@ describe('rebuilding the placement projection', () => {
 
     const report = await rebuildProjectionRun(db, { repair: false })
 
-    // The rows first, because this is the assertion that matters: #485's
-    // diagnosis depended on the broken state being stable, and a dry run that
-    // repaired would erase the only evidence of which writer stopped recording
-    // itself. Asserted before the report so a run that repaired fails here
+    // Asserted before the report, so a dry run that repaired anyway (erasing
+    // the evidence of which writer stopped recording itself) fails here
     // rather than on a field.
     expect(await countProjectionDisagreements(db)).toBe(1)
 

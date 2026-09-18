@@ -24,10 +24,6 @@ describe('a date, as short as it can be and still be a date', () => {
     expect(shortDate('2024-05-14T09:00:00Z', now)).toBe('14 May 2024')
   })
 
-  /*
-   * A row of the ledger that says "Invalid Date" is the app telling somebody
-   * about its own internals on a page about their book.
-   */
   it('says nothing at all about something that is not a date', () => {
     expect(shortDate('', now)).toBe('')
     expect(shortDate('whenever', now)).toBe('')

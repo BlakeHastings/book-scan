@@ -1,49 +1,18 @@
 /**
- * Whether there is a backup of the catalogue that somebody has proved restores.
+ * Whether there is a backup of the catalogue that somebody has proved
+ * restores.
  *
- * ## Why this exists at all
+ * Asks about the result, never the process: whether there is a dump in the
+ * directory, taken recently, whose manifest says a verification restored it
+ * and found no differences. A broken process can fail to produce that; it
+ * cannot fake it.
  *
- * The nightly backup has stopped twice, for two unrelated reasons, and both
- * times the only thing that knew was a log file (#239, #311). The preventive
- * layer is fine: the tool refuses to guess its connection, the wrapper writes
- * the reason it failed in plain words, and the reason was correct both times.
- * What was missing was anything that noticed.
+ * `unreachable` (the directory could not be read) is kept apart from `none`
+ * or `unverified`, since a disk that could not be checked must never be
+ * reported as either safe or unprotected.
  *
- * ## It asks about the result, never about the process
- *
- * **The task ran on both of the nights nobody found out about.** It started at
- * 03:30, failed in under a second, logged why, and exited non-zero, and a check
- * that asked "did the scheduled job run" would have been satisfied by both of
- * them. So nothing here reads a log, asks Task Scheduler anything, or cares
- * whether a process was started. It asks one question of the disk:
- *
- * > is there a dump in that directory, taken less than about a day ago, whose
- * > manifest says a verification restored it and found no differences?
- *
- * A broken process can fail to produce that. It cannot fake it.
- *
- * ## Three ways of not being fine, kept apart on purpose
- *
- * - **`unreachable`.** The directory could not be read. The dumps live on a
- *   second physical disk, which is the right place for them and is also a thing
- *   that can be unplugged, so "I could not look" must never come back as a pass.
- *   It is reported as its own answer rather than folded into "no backups", which
- *   would say the collection is unprotected when the truth is that nobody knows.
- * - **`unverified`.** There are dumps and not one of them carries a passed
- *   verification. This is the state the runbook calls worse than nothing,
- *   because a directory with fourteen files in it looks exactly like protection:
- *   "a dump is a file, a backup is a file somebody has restored".
- * - **`stale`.** There is a verified dump and it is too old. This is what both
- *   incidents actually looked like on disk.
- *
- * ## It never writes, and it never opens the catalogue
- *
- * Two reads and nothing else: the names in the directory, and the manifests
- * beside the newest few dumps. No connection is opened, no file is created,
- * moved or swept, and no retention decision is made here. `E:\book-scan-backups`
- * is in the out-of-bounds table in AGENTS.md along with the catalogue itself,
- * and a checker that tidied up what it found there would be the second thing in
- * this repository allowed to delete a backup.
+ * Read-only: two reads, the directory listing and the manifests beside the
+ * newest few dumps, nothing else.
  */
 
 import { readdir, readFile } from 'node:fs/promises'
@@ -51,30 +20,22 @@ import { join } from 'node:path'
 import { dumpTimestamp, manifestFileName, type Manifest } from './backup'
 
 /**
- * How old the newest verified dump is allowed to be, in hours.
- *
- * A day and two hours. The schedule is nightly, so a check made just before
- * tonight's run is legitimately looking at something almost twenty-four hours
- * old, and the task carries `-StartWhenAvailable`, which runs a missed
- * occurrence once a sleeping desktop is back rather than skipping the day. Two
- * hours of slack is what keeps a run that started late off this screen. It is
- * deliberately not a day exactly: an alarm that fires on an ordinary Tuesday is
- * an alarm somebody learns to scroll past, which is the failure this is for.
+ * How old the newest verified dump is allowed to be, in hours: a day plus two
+ * hours of slack. The task carries `-StartWhenAvailable`, so a run can be
+ * legitimately hours late; deliberately not exactly a day, so an alarm does
+ * not fire on every ordinary run.
  */
 export const BACKUP_AGE_LIMIT_HOURS = 26
 
 /**
- * How far back to look for a verified dump.
- *
- * Retention keeps fourteen, so this only ever bites in a directory nothing has
- * swept. A verified dump thirty-three dumps down is older than every answer
- * this reports anyway, so stopping is not a different verdict, only less work.
+ * How far back to look for a verified dump. Retention keeps fourteen, so this
+ * only bites in a directory nothing has swept; stopping here is not a
+ * different verdict, only less work.
  */
 const MOST_TO_OPEN = 32
 
 /** One dump on the disk, as this check reports it. */
 export interface WatchedDump {
-  /** The dump's own filename. */
   dump: string
   /** When the catalogue was read, ISO-8601 UTC, out of the filename. */
   takenAt: string
@@ -114,8 +75,8 @@ export interface BackupWatch {
  * Look, and say what is there.
  *
  * `now` and `limitHours` are arguments rather than reads of the clock and the
- * constant, so a test can put a directory at any age without touching a file's
- * timestamps, and so the same directory can be asked about twice.
+ * constant, so a test can put a directory at any age without touching file
+ * timestamps.
  */
 export async function watchBackups(
   dir: string,
@@ -132,13 +93,11 @@ export async function watchBackups(
   }
 
   /*
-   * Newest first, and dated from the filename rather than from the file's
-   * timestamp. The runbook is explicit about why retention does the same: a
-   * directory that has been copied, restored or synchronised from somewhere
-   * else has mtimes saying when the copy happened and nothing about when the
-   * catalogue was read. A `.dump.part` from an interrupted run does not match
-   * the pattern, so it is not a dump here either, which is right: nothing will
-   * restore from one.
+   * Newest first, dated from the filename rather than the file's timestamp: a
+   * directory copied, restored or synchronised from elsewhere has mtimes
+   * saying when the copy happened, not when the catalogue was read. A
+   * `.dump.part` from an interrupted run does not match the pattern either,
+   * which is right: nothing will restore from one.
    */
   const dumps = names
     .map((name) => ({ name, takenAt: dumpTimestamp(name) }))
@@ -181,11 +140,9 @@ function told(one: { name: string; takenAt: Date }): WatchedDump {
 /**
  * The manifest beside a dump, or nothing at all.
  *
- * Missing and malformed collapse into the same answer deliberately. Three
- * shapes of this file exist on the owner's disk already, written by three
- * revisions of the tool, and the only field read here has been in every one of
- * them; anything this cannot parse is a file that cannot prove a restore, which
- * is what the caller is asking.
+ * Missing and malformed collapse into the same answer deliberately: anything
+ * that cannot be parsed is a file that cannot prove a restore, which is what
+ * the caller is asking.
  */
 async function readManifest(dir: string, dump: string): Promise<Manifest | undefined> {
   try {

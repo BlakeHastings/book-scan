@@ -1,35 +1,22 @@
 /**
- * The claim the placement cut-over rests on, checked book by book.
- *
- * **The rules and the areas put every book exactly where `separators` and
+ * The claim the placement cut-over rests on, checked book by book: the
+ * rules and the areas put every book exactly where `separators` and
  * `shelf_ranges` put it, and the ledger says exactly what `books.location`
- * said.** Not approximately, and not "the counts agree": every shelved book is
- * placed twice, once by the tables the app has drawn shelves from since it
- * existed and once by the rows `0013` and `0015` derived from them, and the two
- * answers are compared one book at a time.
+ * said. Every shelved book is placed twice, once by the tables the app has
+ * drawn shelves from and once by the rows `0013` and `0015` derived from
+ * them, and the two answers are compared one book at a time.
  *
- * ## Why this one is different from the three cut-overs before it
+ * Unlike the tag, alias and photograph cut-overs, this one can disagree
+ * about where a book physically is, so the comparison is made twice over,
+ * from both ends: the shelf, `layoutRange` over `separators` against the
+ * areas and the rules (`areaDisagreements`, which `applySchema` runs on
+ * every start); and the record, `books.location` against the label the
+ * ledger's projection answers, which is what the client reads once the
+ * column has gone.
  *
- * Tags, aliases and photographs were substitutions where the two models could
- * not disagree about anything physical: a genre is a genre, a filing name is a
- * string, a photograph is a file. **This one can disagree about where a book
- * physically is.** `separators` places a book by walking a list of anchors and
- * the rules place it by matching it; `books.location` says where somebody put it
- * and `book_placement` says the same thing as a history. When those disagree,
- * one of them is wrong about a shelf in somebody's house.
- *
- * So the comparison is made twice over, from both ends:
- *
- * - **the shelf**, `layoutRange` over `separators` against `placementOf` over
- *   the areas and the rules, which is `areaDisagreements` and is what
- *   `applySchema` runs on every start;
- * - **the record**, `books.location` against the label the ledger's projection
- *   answers, which is what the client reads once the column has gone.
- *
- * Both are made *during* the change, over a catalogue carrying the shape the
- * live one carries, because afterwards there is nothing left to compare against.
- * Three of the tests here break a derivation on purpose so the comparison is
- * watched naming the books it should.
+ * Both are made during the change, over a catalogue carrying the shape the
+ * live one carries, because afterwards there is nothing left to compare
+ * against.
  *
  * Nothing in this file connects to anything but a scratch database it made.
  */
@@ -46,12 +33,9 @@ import { migrateToLatest } from './migrate'
 import { closeScratchDatabases, scratchDatabase } from './testdb'
 
 /**
- * The catalogues open right now, given back as each test finishes with one.
- *
- * The same arrangement `cutover.test.ts` explains at length: a pool per scratch
- * database held to the end of the file is how this suite reached postgres's
- * hundred connections, and the symptom landed on whichever unrelated file asked
- * for a database next.
+ * The pools open right now, given back as each test finishes with one. See
+ * `cutover.test.ts` for why: enough scratch databases held open at once can
+ * run the container out of connections.
  */
 const openHere: pg.Pool[] = []
 
@@ -62,10 +46,6 @@ afterEach(async () => {
 afterAll(async () => {
   await closeScratchDatabases()
 })
-
-// ---------------------------------------------------------------------------
-// A catalogue in the state the owner's is in
-// ---------------------------------------------------------------------------
 
 const NAMES = [
   'Le Guin, Ursula K.', 'Banks, Iain M.', 'Pratchett, Terry', 'Butler, Octavia E.',
@@ -81,11 +61,9 @@ interface SeedBook {
 }
 
 /**
- * 237 books, which is the size the live catalogue was when #227 was written.
- *
- * Every third book is non-fiction, so both runs are populated and the
- * interesting failure, a derivation that gets the big range right and the other
- * one wrong, has somewhere to show up.
+ * A catalogue shaped like the live one: every third book non-fiction, so
+ * both runs are populated and a derivation that gets the big range right
+ * and the other one wrong has somewhere to show up.
  */
 const LIVE_SIZED: SeedBook[] = Array.from({ length: 237 }, (_, at) => {
   const title = `Book ${String(at).padStart(3, '0')}`
@@ -107,12 +85,11 @@ interface SeedBoundary {
 }
 
 /**
- * Eleven boundaries, which is what `0013` was measured against.
- *
- * Two of them are bookcase breaks, because a `shelf` boundary is the case the
- * area model has to derive rather than store: it is an area hanging on a
- * different fixture, and getting it wrong puts a plank's worth of books in the
- * wrong piece of furniture rather than one book out of order.
+ * Eleven boundaries. Two are bookcase breaks, since a `shelf` boundary is
+ * the case the area model has to derive rather than store: it is an area
+ * hanging on a different fixture, and getting it wrong puts a plank's
+ * worth of books in the wrong piece of furniture rather than one book out
+ * of order.
  */
 const BOUNDARIES: SeedBoundary[] = [
   { range: 'fiction', kind: 'area', at: 18 },
@@ -171,11 +148,9 @@ function plankOf(): Map<string, string> {
 }
 
 /**
- * The catalogue as stage H left it: the pre-Drizzle schema, and never migrated.
- *
- * `SCHEMA` rather than `applySchema`, for the reason the other backfill tests
- * give: `applySchema` runs the migrations itself and would hand back a database
- * that had already had the ones under test.
+ * The catalogue as the pre-Drizzle schema left it, never migrated. Uses
+ * `SCHEMA` rather than `applySchema`, which would run the migrations itself
+ * and hand back a database that had already had the ones under test.
  */
 async function catalogueOf(): Promise<pg.Pool> {
   const pool = await scratchDatabase()
@@ -232,10 +207,6 @@ async function catalogueOf(): Promise<pg.Pool> {
   return pool
 }
 
-// ---------------------------------------------------------------------------
-// The two models, each asked where every book is
-// ---------------------------------------------------------------------------
-
 /** The shelf order hash, spelled as `server/backup.ts` and `0013` spell it. */
 async function shelfOrder(pool: pg.Pool, from: string): Promise<string | null> {
   const { rows } = await pool.query<{ hash: string | null }>(
@@ -245,12 +216,9 @@ async function shelfOrder(pool: pg.Pool, from: string): Promise<string | null> {
 }
 
 /**
- * What the ledger says about where every book is, said as the label the wire
- * carries.
- *
- * `withPlacements` is production code and is what every book on the wire is read
- * through once the column has gone, so this compares against the answer the
- * client will actually be given rather than against a query written for a test.
+ * What the ledger says about where every book is, said as the label the
+ * wire carries. `withPlacements` is production code, so this compares
+ * against the answer the client will actually be given.
  */
 async function fromTheLedger(pool: pg.Pool): Promise<Map<string, string>> {
   const db = new PgDb(pool)
@@ -275,15 +243,13 @@ function disagreements(
   return found.sort()
 }
 
-// ---------------------------------------------------------------------------
-
 describe('the rules and the areas deciding where every book goes', () => {
   it('puts every book where the separators put it, and the ledger says so', async () => {
     const pool = await catalogueOf()
 
     const before = await shelfOrder(pool, 'books WHERE checked_out_at IS NULL')
-    // Read while both models are live: the layout the separators produce, and
-    // the location column, which is what the client reads today.
+    // Read while both models are live: the layout the separators produce,
+    // and the location column the client reads today.
     const bySeparators = plankOf()
     const { rows: recorded } = await pool.query<{ title: string; location: string }>(
       'SELECT title, location FROM books ORDER BY id',
@@ -292,15 +258,13 @@ describe('the rules and the areas deciding where every book goes', () => {
 
     expect(await migrateToLatest(pool)).toBe('adopted')
 
-    // The shelf, both ways. `areaDisagreements` is production code and is what
-    // `applySchema` runs on every start, so this is the check the app makes
-    // about itself rather than one written for a test.
+    // The shelf, both ways. `areaDisagreements` is production code, run by
+    // `applySchema` on every start.
     const drift = await areaDisagreements(new PgDb(pool))
     expect(drift.map(describeAreaDisagreement)).toEqual([])
 
-    // And the layout the areas produce really is the layout the separators
-    // produced, which `areaDisagreements` cannot say on its own: it compares two
-    // readings of the rows as they stand now, and this compares them against
+    // Confirms the areas' layout matches the separators' layout:
+    // `areaDisagreements` only compares two current readings, not against
     // what the dropped tables said.
     const byRules = await fromTheLedger(pool)
     expect(byRules.size).toBe(LIVE_SIZED.length)
@@ -319,13 +283,9 @@ describe('the rules and the areas deciding where every book goes', () => {
   })
 
   /**
-   * The refusal that stands between a mistyped label and losing where a book is.
-   *
-   * `0015` counted these and left them, because `books.location` was still
-   * authoritative and the record was safe in the column. It is about to stop
-   * being safe anywhere, so `0023` refuses, names the books and says what to do.
-   * This is the one guard in the chain that can stop the live catalogue
-   * migrating, so it is the one worth watching fire.
+   * `0015` counted these and left them, since `books.location` was still
+   * authoritative; `0023` drops that column, so it refuses instead and
+   * names the books.
    */
   it('refuses rather than losing a book recorded on a plank nobody has', async () => {
     const pool = await catalogueOf()
@@ -365,21 +325,16 @@ describe('the rules and the areas deciding where every book goes', () => {
 
 describe('the comparison failing, which is what makes it worth making', () => {
   /**
-   * Moving one anchor is the failure this whole change is about, and it is
-   * caught by a different check from the one that catches a drifted model.
+   * Moving one anchor does not throw and does not fail a smoke test; it
+   * draws a plank's worth of books on the plank before, and the only
+   * symptom is somebody standing at a bookcase holding a book.
+   * `Shelves.review` catches it, comparing where every book is recorded
+   * against where the furniture puts it.
    *
-   * A boundary that says the wrong thing does not throw and does not fail a
-   * smoke test. It draws a plank's worth of books on the plank before, and the
-   * only symptom is somebody standing at a bookcase holding a book. What says so
-   * is `Shelves.review`, which compares where every book is recorded against
-   * where the furniture puts it, and it is a genuinely two-sided comparison
-   * still: one side is the ledger and the other is the areas.
-   *
-   * `areaDisagreements` is deliberately not what catches this, and that is worth
-   * writing down rather than discovering. Both of its readings walk the same
-   * areas, so moving one moves both. What it catches is the two of them being
-   * asked different questions about the same book, which is the second half of
-   * this test.
+   * `areaDisagreements` deliberately does not catch this: both of its
+   * readings walk the same areas, so moving one moves both. What it
+   * catches instead is the two being asked different questions about the
+   * same book, which is the second half of this test.
    */
   it('names the books when one anchor moves, and when a run changes hands', async () => {
     const pool = await catalogueOf()
@@ -390,10 +345,9 @@ describe('the comparison failing, which is what makes it worth making', () => {
     expect((await shelves.review('fiction')).misfiles).toEqual([])
     expect(await areaDisagreements(db)).toEqual([])
 
-    // The third plank of the fiction run, anchored eight books earlier. Every
-    // book between the two anchors is now drawn on a plank it is not recorded
-    // on, which is exactly what somebody moving a divider without carrying the
-    // books produces.
+    // The third plank of the fiction run, anchored eight books earlier:
+    // every book between the two anchors is now drawn on a plank it is not
+    // recorded on.
     const fiction = inRange('fiction')
     const { rowCount } = await pool.query(
       `UPDATE area SET starts_at = $1
@@ -412,8 +366,7 @@ describe('the comparison failing, which is what makes it worth making', () => {
     expect(misfiled.map((one) => one.book.title))
       .toEqual(fiction.slice(28, 36).map((book) => book.title))
 
-    // And the other check, which is the one that fails when the range a book
-    // files into and the rule that claims it stop saying the same thing.
+    // The other check: fails when a book's range and the rule that claims it disagree.
     expect(await areaDisagreements(db)).toEqual([])
     await pool.query(
       `UPDATE books SET shelf_range = 'nonfiction'
@@ -429,9 +382,8 @@ describe('the comparison failing, which is what makes it worth making', () => {
   })
 
   /**
-   * Editing one placement is the other failure, and it is the one the column
-   * used to make impossible: the ledger and the projection over it disagreeing
-   * about the same book.
+   * The other failure: the ledger and the projection over it disagreeing
+   * about the same book, which the dropped column used to make impossible.
    */
   it('names the book when one placement is edited', async () => {
     const pool = await catalogueOf()
@@ -440,8 +392,8 @@ describe('the comparison failing, which is what makes it worth making', () => {
     const before = await fromTheLedger(pool)
     expect(before.get('Book 001')).toBe(plankOf().get('Book 001'))
 
-    // The projection moved and the ledger left where it was, which is exactly
-    // what a fifth writer of a location would produce.
+    // The projection moved and the ledger left where it was: what a fifth
+    // writer of a location would produce.
     const { rows } = await pool.query<{ id: number }>(
       `SELECT a.id FROM area a JOIN fixture f ON f.id = a.fixture_id
         WHERE f.position = 2 AND a.position = 0`,
@@ -456,8 +408,7 @@ describe('the comparison failing, which is what makes it worth making', () => {
     console.log('[placement cutover] one placement edited: Book 001 reads ' +
       `${after.get('Book 001')} where the ledger says ${before.get('Book 001')}`)
 
-    // And the check that watches the projection says so, which is the check
-    // `applySchema` has run on every start since #185.
+    // The check that watches the projection agrees, which `applySchema` runs on every start.
     const { rows: drift } = await pool.query<{ n: string }>(
       `SELECT count(*)::text AS n FROM books b
          LEFT JOIN LATERAL (

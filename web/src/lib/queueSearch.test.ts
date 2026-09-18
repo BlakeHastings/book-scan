@@ -1,11 +1,7 @@
 /**
- * Finding one book in the queue without breaking the queue.
- *
- * The search is a filter over what is already loaded, and the two things it
- * must not do are as important as the matching itself: it must not resort the
- * list, because newest first is what makes the top of the screen the book on
- * top of the pile, and it must not assume a capture has a title, because a
- * capture is not a book and stays blank until a lookup resolves.
+ * Must not resort the list, since newest first is what makes the top of the screen the book on
+ * top of the pile, and must not assume a capture has a title, since one stays blank until a
+ * lookup resolves.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -90,11 +86,7 @@ describe('matching a capture against what was typed', () => {
     expect(matchesQuery(dune, 'DUNE')).toBe(true)
   })
 
-  /*
-   * A phone keyboard will not produce "Stanisław" and nobody working through a
-   * pile is going to try. A search that only finds the book when the diacritic
-   * is right does not find the book.
-   */
+  /* A phone keyboard will not produce "Stanisław" and nobody working through a pile is going to try. */
   it('does not care about accents in either direction', () => {
     expect(matchesQuery(solaris, 'lem')).toBe(true)
     expect(matchesQuery(solaris, 'stanislaw')).toBe(true)
@@ -114,18 +106,12 @@ describe('matching a capture against what was typed', () => {
     expect(matchesQuery(dune, 'solaris')).toBe(false)
   })
 
-  /* The capture the queue is mostly made of: no title, no author, no crash. */
   it('does not assume a capture has a title yet', () => {
     expect(matchesQuery(unread, 'dune')).toBe(false)
     expect(matchesQuery(unread, '')).toBe(true)
   })
 
-  /*
-   * Search reaches the OCR guess even though no field is filled from it any
-   * more (#156). The guess is the name the row is drawn under, and a search
-   * box that could not find a row by the name beside it would be lying about
-   * the list it filters. Nothing is saved by typing into it.
-   */
+  /* The guess is the name the row is drawn under, so search must find it there. */
   it('finds a capture by the guess its row is named after', () => {
     const guessed = blank(5, { title_guess: 'S0NG 0F SOLOMQN' })
     expect(matchesQuery(guessed, 'solomqn')).toBe(true)
@@ -147,21 +133,12 @@ describe('narrowing the queue', () => {
     expect(filterQueue(queue, 'zzzz')).toEqual([])
   })
 
-  /*
-   * The queue is newest first on purpose: books are stacked, so the one
-   * photographed last is the one on top of the pile and the one reached for
-   * next. A search narrows that list; it never rearranges it.
-   */
   it('leaves the order exactly as it was given', () => {
-    // Every one of these has an "e" somewhere, so the result is the input and
-    // any difference is the filter having rearranged something.
     expect(filterQueue([dune, dispossessed, solaris], 'e').map((c) => c.id))
       .toEqual([9, 8, 7])
   })
 
   it('does not sort a list that arrives in some other order', () => {
-    // Handed the queue upside down, it hands back the queue upside down. The
-    // display order is `newestFirst`'s business and nothing else's.
     expect(filterQueue([solaris, dispossessed, dune], 'e').map((c) => c.id))
       .toEqual([7, 8, 9])
   })

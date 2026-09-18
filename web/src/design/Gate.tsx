@@ -1,40 +1,16 @@
 /**
- * The two screens somebody sees when they are not in the app yet (#524).
+ * The two screens somebody sees when they are not in the app yet: nobody is
+ * signed in, and somebody is signed in but has not been let in.
  *
- * The gate is the server's (`docs/the-gate.md`) and it answers three states.
- * Two of them are not the app: nobody is signed in, and somebody is signed in
- * and has not been let in. These are those two, drawn once here so the gallery
- * and the app draw the same thing.
+ * Neither wears the tab-bar frame, since a tab bar here would be four doors
+ * this person cannot reach, all shown locked. `.wf-gate` in `library.css` is
+ * the geometry.
  *
- * ## Neither of them wears the frame
- *
- * `Phone` carries a tab bar, and a tab bar is four places in an app this person
- * cannot reach. Drawing one greyed out would be offering four doors and locking
- * all of them. So these are their own layout, the way the camera is: one column,
- * centred, and nothing around it. `.wf-gate` in `library.css` is the geometry.
- *
- * ## The waiting screen is the one to get right
- *
- * Somebody here has signed in, proved exactly who they are, and been refused.
- * They have done nothing wrong, there is nothing they can do about it, and what
- * they can see the edge of is somebody else's collection. Three things are owed
- * to them and this screen says all three and nothing else:
- *
- * 1. **What has happened.** Signing in said who they are. It did not admit them,
- *    and it was never going to, because every person on earth already holds a
- *    Google credential and this collection is one person's.
- * 2. **Who can change it.** The owner, and only by a decision made outside the
- *    app. Not a form, not a button, not "try again": there is nothing to retry,
- *    and saying so is the difference between waiting and being sent round the
- *    sign-in loop for ever (#521).
- * 3. **A way out.** Sign out is the one act that is theirs, and it is here
- *    because the account they arrived on may simply be the wrong one. It is the
- *    reason `POST /api/auth/signout` is one of the five doors in front of the
- *    gate rather than behind it.
- *
- * **There is no count, no queue position and no estimate**, because the API does
- * not answer any of them and inventing one would be this screen promising
- * something nobody has agreed to. See the pull request for that finding.
+ * The waiting screen says three things and nothing else: what has happened
+ * (signed in, not admitted), who can change it (the owner, outside the app,
+ * so there is no "try again"), and a way out (sign out, since the account
+ * arrived on may simply be the wrong one). There is no count, no queue
+ * position and no estimate, since the API does not answer any of them.
  */
 
 import type { ReactNode } from 'react'
@@ -43,28 +19,16 @@ import { Button } from './Controls'
 import { Trouble } from './Trouble'
 
 /**
- * The way in: whatever `GET /api/auth/providers` said, drawn as buttons.
+ * The way in: whatever `GET /api/auth/providers` said, drawn as buttons. The
+ * list is the server's answer rather than one in this file, so adding a
+ * second provider is a configuration change rather than a screen change.
  *
- * The list is the server's answer rather than a list in this file, which is what
- * makes adding a second provider a configuration change and not a screen change.
- * The development door is in that answer like any other and is deliberately not
- * special-cased here: if it ever needs distinguishing, the server says so.
- *
- * ## This is also where a sign-in that failed comes back to (#557)
- *
- * A provider redirect is a top-level navigation, so a sign-in that goes wrong
- * ends on whatever the server answered with. It used to answer with JSON, and
- * that JSON was the whole page. Now it redirects here carrying which of six
- * things happened, and this screen has somewhere to put it.
- *
- * **It is drawn with `Trouble`, which is not a new pattern.** That component was
- * built for the first screen's bad news and its argument fits exactly: words at
- * the top of a card and no coloured rail, because a rail was named as an AI
- * fingerprint and rejected. The one departure is that `Trouble` has no button
- * and this one does — not on the card, but under it. That is not the rule being
- * bent: the buttons are the way in, they are on this screen whether or not
- * anything went wrong, and what the card must not do is grow an act of its own
- * that pretends to fix something.
+ * This is also where a sign-in that failed redirects back to, carrying which
+ * of several things went wrong. It draws that with `Trouble`, the same
+ * pattern as the first screen's bad news: words at the top of a card, no
+ * coloured rail. `Trouble` itself carries no button; the buttons here are
+ * under the card and are the way in regardless, not an act the card grows to
+ * pretend to fix something.
  */
 export function WayIn({
   ways,
@@ -92,12 +56,6 @@ export function WayIn({
         <h1 className="wf-gate__title">Book scan</h1>
         <p className="wf-gate__said">{said}</p>
 
-        {/*
-          * Under the sentence that says where this is and above the buttons
-          * that are what to do about it. Ahead of the title it would be news
-          * with no page around it, and below the buttons it would be an
-          * explanation somebody reads after acting on it.
-          */}
         {trouble && (
           <div className="wf-gate__trouble">
             <Trouble title={trouble.title}>{trouble.said}</Trouble>
@@ -107,14 +65,7 @@ export function WayIn({
         {ways.length > 0 ? (
           <div className="wf-gate__acts">
             {ways.map((way) => (
-              /*
-               * Filled only when there is one of them. `Button` says a screen
-               * has at most one primary, "the one thing this screen is for",
-               * and a stack of filled buttons is a screen with no answer to
-               * that. With two providers there genuinely is no answer: neither
-               * is more the way in than the other, and this app is in no
-               * position to recommend one of somebody's own accounts.
-               */
+              /* Filled only when there is exactly one: a screen has at most one primary button. */
               <Button
                 key={way.id}
                 tone={ways.length === 1 ? 'primary' : 'secondary'}
@@ -126,11 +77,7 @@ export function WayIn({
             ))}
           </div>
         ) : (
-          /*
-           * A real state and not a failure to load: an app configured with no
-           * provider has no way in, and a screen that drew a button anyway
-           * would be a door onto nothing.
-           */
+          /* A real state, not a failure to load: an app with no configured provider has no way in. */
           <p className="wf-gate__quiet">
             There is no way to sign in to this app yet.
           </p>
@@ -141,49 +88,18 @@ export function WayIn({
 }
 
 /**
- * Signed in, and not let in.
- *
- * `email` is the identity they arrived on, shown because it is the one fact
- * that makes the sign-out button worth anything: somebody who picked the wrong
+ * Signed in, and not let in. `email` is shown because it is the one fact that
+ * makes the sign-out button worth anything: somebody who picked the wrong
  * account can see that they did.
  *
- * ## This screen does not poll, and the last paragraph is what that costs (#558)
- *
- * It used to end "there is nothing to do here but wait", and waiting was the one
- * action that never resolved. Measured: sat here, had the person enabled by the
- * script, waited forty seconds, and the browser made **zero** requests. The
- * screen makes none by design, `app/gate.tsx` moves on a refusal or a cover that
- * would not load, and neither happens to somebody sitting still. A reload got
- * straight in, and so did leaving the tab and coming back, which re-asks. So the
- * app was letting people in perfectly and telling the person in front of it that
- * there was nothing to do but the one thing that would never work.
- *
- * **Two honest fixes, and they are different products.** Poll
- * `GET /api/auth/session` here and the screen comes alive by itself. Say what
- * actually moves it and the screen costs nothing and is true. This is the second
- * one, on purpose, for three reasons:
- *
- * 1. **Everybody on earth holding a Google credential can reach this screen.**
- *    That is not incidental, it is the whole reason the waiting state exists
- *    (`docs/the-gate.md`, on why there are three states). A timer here is an
- *    unbounded, automatic stream of requests from people this app has decided
- *    not to admit, from every tab any of them ever left open. #556 and #566 both
- *    spent an issue making sure a refusal is re-asked rather than remembered,
- *    and neither turned a refusal into a repeating request.
- * 2. **The window a poll would win is mostly not there.** Being let in is a
- *    person's decision, made at a terminal, and told to the waiting person the
- *    same way: out of band. They already have to be told. A poll buys the
- *    seconds between the script finishing and the message arriving.
- * 3. **The escape already exists and was simply never named.** Coming back to
- *    this tab re-asks the gate, which is what made the observed behaviour so
- *    strange: switch away and back and you are admitted, sit and watch and you
- *    are not. The words below now describe both ways.
- *
- * **And it is still not a button.** #524 kept "try again" off this screen
- * because the request that would be retried is the one that has just answered
- * `403`, and `design.test.tsx` holds that as a rule: exactly one thing to press
- * here and it is the way out. A reload is the browser's act and not this app
- * offering to fix something, which is the difference.
+ * This screen deliberately does not poll `GET /api/auth/session`. Being let
+ * in is a person's decision made out of band, so a timer here would only be
+ * an unbounded stream of requests from every refused tab left open, for a
+ * window a poll would rarely win anyway. Reloading, or leaving the tab and
+ * coming back, both re-ask the gate, so the screen tells the person to do
+ * that instead. It is also deliberately not a button: `design.test.tsx` holds
+ * that the only thing to press here is the way out, since the request a "try
+ * again" would retry is the one that has just answered 403.
  */
 export function WaitingList({
   email,

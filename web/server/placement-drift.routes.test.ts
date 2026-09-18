@@ -1,30 +1,21 @@
 /**
- * What `GET /api/placement/drift` answers, over real HTTP (#489).
+ * What `GET /api/placement/drift` answers, over real HTTP.
  *
- * **The check under it is not what is being tested here.**
- * `areaDisagreements` has been put through its cases since #213, by
- * `placement-cutover.test.ts`, `placement-backfill.test.ts`,
- * `separator-repository.test.ts` and `shelves.test.ts`, and none of that
- * changed. What is new is that anything other than the server log asks it, and
- * that is what these tests are about, in the same two halves
- * `backup.routes.test.ts` names for its own route:
+ * `areaDisagreements` itself is covered by `placement-cutover.test.ts`,
+ * `placement-backfill.test.ts`, `separator-repository.test.ts` and
+ * `shelves.test.ts`. What is new here is that anything other than the server
+ * log asks it:
  *
- * 1. **A catalogue that agrees answers nothing rather than something soothing.**
- *    An empty list is what both screens draw no card from, and it has to be
- *    reachable, because the ordinary day is every day.
- * 2. **A disagreement comes back with both places on it.** One without the
- *    other is not something anybody can act on: the whole content of the answer
- *    is which two places disagree.
- *
- * And one that is not about wiring at all and is the reason the issue was
- * written: **asking must never repair.** #485's broken shelf was diagnosable
- * three weeks after it began only because it was stable and survived every
- * restart, so a reader that quietly put a book right would have hidden the
- * defect indefinitely. There is no route that writes here and this proves the
- * one that reads does not either.
+ * 1. A catalogue that agrees answers nothing rather than something soothing:
+ *    an empty list is what both screens draw no card from.
+ * 2. A disagreement comes back with both places on it, since one without the
+ *    other is not something anybody can act on.
+ * 3. Asking must never repair: a reader that quietly put a book right would
+ *    hide a broken shelf indefinitely. There is no route that writes here,
+ *    and this proves the one that reads does not either.
  *
  * The harness is `furniture.routes.test.ts`'s, cut to what this needs: a
- * catalogue with books actually shelved, because on an empty one every answer
+ * catalogue with books actually shelved, since on an empty one every answer
  * on this route is the same answer.
  */
 
@@ -91,12 +82,11 @@ async function threeBooks(): Promise<number[]> {
 /**
  * Take the genre tag off a book that is already shelved.
  *
- * **The state #223 describes, and it is reached without touching a placement.**
- * `books.shelf_range` is written by a save and by nothing else, so a book whose
- * tag is removed afterwards keeps the range it already had and stays exactly
- * where it stands: the shelf still draws it in the fiction run, and no rule
- * claims it any more. That is a genuine disagreement between the two readings
- * and it is the cheapest honest way to make one.
+ * `books.shelf_range` is written by a save and by nothing else, so a book
+ * whose tag is removed afterwards keeps the range it already had: the shelf
+ * still draws it in the fiction run, and no rule claims it any more. That is
+ * a genuine disagreement between the two readings, and the cheapest honest
+ * way to make one.
  */
 async function untag(id: number): Promise<void> {
   await db.run('DELETE FROM book_tag WHERE book_id = ?', [id])
@@ -141,10 +131,9 @@ describe('GET /api/placement/drift', () => {
   it('says nothing at all about a catalogue whose two answers agree', async () => {
     await threeBooks()
 
-    // Nought and an empty list, which is what both screens draw no card from.
-    // There is deliberately no cheerful field beside it: a reader that could
-    // print "the shelf agrees with the rules" is a reader a bug can print it
-    // through over a check that never ran.
+    // There is deliberately no cheerful field beside the empty list: a
+    // reader that could print "the shelf agrees with the rules" is a reader
+    // a bug can print it through over a check that never ran.
     expect(await drift()).toEqual({ books: [], total: 0 })
   })
 
@@ -168,13 +157,9 @@ describe('GET /api/placement/drift', () => {
 
   it('answers the same thing twice, having changed nothing in between', async () => {
     /*
-     * The whole reason #489 insists this stays a reader.
-     *
-     * A check that repaired on sight would have hidden #485's defect
-     * indefinitely: the broken shelf was found three weeks in precisely because
-     * it was stable and outlived every restart. So asking is not an act, and
-     * the proof is that the second answer is the first one and the book's own
-     * row is where it was.
+     * A check that repaired on sight would hide a broken shelf indefinitely.
+     * The proof here is that the second answer is the first one, and the
+     * book's own row is unchanged.
      */
     const [, second] = await threeBooks()
     await untag(second!)
@@ -190,15 +175,13 @@ describe('GET /api/placement/drift', () => {
     expect(await db.get(
       'SELECT shelf_range, current_area_id FROM books WHERE id = ?', [second!],
     )).toEqual(before)
-    // And no tag was written back to settle it either, which is the repair
-    // #304 stopped the app making on the owner's explicit instruction.
+    // And no tag was written back to settle it either.
     expect(await db.all('SELECT * FROM book_tag WHERE book_id = ?', [second!])).toEqual([])
   })
 
   it('has no way to write to it', async () => {
-    // Not a style point. A screen that looks unfinished without a button is how
-    // a repair gets added later, so the absence is pinned here as well as said
-    // on the card. Anything under /api that no route matched answers 404.
+    // Anything under /api that no route matched answers 404; pinned here so
+    // a write route cannot be added back quietly.
     const posted = await fetch(`${baseUrl}/api/placement/drift`, { method: 'POST', headers: { cookie } })
     expect(posted.status).toBe(404)
   })

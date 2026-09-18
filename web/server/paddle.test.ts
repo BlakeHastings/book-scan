@@ -29,8 +29,8 @@ afterAll(async () => {
 
 describe('reading a cover', () => {
   it('finds the printed ISBN when there is no barcode to read', async () => {
-    // The measured claim this engine was chosen on, reduced to the one thing
-    // it has to keep doing: the printed label comes back readable.
+    // The one thing this engine has to keep doing: the printed label comes
+    // back readable.
     const result = await paddleOcr(await printedOnly())
 
     expect(result).not.toBeNull()

@@ -1,27 +1,12 @@
 /**
- * Command line front end for backfillCaptures. Run it from web/:
+ * Command line front end for backfillCaptures. Run with `--help` for usage.
  *
- *     npx tsx server/crop-captures.ts                  # dry run, writes nothing
- *     npx tsx server/crop-captures.ts --apply
- *     npx tsx server/crop-captures.ts --apply --limit 20
- *     npx tsx server/crop-captures.ts --apply --force
+ * New captures are cropped and hashed by the queue worker as their
+ * photographs arrive; this exists only for ones photographed before that.
  *
- * New captures are cropped and hashed by the queue worker as their photographs
- * arrive, so this exists only for the ones photographed before that. It is not
- * wired to a timer or a route and nothing runs it for you, for the same reason
- * `crop-books.ts` is not: reading every photograph in somebody's queue is time
- * only the owner can decide to spend.
- *
- * It reads ConnectionStrings__bookscan and BOOKSCAN_DATA exactly as the server
- * does, so the operator chooses the catalogue and the photographs and nothing
- * here has a default of its own beyond the server's.
- * It is a dry run unless told otherwise, it prints the directory it resolved
- * before it touches anything, and it waits before a write so a wrong path can
- * be interrupted.
- *
- * It writes new files and new columns only. No photograph is opened for
- * writing anywhere in this path, so the worst a bad run can do is leave crops
- * worth deleting.
+ * Reads `ConnectionStrings__bookscan` and `BOOKSCAN_DATA` exactly as the
+ * server does. Writes new files and new columns only; no photograph is
+ * opened for writing anywhere in this path.
  */
 
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -78,8 +63,8 @@ function main(): Promise<number> {
     }
   }
 
-  // Both resolved the way web/server/index.ts resolves them, so an operator
-  // who has them exported for the server gets the same catalogue and the same
+  // Resolved the same way web/server/index.ts resolves them, so an operator
+  // who has these exported for the server gets the same catalogue and
   // photographs here. The covers are still files; only the rows moved.
   const dataDir = resolve(process.env.BOOKSCAN_DATA ?? 'data')
   const coverDir = join(dataDir, 'covers')
@@ -126,8 +111,7 @@ async function run(
   try {
     return await work(db, coverDir, options)
   } finally {
-    // A pool left open holds the process alive after the report is printed,
-    // which a file handle did not.
+    // A pool left open holds the process alive after the report is printed.
     await db.close()
   }
 }
@@ -139,8 +123,8 @@ async function work(
 ): Promise<number> {
   const { apply, force, limit } = options
 
-  // No image reader and no lookup options: this never drains the queue, so
-  // nothing here reads a photograph for an ISBN or asks a catalogue anything.
+  // No lookup options: this never drains the queue, so nothing here reads a
+  // photograph for an ISBN or asks a catalogue anything.
   const queue = new CaptureQueue(db, () => null)
 
   const report = await backfillCaptures(queue, {
@@ -182,8 +166,6 @@ async function work(
   }
 
   console.log('')
-  // A failure here is a photograph that is gone or unreadable, which is worth
-  // an operator noticing rather than reading past in a wall of counts.
   return report.failed ? 1 : 0
 }
 

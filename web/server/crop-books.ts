@@ -1,27 +1,12 @@
 /**
- * Command line front end for cropCatalogue. Run it from web/:
+ * Command line front end for cropCatalogue. Run with `--help` for usage.
  *
- *     npx tsx server/crop-books.ts                  # dry run, writes nothing
- *     npx tsx server/crop-books.ts --apply
- *     npx tsx server/crop-books.ts --apply --limit 20
- *     npx tsx server/crop-books.ts --apply --force
+ * New photographs are cropped as they are saved; this exists only for ones
+ * taken before that.
  *
- * New photographs are cropped as they are saved, so this exists only for the
- * ones taken before that. It is not wired to a timer or a route and nothing
- * runs it for you: there are hundreds of photographs of a real collection
- * behind it, reading all of them is time only the owner can decide to spend,
- * and a derived file appearing next to every photo he owns is his call.
- *
- * It reads ConnectionStrings__bookscan and BOOKSCAN_DATA exactly as the server
- * does, so the operator chooses the catalogue and the photographs and nothing
- * here has a default of its own beyond the server's.
- * Because that catalogue is somebody's real book collection, this is a dry run
- * unless told otherwise, it prints the directory it resolved before it touches
- * anything, and it waits before a write so a wrong path can be interrupted.
- *
- * It writes new files and new columns only. No photograph is opened for
- * writing anywhere in this path, so the worst a bad run can do is leave crops
- * worth deleting.
+ * Reads `ConnectionStrings__bookscan` and `BOOKSCAN_DATA` exactly as the
+ * server does. Writes new files and new columns only; no photograph is
+ * opened for writing anywhere in this path.
  */
 
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -78,8 +63,8 @@ function main(): Promise<number> {
     }
   }
 
-  // Both resolved the way web/server/index.ts resolves them, so an operator who
-  // has them exported for the server gets the same catalogue and the same
+  // Resolved the same way web/server/index.ts resolves them, so an operator
+  // who has these exported for the server gets the same catalogue and
   // photographs here. The covers are still files; only the rows moved.
   const dataDir = resolve(process.env.BOOKSCAN_DATA ?? 'data')
   const coverDir = join(dataDir, 'covers')
@@ -126,8 +111,7 @@ async function run(
   try {
     return await work(db, coverDir, options)
   } finally {
-    // A pool left open holds the process alive after the report is printed,
-    // which a file handle did not.
+    // A pool left open holds the process alive after the report is printed.
     await db.close()
   }
 }
@@ -176,8 +160,6 @@ async function work(
   }
 
   console.log('')
-  // A failure here is a photograph that is gone or unreadable, which is worth
-  // an operator noticing rather than reading past in a wall of counts.
   return report.failed ? 1 : 0
 }
 

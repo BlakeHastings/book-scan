@@ -51,15 +51,13 @@ describe('whether a rule claims a book', () => {
   })
 
   it('matches the slug however the tag was spelled on the way in', () => {
-    // The reason a rule references a slug and never a label: a catalogue
-    // answering "Non-Fiction" and one answering "non fiction" are one idea.
+    // A rule references a slug, never a label, so different catalogue spellings normalise to one idea.
     const nonFiction = onTag(1, 'Non-Fiction', { fixtureId: 1 })
     expect(matches(nonFiction, { tagSlugs: ['non-fiction'] })).toBe(true)
   })
 
   it('claims nothing when it says nothing, rather than claiming everything', () => {
-    // "All of no conditions hold" is true, and a rule somebody half built would
-    // otherwise take the whole catalogue.
+    // Vacuously true otherwise, which would let a half-built rule claim the whole catalogue.
     expect(matches(rule({ id: 1, fixtureId: 1 }), { tagSlugs: ['genre/fiction'] })).toBe(false)
   })
 
@@ -84,8 +82,7 @@ describe('which rule wins when two claim a book', () => {
   })
 
   it('answers null for a book nothing claims', () => {
-    // A real answer, not a gap. A book no rule claims has nowhere the rules can
-    // put it, and saying so is how whoever wrote them finds out.
+    // A real answer, not a gap: saying so is how whoever wrote the rules finds out.
     expect(claim([onTag(1, 'genre/fiction', { fixtureId: 1 })], { tagSlugs: [] })).toBeNull()
   })
 })
@@ -120,12 +117,7 @@ describe('where a book ends up', () => {
   })
 
   it('sends a book carrying both genre tags wherever priority says', () => {
-    /*
-     * The rows #201 stopped happening: correcting a book's ISBN used to leave
-     * the old book's genre tag beside the new one. Both rules claim such a book
-     * and it is `priority` that decides, which is exactly why swapping the two
-     * priorities is a change the comparison against the old model can see.
-     */
+    // Both rules claim a book with both tags; priority decides which wins.
     const both = { tagSlugs: ['genre/fiction', 'genre/non-fiction'], sortKey: 'A' }
     expect(placementOf(both, rules, order)?.rule.id).toBe(1)
     expect(placementOf(both, [{ ...fiction, priority: 3 }, nonFiction], order)?.rule.id).toBe(2)
@@ -136,8 +128,7 @@ describe('where a book ends up', () => {
   })
 
   it('leaves a run empty rather than merging it when its rule is turned off', () => {
-    // Disabling a rule stops it claiming books. It does not hand its areas to
-    // the run before, which would re-cut every plank after it.
+    // Disabling a rule does not hand its areas to the run before it, which would re-cut every plank after it.
     const off = [fiction, { ...nonFiction, enabled: false }]
     expect(entryAreas(off, order)).toEqual(new Set([10, 20]))
     expect(placementOf({ tagSlugs: ['genre/fiction'], sortKey: 'ZZZ' }, off, order)
@@ -146,21 +137,9 @@ describe('where a book ends up', () => {
 })
 
 /**
- * "This tag **or** that tag", which is two rules on one place (#384).
- *
- * The owner asked for it and this file already said where it goes, in the
- * sentence that refuses the boolean tree: "two ways of saying a thing are two
- * rules, which a screen can build". Nothing in the model changes to allow it.
- *
- * What had to be checked rather than assumed is the thing that makes it safe.
- * `claim` picks **one** winner among the rules that match a book, so if two
- * rules on one place could disagree about where that book goes, an "or" built
- * this way would file books by whichever of them happened to sort first.
- *
- * They cannot disagree. Both name the same place, so `entryAreaOf` answers the
- * same area for either, `entryAreas` gains nothing from the second, and the
- * stretch is the stretch it already was. What changes is which rule's name is
- * written against the assignment, which is a caption rather than a destination.
+ * "This tag or that tag" as two rules on one place. `claim` picks one winner
+ * among matching rules, so this only works because two rules naming the same
+ * area can never disagree about where a book that matches both should go.
  */
 describe('two rules on one place, which is how "or" is said', () => {
   const order = slotsInOrder(
@@ -177,11 +156,7 @@ describe('two rules on one place, which is how "or" is said', () => {
     expect(claim(rules, { tagSlugs: ['subject/poetry'] })?.id).toBe(2)
   })
 
-  /**
-   * The check the whole shape rests on. A book carrying both tags is claimed by
-   * both rules and `claim` returns one of them; whichever it returns, the book
-   * lands in the same area, because the two rules name the same one.
-   */
+  /** Whichever rule `claim` picks, the book lands in the same area, since both name it. */
   it('puts a book both of them claim in the same place either way', () => {
     const both = { tagSlugs: ['subject/comic-books', 'subject/poetry'], sortKey: 'A' }
 
@@ -190,24 +165,18 @@ describe('two rules on one place, which is how "or" is said', () => {
 
     expect(won?.rule.id).toBe(1)
     expect(swapped?.rule.id).toBe(2)
-    // A different rule and the same answer. That is what makes "or" two rules
-    // rather than a boolean tree inside one.
+    // A different rule, the same answer.
     expect(won?.slot.area.id).toBe(swapped?.slot.area.id)
     expect(won?.slot.area.id).toBe(20)
   })
 
   it('divides the collection in exactly the places one of them would', () => {
-    // A second rule on a place opens no second stretch: `entryAreas` is a set
-    // of areas and both of these name the one area.
+    // A second rule on the same area opens no second stretch: entryAreas is a set.
     expect(entryAreas(rules, order)).toEqual(entryAreas([comics], order))
     expect(entryAreas(rules, order)).toEqual(new Set([20]))
   })
 
-  /**
-   * Taking one of the two off leaves the other working, which is what would
-   * make "or" worse than useless if it did not hold: an alternation somebody
-   * cannot take apart again.
-   */
+  /** If removing one broke the other, "or" would be an alternation nobody could take apart again. */
   it('leaves the other one claiming when one of them goes', () => {
     expect(claim([poetry], { tagSlugs: ['subject/comic-books'] })).toBeNull()
     expect(claim([poetry], { tagSlugs: ['subject/poetry'] })?.id).toBe(2)

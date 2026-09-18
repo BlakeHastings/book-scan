@@ -164,12 +164,9 @@ describe('a frame with nothing in it', () => {
   it('refuses a solid colour instead of hashing it', async () => {
     // Every bit is the sign of one coefficient against the median of the
     // block. Shrink a flat surface to 32x32 and every coefficient except the
-    // discarded average is floating point residue, and so is the median
-    // between them, so every bit is decided by rounding. Rounding repeats:
-    // measured across ten solid colours, every one landed within the 24 bit
-    // shortlist cutoff of some other flat frame and six pairs landed at
-    // zero, an exact match on nothing at all. The camera cannot tell it is
-    // looking at a desk, so the hash has to.
+    // discarded average is floating point residue, so every bit is decided
+    // by rounding, which repeats. The camera cannot tell it is looking at a
+    // desk, so the hash has to.
     for (const colour of ['#000000', '#0a0a0a', '#303030', '#808080', '#c8c8c8', '#ffffff', '#3a5f8a', '#8a1f1f']) {
       await expect(coverHash(await flat(colour))).rejects.toThrow(/no detail/)
     }
@@ -196,11 +193,8 @@ describe('a frame with nothing in it', () => {
   }, 20_000)
 
   it('still hashes a cover that is only a line of type on a plain ground', async () => {
-    // The reason the threshold is where it is. Some real books are this
-    // plain, and refusing one of those would be a worse bug than the one
-    // this prevents. The strongest kept frequency of the last of these
-    // measures 0.08 grey levels against a cutoff of 0.01, and of the first
-    // 0.70, while a blank frame measures 1e-14.
+    // Some real books are this plain, and refusing one of those would be a
+    // worse bug than the one this prevents.
     const plain = [
       await plainCover('#9a9a90', '#4a4a44', 0.22),
       await plainCover('#6a6a6a', '#8a8a8a', 0.22),

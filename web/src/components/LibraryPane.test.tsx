@@ -1,29 +1,3 @@
-/**
- * Finding stayed as easy to reach in the app as it was when it owned the corner.
- *
- * The corner became the profile icon (#350), so find moved down one row to the
- * filter the library already drew, and the whole risk in that trade was named
- * in #329: "losing a corner action and gaining a harder-to-find one is a
- * downgrade dressed as a tidy-up." `design.test.tsx` pins the requirement for
- * the drawing, on every gallery screen that lists books, and nothing pinned it
- * for the screen somebody actually uses.
- *
- * ## Why this reads the source rather than the markup
- *
- * `LibraryPane` fetches, holds a listing and sits inside four providers, so it
- * cannot be rendered as a tree the way `HomePane` and `SettingsPane` can. And
- * the failure this is really for would survive being rendered anyway: the round
- * target is drawn by `Filter` whether or not anything is handed to it, so a
- * library that forgot `onFind` would draw a search glyph, announce its name,
- * pass the design rule, and do nothing when pressed. That is a fact about a
- * call and the call is what is checked.
- *
- * It is deliberately about the requirement rather than about the arrangement.
- * If the owner would rather finding were a field, or a word, or back in the
- * corner, this goes red and is rewritten with the design, which is what a rule
- * one round old should do.
- */
-
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -36,14 +10,9 @@ const HERE = new URL('.', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$
 const source = (file: string) => readFileSync(join(HERE, file), 'utf8')
 
 /**
- * One of the three views of the library, read on its own.
- *
- * The whole risk in #407 is that the label it takes off is handed to a shared
- * drawing, so taking it off in the obvious place would have taken it off all
- * three views and off the find results as well. Each view is a top-level
- * function in `LibraryPane.tsx`, so each can be read by itself, and that is
- * what makes "only the covers view" a checkable claim rather than an
- * intention.
+ * `LibraryPane` fetches and sits inside four providers, so it cannot be
+ * rendered as a tree. Each view is a top-level function in `LibraryPane.tsx`,
+ * read here by name rather than rendered.
  */
 function viewOf(file: string, name: string): string {
   const text = source(file)
@@ -66,9 +35,6 @@ describe('finding, on the library screen somebody really uses', () => {
   })
 
   it('is not back in the corner, which is the profile icon now', () => {
-    // Both halves matter. The corner is `room.action`, which is the menu; a
-    // second target up there would be the corner carrying two things, and the
-    // pinned rule is that it carries one.
     const library = source('LibraryPane.tsx')
 
     expect(library).toMatch(/action=\{room\.action\}/)
@@ -76,24 +42,6 @@ describe('finding, on the library screen somebody really uses', () => {
   })
 })
 
-/**
- * A cover and a name, and nothing about where the book stands (#407).
- *
- * > Whenever we're in the gallery view in the library, let's not put underneath
- * > the books where they're currently located. We can just show the book covers
- * > and the author name underneath the book.
- *
- * The same rule as the book page (#282) and the confirmation (#290): where a
- * book sits is drawn rather than recited, and a wall of covers is somebody
- * browsing what they own rather than auditing where it is. It is the kind of
- * line that comes back one helpful edit at a time, because a place is the most
- * concrete thing there is to write under a picture.
- *
- * **Half of this test is the views he did not name.** A list of authors and a
- * board of spines are different questions, the label is drawn by a component
- * all three share, and a change made in that component would have answered a
- * question nobody asked. So the list is checked for still saying it.
- */
 describe('the library covers view is a cover and a name', () => {
   it('hands the covers nothing about where a book is', () => {
     const covers = viewOf('LibraryPane.tsx', 'CoverView')
@@ -102,19 +50,12 @@ describe('the library covers view is a cover and a name', () => {
     expect(covers, 'the covers still read a location off the book').not.toMatch(
       /book\.location/,
     )
-    /* "Checked out" is the same line by another name: `CoverItem` calls it "a
-       word instead of a place", and it is where a book is when the answer is
-       not a shelf. A tile keeping it would be a third line on some tiles and
-       not others, which is the ragged grid. */
     expect(covers, 'the covers still say a book is out').not.toMatch(/checked_out_at/)
   })
 
   it('still says who wrote it, and falls back to what the book carries', () => {
     const covers = viewOf('LibraryPane.tsx', 'CoverView')
 
-    /* `filedAs` is the fallback itself: what this collection files the book
-       under, then what is printed on the book, then nothing. Spelling either
-       half out here would be a second copy of that decision. */
     expect(covers, 'the covers name nobody').toMatch(/author: filedAs\(book\)/)
   })
 
@@ -126,10 +67,6 @@ describe('the library covers view is a cover and a name', () => {
   })
 
   it('leaves the find results saying it, which is a different question', () => {
-    /* Somebody who has just searched for one book is usually on their way to
-       go and fetch it, and the results are drawn by the same component. This
-       is the one that fails if the label is taken off in `Covers` instead of
-       in the view that draws it. */
     const found = viewOf('FindPane.tsx', 'asCover')
 
     expect(found, 'the find results stopped saying where a book is').toMatch(
@@ -138,15 +75,6 @@ describe('the library covers view is a cover and a name', () => {
   })
 })
 
-/**
- * The tile with nobody credited on it, which is a real book and not a bug.
- *
- * An uncredited book falls back to what the book itself carries and then to
- * nothing, never to the words "Unknown author". Now that the name is the only
- * thing written under a cover, that state is the whole of the difference
- * between two tiles, so it is worth drawing on purpose: the cover, and a line
- * held open with nothing in it.
- */
 describe('a cover with nobody credited on it', () => {
   const drawn = (author: string) =>
     renderToStaticMarkup(
@@ -168,9 +96,8 @@ describe('a cover with nobody credited on it', () => {
   })
 
   it('is called by its title alone, with no comma trailing off it', () => {
-    /* A screen reader announcing "The Anglo-Saxon Chronicle," and then silence
-       is the spoken version of "Unknown author", and is refused for the same
-       reason. */
+    // A trailing comma before an empty author would read aloud as if a name
+    // were about to follow, so the aria-label must omit it entirely.
     expect(drawn('')).toMatch(/aria-label="The Anglo-Saxon Chronicle"/)
 
     expect(drawn('Swanton, Michael')).toMatch(
@@ -179,19 +106,6 @@ describe('a cover with nobody credited on it', () => {
   })
 })
 
-/**
- * One book is one book (#433).
- *
- * "1 books" was over every area a single book stands in, and over the whole
- * collection on the day it held one. `plural` is what every other count in this
- * app goes through and it existed the whole time; this row was written with a
- * template string instead.
- *
- * Read as a call rather than rendered, the same way finding is above and for the
- * same reason: `SpineView` is not exported, and what is actually being claimed
- * is that these counts go through the one function that knows about the letter
- * s, not that a particular markup came out today.
- */
 describe('the counts on the library screen', () => {
   it('says "1 book" over an area holding one, through the one plural there is', () => {
     const spines = viewOf('LibraryPane.tsx', 'SpineView')
@@ -212,19 +126,6 @@ describe('the counts on the library screen', () => {
   })
 })
 
-/**
- * What the library says when a count has opened it on part of the collection.
- *
- * #459: the first screen's "2 checked out" opened this on twenty-seven books
- * under a row reading "Every book", which is the count's promise broken and the
- * screen agreeing that nothing had happened. The row above the books exists to
- * say what is being shown, so it has to be able to say this.
- *
- * The row itself is `Picked`, which takes props and renders, so that half is
- * markup. The wiring is read as a call for the reason the rest of this file
- * gives: `LibraryPane` sits inside four providers and fetches, and what is
- * being claimed is about a call rather than about a particular tree.
- */
 describe('a library narrowed to one state a book is in', () => {
   it('says what it is showing instead of "Every book"', () => {
     const row = renderToStaticMarkup(
@@ -240,9 +141,8 @@ describe('a library narrowed to one state a book is in', () => {
   })
 
   it('asks the listing for that state rather than filtering what came back', () => {
-    // A page of sixty filtered in the browser is a page of however many the
-    // narrowing left, and "More" would then fetch sixty more of the wrong
-    // question. The narrowing is part of the query or it is not a narrowing.
+    // The narrowing must be part of the query, not client-side filtering:
+    // pagination assumes the server already applied it.
     expect(source('LibraryPane.tsx')).toMatch(/state: showing \?\? undefined/)
   })
 
@@ -253,40 +153,20 @@ describe('a library narrowed to one state a book is in', () => {
     expect(library).toMatch(/onPress=\{\(\) => setShowing\(null\)\}/)
   })
 
-  /**
-   * Found by looking at it, on the press this change is for.
-   *
-   * The boards are cut from the areas books stand in, so a library narrowed to
-   * the books that are *not* on a bookcase drew no board at all: a header
-   * reading "2 of 27 books" over an empty page, for somebody who had just
-   * pressed a count of two. The chip kept the promise and the drawing broke it,
-   * which is the same defect one layer down.
-   */
   it('does not draw a picture of a bookcase for books that are not on one', () => {
     const library = source('LibraryPane.tsx')
 
-    // The view is decided rather than taken, and every drawing reads the
-    // decision. A view left reading `look` here is a view the narrowing cannot
-    // turn off.
+    // A view left reading `look` directly rather than the decided `drawn`
+    // value would be a view the narrowing cannot turn off.
     expect(library).toMatch(/const drawn = standing \|\| look !== 'spines' \? look : 'list'/)
     for (const view of ['covers', 'list', 'spines']) {
       expect(library, `the ${view} view still draws on the chosen look`)
         .toMatch(new RegExp(`drawn === '${view}'`))
     }
-    // And the switcher stops offering it, rather than offering a press that
-    // redraws the same thing.
     expect(library).toMatch(/looks=\{looks\}/)
   })
 })
 
-/**
- * Three reasons a book is off a bookcase, and a door for the one with an answer.
- *
- * The boards drew every book standing somewhere and said the rest in a sentence
- * nobody could press: "3 books are not on a bookcase, so they are not drawn
- * above." Lent, given away and never filed are three different things to do
- * about a book, and the first is the one this app has a screen for.
- */
 describe('the books the boards do not draw', () => {
   it('counts the lending ones apart from the rest', () => {
     const spines = viewOf('LibraryPane.tsx', 'SpineView')

@@ -1,20 +1,10 @@
 // What the stable launcher's checker must catch, and what the launcher itself
 // must refuse.
 //
-//   node scripts/check-stable-launcher.test.mjs
-//
-// Two halves, and the second is the one #475 asked for by name: whatever landed
-// had to be testable without the owner's machine. It is, and this is the proof.
 // Every refusal driven below happens before the script decrypts anything, so
-// none of it needs DPAPI, a connection file, a catalogue, or a single byte of
-// somebody's collection. It runs on a Linux CI runner with PowerShell on the
-// path and on a fresh clone on any machine.
-//
-// The first half drives `launcherProblems` over sources that are wrong in each
-// way in turn. Its failure mode is silence: a text check that matched nothing
-// would pass forever while the launcher acquired somebody's home directory, and
-// a checker nobody has watched fail is the shape of defect this project keeps
-// finding.
+// none of it needs DPAPI, a connection file or a catalogue. Keep it that way:
+// this has to run on a CI runner with PowerShell on the path and on a fresh
+// clone on any machine.
 
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
@@ -59,7 +49,6 @@ $env:BOOKSCAN_DATA = $DataDir
 const GOOD_ENTRY = 'powershell -File "%~dp0run-stable.ps1" %*\n'
 const good = { launcher: GOOD_LAUNCHER, entry: GOOD_ENTRY, contract }
 
-// --- The variable scan, which is what makes the drift check possible at all.
 {
   const names = assignedEnvNames(GOOD_LAUNCHER)
   check('finds a $env: assignment', names.has('BOOKSCAN_DATA'), true)
@@ -68,7 +57,6 @@ const good = { launcher: GOOD_LAUNCHER, entry: GOOD_ENTRY, contract }
   check('a name only read is not a name set', assignedEnvNames('if ($env:BOOKSCAN_DATA) { }').size, 0)
 }
 
-// --- Live paths, which is the promise that let these files be committed.
 {
   check('a drive-letter path is a live path', livePathsIn('$x = "C:\\somewhere"').length, 1)
   check('a forward-slashed drive letter is too', livePathsIn('$x = "D:/somewhere"').length, 1)
@@ -79,7 +67,7 @@ const good = { launcher: GOOD_LAUNCHER, entry: GOOD_ENTRY, contract }
   check('a relative path is not', livePathsIn("Join-Path $Checkout 'deploy\\check-config.mjs'").length, 0)
 }
 
-// --- The judgement, one broken thing at a time.
+// One broken thing at a time.
 {
   check('a correct pair is silent', launcherProblems(good).length, 0)
 
@@ -115,8 +103,6 @@ const good = { launcher: GOOD_LAUNCHER, entry: GOOD_ENTRY, contract }
   )
 }
 
-// --- The launcher itself, refusing. No DPAPI, no catalogue, no owner.
-
 function powershell() {
   for (const exe of ['pwsh', 'powershell']) {
     const probe = spawnSync(exe, ['-NoProfile', '-NonInteractive', '-Command', 'exit 0'], { encoding: 'utf8' })
@@ -135,16 +121,14 @@ function run(exe, args, env = {}) {
 
 const exe = powershell()
 if (!exe) {
-  // Loud rather than silent. A skip that reads like a pass is how a suite comes
-  // to prove less than everybody believes it does.
+  // Loud rather than silent: a skip that reads like a pass has a suite proving
+  // less than everybody believes it does.
   console.log('SKIPPED  no PowerShell on the path, so the launcher\'s own refusals were not driven here.')
 } else {
   const nowhere = join(tmpdir(), 'book-scan-no-such-settings-file.json')
   const empty = mkdtempSync(join(tmpdir(), 'book-scan-launcher-'))
 
   try {
-    // Refusing with no data directory. This is the one that would otherwise be a
-    // server serving an empty shelf and reporting success.
     {
       const r = run(exe, ['-SettingsFile', nowhere])
       check('no data directory refuses', r.status, 2)
@@ -152,8 +136,8 @@ if (!exe) {
       has('and names the settings file', [r.stdout ?? ''], nowhere)
     }
 
-    // The two variables #308 is about, gone from the process before anything is
-    // resolved, and said out loud so an ordinary run is the evidence.
+    // Gone from the process before anything is resolved, and said out loud so
+    // that an ordinary run is the evidence.
     {
       const r = run(exe, ['-SettingsFile', nowhere], { BOOKSCAN_BACKUP_SOURCE: 'postgres://not-a-real-catalogue' })
       has('an inherited backup variable is deleted and named', [r.stdout ?? ''], 'inherited BOOKSCAN_BACKUP_SOURCE')
@@ -169,15 +153,14 @@ if (!exe) {
       has('and says so when there are none', [r.stdout ?? ''], 'no BOOKSCAN_BACKUP_* variables inherited')
     }
 
-    // A directory that is not a checkout, refused before anything is decrypted.
     {
       const r = run(exe, ['-SettingsFile', nowhere, '-DataDir', empty, '-Checkout', empty])
       check('a checkout that is not one refuses', r.status, 2)
       has('and says what it looked for', [r.stdout ?? ''], "book-scan checkout's web/ directory")
     }
 
-    // A real checkout, and no connection file. The refusal that must never
-    // become a fall back to whatever is in the environment.
+    // The refusal that must never become a fall back to whatever is in the
+    // environment.
     {
       const r = run(exe, [
         '-SettingsFile', nowhere,

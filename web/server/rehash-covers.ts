@@ -1,16 +1,8 @@
 /**
- * Command line front end for rehashCovers. Run it from web/:
+ * Command line front end for rehashCovers. Run with `--help` for usage.
  *
- *     npx tsx server/rehash-covers.ts            # dry run, writes nothing
- *     npx tsx server/rehash-covers.ts --apply    # write the new hashes
- *     npx tsx server/rehash-covers.ts --apply --force
- *
- * It reads ConnectionStrings__bookscan and BOOKSCAN_DATA exactly as the server
- * does, so the operator chooses the catalogue and the photographs and nothing
- * here has a default of its own beyond the server's.
- * Because that catalogue is somebody's real book collection, this is a dry run
- * unless told otherwise, it prints the directory it resolved before it touches
- * anything, and it waits before a write so a wrong path can be interrupted.
+ * Reads `ConnectionStrings__bookscan` and `BOOKSCAN_DATA` exactly as the
+ * server does, so the operator gets the same catalogue and photographs here.
  */
 
 import { readFileSync } from 'node:fs'
@@ -54,8 +46,8 @@ function main(): Promise<number> {
   const apply = args.includes('--apply')
   const force = args.includes('--force')
 
-  // Both resolved the way web/server/index.ts resolves them, so an operator who
-  // has them exported for the server gets the same catalogue and the same
+  // Resolved the same way web/server/index.ts resolves them, so an operator
+  // who has these exported for the server gets the same catalogue and
   // photographs here. The covers are still files; only the rows moved.
   const dataDir = resolve(process.env.BOOKSCAN_DATA ?? 'data')
   const coverDir = join(dataDir, 'covers')
@@ -99,8 +91,7 @@ async function run(
   try {
     return await work(db, coverDir, apply, force)
   } finally {
-    // A pool left open holds the process alive after the report is printed,
-    // which a file handle did not.
+    // A pool left open holds the process alive after the report is printed.
     await db.close()
   }
 }
@@ -147,8 +138,6 @@ async function work(
   }
 
   console.log('')
-  // A failure here is a cover that is gone or unreadable, which is worth an
-  // operator noticing rather than reading past in a wall of counts.
   return report.failed ? 1 : 0
 }
 

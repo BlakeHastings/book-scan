@@ -13,54 +13,35 @@ import type { ShelfRange } from '../../shared/shelving'
 interface Props {
   placement: PlacementResponse | null
   /**
-   * True while the placement on screen is known to be out of date: a reload
-   * is either in flight or about to be. An out of date placement names a real
-   * plank, so it cannot be told apart from a current one by looking at it,
-   * and every answer here is an answer about the plank it names.
+   * True while the placement on screen may be out of date. A stale placement
+   * still names a real plank and looks identical to a current one, so
+   * answering against it here would record the wrong location.
    */
   stale: boolean
   /**
-   * The run this book joins, or null when no genre tag claims it (#304).
-   *
-   * Every question this screen asks is about a plank in one of the two runs, so
-   * a book in neither is not a book this screen can ask about. It says that
-   * instead of spinning on "working out where it goes", which is what an
-   * absent placement used to look like whether the answer was coming or not.
+   * Null when no genre tag claims this book. Every question here is about a
+   * plank in one of the two runs, so a book in neither cannot be asked about.
    */
   range: ShelfRange | null
   title: string
   saving: boolean
   /**
-   * Called with the plank the person has just said the book fits on.
-   *
-   * The plank itself, not what it is called (#359). What gets recorded is where
-   * the book is, and only the id says which place that is: a label is derived
-   * from where the piece stands and what its owner named it.
+   * The plank's id, not its label: only the id says which place it is, since
+   * a label is derived and can differ between screens.
    */
   onShelved: (shelvedAt: number) => void
   onBack: () => void
   /**
-   * What the way back says, because there are two ways in since #314: a book
-   * newly scanned, and a book carried off a bookcase a rule change displaced.
-   * "Back to book details" is only true of the first, so it names the second
-   * rather than assuming there is only one, the way `MoveRunView`'s `backSaid`
-   * already does for the screen beside this one.
+   * Two ways into this screen: a book newly scanned, and one carried off a
+   * bookcase after a rule change displaced it. "Back to book details" is
+   * only true of the first.
    */
   backSaid?: string
   /**
-   * The shuffle so far, held by whoever owns the book being placed.
-   *
-   * It was this component's own `useState` and that was the wrong lifetime in
-   * both directions (#432). A screen unmounts the moment the route changes, so
-   * "Back to book details" threw away the record of every book the person had
-   * already carried and written down, which `Cascade.done` promises is append
-   * only: a book that was physically carried was physically carried. And here
-   * the component does **not** unmount between two books of one armful, so the
-   * previous book's shuffle was still on screen for the next one.
-   *
-   * So the owner is whoever knows when the book in hand changes, and both of
-   * them already do: the book in hand clears it when the book is put down, and
-   * the armful clears it as each book goes down.
+   * Owned by the caller, not local state: a screen unmounts when the route
+   * changes, which would lose the record of books already carried, and this
+   * component does not unmount between two books of one armful, which would
+   * leak the previous book's shuffle into the next.
    */
   cascade: Cascade
   setCascade: Dispatch<SetStateAction<Cascade>>
@@ -69,38 +50,17 @@ interface Props {
 }
 
 /**
- * Putting the book on the shelf, kept separate from confirming what the book
- * is. They are different jobs: one happens looking at a screen, the other
- * standing at the shelf with a book in your hand.
- *
  * Nothing here predicts whether a shelf has room, because nothing can:
  * capacity depends on the thickness of whatever is already on it. So the
  * person is the sensor, and the screen only ever asks one question at a time.
  *
- * On a full bookcase that becomes a stack of books in the air, and it is
- * walked in both directions:
- *
- *   down  each "no" takes one book off the end of the plank the last one was
- *         going on, and asks about that book instead, as deep as it needs to.
- *   up    each "yes" carries out one move, records where that book went, and
- *         hands the question back to the book underneath, which has not been
- *         asked about since the plank it is going on changed. A "no" there
- *         descends again from that point, by the route the first "no" took.
- *
- * The unwind is #110. It used to settle the entire chain on one yes at the
- * bottom, on the reasoning that every rung above was only waiting for room
- * below. Books are different thicknesses, so that is not true of a real
- * shelf, and the person is the only one who can say.
- *
- * Three things this screen used to run together, now kept apart:
- *
- *   showing    every level draws the plank it is about, with the gap where
- *              the book goes, on the same component the placing preview uses
- *              (#112). A sentence is harder to act on than a picture.
- *   applying   a proposal changes nothing. The boundary moves when somebody
- *              says they carried the book, one frame at a time (#111).
- *   recording  where a book physically ended up, written as it is confirmed,
- *              so an abandoned chain leaves behind what really happened.
+ * This is a cascade of yes/no answers, walked in both directions: each "no"
+ * asks about the book that would now need to move; each "yes" applies the
+ * move, records it, and hands the question back to the book underneath,
+ * which is re-asked since the plank it is going on has just changed. The
+ * stack unwinds step by step rather than being resolved from the bottom in
+ * one go, because books are different thicknesses and only the person at the
+ * shelf can say whether one fits.
  *
  * The stack itself lives in `lib/cascade.ts`, pure and tested away from here.
  */
@@ -114,103 +74,34 @@ export function ShelveView({
   /** The frame awaiting a yes or no. Null means the question is about the book. */
   const pending = asking(cascade)
 
-  // The derived shelf, not suggestedLocation: that belongs to the old
-  // per-book scheme and names shelves the layout has never heard of.
+  // Not `suggestedLocation`: that belongs to the old per-book scheme and
+  // names shelves the layout no longer knows about.
   const shelfLabel = placement?.derivedLocation ?? ''
-  /*
-   * The same plank, said as the plank (#359).
-   *
-   * Every answer on this screen writes: "It fits" records the book here, and
-   * "no room" asks a route to move furniture. Both used to be addressed with the
-   * label above, which is a rendering the server then had to work back into a
-   * row. On a bookcase somebody has named, the label the layout draws and the
-   * label the book's own page shows are two different strings for one plank,
-   * and neither of them is the plank.
-   */
+  // The same plank as `shelfLabel`, but the id: what gets written down, not
+  // what is displayed.
   const shelfAreaId = placement?.derivedAreaId ?? null
 
-  /**
-   * Whether the app yet knows which plank it is talking about.
-   *
-   * Every answer on this screen is an answer about a named plank, so none of
-   * them can be given before there is one. Until #79 the placement was always
-   * already loaded by the time anybody got here, because you arrived from the
-   * review pane which had spent a while working it out. A boundary move opens
-   * this screen directly, and a fast tap then answered "it fits" about no
-   * plank at all: the save carried an empty label, the location write was
-   * skipped, and the book stayed recorded where it had been. That is the same
-   * silent loss as #61, reached a different way.
-   *
-   * A stale placement is the same question with a worse answer, and it is
-   * #105: a boundary move changes the shelves, so the placement that was on
-   * screen a moment ago names the plank the book has just come from. Empty
-   * was caught and stale was not, and a stale label is indistinguishable from
-   * a current one here, so it has to be said from outside. Answering against
-   * it wrote the old plank into `location`, which is worse than answering
-   * about nothing: the catalogue ends up confidently wrong rather than
-   * silent, and nothing reports it, because the recorded location is exactly
-   * what misfile detection compares against.
-   *
-   * The same hazard exists at every frame of a cascade, since every frame now
-   * shows a placement too. It is answered there by redrawing the frame from
-   * the shelves each time it becomes the question, and by the server refusing
-   * to apply a move against a plank that no longer ends with the book the
-   * person was told to carry.
-   */
+  // True only once there is a real plank id and a non-stale placement to
+  // answer about; answering against a missing or stale plank would either
+  // skip the write or silently record the wrong location.
   const known = shelfAreaId !== null && Boolean(shelfLabel) && !stale
 
-  /**
-   * No rule says where this book's range begins, so nothing says where it goes.
-   *
-   * **Read off the placement's own kind rather than worked out here** (#479).
-   * `known` is false for this and for two other things, a placement that has
-   * not arrived and one that has gone stale, and all three used to draw
-   * "Working out where it goes...", which is a promise that an answer is on the
-   * way. For those other two it is. For this one nothing is coming until
-   * somebody writes a rule, and a spinner that never ends is the same silence
-   * #562 found on the first screen: the screen a person is given while they
-   * wait, drawn for a state that is not waiting.
-   *
-   * The server decides this, once, from `bandOf`. Nothing here re-derives it
-   * from an empty label, which is what having two answers to this question
-   * looked like in the first place.
-   */
+  // `known` is also false while a placement is loading or stale, both of
+  // which end on their own; this one does not, since nothing is coming
+  // until somebody writes a rule, so it must not be drawn as a wait.
   const nowhere = placement?.kind === 'range-has-no-start'
 
-  /**
-   * Nothing on this shelf sorts after the book in your hand.
-   *
-   * Which makes it the one that moves when the shelf is full, so the button
-   * says so. The server decides this for itself from the layout; this only
-   * chooses the wording, because a button offering to shuffle a book that is
-   * not going to be shuffled is the complaint in #77 restated on screen.
-   */
+  // Which book moves when the shelf is full: the server decides this from
+  // the layout, and this only chooses the button's wording.
   const atEndOfShelf =
     !!placement?.strip && placement.strip.gapIndex === placement.strip.books.length
 
-  /**
-   * "There is no room here." The one route for that answer, wherever it came
-   * from.
-   *
-   * The no that starts a cascade and the no given to a frame on the way back
-   * up are the same physical event: somebody at a plank saying it will not
-   * take the book they are holding. Two paths for one question drift, which
-   * is how several bugs here happened, so both arrive at this and both push a
-   * frame the same way.
-   *
-   * Nothing on the shelves changes. What comes back is a proposal and a
-   * picture of it, and the plank keeps every book it has until somebody says
-   * they moved one (#111).
-   */
+  // The no that starts a cascade and the no given partway back up are the
+  // same event (somebody at a plank saying it will not take the book), so
+  // both funnel through here rather than duplicating the push. Nothing on
+  // the shelves actually changes until somebody says they moved a book.
   const overflowFrom = async (areaId: number | null, kind: 'shelf' | 'area') => {
     if (busy || range === null) return
-    /*
-     * A plank a proposal would make and has not made yet. Nothing is on it, so
-     * "it is full too" is not a thing that can be true of it, and there is no
-     * plank for the route to act on either. Said rather than ignored: the server
-     * refused this in the same words when the label was what got sent, and a
-     * button that does nothing at all reads as a tap that missed.
-     */
     if (areaId === null) {
       setError('That plank does not exist yet, so there is nothing on it to move along.')
       return
@@ -220,13 +111,9 @@ export function ShelveView({
     try {
       const plan = await api.planOverflow(range, areaId, kind, placement?.sortKey)
 
-      /*
-       * The book in your hand goes on instead, and nothing already shelved
-       * moves, so there is nothing to put to anybody and this is applied at
-       * once. It is not a cascade step: no book is displaced, so #111 has
-       * nothing to hold back. The placing question is re-asked against the
-       * plank it now goes on, once the refresh below has landed.
-       */
+      // Applied at once, not as a cascade step: the book in hand goes on
+      // instead and nothing already shelved is displaced, so there is
+      // nothing to ask anybody about.
       if (plan.carry) {
         const applied = await api.overflowShelf(range, areaId, kind, placement?.sortKey)
         const carry = applied.carry ?? plan.carry
@@ -264,24 +151,13 @@ export function ShelveView({
   }
 
   /**
-   * The person says they have carried that one and it went in.
-   *
-   * Three statements, in this order, because that is the order the room made
-   * them true. The furniture moves first, since the plank the book is now on
-   * is a plank the layout does not put it on until the boundary has shifted;
-   * then where the book physically is gets written down, which is the only
-   * thing allowed to change a recorded location and the reason a shuffle does
-   * not turn round and report itself as still outstanding; then the frame
-   * comes off the stack.
-   *
-   * Doing both as the answer is given, rather than at the end, is what lets
-   * somebody walk away four books deep and leave the catalogue honest: the
-   * books they carried are on the shelves and recorded there, and the ones
-   * still in the air were never claimed to have moved at all.
-   *
-   * Then exactly one frame comes off, and whatever is underneath is redrawn
-   * before it is asked, because the moves just made were made on the plank it
-   * is about.
+   * Order matters: the furniture moves first (the layout will not place the
+   * book on the new plank until the boundary has shifted), then the physical
+   * location is recorded, then the frame comes off the stack. Doing both
+   * writes as each answer is given, rather than at the end, is what lets
+   * somebody walk away mid-cascade and leave the catalogue honest: books
+   * already carried are recorded, and the ones still in the air were never
+   * claimed to have moved.
    */
   const confirmPlaced = async () => {
     const frame = asking(cascade)
@@ -294,16 +170,9 @@ export function ShelveView({
         range, frame.fromAreaId, frame.kind, placement?.sortKey, frame.proposal.id,
       )
 
-      /*
-       * The plank the server just put the book on, not the one drawn a moment
-       * ago. They agree unless the shelves changed underneath, and when they
-       * do it is the write that is right: recording against the older of the
-       * two is exactly the stale answer #106 fixed.
-       *
-       * The id is what gets written down and the label is what the list says
-       * (#359). A plank the step has just made has an id by now, because the
-       * write is what made it: only a proposal names a plank nothing can.
-       */
+      // The plank the server actually put the book on, not the one drawn a
+      // moment ago: they can differ if the shelves changed underneath, and
+      // the server's answer is the one to record.
       const to = applied.step?.to || frame.proposal.to
       const toAreaId = applied.step?.toAreaId ?? frame.proposal.toAreaId
       if (frame.proposal.id && toAreaId !== null) {
@@ -378,16 +247,11 @@ export function ShelveView({
 
       <MovesSoFar cascade={cascade} />
 
-      {/* A hook and nothing else: there is no rule behind this name, and there
-          must not be one. What the question is asked in is `Card`, which has no
-          way of being named from outside, and the browser journeys have to be
-          able to say "the question" without saying "the third card". */}
+      {/* A hook and nothing else: `Card` has no way of being named from
+          outside, and browser tests refer to this as "the question". */}
       <div className="shelve__ask">
         <Card>
           {pending ? (
-            /* One plank along the chain. Answering yes carries the move out and
-               hands the question to the one under it; answering no goes one
-               plank further, from here. */
             <>
               <Said>{whereYouAre(cascade, title)}</Said>
 
@@ -432,21 +296,14 @@ export function ShelveView({
             <>
               <p>
                 {range === null ? (
-                  /* Not a wait, so not phrased as one. Nothing said what this
-                     book is about, so no rule claims it and no run has a gap
-                     for it. The way on is back to the field that says so. */
                   <>
                     Nothing says whether <strong>{title}</strong> is fiction or
                     non-fiction, so no rule claims it and there is no shelf to put
                     it on. Go back and say which it is.
                   </>
                 ) : nowhere ? (
-                  /* The same shape as the sentence above it and a different
-                     absence (#479). That one is a book in neither run; this is
-                     a run standing nowhere. The book has a range, the sequence
-                     knows which two books it falls between, and what is missing
-                     is where the range itself is, which only a rule says. Not
-                     phrased as a wait for the same reason: nothing is coming. */
+                  // A different absence from the sentence above: this book has
+                  // a range, but no rule says where the range itself begins.
                   <>
                     Nothing says where {range === 'fiction' ? 'fiction' : 'non-fiction'}
                     {' '}begins, so there is nowhere
@@ -464,12 +321,8 @@ export function ShelveView({
               </p>
 
               <div className="wf-answers">
-                {/* The plank the sentence above just named, handed on so the
-                    answer to "does it fit here" is what gets recorded. Every
-                    answer here is about a named plank, so none of them can be
-                    given before there is one; and it is handed on as the plank
-                    rather than as its name, because the name is a rendering and
-                    what gets written down is a place (#359). */}
+                {/* Handed on as the plank id, not its name: the name is a
+                    rendering, and what gets written down is a place. */}
                 <Button
                   tone="primary"
                   block
@@ -479,13 +332,9 @@ export function ShelveView({
                   {saving ? 'Saving...' : 'It fits, save'}
                 </Button>
 
-                {/*
-                  Two answers where the drawing has one, and both are kept.
-                  "{area} is full" is one physical fact with two answers to it,
-                  because the next place a book can go is either the plank below
-                  or a bookcase that does not exist yet, and only the person
-                  standing there knows which.
-                */}
+                {/* One physical fact, two answers: the next place is either
+                    the next plank or a new bookcase, and only the person
+                    there knows which. */}
                 <Button
                   block
                   off={busy || saving || !known}
@@ -536,24 +385,8 @@ export function ShelveView({
 }
 
 /**
- * Everything that has happened to the shelves so far, one line per move.
- *
- * There used to be a plank-to-plank summary above this list, `1B → 2A → 1A`
- * under a heading promising the order it happened. It is gone (#149): see
- * `cascade.ts` for why no single arrow line can be true of a cascade, and note
- * that it was wrong in front of somebody holding the books while the correct
- * version sat directly underneath it.
- *
- * Split out of `ShelveView` so what it draws can be read by a test. The pane
- * around it owns the network and the stack, and a false statement about the
- * shuffle had no way of being caught while it was welded to those.
- *
- * **It was a tinted box and it is a card now** (#387). The tint was the only
- * thing saying this was a job rather than a report, and a colour is not allowed
- * to be the only thing saying anything here: what says it is the title, which
- * is where `Card`'s own header says the news belongs. The three states were a
- * colour and an accented marker as well, and all three already carried their
- * words, so nothing was lost taking the colours off them.
+ * Split out of `ShelveView` so what it draws can be tested directly, without
+ * the network calls and stack it otherwise sits inside.
  */
 export function MovesSoFar({ cascade }: { cascade: Cascade }) {
   if (!started(cascade)) return null
@@ -561,8 +394,8 @@ export function MovesSoFar({ cascade }: { cascade: Cascade }) {
   return (
     <Card
       title={
-        /* "Shuffle" is a lie when the only thing that moved is the book
-           still in your hand, and nothing on the bookcase was touched. */
+        // "Shuffle" would be wrong when only the book in hand moved and
+        // nothing on the bookcase did.
         cascade.done.every((step) => step.inHand) && !cascade.stack.length
           ? 'Where it went instead'
           : 'Shuffle, in the order it happened'

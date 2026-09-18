@@ -1,29 +1,18 @@
 /**
- * The claim both halves of the cut-over rest on, checked book by book.
+ * The claim both halves of the cut-over rest on, checked book by book: the
+ * genre tag and the alias's filing name put every book exactly where
+ * `books.is_fiction` and `books.author_filing` put it. Every shelved book is
+ * placed twice, once by the two columns and once by the rows `0002` and
+ * `0004` derived from them, and the two answers are compared one book at a
+ * time.
  *
- * **The genre tag and the alias's filing name put every book exactly where
- * `books.is_fiction` and `books.author_filing` put it.** Not approximately, and
- * not "the counts agree": every shelved book is placed twice, once by the two
- * columns the app has filed by since it existed and once by the rows `0002` and
- * `0004` derived from them, and the two answers are compared one book at a time.
+ * One comparison, not two: a book's place is `(shelf_range, sort_key)`, the
+ * range from the genre and the first component of the key from the filing
+ * name. Splitting the two would mean comparing half a position each time.
  *
- * **One comparison, not two, and that is why #227 is one change.** A book's
- * place is `(shelf_range, sort_key)`, the range from the genre and the first
- * component of the key from the filing name. Splitting the two cut-overs would
- * mean running this over the same catalogue twice and comparing half of a
- * position each time, which is more review for less proof.
+ * Also covers `0020`, the repair the authors' half owes.
  *
- * This is the step of #170's cut-over that gives up the ability to make the
- * comparison afterwards: from here neither column decides anything and both are
- * dropped, so the comparison has to happen *during* the change. That is what
- * this file is, run against a catalogue carrying the shape the live one carries,
- * and two of its tests break a derivation on purpose so it is watched naming the
- * books it should.
- *
- * It also covers `0020`, the repair the authors' half owes.
- *
- * Nothing in this file connects to anything but a scratch database it made, and
- * nothing anywhere here reads, writes or deletes a cover file.
+ * Nothing in this file connects to anything but a scratch database it made.
  */
 
 import { readFileSync } from 'node:fs'
@@ -38,12 +27,9 @@ import { migrateToLatest } from './migrate'
 import { closeScratchDatabases, migrationsThrough, scratchDatabase } from './testdb'
 
 /**
- * The catalogues open right now, given back as each test finishes with one.
- *
- * The same arrangement `genre-cutover.test.ts` explains at length: a pool per
- * scratch database held to the end of the file is how this suite reached
- * postgres's hundred connections, and the symptom landed on whichever unrelated
- * file asked for a database next.
+ * The pools open right now, given back as each test finishes with one. See
+ * `genre-cutover.test.ts` for why: enough scratch databases held open at
+ * once can run the container out of connections.
  */
 const openHere: pg.Pool[] = []
 
@@ -55,19 +41,12 @@ afterAll(async () => {
   await closeScratchDatabases()
 })
 
-// ---------------------------------------------------------------------------
-// A catalogue in the state the owner's is in
-// ---------------------------------------------------------------------------
-
 /**
- * One name on a book, and what the app had computed for it by the day #180 ran.
- *
- * `shelvedAs` is `books.author_filing`, which is the first component of the sort
- * key the book is physically on a shelf by. An empty one is not a name filed
- * under nothing: it is **#195**, where `Store.filingFor` returned '' rather than
- * running the heuristic for a name written in a script with no `A-Z` in it. Those
- * rows are still empty in the live catalogue, because #222 fixed the function and
- * nothing rewrites a stored key.
+ * One name on a book, and what the app had computed for its filing name.
+ * `shelvedAs` is `books.author_filing`, the first component of the sort key
+ * a book is physically shelved by. An empty one is a real state, not a
+ * missing name: `Store.filingFor` returns '' for a name written in a script
+ * with no `A-Z` in it, rather than running the heuristic.
  */
 interface SeedAuthor {
   printed: string
@@ -75,12 +54,9 @@ interface SeedAuthor {
 }
 
 /**
- * Twelve names, and three of them are the interesting ones.
- *
- * `Gabriel García Márquez` carries a filing name no heuristic produces, which is
- * what the override table existed for, so the comparison covers a corrected name
- * as well as a derived one. The Greek and the Cyrillic name carry nothing, which
- * is what #195 left on every such row and what `0020` refuses to invent.
+ * Twelve names, three of them interesting: `Gabriel García Márquez` carries
+ * a filing name no heuristic produces, covering a corrected name as well as
+ * a derived one; the Greek and the Cyrillic name carry nothing.
  */
 const NAMES: SeedAuthor[] = [
   { printed: 'Ursula K. Le Guin', shelvedAs: 'Le Guin, Ursula K.' },
@@ -97,16 +73,13 @@ const NAMES: SeedAuthor[] = [
   { printed: 'Фёдор Достоевский', shelvedAs: '' },
 ]
 
-/** The names #195 left filing under nobody, which is what this file is about. */
+/** The names left filing under nobody, which is what this file is about. */
 const FILED_UNDER_NOBODY = NAMES.filter((name) => !name.shelvedAs).map((name) => name.printed)
 
 /**
- * Which books those two names are on, and there are deliberately few of them.
- *
- * The live catalogue has one author written in a script with no `A-Z` in it, so
- * a seed that spread them evenly through twelve names would make the case this
- * file reports a fifth of the shelf rather than the handful it is. Three books
- * across two names is the shape to check the comparison against.
+ * Which books those two names are on, and there are deliberately few of
+ * them: the live catalogue has one author written in a script with no
+ * `A-Z` in it, so spreading them evenly would misrepresent the shape.
  */
 const NON_LATIN_AT = new Map<number, SeedAuthor>([
   [55, NAMES[10]!],
@@ -127,15 +100,10 @@ interface SeedBook {
 }
 
 /**
- * 237 books, which is what the live catalogue held when #227 was written.
- *
- * Every third book is non-fiction, so both ranges are populated and the
- * interesting failure, a derivation that gets the big range right and the other
- * one wrong, has somewhere to show up. Every fourth was decided by a person, so
- * `0002` writes both a `person` and a `guess` provenance and the source
- * precedence in `rangeOfGenre` is exercised over the whole catalogue. Ten names
- * cycle through the rest, so each of them files a couple of dozen books and a
- * name being refiled moves a run rather than a row.
+ * A catalogue shaped like the live one: every third book non-fiction, every
+ * fourth decided by a person, exercising `rangeOfGenre`'s source precedence
+ * across the whole catalogue. Ten names cycle through the rest, so a name
+ * being refiled moves a run rather than a row.
  */
 const LIVE_SIZED: SeedBook[] = Array.from({ length: 237 }, (_, at) => ({
   title: `Book ${String(at).padStart(3, '0')}`,
@@ -151,11 +119,9 @@ function keyFor(book: SeedBook): string {
 }
 
 /**
- * The catalogue as stage H left it: the pre-Drizzle schema, and never migrated.
- *
- * `SCHEMA` rather than `applySchema`, for the reason the other backfill tests
- * give: `applySchema` runs the migrations itself and would hand back a database
- * that had already had the ones under test.
+ * The catalogue as the pre-Drizzle schema left it, never migrated. Uses
+ * `SCHEMA` rather than `applySchema`, which would run the migrations itself
+ * and hand back a database that had already had the ones under test.
  */
 async function catalogueOf(books: SeedBook[]): Promise<pg.Pool> {
   const pool = await scratchDatabase()
@@ -184,8 +150,8 @@ async function catalogueOf(books: SeedBook[]): Promise<pg.Pool> {
     ],
   )
 
-  // The positional table, which is where "the first-listed author" is a fact
-  // rather than a guess at where a comma belongs. `0004` reads this.
+  // The positional table: "the first-listed author" is a fact here, not a
+  // guess at where a comma belongs. `0004` reads this.
   await pool.query(
     `INSERT INTO book_authors (book_id, position, name)
      SELECT b.id, 1, b.authors FROM books b WHERE b.authors <> ''`,
@@ -193,10 +159,6 @@ async function catalogueOf(books: SeedBook[]): Promise<pg.Pool> {
 
   return pool
 }
-
-// ---------------------------------------------------------------------------
-// The two derivations, each asked where every book files
-// ---------------------------------------------------------------------------
 
 /** Where one book files: the range it joins and the key it sorts at. */
 interface Filed {
@@ -231,9 +193,8 @@ async function underTheRows(pool: pg.Pool): Promise<Filed[]> {
   }>(
     // The three tag arrays are aggregated in one order so they stay index
     // aligned: a slug and the source that wrote it have to arrive as a pair.
-    // The alias is joined at the credit that files the book, which is the
-    // lowest position, because that is what the sort key has always been built
-    // from and the only credit a filing name was ever computed for.
+    // The alias is joined at the lowest credit position, since that is what
+    // the sort key has always been built from.
     `SELECT b.id, b.title, a.filing_name,
             array_remove(array_agg(t.slug ORDER BY t.slug, bt.source), NULL) AS slugs,
             array_remove(array_agg(bt.source ORDER BY t.slug, bt.source), NULL) AS sources,
@@ -326,34 +287,25 @@ async function filesUnder(pool: pg.Pool, printed: string): Promise<string | unde
   return rows[0]?.filing_name
 }
 
-// ---------------------------------------------------------------------------
-
 describe('the tags and the aliases deciding where every book files', () => {
   it('puts every book where books.is_fiction and books.author_filing put it', async () => {
     const pool = await catalogueOf(LIVE_SIZED)
 
     const before = await shelfOrder(pool, 'books WHERE checked_out_at IS NULL')
-    // Read while both columns still exist, and before the migrations that will
-    // drop them. Adopted, because this database has the baseline tables and has
-    // never been migrated: that is the path the real catalogue takes.
+    // Read while both columns still exist, before the migrations drop them.
     const old = await underTheColumns(pool, 'books')
+    // Adopted: this database has the baseline tables and has never been migrated.
     expect(await migrateToLatest(pool)).toBe('adopted')
 
     const now = await underTheRows(pool)
     expect(old).toHaveLength(LIVE_SIZED.length)
     expect(now).toHaveLength(LIVE_SIZED.length)
 
-    /*
-     * Every book but the ones #195 filed under nobody.
-     *
-     * Those are the books the issue asks to be named rather than waved at.
-     * `books.author_filing` is '' on them, so the columns file them ahead of
-     * everything in their range; `author_alias.filing_name` is the printed name,
-     * because `0004` treated an empty stored filing name as no answer and `0020`
-     * refuses to invent one. So the two derivations really do disagree, the
-     * disagreement is #195 finally having somewhere to be, and no book moves
-     * today: `books.sort_key` is written by a save and nothing here rewrites one.
-     */
+    // Every book but the ones filed under nobody: `books.author_filing` is
+    // '' on them, so the columns file them ahead of everything in their
+    // range, while the alias carries the printed name instead. No book
+    // moves today: `books.sort_key` is written by a save and nothing here
+    // rewrites one.
     const moving = LIVE_SIZED
       .filter((book) => FILED_UNDER_NOBODY.includes(book.author.printed))
       .map((book) =>
@@ -363,17 +315,13 @@ describe('the tags and the aliases deciding where every book files', () => {
     expect(moving.length).toBeGreaterThan(0)
     expect(disagreements(old, now)).toEqual(moving)
 
-    // The stored key really is the one the columns derive, which is what ties
-    // the comparison above to the shelf somebody is standing in front of rather
-    // than to two functions agreeing with each other.
+    // Confirms the stored key really is the one the columns derive.
     const stored = await pool.query<{ id: number; sort_key: string }>(
       'SELECT id, sort_key FROM shelved_books ORDER BY id',
     )
     expect(stored.rows.map((row) => row.sort_key))
       .toEqual(old.map((one) => one.sortKey))
 
-    // Printed rather than only asserted, because these are the two strings the
-    // pull request quotes.
     const after = await shelfOrder(pool, 'shelved_books')
     console.log(`[cutover] shelf order ${before} before, ${after} after; ` +
       `${old.length} books placed twice and compared one at a time; ` +
@@ -383,13 +331,6 @@ describe('the tags and the aliases deciding where every book files', () => {
   })
 
   it('names exactly the book whose tag changed and the books whose alias was refiled', async () => {
-    /*
-     * The two failures this step could have that nobody would see: a book whose
-     * tag says one range and whose column says the other files into a different
-     * bookcase, and a name that files somewhere else sends every book it files
-     * to a different place in the same one. Break one of each and the comparison
-     * names exactly those books and no others.
-     */
     const pool = await catalogueOf(LIVE_SIZED)
     const old = await underTheColumns(pool, 'books')
     await migrateToLatest(pool)
@@ -418,27 +359,24 @@ describe('the tags and the aliases deciding where every book files', () => {
     for (const line of named.slice(0, 4)) console.log(`[cutover]   ${line}`)
     expect(named).toContain('Book 041: the column says fiction, the tags say nonfiction')
     expect(byLeGuin.every((line) => named.includes(line))).toBe(true)
-    // And nothing else moved: the whole list is the swapped tag, the refiled
-    // name's books, and the books #195 already accounts for.
+    // Nothing else moved: the whole list is the swapped tag, the refiled
+    // name's books, and the books already accounted for above.
     expect(named).toHaveLength(1 + byLeGuin.length + alreadyMoving)
   })
 })
 
 describe('the repair the authors half of the cut-over owes', () => {
   /**
-   * An alias that drifted behind the column, which is the thing `0020` repairs.
-   *
-   * Made the way the live catalogue makes one: `0004` takes the filing name off
-   * the book rows, and afterwards somebody saves a filing override, which
-   * `Store.filingFor` writes into `books.author_filing` and which
-   * `AuthorRepository.introduce` deliberately does not write onto an alias
-   * somebody has already filed.
+   * An alias that drifted behind the column, which is what `0020` repairs.
+   * Made the way the live catalogue makes one: a saved filing override
+   * writes into `books.author_filing`, and `AuthorRepository.introduce`
+   * deliberately does not write that onto an alias somebody has already filed.
    */
   async function withADriftedAlias(): Promise<pg.Pool> {
     const pool = await catalogueOf(LIVE_SIZED)
-    // Through the migration before the repair, which is as far as the live
-    // catalogue had got: `0004` has taken every filing name off the book rows,
-    // and `shelved_books` exists, which `0020` hashes either side of itself.
+    // Through the migration before the repair: `0004` has already taken the
+    // filing name off the book rows, and `shelved_books` exists, which
+    // `0020` hashes either side of itself.
     await migrationsThrough(pool, '0016_one_genre_tag_per_book')
 
     await pool.query(
@@ -460,7 +398,7 @@ describe('the repair the authors half of the cut-over owes', () => {
     expect(said.some((line) => line.includes('alias filing names: 1 aliases now file under')))
       .toBe(true)
 
-    // And not one book moved, which the migration checks itself and refuses on.
+    // Not one book moved, which the migration checks itself and refuses on.
     expect(after).toBe(before)
     expect(said.some((line) => line.startsWith('shelf order unchanged'))).toBe(true)
     console.log(`[cutover] repair shelf order ${before} before, ${after} after`)
@@ -470,9 +408,9 @@ describe('the repair the authors half of the cut-over owes', () => {
     const pool = await withADriftedAlias()
     const said = await noticesFrom(pool, migrationText(THE_REPAIR))
 
-    // The printed name stands, which is what `0004` decided and what a second
-    // copy of `filingName()` written in SQL would have overruled. It is not what
-    // the current fold produces, and that is the point: the fold would invert it.
+    // The printed name stands: a copy of `filingName()` written in SQL
+    // would overrule it, producing a different answer than what was
+    // decided originally.
     for (const printed of FILED_UNDER_NOBODY) {
       expect(await filesUnder(pool, printed)).toBe(printed)
       expect(filingName(printed)).not.toBe(printed)
@@ -493,9 +431,8 @@ describe('the repair the authors half of the cut-over owes', () => {
     await pool.query(statement)
     const repaired = await filesUnder(pool, 'Terry Pratchett')
 
-    // A migration somebody is not sure finished should be safe to set going
-    // again, and a run with nothing to do has to say so rather than going
-    // quiet: silence and success look the same in a log.
+    // Idempotent migrations must say so when there is nothing to repair,
+    // since silence and success look the same in a log.
     const said = await noticesFrom(pool, statement)
     expect(await filesUnder(pool, 'Terry Pratchett')).toBe(repaired)
     expect(said.some((line) =>

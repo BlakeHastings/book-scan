@@ -1,13 +1,10 @@
 /**
- * Giving up on work that has not come back (#299).
- *
- * Small enough to look obviously right and worth pinning anyway, because two
- * of its properties are not visible in what it returns. A deadline that leaks
- * an unhandled rejection ends the process, which is the failure `AGENTS.md`
- * describes under `inTheBackground` and which this repository has been taken
- * down by twice. A deadline whose timer is still refed keeps the process alive
- * past the work it was watching, which turns a bound of a minute into a server
- * that will not shut down for one.
+ * Small enough to look obviously right and worth pinning anyway, because
+ * two of its properties are not visible in what it returns. A deadline that
+ * leaks an unhandled rejection ends the process, which is the failure
+ * `AGENTS.md` describes under `inTheBackground`. A deadline whose timer is
+ * still refed keeps the process alive past the work it was watching, which
+ * turns a bound of a minute into a server that will not shut down for one.
  */
 
 import { describe, expect, it, vi } from 'vitest'
@@ -56,9 +53,8 @@ describe('withDeadline', () => {
 
   it('owns the failure of work it has already given up on', async () => {
     /*
-     * The property that is invisible in the return value. Abandoned work can
-     * still fail later, and a rejection nobody is listening to is a process
-     * this repository has already lost twice. The handler is attached whatever
+     * Abandoned work can still fail later, and a rejection nobody is
+     * listening to takes the process down. The handler is attached whatever
      * the deadline did, so there is nobody left to be surprised.
      */
     const unowned = vi.fn()

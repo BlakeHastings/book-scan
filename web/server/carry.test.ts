@@ -1,18 +1,15 @@
 /**
- * The journey, driven end to end against a real catalogue.
- *
  * Fifty non-fiction books on bookcase 4, cut 8, 20 and 22 across its three
- * areas, the owner's actual shape. Move the run to bookcase 3, then walk the
- * list this issue is about: read the trips, take an armful off `4A`, say each
- * book is down, and watch the trip empty and the list shrink.
+ * areas. Move the run to bookcase 3, then walk the list: read the trips,
+ * take an armful off `4A`, say each book is down, and watch the trip empty
+ * and the list shrink.
  *
- * **Nothing here writes a placement except `Store.setLocation`**, which is what
- * `PATCH /api/books/:id/location` calls and is a person saying they carried a
- * book. If the list ever needed a write of its own to work, this file is where
- * that would show up.
+ * Nothing here writes a placement except `Store.setLocation`, which is what
+ * `PATCH /api/books/:id/location` calls and is a person saying they carried
+ * a book.
  *
- * The world is built the way `relocate-run.test.ts` builds it, and deliberately
- * so: the two files answer the two halves of one sentence, and a second world
+ * The world is built the way `relocate-run.test.ts` builds it, deliberately:
+ * the two files answer the two halves of one sentence, and a second world
  * would let them drift about what the room looks like.
  */
 
@@ -90,31 +87,12 @@ async function buildTheWorld(): Promise<number[]> {
 let world: number[] = []
 
 /**
- * One database for the file, and one world built in it, put back between tests
- * (#343).
- *
- * **Two things were wrong here and they compounded.** The file closed the
- * database in an `afterEach`, and closing it is what makes the next
- * `openTestDatabase()` build another one rather than reset this one, so twelve
- * tests meant twelve `CREATE DATABASE`, twelve schemas applied and twelve `DROP
- * DATABASE`; and a drop forces an immediate checkpoint across the whole server,
- * which stalls every other worker's writes as well as this one's. Then each of
- * those twelve tests built the world again, at about 250 sequential round trips
- * to the server it had just finished stalling. This file and
- * `relocate-run.test.ts` were the only two doing either, and they are the two
- * #343 was filed about, which is not a coincidence: they were losing to the
- * contention they were generating.
- *
- * Measured on this machine, running beside another full suite: the first test
- * here took 78 seconds against a twenty second budget, and 25 of the 12 tests'
- * seconds were the database being made and dropped. Built once and put back, a
- * test starts in one round trip.
- *
- * Every test still gets the world untouched, because `keepThisCatalogue` copies
- * every table and `openTestDatabase` puts every table back. What it does not get
- * is the *building* of the world twelve times, and nothing here was proving
- * anything by that: the room is the setup, and what these tests are about is the
- * list of books to carry out of it.
+ * One database for the file, and one world built in it, put back between
+ * tests: `keepThisCatalogue` copies every table once, and `openTestDatabase`
+ * puts every table back before each test. Every test still gets the world
+ * untouched; what it does not get is the world being built again, since the
+ * room is the setup and what these tests are about is the list of books to
+ * carry out of it.
  */
 beforeAll(async () => {
   db = await openTestDatabase()
@@ -157,9 +135,8 @@ describe('the list of books to carry', () => {
     })
 
   /*
-   * The whole point of the flow, and the thing that would be quietly broken by
-   * a second list: carrying a book takes it off this one, and the only write
-   * involved is the person saying where they put it.
+   * Carrying a book takes it off this list, and the only write involved is
+   * the person saying where they put it.
    */
   it('loses a book the moment somebody says they carried it', async () => {
     await applyRunMove(db, 'nonfiction', 3, new Date().toISOString())
@@ -218,11 +195,9 @@ describe('the list of books to carry', () => {
   })
 
   /*
-   * #325, and it is the same claim from both ends: the plan and this list are
-   * one job of work read twice, minutes apart, by the same person. A checked out
-   * book never gets an `assigned` row, so it used to be counted by the plan and
-   * unmentioned here, and somebody told six were skipped would work a list that
-   * accounted for five and hunt for a sixth book that is not there.
+   * The plan and this list are one job of work read twice, minutes apart,
+   * by the same person, so a book skipped by one must be skipped by the
+   * other or somebody hunts for a book that is not there.
    */
   it('counts a checked out book as left alone, the way the plan does', async () => {
     const ids = world
@@ -243,9 +218,9 @@ describe('the list of books to carry', () => {
   })
 
   /*
-   * The other half of that decision. A checked out book is counted because it is
-   * coming back, so the count has to go the moment it does, or the card silts up
-   * with books that are home.
+   * A checked out book is counted because it is coming back, so the count
+   * has to go the moment it does, or the card silts up with books that are
+   * home.
    */
   it('takes it back off the moment it is back in the house', async () => {
     const ids = world
@@ -279,13 +254,11 @@ describe('the list of books to carry', () => {
 })
 
 /**
- * The situation the owner is actually in, and the way out of it (#402).
- *
- * Fifty books assigned across the room, some already carried, one pinned, and a
- * person who is not going to walk any of it. **Everything here is a claim about
- * what did not happen**: no book moved, no `placed` row was written, the ones
- * already carried kept the home they were carried to, and the work did not come
- * straight back the next time the rules ran.
+ * Fifty books assigned across the room, some already carried, one pinned,
+ * and a person who is not going to walk any of it. Everything here is a
+ * claim about what did not happen: no book moved, no `placed` row was
+ * written, the ones already carried kept the home they were carried to, and
+ * the work did not come straight back the next time the rules ran.
  */
 describe('leaving books where they are', () => {
   /** Where the catalogue says every book is, which is the thing at risk. */
@@ -331,10 +304,9 @@ describe('leaving books where they are', () => {
 
   it('does not hand the same work back the next time the rules run', async () => {
     /*
-     * The question #402 says decides the design. The rule that put the run on
-     * bookcase 3 is still there, so a run that knew nothing about the decision
-     * would write all fifty rows again and give him back the list he had just
-     * cleared.
+     * The rule that put the run on bookcase 3 is still there, so a run that
+     * knew nothing about the decision would write all fifty rows again and
+     * give back the list that was just cleared.
      */
     await applyRunMove(db, 'nonfiction', 3, now())
     await leaveWhereTheyAre(db, null, now())
@@ -503,15 +475,8 @@ describe('one trip, read at the area the books come off', () => {
 })
 
 /**
- * The read that both carry routes make, held to answering the pictures (#386).
- *
- * **This is the seam the whole defect lived at.** Every carry screen drew its
- * books as flat coloured blocks with no photograph and no spine to them, and the
- * cause was one thing rather than two: this was the only read of a book in the
- * app that never asked for the photographs, so the shelf drawing and the row
- * were handed nothing and fell back to the cloth they draw a book with no
- * picture in. It is checked here rather than only at the panes because a screen
- * cannot draw what it was never sent.
+ * Checked here rather than only at the panes, because a screen cannot draw
+ * what it was never sent.
  */
 describe('the pictures a book on the list is drawn by', () => {
   /** Which photograph the wire says stands in for each of the two views. */
@@ -535,10 +500,10 @@ describe('the pictures a book on the list is drawn by', () => {
     })
 
   /*
-   * The precedence is `shared/shelving.ts`'s and is not restated here: what
-   * matters at this seam is that the same question is asked of a carried book
-   * that the library asks of a shelved one, so a book cannot be one picture on
-   * one screen and another on the next.
+   * The precedence is `shared/shelving.ts`'s, not restated here: what
+   * matters at this seam is that the same question is asked of a carried
+   * book that the library asks of a shelved one, so a book cannot be one
+   * picture on one screen and another on the next.
    */
   it('stands a cover in for a spine nobody photographed, as every shelf does',
     async () => {
@@ -551,10 +516,9 @@ describe('the pictures a book on the list is drawn by', () => {
     })
 
   /*
-   * A book nobody has photographed is a real book and stays on the list. It is
-   * drawn in the cloth every view binds an unphotographed book in, which is a
-   * decision the drawing makes from '' rather than one this route makes by
-   * leaving the book out.
+   * A book nobody has photographed stays on the list; drawing it in the
+   * cloth every view binds an unphotographed book in is a decision the
+   * drawing makes from '', not one this route makes by leaving the book out.
    */
   it('says so with an empty name rather than dropping the book', async () => {
     await applyRunMove(db, 'nonfiction', 3, new Date().toISOString())

@@ -1,34 +1,10 @@
 /**
- * One trip, read at the area the books come off.
- *
- * At this moment somebody is looking at eleven spines and needs to know which
- * eight. So the area is drawn whole, the ones to take are marked on the board
- * and named underneath, and **the ones staying are drawn rather than hidden**: a
- * screen that showed only the eight would have somebody counting to eleven and
- * wondering which three it had left out.
- *
- * The reason each of them is staying is on the card under the board, because a
- * count with no reason is not an answer to that question.
- *
- * **Every book here is drawn by its photograph**, which on this screen is not
- * decoration: a person is holding the phone up against a shelf, and the picture
- * is what they match. It is the same pair the library draws a book with, the
- * photograph over the dyed cloth, so a book nobody has photographed is still a
- * bound book on the board rather than a gap in the row.
- *
- * ## Pressing the button writes nothing
- *
- * It is the only step in this flow that does not write, and it is a navigation
- * rather than a record: the books are not anywhere yet. Nothing is recorded
- * between taking a book off one area and putting it on another, which is why
- * there is no step to unwind and why walking away here costs nothing.
- *
- * ## One book skips the list, and lands here
- *
- * The grouping earns nothing for a single book and a list of one trip is a tap
- * for nothing, so a one-book job comes straight to this screen. Same journey,
- * two screens shorter, and the only thing that differs is what the bar says and
- * where the way back goes.
+ * The ones staying are drawn rather than hidden: a screen that showed only the
+ * ones to take would leave somebody counting to see what was left out. Every
+ * book is drawn by its photograph, which here is not decoration, since
+ * somebody is matching a phone against a shelf. Pressing the button writes
+ * nothing: taking a book off one area is not recorded until it is carried, so
+ * walking away here costs nothing.
  */
 
 import { Card, Instruction, Said } from '../design/Card'
@@ -49,12 +25,7 @@ interface Props {
   /** True when this is the whole of the outstanding work. */
   only: boolean
   onTake: (books: StandingBook[]) => void
-  /**
-   * The question about leaving this trip is on screen.
-   *
-   * A prop rather than state in here, the way `AreaPane` takes the question
-   * about removing an area: this pane holds nothing.
-   */
+  /** A prop rather than local state, like `AreaPane`: this pane holds no state. */
   asking?: boolean
   onAsk: () => void
   onKeep: () => void
@@ -69,44 +40,26 @@ interface Props {
 }
 
 /**
- * The area as it stands, with the books to take marked on it.
- *
- * Marked where they are rather than gathered into a block at one end: the
- * drawing is the shelf, and moving a book in it to make the marks tidy would be
- * a picture of a shelf nobody has.
- *
- * **Nothing is marked when everything is going**, which was found by looking at
- * it: the mark answers "which of these", and a cat on every book on the board
- * answers nothing while looking like a row of cats. The instruction above
- * already says to take them all.
+ * Marks stay where the books actually stand rather than being grouped
+ * together, since the shelf drawn is a real shelf. Nothing is marked when
+ * everything is going: marking every book would answer nothing.
  */
 function boardOf(books: readonly StandingBook[], mark: boolean): ShelfItem[] {
   return books.map((book) => ({
     kind: 'spine' as const,
     text: surnameOf(book.authorFiling) || book.title,
     cloth: clothFor(book.id),
-    /*
-     * The photograph of the spine, which is what somebody is matching the phone
-     * against. Empty for a book nobody has photographed, and the cloth under it
-     * is what that book is drawn in: the same pair the library draws every
-     * board with, so a book is the same book on both screens.
-     */
+    // Empty for a book nobody photographed; the cloth beneath is the same
+    // pair the library uses, so it is the same book on both screens.
     photo: coverThumbUrl(book.spine, 160),
-    // Zero is "the catalogue never learned", which the drawing sets at the
-    // median rather than at a sliver. See `spineWidth`.
+    // 0 means the catalogue never learned the page count; the drawing sets
+    // that width at the median rather than a sliver. See `spineWidth`.
     pages: book.pages || undefined,
     here: mark && book.going,
   }))
 }
 
-/**
- * Why the books that are not going are not going, said as one sentence.
- *
- * **A book somebody left where it is gets its own clause rather than joining the
- * settled ones.** Settled means the rules want it here, and saying that about a
- * book whose move was turned down would have the app quietly agreeing with
- * itself about a decision it did not make.
- */
+/** "left" gets its own clause rather than joining "settled": saying a turned-down move is "already where the rules want it" would have the app agreeing with a decision it did not make. */
 function stayingSaid(staying: readonly StandingBook[]): string {
   const pinned = staying.filter((book) => book.staying === 'pinned').length
   const elsewhere = staying.filter((book) => book.staying === 'elsewhere').length
@@ -150,16 +103,13 @@ export function TripPane({
         <TopBar
           title={only && one ? 'One book to carry' : trip.from}
           sub={only && one ? undefined : staying.length === 0
-            /* Nothing stays, so there is no "which of these" to answer and the
-               sentence that answers it reads as arithmetic: "two of the two". */
+            // Avoids "two of the two", which reads as arithmetic rather than an answer.
             ? `Everything here goes to ${trip.to}`
             : `${words(going.length)} of the ${
               words(trip.books.length)} books here go to ${trip.to}`}
           onBack={onBack}
         />
       }
-      /* Over the trip, with the area still drawn underneath: what is being
-         asked about is the books somebody is looking at. */
       over={asking ? (
         <Sure
           title={going.length === 1
@@ -179,11 +129,7 @@ export function TripPane({
         />
       ) : undefined}
     >
-      {/* Above the instruction, because the instruction is "take these off 4A
-          and put them on 4A" and somebody would read it, do it, and change
-          nothing. Two pieces stand on that number and neither is named, so no
-          wording here can say which is which; naming one of them is what can
-          (#447). */}
+      {/* Must appear above the instruction: otherwise the instruction alone would read as "take these off 4A and put them on 4A", accomplishing nothing. */}
       {trip.sharedNumber !== null && (
         <Card kind="Two pieces stand here">
           <Said>{sharedSaid(trip.from, trip.sharedNumber)}</Said>
@@ -240,9 +186,7 @@ export function TripPane({
         {only ? 'Not now' : 'Do a different one'}
       </Button>
 
-      {/* Last, and quiet, because it is the answer somebody gives when this walk
-          is not going to happen at all. "Not now" above it comes back to the
-          list with the trip still on it; this one takes the trip off. */}
+      {/* Distinct from "Not now" above it: that returns to the list with this trip still on it, this one removes the trip from the list. */}
       <Button tone="quiet" block off={busy} onPress={onAsk}>
         {one ? 'Leave it where it is' : 'Leave them where they are'}
       </Button>

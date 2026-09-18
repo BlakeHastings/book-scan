@@ -1,25 +1,13 @@
 /**
- * The issuer check, driven against documents and tokens constructed here (#537).
+ * The four documents below are the `issuer`, `authorization_endpoint`,
+ * `token_endpoint` and `subject_types_supported` fields of Microsoft's live
+ * discovery documents, copied in rather than fetched, because a suite that
+ * reaches Microsoft on every pull request goes red when Microsoft has a bad
+ * afternoon.
  *
- * ## Why this file is where the argument is settled
- *
- * #537's whole point is that Microsoft's defect is not findable by driving a
- * happy path: a wrong issuer check produces a sign-in that succeeds. So the
- * cases that matter are the refusals, and every one of them is driven here with
- * no network and no app registration.
- *
- * **The fixtures are real, and where they came from is recorded.** The four
- * documents below are the `issuer`, `authorization_endpoint`, `token_endpoint`
- * and `subject_types_supported` fields of Microsoft's live discovery documents,
- * read on 2026-09-04 from
- * `https://login.microsoftonline.com/<authority>/v2.0/.well-known/openid-configuration`,
- * which is a public unauthenticated GET and needs no app registration. They are
- * copied in rather than fetched, because a suite that reaches Microsoft on every
- * pull request is a suite that goes red when Microsoft has a bad afternoon.
- *
- * The tenant one is Microsoft's own published tenant and is used as a specimen
- * of the *shape* a tenant answers with. **No tenant belonging to this
- * deployment is in this repository and none may be.**
+ * The tenant one is Microsoft's own published tenant, used as a specimen of the
+ * shape a tenant answers with. No tenant belonging to this deployment is in
+ * this repository and none may be.
  */
 
 import { describe, expect, it, beforeEach } from 'vitest'
@@ -36,10 +24,8 @@ const where = (authority: string) =>
   `${HOST}/${authority}/v2.0/.well-known/openid-configuration`
 
 /**
- * What Microsoft actually answers, per authority, on 2026-09-04.
- *
- * The two shapes are the finding: `consumers` and a named tenant answer with an
- * issuer, and `common` and `organizations` answer with the string
+ * The two shapes: `consumers` and a named tenant answer with an issuer, and
+ * `common` and `organizations` answer with the string
  * `https://login.microsoftonline.com/{tenantid}/v2.0`, braces and all.
  */
 const AS_MICROSOFT_ANSWERS = {
@@ -83,10 +69,9 @@ describe('reading an authority, out of its own discovery document', () => {
     )
 
     /*
-     * The point of the whole file, in one assertion. Discovery was performed
-     * against a *domain* and the issuer that came back is a *GUID*, so an issuer
-     * spelled from the configured tenant would not have matched a single real
-     * token, and one spelled from a GUID would have had to be written down here.
+     * Discovery was performed against a domain and the issuer that came back is
+     * a GUID, so an issuer spelled from the configured tenant would not have
+     * matched a single real token.
      */
     expect(found.issuer).toBe(`${HOST}/72f988bf-86f1-41af-91ab-2d7cd011db47/v2.0`)
     expect(found.tokenEndpoint).toBe(AS_MICROSOFT_ANSWERS.tenant.token_endpoint)
@@ -99,10 +84,7 @@ describe('reading an authority, out of its own discovery document', () => {
     expect(found.issuer).toBe(`${HOST}/9188040d-6c67-4c5b-b112-36a304b66dad/v2.0`)
   })
 
-  /**
-   * The defect this issue exists to avoid, refused for what the document said
-   * rather than for what the authority is called.
-   */
+  /** Refused for what the document said rather than for what it is called. */
   for (const authority of ['common', 'organizations'] as const) {
     it(`refuses ${authority}, which answers with a template rather than an issuer`, () => {
       expect(() => readDiscovery(
@@ -120,9 +102,8 @@ describe('reading an authority, out of its own discovery document', () => {
   })
 
   /**
-   * A document is only worth fetching because what it says about itself comes
-   * from itself. Without this rule, one bad answer moves the issuer, or the
-   * endpoint this server posts its client secret to, anywhere at all.
+   * Without this rule, one bad answer moves the issuer, or the endpoint this
+   * server posts its client secret to, anywhere at all.
    */
   it('refuses an issuer on another origin', () => {
     expect(() => readDiscovery(
@@ -174,14 +155,6 @@ describe('reading an authority, out of its own discovery document', () => {
   })
 })
 
-/**
- * The issuer check itself, against tokens constructed here.
- *
- * `claimsFrom` is what the callback runs, and the provider it is handed is a
- * *resolved* one. These cases build the resolved provider out of a real document
- * and then hand it tokens, which is the only way to show that the check does
- * what #537 asked for without an app registration.
- */
 describe('the issuer check, against tokens constructed here', () => {
   /** An ID token, unsigned, because nothing verifies a signature. See oidc.ts. */
   const token = (claims: Record<string, unknown>) => [
@@ -211,12 +184,10 @@ describe('the issuer check, against tokens constructed here', () => {
   })
 
   /**
-   * **This is the case the issue exists for.** A token from a different Entra
-   * tenant is a perfectly valid Microsoft token: real signature, real user, real
-   * `aud` if the app is multi-tenant. Everything about it is right except which
-   * authority issued it, and a check that merely established "this came from
-   * login.microsoftonline.com" would let it through and look like a working
-   * sign-in.
+   * A token from a different Entra tenant is a perfectly valid Microsoft token:
+   * real signature, real user, real `aud` if the app is multi-tenant. A check
+   * that merely established "this came from login.microsoftonline.com" would let
+   * it through and look like a working sign-in.
    */
   it('refuses a token from another tenant on the same host', () => {
     const anotherTenant = `${HOST}/00000000-1111-2222-3333-444444444444/v2.0`
@@ -226,7 +197,7 @@ describe('the issuer check, against tokens constructed here', () => {
 
   it('refuses a token whose issuer is the authority rather than the tenant', () => {
     // What a hand-written row would most likely have carried, and what no token
-    // has ever contained.
+    // has ever carried.
     for (const iss of [`${HOST}/common/v2.0`, `${HOST}/organizations/v2.0`, `${HOST}/{tenantid}/v2.0`]) {
       expect(() => claimsFrom(token(claims({ iss })), asMicrosoft, new Date()), iss)
         .toThrow(/was not issued by Microsoft/)
@@ -234,8 +205,7 @@ describe('the issuer check, against tokens constructed here', () => {
   })
 
   it('refuses a token whose issuer merely starts with the right thing', () => {
-    // The relaxation somebody reaches for when a fixture will not pass, and the
-    // one #537 says not to make. Both of these share a prefix with the issuer.
+    // Both of these share a prefix with the issuer.
     for (const iss of [
       `${tenantA.issuer}.evil.example`,
       `${HOST}/72f988bf-86f1-41af-91ab-2d7cd011db47/v2.0/../../someone-else/v2.0`,
@@ -262,9 +232,8 @@ describe('which authority a deployment may name', () => {
 
   /**
    * Refused at start, in words, rather than at the first person's first sign-in.
-   * `readDiscovery` refuses them again on what the document says, which is the
-   * check that would hold for an authority Microsoft has not invented yet; this
-   * one only makes the answer arrive sooner.
+   * `readDiscovery` refuses them again on what the document says; this one only
+   * makes the answer arrive sooner.
    */
   it('refuses the two authorities that have no single issuer, by name', () => {
     for (const authority of ['common', 'organizations', 'COMMON', 'Organizations']) {
@@ -371,9 +340,9 @@ describe('resolving a provider', () => {
   })
 
   /**
-   * Unreachable through `signInFrom`, which builds every row itself, and here
-   * because the alternative to refusing is comparing every token's `iss` against
-   * an empty string.
+   * Unreachable through `signInFrom`, which builds every row itself. Here
+   * because the alternative to refusing is comparing every token's `iss`
+   * against an empty string.
    */
   it('refuses a provider with neither an issuer nor anywhere to ask', async () => {
     await expect(resolveProvider(rowOf({}))).rejects.toThrow(/neither an issuer nor a discovery URL/)
@@ -393,10 +362,6 @@ describe('resolving a provider', () => {
   })
 })
 
-/**
- * What `signInFrom` builds for Microsoft, which is a row with a hole in it and a
- * place to ask.
- */
 describe('Microsoft, read out of the environment', () => {
   const withMicrosoft = (over: Record<string, string> = {}) => ({
     BOOKSCAN_OIDC_MICROSOFT_CLIENT_ID: 'an-id',
@@ -417,9 +382,8 @@ describe('Microsoft, read out of the environment', () => {
       admitsOnSight: false,
     })
     /*
-     * The three assertions this issue is about. Nothing about Microsoft's issuer
-     * or endpoints is written down in this repository; there is one URL, and it
-     * is where to go and ask.
+     * Nothing about Microsoft's issuer or endpoints is written down in this
+     * repository; there is one URL, and it is where to go and ask.
      */
     expect(provider?.issuer).toBe('')
     expect(provider?.authorizationEndpoint).toBe('')
@@ -456,7 +420,6 @@ describe('Microsoft, read out of the environment', () => {
     expect(() => signInFrom(env)).toThrow(/BOOKSCAN_PUBLIC_ORIGIN/)
   })
 
-  /** The refusal with teeth, for the new provider rather than only the old one. */
   it('refuses the development door beside Microsoft', () => {
     expect(() => signInFrom(withMicrosoft({ BOOKSCAN_DEV_SIGN_IN: 'a-developer' })))
       .toThrow(/BOOKSCAN_DEV_SIGN_IN/)
@@ -469,8 +432,7 @@ describe('Microsoft, read out of the environment', () => {
     }))
 
     expect(providers.map((one) => one.id)).toEqual(['google', 'microsoft'])
-    // Google keeps its constant issuer and asks nobody for it, which is the
-    // property #523's argument against discovery depended on.
+    // Google keeps its constant issuer and asks nobody for it.
     expect(providers[0]?.issuer).toBe('https://accounts.google.com')
     expect(providers[0]?.discovery).toBe('')
     expect(providers[1]?.issuer).toBe('')

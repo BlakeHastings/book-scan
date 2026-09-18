@@ -1,22 +1,12 @@
 /**
- * What `/api/backup` answers, over real HTTP (#311).
+ * `backup-watch.test.ts` beside this one puts the check itself through its
+ * cases. What is here is the wiring: an app given no directory claims
+ * nothing, and a directory reaches the answer. The route is three lines and
+ * all three are the wiring, so a test that called `watchBackups` directly
+ * would prove nothing about whether the option is passed at all.
  *
- * `backup-watch.test.ts` beside this one is where the check itself is put
- * through its cases. What is here is the wiring, and there are two things in it
- * worth a real request rather than a direct call:
- *
- * 1. **An app given no directory claims nothing.** That is every test, every
- *    development checkout and every end to end run, and it is the state the
- *    AppHost sets explicitly so an inherited variable cannot change it. A
- *    regression here would not be visible as a failure: it would be visible as
- *    an alarm on somebody's scratch catalogue, which is how an alarm stops
- *    being read.
- * 2. **A directory reaches the answer.** The route is three lines and all three
- *    of them are the wiring, so a test that called `watchBackups` directly would
- *    prove nothing about whether the option is passed at all.
- *
- * The harness is `refusal.routes.test.ts`'s, minus the catalogue stubs, which
- * this needs none of: no route here looks at a book.
+ * The harness is `refusal.routes.test.ts`'s, minus the catalogue stubs,
+ * which this needs none of: no route here looks at a book.
  */
 
 import type { AddressInfo } from 'node:net'
@@ -38,9 +28,9 @@ let scratch: string
 const running: Array<{ app: BookScanApp; server: Server }> = []
 
 /**
- * The session every request in this file carries. `/api/backup` is behind the
- * gate since #521: whether this collection is backed up is a fact about the
- * collection, and a stranger is not owed it.
+ * The session every request in this file carries: whether this collection
+ * is backed up is a fact about the collection, and a stranger is not owed
+ * it.
  */
 let cookie = ''
 

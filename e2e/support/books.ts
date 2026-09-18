@@ -1,13 +1,8 @@
 /**
- * The books this suite knows about.
- *
- * One of them, THE BOOK IN HAND, is what the fake camera is pointed at for
- * every scenario. Its ISBN is baked into the barcode on the generated cover
- * and into the stubbed catalogue reply, which is the whole trick: the test
- * knows what the camera is about to read before the browser starts.
- *
- * The rest are shelf furniture. They are seeded through the real API so a
- * placement has something to be placed between.
+ * THE BOOK IN HAND's ISBN is baked into the barcode on the generated cover
+ * and into the stubbed catalogue reply, so the test knows what the camera
+ * will read before the browser starts. The rest are seeded through the real
+ * API as shelf furniture to place it between.
  */
 
 export interface StubBook {
@@ -26,12 +21,7 @@ export interface StubBook {
   subjects: string[]
 }
 
-/**
- * The book held up to the camera.
- *
- * Dune, with a real ISBN-13 whose check digit is valid, because bwip-js
- * refuses to draw an EAN-13 that is not.
- */
+/** Dune, with a real ISBN-13 whose check digit is valid: bwip-js refuses to draw an EAN-13 that is not. */
 export const BOOK_IN_HAND: StubBook = {
   isbn13: '9780441013593',
   isbn10: '0441013597',
@@ -46,23 +36,13 @@ export const BOOK_IN_HAND: StubBook = {
 }
 
 /**
- * Books that already sit on the shelves, chosen so the book in hand files
- * between them: Clarke, then Gibson, then Herbert, then Le Guin.
+ * Chosen so the book in hand files between them, in order: Clarke, Gibson,
+ * Herbert, Le Guin. Le Guin exercises the filing heuristic on "Le Guin, Ursula
+ * K.", and Gibson sits immediately before the book in hand so a scenario can
+ * place it at the end of a plank that already has a book on it.
  *
- * Le Guin is not decoration either. "Le Guin, Ursula K." is the case the
- * filing heuristic has to get right, and a test that only ever files "Smith,
- * John" would not notice if it stopped.
- *
- * Gibson earns his place by sitting immediately before the book in hand, which
- * is what lets a scenario put the new book at the END of a plank with another
- * book still on it. Without him the only arrangements available are the book
- * in hand in the middle, or alone with nothing to its left.
- *
- * Stephenson, Strugatsky and Zusak file after the book in hand and are here
- * for depth. A cascade that goes several planks deep and then descends again
- * needs a plank past the one being filled with enough books on it to be asked
- * twice, and with three books in the range there is only ever one move to
- * make.
+ * Stephenson, Strugatsky and Zusak file after the book in hand and give a
+ * cascade enough planks, several deep, to be asked to descend twice.
  */
 export const SHELVED_BOOKS: StubBook[] = [
   {

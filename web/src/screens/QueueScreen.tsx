@@ -17,11 +17,7 @@ export function QueueScreen() {
 
   usePaper()
 
-  /*
-   * Let go of it the moment it has been read. The pane takes it as the state it
-   * opens on, so leaving it set would mean the next visit through the tab bar
-   * opened on a filter chosen by a count somebody pressed a while ago.
-   */
+  // The pane takes this as the state it opens on, so leaving it set would mean the next visit through the tab bar opened on a stale filter.
   useEffect(() => {
     if (queueShowing) clearQueueShowing()
   }, [queueShowing, clearQueueShowing])
@@ -41,9 +37,7 @@ export function QueueScreen() {
       onPhotograph={() => leaveFor('capture')}
       returnAnchor={queueReturn}
       onReturnAnchorConsumed={() => setQueueReturn(null)}
-      /* Which books the count that opened this screen was about (#436). Read
-         once by the pane, which is remounted per visit, and cleared here so
-         the tab bar's own way in still opens the whole queue. */
+      // Read once by the pane, which is remounted per visit, and cleared here so the tab bar's own way in still opens the whole queue.
       showing={queueShowing}
     />
   )

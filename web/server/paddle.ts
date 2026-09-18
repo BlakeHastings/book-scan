@@ -1,16 +1,13 @@
 /**
- * PaddleOCR, as the first thing that reads a photo.
+ * PaddleOCR, as the first thing that reads a photo: it recognises what
+ * tesseract misses and runs faster, so tesseract stays behind it in the
+ * ladder.
  *
- * Measured against the 20 back covers in the library whose barcode cannot be
- * read, which is exactly the set OCR exists for: it finds the printed ISBN on
- * 10 of them in about a second each, where the tesseract ladder finds 6 in
- * five and a half seconds. It hit every one tesseract did and four it did
- * not, so it goes first and tesseract stays behind it.
- *
- * Detection and recognition are separate models, so unlike tesseract it finds
- * the text regions itself rather than being handed a preprocessed variant and
- * asked to assume a layout. That is why the ladder of thresholds, crops and
- * page segmentation modes has no equivalent here: one pass does the lot.
+ * Detection and recognition are separate models, so unlike tesseract it
+ * finds the text regions itself rather than being handed a preprocessed
+ * variant and asked to assume a layout. That is why the ladder of
+ * thresholds, crops and page segmentation modes has no equivalent here: one
+ * pass does the lot.
  */
 
 import { PaddleOcrService } from 'ppu-paddle-ocr'

@@ -1,16 +1,4 @@
 // What the backup check must say, and when it must say nothing.
-//
-//   node scripts/check-backup-freshness.test.mjs
-//
-// The silent cases matter as much as the loud ones. A check that speaks every
-// session is a check nobody reads, and the failure it exists to catch is
-// exactly the one that went unnoticed for six days because everything looked
-// fine. So: silent when fresh, and specific when not.
-//
-// The two clocks are tested apart, because the real failure had them twelve
-// days out of step — dumps stopped on 2026-08-19, covers on 2026-08-08 — and a
-// check satisfied by either one being healthy would have said nothing for most
-// of that.
 import { mkdtempSync, mkdirSync, writeFileSync, utimesSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -20,7 +8,6 @@ const root = mkdtempSync(join(tmpdir(), 'backup-fresh-'))
 const NOW = Date.parse('2026-08-25T00:00:00Z')
 const hoursAgo = (h) => new Date(NOW - h * 3_600_000)
 
-/** A backup directory holding one dump of a given age, with its manifest. */
 function dumpsDir(name, ageHours, verified = { ok: true, differences: [] }) {
   const dir = join(root, name)
   mkdirSync(dir, { recursive: true })
@@ -34,7 +21,6 @@ function dumpsDir(name, ageHours, verified = { ok: true, differences: [] }) {
   return dir
 }
 
-/** A covers directory holding one file of a given age. */
 function coversDir(name, ageHours) {
   const dir = join(root, name)
   mkdirSync(dir, { recursive: true })
@@ -53,19 +39,12 @@ const check = (name, actual, expected) => {
   }
 }
 
-// --- Silent when everything is fine. This is the case that keeps it readable.
 {
   const said = complaints({ dumps: dumpsDir('ok-d', 6), covers: coversDir('ok-c', 6), coversSource: coversDir('ok-s', 6) }, NOW)
   check('fresh and verified says nothing', said.length, 0)
 }
 
-// --- An age on its own is never a complaint. #241 replaced the schedule with
-// --- "back up before the operation", so there is no clock to be late against,
-// --- and an old dump on a week when nobody touched anything is correct.
 {
-  // The real state of this machine on 2026-08-25: dump six days old, nothing
-  // scanned for seventeen. The version of this check that shipped said "the
-  // newest catalogue dump is 5.9 days old" every session. It was wrong.
   const said = complaints({
     dumps: dumpsDir('quiet-old', 24 * 6),
     covers: coversDir('quiet-old-c', 24 * 17),
@@ -82,8 +61,6 @@ const check = (name, actual, expected) => {
   check('and age alone never complains, however old', said.length, 0)
 }
 
-// --- What the disk can prove: somebody photographed a book after the last
-// --- dump, so there is work no backup holds.
 {
   const said = complaints({
     dumps: dumpsDir('unbacked', 24 * 3),
@@ -95,7 +72,7 @@ const check = (name, actual, expected) => {
 }
 {
   // One hour either side of the dump, so the rule is the comparison and not a
-  // tolerance somebody could tune.
+  // tolerance.
   const said = complaints({
     dumps: dumpsDir('just-after', 24),
     covers: coversDir('just-after-c', 25),
@@ -104,13 +81,7 @@ const check = (name, actual, expected) => {
   check('scanning just before the dump is covered by it', said.length, 0)
 }
 
-// --- The covers are a comparison, not an age. This is the defect this file
-// --- shipped once: robocopy preserves source timestamps, so an old cover in
-// --- the destination means nobody has scanned, not that the mirror stopped.
 {
-  // Seventeen days since anybody photographed a book, and the mirror is current.
-  // The real state of this machine on 2026-08-25, and the first version of this
-  // check called it "the newest backed-up cover is 16.9 days old".
   const said = complaints({
     dumps: dumpsDir('quiet-d', 6),
     covers: coversDir('quiet-dest', 24 * 17),
@@ -119,7 +90,6 @@ const check = (name, actual, expected) => {
   check('a quiet week with a current mirror says nothing', said.length, 0)
 }
 {
-  // A book photographed yesterday that never reached the destination.
   const said = complaints({
     dumps: dumpsDir('behind-d', 6),
     covers: coversDir('behind-dest', 24 * 17),
@@ -138,7 +108,6 @@ const check = (name, actual, expected) => {
   check('and does not fall back to an age', /could not be read/.test(said[0]), true)
 }
 
-// --- The two clocks are independent, which is the shape of the real failure.
 {
   const said = complaints({
     dumps: dumpsDir('two-c', 24 * 6),
@@ -157,8 +126,6 @@ const check = (name, actual, expected) => {
   check('a stale dump and a behind mirror give both lines', said.length, 2)
 }
 
-// --- The result, not the file's existence. A fresh dump that did not verify is
-// --- the "ran and produced nothing usable" case this project keeps meeting.
 {
   const dir = dumpsDir('bad-verify', 6, { ok: false, differences: ['books: 288 vs 0'] })
   const said = complaints({ dumps: dir, covers: coversDir('bad-verify-c', 6), coversSource: coversDir('bad-verify-s', 6) }, NOW)
@@ -172,7 +139,6 @@ const check = (name, actual, expected) => {
   check('and says the verification is unreadable', /no readable verification/.test(said[0]), true)
 }
 
-// --- Empty and missing directories.
 {
   const empty = join(root, 'empty')
   mkdirSync(empty, { recursive: true })
@@ -184,8 +150,6 @@ const check = (name, actual, expected) => {
   check('an unreadable directory complains rather than passing', said.length, 1)
 }
 
-// --- Not configured must be loud. A watcher silently watching nothing is the
-// --- same defect this file exists to catch.
 {
   const said = complaints({ dumps: null, covers: null, coversSource: null }, NOW)
   check('nothing configured says so', said.length, 1)
@@ -197,25 +161,16 @@ const check = (name, actual, expected) => {
   check('and names the missing half', /no covers destination/.test(said[0]), true)
 }
 
-// --- Unless the machine has recorded that it holds no catalogue, which is a
-// --- different thing from having configured nothing yet. Nothing on a machine
-// --- can tell those apart, so one of them has to be written down, and the one
-// --- that is written down is the one that goes quiet (#567).
 {
   const said = complaints({ dumps: null, covers: null, coversSource: null, catalogue: 'elsewhere' }, NOW)
   check('a machine that records the catalogue elsewhere says nothing', said.length, 0)
 }
 {
-  // The crux, and the reason the declaration is worded that way round. If the
-  // record on the machine that does hold the catalogue loses its paths, nobody
-  // has declared anything, and this is exactly as loud as it was before.
   const said = complaints({ dumps: null, covers: null, coversSource: null, catalogue: null }, NOW)
   check('a machine that has declared nothing is still loud', said.length, 1)
   check('and still names the variables', /BOOKSCAN_BACKUP_DIR/.test(said[0]), true)
 }
 {
-  // The declaration only holds while nothing here claims to be watched. One
-  // directory set is one directory to answer for, whatever the record says.
   const said = complaints({
     dumps: dumpsDir('claimed', 6), covers: null, coversSource: null, catalogue: 'elsewhere',
   }, NOW)
@@ -223,7 +178,6 @@ const check = (name, actual, expected) => {
   check('and names the missing half as usual', /no covers destination/.test(said[0]), true)
 }
 {
-  // And it never silences a complaint about a directory that exists.
   const said = complaints({
     dumps: dumpsDir('declared-d', 6),
     covers: coversDir('declared-dest', 24 * 17),
@@ -234,7 +188,6 @@ const check = (name, actual, expected) => {
   check('and it is still the mirror it names', /covers mirror is behind/.test(said[0]), true)
 }
 
-// --- Resolution order: the environment wins over the machine record.
 {
   mkdirSync(join(root, 'factory'), { recursive: true })
   writeFileSync(
@@ -248,8 +201,6 @@ const check = (name, actual, expected) => {
   check('and the environment keeps the half it set', mixed.dumps, 'D:/from-env')
   const neither = directories({}, root)
   check('record answers when the environment is silent', neither.dumps, 'D:/from-record')
-  // A record that names paths declares nothing about the catalogue being
-  // elsewhere, which is what keeps the machine holding it loud.
   check('a record naming paths declares nothing', neither.catalogue, null)
 }
 {
@@ -261,7 +212,6 @@ const check = (name, actual, expected) => {
   check('and names no directories', said.dumps, null)
 }
 {
-  // Nothing at all on the machine: no record to read, nothing declared, loud.
   const said = directories({}, join(root, 'no-such-factory-root'))
   check('no record declares nothing', said.catalogue, null)
 }

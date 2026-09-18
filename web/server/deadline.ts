@@ -1,29 +1,22 @@
 /**
  * Giving up on work that has not come back.
  *
- * Its own file, small as it is, for two reasons.
+ * `ReadingTimedOut` has its own file so it is reachable without reaching
+ * `server/identify.ts`: several test files replace the whole of `./identify`
+ * with a stub, and a class exported from there would then be `undefined`,
+ * making the `instanceof` check that tells an abandoned reading from a
+ * broken one throw inside the very catch meant to handle it.
  *
- * The first is that `ReadingTimedOut` has to be reachable without reaching
- * `server/identify.ts`. The queue tells an abandoned reading apart from a
- * broken one with `instanceof`, and several test files replace the whole of
- * `./identify` with a stub; a class exported from there would be `undefined` in
- * those files and the check would throw inside the very catch that exists to
- * cope with a throw.
- *
- * The second is that a deadline is not an OCR idea. It is what #299 turned out
- * to be about: nothing in this server bounded any part of reading a photograph,
- * so one call that never returned held a process-wide chain and every scan
- * behind it, for the life of the process, with nothing said.
+ * A deadline is not an OCR idea: nothing elsewhere in this server bounds any
+ * part of reading a photograph, so one call that never returns can hold a
+ * process-wide chain, and every scan behind it, for the life of the process.
  */
 
 /**
- * A reading that was abandoned rather than one that failed.
- *
- * Its own type because the two mean different things to a person: a read that
- * threw says something about the photograph, and this says the reader stopped
- * and the photograph was never given a verdict. `CaptureQueue.process` writes a
- * different note for each, and `shared/captureFailure.ts` turns those into the
- * two different things the queue tells somebody to do.
+ * A reading that was abandoned rather than one that failed: a throw says
+ * something about the photograph, this says the reader stopped and the
+ * photograph was never given a verdict. `CaptureQueue.process` writes a
+ * different note for each.
  */
 export class ReadingTimedOut extends Error {
   constructor(what: string, public readonly ms: number) {
@@ -36,15 +29,12 @@ export class ReadingTimedOut extends Error {
  * Give up on a promise that has not settled in time.
  *
  * `onExpiry` is how a caller reclaims whatever the abandoned work is still
- * holding, since nothing here can stop it: WASM has no cancel, so the only
- * levers are to stop waiting and, where there is one, to throw the worker away.
+ * holding, since nothing here can stop it: WASM has no cancel.
  *
- * Two details that are load bearing rather than tidy. The rejection handler is
- * attached whatever happens, so work that was abandoned and fails later cannot
- * become an ownerless rejection, which under this repository's rules would be
- * a line nobody reads at best (`AGENTS.md`, on `inTheBackground`). And the
- * timer is unrefed, so a bound that is merely generous never holds the process
- * open past the work it was watching.
+ * Two details are load bearing rather than tidy: the rejection handler is
+ * attached whatever happens, so work that fails after being abandoned cannot
+ * become an unhandled rejection; and the timer is unrefed, so a generous
+ * bound never holds the process open past the work it was watching.
  */
 export function withDeadline<T>(
   work: Promise<T>,

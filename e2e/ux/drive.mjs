@@ -1,19 +1,10 @@
 /**
  * The harness somebody who has never seen this app drives it through.
  *
- * One command, one thing: attach to the phone, do it, screenshot it, write down
- * what it cost, let go. Everything is measured as a side effect of doing it, so
- * there is nothing to remember to count and nothing to argue about afterwards.
- *
- * The two rules that make the numbers mean anything:
- *
- *  - **Press what you can see.** Targets are named by their visible text, never
- *    by a CSS selector or a test id. A person cannot type `[data-testid=...]`,
- *    so neither can this. If a thing on screen has no name, that is a finding
- *    and not something to work around.
- *  - **Never navigate by URL.** `open` goes to the front door once. After that
- *    the only way anywhere is pressing something, which is the same constraint
- *    the person is under.
+ * Press what you can see: targets are named by their visible text, never by a
+ * CSS selector or a test id, since a person cannot type `[data-testid=...]`.
+ * Never navigate by URL: `open` goes to the front door once, and after that
+ * the only way anywhere is pressing something.
  *
  * Usage, from e2e/:
  *
@@ -193,10 +184,10 @@ switch (command) {
     const pid = await launchDetached({ port, profileDir: profile, url })
 
     /*
-     * The api URL is kept beside the connection because the furniture check
-     * needs both: the rows say what is there, and the app says what a person can
-     * reach. #420. It is recorded once, at `open`, rather than asked of the
-     * AppHost per command, for the same reason the connection is.
+     * The api URL is kept beside the connection: the furniture check needs
+     * both, since the rows say what is there and the app says what a person
+     * can reach. Recorded once, at `open`, rather than asked of the AppHost
+     * per command, for the same reason the connection is.
      */
     const run = {
       id, theme, port, pid, connection, api, web: url, task: 0, step: 0, startedAt: Date.now(),
@@ -216,15 +207,10 @@ switch (command) {
     writeCurrent(run)
 
     /*
-     * The furniture as it stands when the task begins, recorded so the check at
-     * the end can ask whether any of it is gone.
-     *
-     * `baseline.json` cannot answer that: it is the world the seed built, and
-     * what the second and third tasks have to be judged against is what the
-     * person had **after the first one**. #391 is why it is here. Applying a
-     * move in task 3 deleted the bookcase task 1 put up, and the check passed,
-     * because every part of it was about books and the furniture nobody carried
-     * anything to was nobody's number.
+     * The furniture as it stands when the task begins, so the check at the end
+     * can ask whether any of it is gone. `baseline.json` cannot answer that: it
+     * is the seeded world, and tasks two and three are judged against what the
+     * person had after the first one.
      */
     const began = await (await import('./lib/world.mjs')).worldState(run.connection, run.api)
 
@@ -232,9 +218,9 @@ switch (command) {
       step: 0, task: task.id, action: 'task-start', text: task.goal,
       standing: began.furniture,
       /*
-       * And the same moment as the app draws it. `standing` is rows and this is
-       * what somebody could reach, which is the question #420 found nobody was
-       * asking: four shelves at negative positions are four rows and no shelf.
+       * The same moment as the app draws it. `standing` is rows; this is what
+       * somebody could actually reach, which four shelves at negative
+       * positions would answer differently for.
        */
       drawing: began.drawn,
       startedAt: Date.now(), endedAt: Date.now(),

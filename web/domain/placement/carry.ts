@@ -1,64 +1,20 @@
 /**
  * The work that is outstanding, as the trips somebody would walk to do it.
+ * `assigned` disagreeing with `placed` is the list itself (`needsAttention`,
+ * `domain/placement/ledger.ts`); what this file adds is the shape a person can
+ * act on.
  *
- * **This is not a second work list.** `assigned` disagreeing with `placed` is
- * the list, and it is a property of the ledger rather than a computation beside
- * it (`needsAttention`, `domain/placement/ledger.ts`). What this file adds is
- * the shape a person can act on: the same disagreement, grouped and ordered the
- * way somebody with a phone in one hand and books in the other would work
- * through it.
- *
- * ## There is no plan, so there is nothing to go stale
- *
- * Nothing here is stored and nothing here writes. The work is recomputed every
- * time the list is drawn, so a rule changed five minutes ago is already in the
- * answer. The one thing that must not be re-answered underneath somebody is the
- * screen naming an area for the book in their hand, and that is the client's
- * job: it takes an armful and stops asking.
- *
- * ## The unit is a trip, not a book
- *
- * A trip is everything coming off one area and going onto one other. Fifty
- * books in book order is fifty walks; "22 books, 4C to 3C" is one. That is the
- * same group `plan.ts` answers a proposal with, and it is the same group for
- * the same reason: the model was already grouping the answer the way the body
- * does the work.
- *
- * ## Grouped by where the books come off, biggest piece first
- *
- * Both groupings cost the same number of walks, so the walks do not decide it.
- * Taking a book off means finding it among the ones that are staying, which is
- * reading spines; putting it down does not. So an area should be read once and
- * everything leaving it pulled at once, which is what grouping by `from` gives.
- *
- * Between pieces, the one with most to come off it goes first, because emptying
- * a piece completely is the win. Within a piece the order is the order the areas
- * stand in, which is the closest thing to a path across a room.
- *
- * ## Leaving books where they are takes work off this list and not off the app
- *
- * Somebody who is not going to walk a trip can say so, and the books leave the
- * trips because the disagreement behind them is gone (`released`,
- * `domain/placement/ledger.ts`). **They do not leave the screen.** The rule that
- * asked is still on that place, and it is the person's to change or to keep, so
- * the pair and the count and the rule's name stay on the list as `setAside`.
- * A list that silently forgot forty-six books somebody had decided about would
- * be as bad as one that silently asked for them again.
- *
- * ## A book in transit gets no row, and this file is why that costs nothing
+ * Nothing here is stored and nothing here writes: the work is recomputed every
+ * time the list is drawn. The unit is a trip, everything coming off one area and
+ * going onto one other, grouped by where the books come off so that an area is
+ * read once, with the piece that has most to come off it first and the areas of
+ * a piece in the order they stand on it.
  *
  * Nothing is recorded between lifting a book off one area and putting it on
- * another, so a book being carried is still on the list until it is down. That
- * is the honest answer: the last thing anybody said about it is still the last
- * thing anybody saw. It also means an abandoned armful leaves nothing to unwind.
- *
- * ## What "already carried" is read off, since nothing records a session
- *
- * A carry the app asked for leaves a shape in the ledger: an `assigned` row
- * naming an area, and then a `placed` row landing in it. `lastCarry` finds that
- * pair, which is how a resumed list can say what was done on Sunday and how a
- * trip can say that seven of its eighteen are already at the other end, without
- * anything having been stored per session.
+ * another, so a book being carried is still on the list until it is down. No
+ * carrying session is recorded either: a carry the app asked for leaves an
+ * `assigned` row naming an area followed by a `placed` row landing in it, and
+ * `lastCarry` finds that pair.
  */
 
 import { needsAttention, standingOf, type Placement } from './ledger'
@@ -68,11 +24,10 @@ import { needsAttention, standingOf, type Placement } from './ledger'
  * furniture.
  *
  * Not `Slot`, and that is the whole reason this is its own shape. A book can be
- * recorded on a plank the collection has since taken out, which is exactly what
- * moving a run does to the bookcase it leaves, and a retired area is off every
- * arrangement there is. The person is still standing in front of `4A`, so `4A`
- * is what a trip has to say, and the caller reads these back with the same
- * `faceOf` the wire uses rather than from the furniture as it stands.
+ * recorded on a plank the collection has since taken out, and a retired area is
+ * off every arrangement there is. The person is still standing in front of `4A`,
+ * so `4A` is what a trip has to say, and the caller reads these back with the
+ * same `faceOf` the wire uses rather than from the furniture as it stands.
  */
 export interface AreaFace {
   /** The label as it reads off the furniture. */
@@ -87,20 +42,9 @@ export interface AreaFace {
 /**
  * The two pictures a book is drawn by, whichever way up it is drawn.
  *
- * **A name is not enough to recognise a book at a shelf**, which is the whole
- * job of these screens: somebody is standing in front of eleven spines looking
- * for eight, and the picture is what they match the phone against. Every other
- * list in the app draws them, so a book that arrives here without them is drawn
- * as a coloured block and the row stops reading as books.
- *
  * Filenames, and empty for a book nobody has photographed, which is a real book
- * rather than an error: the cloth behind the picture is what such a book is
- * drawn in, and it is drawn in it on every other screen too.
- *
- * **Chosen before they get here.** Which photograph stands in for a spine and
- * which for a cover is `shared/shelving.ts`'s to answer and nothing else's, so
- * these arrive already decided rather than as seven filenames for this file to
- * have an opinion about.
+ * rather than an error. Which photograph stands in for a spine and which for a
+ * cover is `shared/shelving.ts`'s to answer, so these arrive already decided.
  */
 export interface BookPictures {
   /** The book standing up, which is the spine, or what stands in for one. */
@@ -110,8 +54,6 @@ export interface BookPictures {
 }
 
 /**
- * What the carry list needs to know about a book, which is what a row shows.
- *
  * No sort key, and that is not an oversight: nothing here re-orders books
  * against each other. They arrive in the order they stand on the shelves and
  * they stay in it, so a trip's books read down the area the way somebody pulling
@@ -123,17 +65,12 @@ export interface CarryableBook extends BookPictures {
   authorFiling: string
 }
 
-/** A book as this list names it: enough to recognise it holding the shelf. */
 export interface CarriedBook extends BookPictures {
   id: number
   title: string
   authorFiling: string
 }
 
-/**
- * Everything coming off one area for one other, which is one armful and one
- * walk.
- */
 export interface CarryTrip {
   fromAreaId: number
   toAreaId: number
@@ -143,41 +80,28 @@ export interface CarryTrip {
   to: string
   /**
    * The number two pieces stand on, when both ends of this trip read the same.
+   * A trip whose two ends read alike is a trip nobody can walk, and it is a real
+   * state rather than a bug in the arithmetic: two pieces standing on one number
+   * is an arrangement this catalogue has (`places` in `lib/furniture.ts`), and
+   * neither of them being named is what makes their planks render alike.
    *
-   * **A trip whose two ends read alike is a trip nobody can walk**, and it is a
-   * real state rather than a bug in the arithmetic: two pieces standing on one
-   * number is an arrangement this catalogue has (`places` in `lib/furniture.ts`),
-   * and neither of them being named is what makes their planks render alike.
-   * `GET /api/carry` printed such a trip as `4A -> 4A` with the counts and the
-   * areas perfectly right (#447).
-   *
-   * The app cannot tell the two apart in words that a person could act on,
-   * because there is nothing to tell apart: naming one of the pieces is what
-   * fixes it and the screen says so. This is what the screen says it about.
-   *
-   * Null on every trip whose ends read differently, which is nearly all of them,
-   * and null where both ends are on **one** piece: two areas of one piece
-   * somebody has given one name read alike too, and "two pieces stand at 4"
-   * would be a false thing to say about that.
+   * Null on every trip whose ends read differently, and null where both ends are
+   * on one piece: two areas of one named piece read alike too, and "two pieces
+   * stand at 4" would be a false thing to say about that.
    */
   sharedNumber: number | null
   /** The books still to carry, in the order they stand on the area. */
   books: CarriedBook[]
   /**
-   * How many of this trip's books are already at the other end.
-   *
-   * Not a number the list needs to add up: those books have left it. It is here
-   * so a resumed trip reads as carrying on rather than as starting, which is the
-   * normal case rather than the exception.
+   * How many of this trip's books are already at the other end. Not a number the
+   * list adds up: those books have left it.
    */
   carried: number
 }
 
 /**
  * Why a book is not on the list, in the words and the order the plan uses.
- *
- * A list of fifty-three that had quietly dropped three pinned books would be
- * believed, so every one of these is counted and named.
+ * Every one of these is counted and named rather than dropped.
  */
 export const CARRY_SKIPS = ['pinned', 'checked-out', 'withdrawn', 'never-placed'] as const
 
@@ -188,7 +112,6 @@ export interface CarrySkipped {
   books: number
 }
 
-/** What was carried, and when, so a resumed list can lead with it. */
 export interface CarriedAlready {
   /** Books carried on the most recent day anybody carried one. */
   books: number
@@ -197,12 +120,9 @@ export interface CarriedAlready {
 }
 
 /**
- * What the newest run of the rules did to the list.
- *
- * Two different things, and the second is the one that stings. Books that no
- * longer need moving simply leave and a count is enough. Books somebody
- * **already carried** that need carrying again cannot be left to be discovered
- * one at a time at a shelf, so they are named with both ends of the new carry.
+ * What the newest run of the rules did to the list. Books that no longer need
+ * moving simply leave and a count is enough; books somebody already carried
+ * that need carrying again are named, with both ends of the new carry.
  */
 export interface CarryChange {
   /** Books the run took off the list, because it wants them where they are. */
@@ -214,20 +134,14 @@ export interface CarryChange {
 }
 
 /**
- * A trip somebody decided not to walk, still named on the list.
+ * A trip somebody decided not to walk, still named on the list. A book left
+ * where it stands leaves the trips and does not leave the screen: the
+ * disagreement is gone from the ledger, but the rule that asked is still on that
+ * place and only the person can decide whether to change it.
  *
- * **A book left where it stands leaves the trips and does not leave the
- * screen.** The whole of the disagreement is gone from the ledger, so nothing
- * would draw these at all, and a list that quietly forgot forty-six books
- * somebody had decided about would be the same silence the withdrawal was
- * supposed to break: the rule that asked is still on that place, and the person
- * is the only one who can decide whether to change it.
- *
- * The rules are named as the assignment recorded them, which is the rule's name
- * as it stood when it asked. That is history and it is read back rather than
- * recomputed, for the same reason `reason` carries it on the assignment itself:
- * the rule may have been renamed or taken off the place since, and what this
- * says is what was asked for.
+ * The rules are named as the assignment recorded them, read back rather than
+ * recomputed: the rule may have been renamed or taken off the place since, and
+ * what this says is what was asked for.
  */
 export interface SetAside {
   fromAreaId: number
@@ -250,22 +164,9 @@ export interface CarryWork {
   carried: CarriedAlready
   /** Null when the newest run of the rules changed nothing anybody would read. */
   changed: CarryChange | null
-  /**
-   * Work somebody has taken off the list by leaving the books where they are.
-   *
-   * Empty on a list nobody has done that to, which is every list until somebody
-   * does.
-   */
   setAside: SetAside[]
 }
 
-/*
- * The pictures travel with the name, because they are half of what a name is
- * for here. This function is the one narrowing on the way out of this file, and
- * it was the place both of them were dropped: every carry screen drew a row of
- * coloured blocks with no photograph on it and no spine to it, while the same
- * components drew photographed books everywhere else in the app.
- */
 const named = (book: CarryableBook): CarriedBook => ({
   id: book.id,
   title: book.title,
@@ -284,7 +185,6 @@ function rowsByBook(rows: readonly Placement[]): Map<number, Placement[]> {
   return grouped
 }
 
-/** One end of a carry that has already happened. */
 interface Carry {
   fromAreaId: number
   toAreaId: number
@@ -298,12 +198,10 @@ interface Carry {
  * The shape in the ledger is an `assigned` row naming an area followed by a
  * `placed` row landing in it, and the other end of the carry is wherever the
  * book was standing immediately before. A book somebody moved of their own
- * accord has the `placed` row and no assignment behind it, and is not a carry:
- * saying it was would let the app take credit for work it never asked for.
+ * accord has the `placed` row and no assignment behind it, and is not a carry.
  *
  * The fold is `standingOf`'s, deliberately, down to `assigned` surviving a
- * `placed` row and a pin clearing it. Two folds that drifted would put a book
- * on the list and off the tally in the same breath.
+ * `placed` row and a pin clearing it.
  */
 export function lastCarry(rows: readonly Placement[]): Carry | null {
   let assigned: number | null = null
@@ -342,10 +240,7 @@ export function lastCarry(rows: readonly Placement[]): Carry | null {
 
 /**
  * Whether these two ends of a walk read the same, and the number they stand on.
- *
- * One reading for both screens that draw a walk, because a note on one of them
- * and silence on the other is the same disagreement this issue is about, one
- * level up. See `CarryTrip.sharedNumber`.
+ * One reading for both screens that draw a walk. See `CarryTrip.sharedNumber`.
  */
 export function sharedNumberOf(from: AreaFace, to: AreaFace): number | null {
   if (from.label !== to.label) return null
@@ -407,10 +302,10 @@ export function carryWork(
     moving += 1
 
     /*
-     * When the rules last said these books belong somewhere else. Every book on
-     * one trip was usually assigned by one run, so the oldest of them is when
-     * this stretch of work began, and a carry recorded after it belongs to this
-     * stretch rather than to some older one on the same pair of areas.
+     * When the rules last said these books belong somewhere else. The oldest
+     * assignment on a trip is when this stretch of work began, so a carry
+     * recorded after it belongs to this stretch rather than to an older one on
+     * the same pair of areas.
      */
     const assignment = own
       .filter((row) => row.kind === 'assigned' && row.areaId === to)
@@ -422,9 +317,8 @@ export function carryWork(
 
   /*
    * The books that are already down, counted against the trip they belong to.
-   * They are not on the list, which is the whole point: a book that has been
-   * carried takes itself off it. This is only so a resumed trip can say how much
-   * of it is done.
+   * They are not on the list: a book that has been carried takes itself off it.
+   * This is only so a resumed trip can say how much of it is done.
    */
   const days = new Map<string, number>()
   for (const book of books) {
@@ -455,12 +349,8 @@ export function carryWork(
 }
 
 /**
- * The work somebody has decided not to do, grouped the way they decided it.
- *
- * By the same pair a trip is, because that is the shape the decision was made
- * in: somebody looking at "twenty-two books, 4C to 3C" said no to that, and
- * saying so back in those words is what makes it recognisable as the thing they
- * did rather than as a count of books they have to reconstruct.
+ * The work somebody has decided not to do, grouped by the same pair a trip is,
+ * because that is the shape the decision was made in.
  *
  * A pinned, checked out or withdrawn book cannot be here. A pin clears the
  * memory along with the assignment, and so does going out of the house, because
@@ -511,14 +401,10 @@ function setAsideOf(
 }
 
 /**
- * The trips in the order somebody would walk them.
- *
- * Pieces first, most to come off them first, because emptying a piece
- * completely is the win and three books off a bookcase across the room is not
- * what anybody does before clearing the one with fifty on it. Then the areas of
- * a piece in the order they stand on it, which is the closest thing to a path.
- * A piece that is drawing level with another falls back to its number, so the
- * order is the same every time the list is drawn.
+ * The trips in the order somebody would walk them: pieces with most to come off
+ * them first, then the areas of a piece in the order they stand on it. A piece
+ * drawing level with another falls back to its number, so the order is the same
+ * every time the list is drawn.
  */
 function walked(trips: CarryTrip[], where: ReadonlyMap<number, AreaFace>): CarryTrip[] {
   const load = new Map<number, number>()
@@ -557,16 +443,10 @@ function walked(trips: CarryTrip[], where: ReadonlyMap<number, AreaFace>): Carry
  * each of those books twice, once with the run and once without, and the
  * difference is what somebody would notice.
  *
- * ## The counts are of the change and not of the list
- *
- * Both folds stop at the run, by row id, so nothing written afterwards moves
- * them. **A count that included later rows would go backwards as somebody
- * worked**: carry three of the twenty books a rule change added and it would
- * report seventeen added, which is the screen contradicting the work being done
- * in front of it. That happened on a real list the first time this was walked.
- *
- * The named books are the exception, and for the opposite reason: they are work
- * rather than history, so a book somebody has already carried again is off them.
+ * Both folds stop at the run, by row id, so nothing written afterwards moves the
+ * counts: a count that included later rows would go backwards as somebody
+ * worked. The named books are the exception, because they are work rather than
+ * history, so a book somebody has already carried again is off them.
  */
 function changeOf(
   books: readonly CarryableBook[],
@@ -577,8 +457,7 @@ function changeOf(
    * The last assignment written, by id rather than by timestamp, and the run it
    * belongs to is every assignment carrying that run's timestamp. Both halves
    * matter: `id` is the order rows were written and is the only order this model
-   * trusts, and the timestamp is what one run of the rules stamps all its rows
-   * with, so it is what says which rows are one decision.
+   * trusts, and the timestamp is what says which rows are one decision.
    */
   let last: Placement | null = null
   for (const own of history.values()) {
@@ -630,31 +509,23 @@ function changeOf(
   return change.joined || change.left ? change : null
 }
 
-/** One book on the area a trip comes off, and whether it is going anywhere. */
 export interface StandingBook extends CarriedBook {
   /** Page count, so a drawn spine is the thickness of the real book. */
   pages: number
   /** On this trip: it comes off here and goes to the area the trip names. */
   going: boolean
   /**
-   * Why it is not going, for the ones that are staying.
-   *
-   * `left` is a book somebody decided to leave where it stands, and it is its
-   * own answer rather than `settled`: settled means the rules want it here, and
-   * saying that about a book whose assignment a person turned down would be the
-   * app quietly agreeing with itself about a decision it did not make.
+   * Why it is not going, and null for a book that is. `left` is a book somebody
+   * decided to leave where it stands, which is not `settled`: settled means the
+   * rules want it here.
    */
   staying: 'pinned' | 'elsewhere' | 'settled' | 'left' | null
 }
 
 /**
  * One trip read at the area the books come off: what is on it, and which of it
- * to take.
- *
- * The books that are staying are drawn rather than hidden. Somebody standing at
- * eleven spines being shown eight is counting to eleven and wondering; the three
- * that are staying are the answer to that, and the reason each of them is
- * staying is the only thing that makes it an answer.
+ * to take. The books that are staying are drawn rather than hidden, each with
+ * the reason it is staying.
  *
  * `books` arrives in sort order and leaves in it, because the order this
  * answers in is the order the spines stand on the area.

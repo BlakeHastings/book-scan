@@ -1,39 +1,22 @@
 /**
- * The books somebody is holding, which is the one thing in this flow that is
- * not in the database.
+ * The books somebody is holding, which is the one thing in this flow that
+ * is not in the database.
  *
- * ## Nothing is written between lifting a book and putting it down
+ * Nothing is written between lifting a book and putting it down: a book in
+ * hand is nowhere, on neither the plank it came off nor the one it is
+ * going to, and the app says nothing about the gap on purpose. There is no
+ * "I have picked it up" step to be got wrong, nothing to unwind when the
+ * phone locks, and putting an armful back costs one state change and no
+ * request at all.
  *
- * A book in your hand is nowhere. Between coming off `4A` and going onto `3A` it
- * is on neither, and the app says nothing about the gap on purpose: the last
- * thing recorded is still true, because it is the last place a person put the
- * book. Recording "in somebody's hand" would be the app asserting something
- * nobody told it, and it would still be asserting it three weeks later.
+ * The trip is fixed once the books are lifted, and only then: the list is
+ * recomputed every time it is drawn, but the armful itself is taken once
+ * and held, since the screen naming an area for the book in hand must
+ * never be re-answered underneath somebody mid-placement.
  *
- * So there is no "I have picked it up" step to be got wrong, nothing to unwind
- * when the phone locks, and putting an armful back on the area it came off costs
- * one state change here and no request at all. This provider is the whole of
- * what the interface knows about the gap.
- *
- * ## The trip is fixed once the books are lifted, and only then
- *
- * The list is recomputed every time it is drawn, which is what makes stopping
- * halfway free. **The screen naming an area for the book in your hand must never
- * be re-answered underneath you**, though, so the armful is taken once and held:
- * the books and both ends of the walk are settled at the moment somebody says
- * they have them, and nothing reloads them until the armful is empty.
- *
- * Saying an area is full is the one case where the answer does change while
- * somebody is standing there, and that is a person changing it themselves. It
- * belongs to the placing screen, where the cascade in `docs/shelving.md` already
- * asks one question at a time.
- *
- * ## Why this is a provider and not state on a screen
- *
- * Four screens are one job here: the list, the area the books come off, one book
- * being placed, and the trip finished. A screen unmounts the moment the route
- * changes (`App.tsx`), so an armful held by any one of them would be dropped on
- * the way to the next.
+ * A provider rather than screen state, since four screens (the list, the
+ * area the books come off, one book being placed, and the trip finished)
+ * are one job here, and a screen unmounts the moment the route changes.
  */
 
 import {
@@ -47,10 +30,9 @@ export interface Armful {
   /** The trip being looked at or walked. Null when nobody has chosen one. */
   readonly trip: CarryTrip | null
   /**
-   * The books taken off the area, in the order they will be placed.
-   *
-   * Fixed at the moment they were lifted. Empty while somebody is only looking
-   * at a trip, which is the state that writes nothing and promises nothing.
+   * The books taken off the area, in the order they will be placed. Fixed
+   * at the moment they were lifted. Empty while somebody is only looking
+   * at a trip, which writes nothing and promises nothing.
    */
   readonly books: CarriedBook[]
   /** How many of them are down, which is also the index of the next one. */
@@ -62,24 +44,18 @@ export interface Armful {
   /** One book is down and written down. */
   readonly placed: () => void
   /**
-   * Put the whole armful back where it came from.
-   *
-   * Free, and honest, because nothing was recorded for the books still in the
-   * air. The ones already down stay down: they are on the shelves and they are
-   * written down, which is what lets somebody walk away mid-trip.
+   * Put the whole armful back where it came from. Free, since nothing was
+   * recorded for the books still in the air. The ones already down stay
+   * down, since they are written down, which is what lets somebody walk
+   * away mid-trip.
    */
   readonly putBack: () => void
   /**
-   * The shuffle a full plank started while the book at the front of the armful
-   * was being placed.
-   *
-   * Held here rather than on the placing screen for the reason everything else
-   * in this file is (#432). That screen does not unmount between one book of an
-   * armful and the next, so a shuffle kept on it was still on screen for the
-   * book after the one it happened to, and it went away entirely on a route
-   * change instead. Both are answered by the thing that knows when the book in
-   * hand changes, which is this: every call below that moves the armful on
-   * clears it.
+   * The shuffle a full plank started while the book at the front of the
+   * armful was being placed. Held here rather than on the placing screen,
+   * since that screen does not unmount between one book and the next: the
+   * thing that knows when the book in hand changes is this, so every call
+   * below that moves the armful on clears it.
    */
   readonly cascade: Cascade
   readonly setCascade: Dispatch<SetStateAction<Cascade>>
@@ -94,10 +70,10 @@ export function ArmfulProvider({ children }: { children: ReactNode }) {
   const [cascade, setCascade] = useState<Cascade>(emptyCascade)
 
   /*
-   * Every one of these is stable, and that is load bearing rather than tidy.
-   * Four screens call `api.carry()` from an effect that lists one of them among
-   * its dependencies, and a callback rebuilt whenever the armful changed would
-   * make each of those effects run again on every book put down.
+   * Every one of these is stable, and that is load bearing: four screens
+   * call `api.carry()` from an effect that lists one of them as a
+   * dependency, and a callback rebuilt on every change would rerun those
+   * effects on every book put down.
    */
   const choose = useCallback((chosen: CarryTrip) => {
     setTrip(chosen)

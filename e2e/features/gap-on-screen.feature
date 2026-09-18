@@ -6,18 +6,14 @@ Feature: The gap is on screen wherever on the plank it falls
   their hand, looking for the hole. If the hole is off the side of the screen
   the step has quietly stopped answering and they go hunting for it.
 
-  Reported from real use on a phone (#119) for the case where the book belongs
-  before everything already on the plank. The far end and the middle are here
-  as well, because they are served by the same effect and the far end is the
-  more common of the three.
+  The far end and the middle are here as well, because they are served by the
+  same effect, and the far end is the more common of the three.
 
   Background:
     Given the catalogue is empty
     And the catalogue service knows about "Dune"
 
   Scenario: The book belongs before everything already on the plank
-    # Dune files under Herbert, and every book on the plank files after it, so
-    # the gap opens at the very start of the row.
     Given 12 more books are on the shelves, all filing after "Dune"
 
     Given the camera is pointed at the back cover of "Dune"

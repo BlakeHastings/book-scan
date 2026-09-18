@@ -20,9 +20,7 @@ describe('which strategy a run is ordered by', () => {
   })
 
   it('reads inherit on an area as a value rather than as nothing said', () => {
-    // The whole of "no absence means anything". An area carrying `inherit` and
-    // an area carrying `title` are both statements, and they are told apart by
-    // comparing values, not by asking whether one is missing.
+    // An area carrying `inherit` and one carrying `title` are both statements, told apart by comparing values, not by checking for absence.
     expect(strategyFor('author', 'tag', INHERIT)).toBe('tag')
     expect(strategyFor('author', 'tag', 'title')).toBe('title')
   })
@@ -30,8 +28,7 @@ describe('which strategy a run is ordered by', () => {
 
 describe('ordering a run', () => {
   it('orders by author exactly as books.sort_key does, series and all', () => {
-    // The strategy the whole catalogue is on. Its key is the stored column, so
-    // this is the existing shelf order rather than a second opinion about it.
+    // Its key is the stored column itself, not a second opinion about the existing shelf order.
     const dune = buildSortKey({
       authorFiling: 'Herbert, Frank', seriesName: 'Dune', seriesIndex: 1, title: 'Dune',
     })
@@ -61,16 +58,7 @@ describe('ordering a run', () => {
   })
 
   it('cannot be told the collection default, which is how the tiebreak is fixed', () => {
-    /*
-     * The settled decision, checked by the shape of the function rather than by
-     * an assertion about a value: `orderBy` takes a strategy and a list, and
-     * there is nowhere to pass a collection default. Changing a global setting
-     * therefore cannot reorder a run that chose `tag`, because nothing in this
-     * call can see the global setting.
-     *
-     * What is asserted here is the consequence: two orderings that differ only
-     * in what the collection is set to are the same list.
-     */
+    // `orderBy` takes only a strategy and a list, with nowhere to pass a collection default, so changing that default cannot reorder a run that chose `tag`.
     const books = [
       book(1, { tagSlugs: ['genre/crime'], titleFiling: 'Zzz', authorFiling: 'Zzz' }),
       book(2, { tagSlugs: ['genre/crime'], titleFiling: 'Aaa', authorFiling: 'Aaa' }),
@@ -88,9 +76,7 @@ describe('ordering a run', () => {
   })
 
   it('compares byte by byte, not by a linguistic collation', () => {
-    // `Zebra` before `apple` is what byte order says and what `COLLATE "C"` on
-    // the columns says. A locale-aware comparison would file them the other way
-    // round, silently, and a shelf would be in an order the database is not in.
+    // Byte order matches `COLLATE "C"`; a locale-aware comparison would file these the other way round, silently.
     expect(orderBy('title', [
       book(1, { titleFiling: 'apple' }),
       book(2, { titleFiling: 'Zebra' }),

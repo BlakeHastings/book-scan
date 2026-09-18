@@ -1,26 +1,14 @@
 /**
- * The two ways this API used to answer a request nobody meant to make (#332).
+ * What the API says when the request is wrong: a malformed id answers 404
+ * rather than a 500 from Postgres seeing `NaN`, and an unknown path under
+ * /api answers JSON rather than Express's own HTML page.
  *
- * Both were measured in `docs/api-review.md` rather than guessed at, and both
- * are about the same thing: what the API says when the request is wrong.
+ * Driven over real HTTP against a real Postgres, because both are about
+ * what reaches the database and what leaves the server, neither of which is
+ * visible from a handler called directly.
  *
- * 1. **A malformed id was a 500 on nineteen routes and a clean 404 on six.**
- *    `Number('notanumber')` is `NaN`, which reached Postgres and came back as
- *    `invalid input syntax for type integer: "NaN"`, so a client typo was
- *    written to the log as `[api] unhandled route error:` with a stack trace on
- *    it. The furniture routes answered properly because they had a `Refused`
- *    union to go through; nobody else did.
- * 2. **An unknown path under /api answered HTML.** There was no catch-all before
- *    the error handler, so Express's own finaliser answered with a page, and
- *    `src/lib/api.ts` parses every body as JSON to find the `error` field. A
- *    renamed route therefore surfaced in the app as a parse failure.
- *
- * Every case here is driven over real HTTP against a real Postgres, because
- * both defects were about what reaches the database and what leaves the server,
- * and neither is visible from a handler called directly.
- *
- * The harness is `listing.routes.test.ts`'s: `createApp()` on an ephemeral port
- * with the catalogues stubbed, so no network.
+ * The harness is `listing.routes.test.ts`'s: `createApp()` on an ephemeral
+ * port with the catalogues stubbed, so no network.
  */
 
 import type { AddressInfo } from 'node:net'
@@ -95,8 +83,8 @@ afterAll(async () => {
 async function call(path: string, init: RequestInit = {}) {
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,
-    // The suite arrives holding a session, because every route under /api is
-    // behind the gate since #521 and a request without one is refused 401.
+    // Every route under /api is behind the gate, so a request without a
+    // session cookie is refused 401.
     headers: {
       cookie,
       ...(init.body ? { 'content-type': 'application/json' } : {}),
@@ -127,17 +115,10 @@ async function aBook(): Promise<number> {
   return Number(body!.id)
 }
 
-// ---------------------------------------------------------------------------
-// 1. A malformed id
-// ---------------------------------------------------------------------------
-
 /**
- * Every route that takes an id, and what it calls the thing it could not find.
- *
- * Written as a table rather than as thirty tests, because the point of the fix
- * is that there is one answer and the routes stopped disagreeing about it. A
- * route added here without a guard fails as soon as it is added to the table,
- * which is the only kind of coverage that keeps a convention alive.
+ * Every route that takes an id, and what it calls the thing it could not
+ * find. Written as a table rather than as separate tests, so a route added
+ * here without a guard fails as soon as it is added.
  */
 interface Guarded {
   method: string
@@ -147,12 +128,11 @@ interface Guarded {
   missing: string
   body?: unknown
   /**
-   * Whether an id that is merely unused answers the same thing.
-   *
-   * True for every route that looks the row up and refuses. It is false for the
-   * four whose "nothing has that id" answer was already something else and is
-   * not this issue's to change: claiming and editing a capture answer through
-   * the queue's own outcomes, and removing a boundary answers with the shelves.
+   * Whether an id that is merely unused answers the same thing. True for
+   * every route that looks the row up and refuses; false for the routes
+   * whose "nothing has that id" answer is already something else: claiming
+   * and editing a capture answer through the queue's own outcomes, and
+   * removing a boundary answers with the shelves.
    */
   unusedIdToo?: boolean
 }
@@ -246,10 +226,6 @@ describe('an id that is not a number', () => {
   })
 })
 
-// ---------------------------------------------------------------------------
-// 2. A path no route answers
-// ---------------------------------------------------------------------------
-
 describe('a path under /api that no route matches', () => {
   it('answers JSON rather than Express\'s own HTML page', async () => {
     const answered = await call('/api/does-not-exist')
@@ -275,8 +251,8 @@ describe('a path under /api that no route matches', () => {
   })
 
   it('answers a route that exists under a method it does not take', async () => {
-    // `/api/health` is a GET. A POST to it matched no route before this and got
-    // the HTML page; it is the same miss as a mistyped path.
+    // `/api/health` is a GET; a POST to it is the same miss as a mistyped
+    // path.
     const answered = await post('/api/health')
     expect(answered.status).toBe(404)
     expect(answered.body).toEqual({ error: 'Not found.' })

@@ -20,8 +20,8 @@ Feature: Saying what a book is, when the tag does not exist yet
   refuses, and what it refuses is drawn: the tag they already keep is offered and
   there is no way to make a second one.
 
-  The third is the door that does not start with a book at all (#452), and it is
-  the same panel: making a word from the tags screen, and sweeping it away again.
+  The third is the door that does not start with a book at all, and it is the
+  same panel: making a word from the tags screen, and sweeping it away again.
 
   Background:
     Given the catalogue is empty
@@ -38,8 +38,6 @@ Feature: Saying what a book is, when the tag does not exist yet
     And I name a new tag "Comic book"
     Then the book should be tagged "Comic book"
 
-    # The genre, answered by the two options rather than by the box. This is the
-    # pair that used to wipe each other out.
     When I say the book is fiction
     And I confirm the details and go to shelve it
     And I say it fits and save it
@@ -47,7 +45,6 @@ Feature: Saying what a book is, when the tag does not exist yet
     Then the catalogue should have "Dune" tagged:
       | Comic book  | person |
       | Fiction     | person |
-    # The whole collection, not this book: one word means one tag.
     And the collection should keep one tag reading "Comic book"
 
   Scenario: A second spelling finds the tag rather than making another
@@ -65,25 +62,12 @@ Feature: Saying what a book is, when the tag does not exist yet
     Then the book should be tagged "Comic book"
     And the collection should keep one tag reading "Comic book"
 
-  # The third door (#452). The two above both start with a book in your hand;
-  # this one starts with nothing, which is the whole point of it: #400 lets a
-  # placement rule ask for a tag nothing carries, so somebody setting up a
-  # bookcase for a subject before they own a book for it was doing exactly what
-  # the rules already support and had no way to say it.
-  #
-  # Worth driving a browser for the same reason the two above are: what has to be
-  # true is a row, and the screen cannot be asked whether one exists. The word is
-  # made with no book anywhere near it, the collection is asked, and then it is
-  # swept away again, because making without removing leaves a screen that only
-  # accumulates.
   Scenario: A word is made with no book in your hand, and swept away again
     When I open the app
     And I open my tags
     And I make a new tag "Hydrology"
 
     Then the collection should keep one tag reading "Hydrology"
-    # The evidence the person who just made one has. A word nothing carries and
-    # no rule asks for is litter, and the screen says so by offering to sweep it.
     And my tags should offer to sweep away "Hydrology"
 
     When I sweep away "Hydrology"
@@ -95,8 +79,6 @@ Feature: Saying what a book is, when the tag does not exist yet
     And I photograph the book
     Then the camera should recognise the book as "Dune"
 
-    # #304: this app states a genre only when a source did, and a person
-    # answering the two options is that person answering. Typing the word is not.
     When I review what it found
     And I start naming a tag as "fiction"
     Then it should offer no way to make another

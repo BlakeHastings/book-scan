@@ -1,53 +1,11 @@
 /**
- * The two questions every place in this library answers, as two widgets.
+ * The two widgets a place answers with: what belongs here, and how it is ordered.
+ * A fixture and an area share both components rather than each drawing their own.
  *
- * > It's hard to see how things sort, or why they sort, like the rules involved
- * > with the fixture or an area. Whenever we're in the detailed view of a
- * > fixture or an area, we need to be able to very easily see and change the
- * > current sort rule and the current filter rule. Maybe we rally around
- * > widgets that are associated with those.
- *
- * A place is a piece of furniture or an area of one, and both answer the same
- * two questions: **what belongs here**, and **how is it ordered**. They used to
- * be answered on four screens between them, two of which existed to explain
- * rather than to do, and the owner walked that and said what was wrong with it:
- * "instead of 'see what belongs here' we should just show what belongs there,
- * and then have the ability to edit it if the user clicks it."
- *
- * So they live here, once, and the fixture's page and the area's page both draw
- * them. That is the rule this design system already runs on: a component copied
- * into a second screen is two components that agree until one of them is edited.
- *
- * ## What a fixture and an area do not answer the same way
- *
- * Both are drawn by one component and neither is flattened into the other.
- *
- * **What it inherits from is different.** An area with no ordering of its own
- * takes the piece it stands on; a piece with none takes the whole library. The
- * caller says what the fallback is called, so neither has a sentence written
- * about it here that is true of only one of them.
- *
- * **Only an area stops taking overflow.** An area with an ordering of its own is
- * a place of its own: nothing flows into it from the area before, because books
- * only flow along a stretch that is ordered one way throughout. That is a real
- * consequence of the change rather than a note about it, so it is said where the
- * change is made, and a piece of furniture is given nothing to say because
- * nothing of the sort happens to one.
- *
- * ## Why the books are drawn while an ordering is being picked
- *
- * "It's hard to see *why* they sort" is a question a name cannot answer. The
- * books can: the first few of them, in the order the ordering puts them, with
- * the thing being ordered by shown against each one. Choosing a different
- * ordering reorders that list in front of somebody before anything is written,
- * so the widget is the explanation and the warning in the same drawing.
- *
- * ## Three widgets, and the third is a button
- *
- * `MoveBooks` was the quiet second button on `FilterRule` and is its own thing
- * now, because the owner moved it out of the rules and under the books it acts
- * on. It is still one definition with two callers, and it is still the only way
- * into #244's journey from either page.
+ * An area with no ordering or rule of its own inherits from the piece it stands
+ * on; a piece with none inherits from the whole library, so the caller supplies
+ * the fallback label. Only an area with a rule or ordering of its own stops
+ * taking overflow from the area before it.
  */
 
 import type { ReactNode } from 'react'
@@ -64,34 +22,14 @@ export interface RuleLine {
   /** A tag as a person reads it, never as it is stored. */
   tag: string
   /**
-   * How many books carry it, counting the ones under it. Undefined where
-   * nobody asked.
-   *
-   * **Zero is the state a prepared shelf is in** (#392). Somebody who clears a
-   * shelf and says it is for comics before carrying a single comic to it has
-   * written a rule that is waiting rather than broken, and the difference is
-   * invisible without this number: the rule reads exactly like one that claims
-   * forty books. Undefined rather than zero where the count was never asked
-   * for, because drawing "nothing carries this" off a number nobody fetched
-   * would be the screen inventing a fact.
+   * How many books carry it, counting the ones under it. Zero means a shelf was
+   * prepared for this tag before any book arrived, not that the rule is broken.
+   * Undefined means the count was never asked for.
    */
   carried?: number
 }
 
-/**
- * A rule waiting on a word nothing carries yet, said in one line or not at all.
- *
- * **The same clause the empty rule uses**, deliberately. "It asks for nothing,
- * so it claims nothing" is already this widget's way of saying that a rule is a
- * real state rather than a fault, and a rule asking for a word no book has yet
- * is the neighbouring case: it asks for something, nothing answers, and it will
- * the moment something does. A second vocabulary for that would be two ways of
- * reading the same shelf.
- *
- * It names the tags rather than counting them, because the person reading it
- * prepared the shelf and the useful fact is which of their words is still
- * waiting.
- */
+/** Names the tags with carried 0: waiting for their first book, not broken. */
 export function waitingSaid(lines: readonly RuleLine[]): string {
   const waiting = lines.filter((line) => line.carried === 0).map((line) => line.tag)
   if (!waiting.length) return ''
@@ -124,19 +62,8 @@ const LEAD: Record<RuleLine['operator'], string> = {
   under: 'Tagged anything under',
 }
 
-/**
- * The other journey, named for what it does rather than for the rule it does it
- * to.
- *
- * It read "Point Fiction somewhere else", and two things were wrong with that.
- * The owner said the first: "that's not the rule we're looking for changing."
- * The second showed up the moment a rule was named from its own lines, because
- * "Point Comic books and Fiction somewhere else" is two lines of quiet button
- * saying one thing. A word that does not carry the name cannot grow with it.
- */
 export const RETARGET_WORD = 'Move these books to another bookcase'
 
-/** The two things a line can ask, as the words somebody picks between. */
 const ASKS: { value: RuleLine['operator']; word: string }[] = [
   { value: 'is', word: 'That tag' },
   { value: 'under', word: 'That and under it' },
@@ -149,28 +76,15 @@ export interface RuleOffer {
   books: number
 }
 
-/**
- * Choosing a tag to add, which is a search rather than a list.
- *
- * A vocabulary is as long as somebody's reading, so the answers are narrowed by
- * what has been typed rather than scrolled past. The count beside each one is
- * the reason the box is worth having: adding a tag forty books carry and adding
- * one nothing carries are different decisions and the word alone does not say
- * which is which.
- */
 export interface RuleChoosing {
   /** What has been typed, which is what narrows the answers. */
   query: string
   /** The answers, already narrowed, and already without what is on the rule. */
   offering: RuleOffer[]
   /**
-   * The offer to make the word up, where the collection means nothing by it yet.
-   *
-   * **Null is the ordinary answer and it is not a refusal** (#392). It is null
-   * because something already means what was typed, or because the two genre
-   * answers do, and in both of those the tag to pick is in the list above. The
-   * decision is `domain/tagging/naming.ts` and it is the same one the panel on a
-   * book asks, so there is one rule about what a word means and not two.
+   * The offer to make the word up. Null is the ordinary answer, not a refusal:
+   * it means the tag to pick is already in `offering`, decided the same way
+   * `domain/tagging/naming.ts` decides it for the panel on a book.
    */
   make?: RuleMake | null
   /** What the box made of what was typed, where that is worth a line. */
@@ -190,23 +104,14 @@ export interface RuleMake {
 }
 
 /**
- * A rule being written, which is a draft and not a row.
- *
- * **Nothing here is written down.** Every line added, taken off or changed
- * lives on the screen until somebody has read what it would do and said yes,
- * which is why the way out of this is a plan and not a save. See `WouldHappen`.
+ * A rule being written, which is a draft and not a row. Nothing here is
+ * written down until a plan is generated and applied; see `WouldHappen`.
  */
 export interface RuleEditing {
   /**
    * The rules on this place, each one a list of lines. Empty is a real state.
-   *
-   * **The two words land in two different places** (#384). Adding a tag to a
-   * rule is "and": all of a rule's lines have to hold. Adding a rule to the
-   * place is "or": either of them files a book here. There is no third level and
-   * there is not going to be one, because a group inside a group is the boolean
-   * tree `domain/placement/rules.ts` refuses, and it refuses it for the reason
-   * this widget exists: it is unreadable at exactly the moment somebody needs to
-   * read it.
+   * A line added to a group is "and"; a group added to `groups` is "or". There
+   * is no nesting: `domain/placement/rules.ts` refuses a boolean tree.
    */
   groups: RuleLine[][]
   /** Which rule the tag being chosen is for, or null when none is. */
@@ -225,62 +130,17 @@ export interface RuleEditing {
 }
 
 /**
- * What belongs here, read on the place it is about and changed there.
+ * What belongs here, read on the place it is about and changed there. Editing
+ * writes nothing directly: it produces a plan, which is applied, and books are
+ * then carried on the screens that already exist for that. Moving a stretch of
+ * books to other furniture is a separate act and lives under the books; see
+ * `MoveBooks`.
  *
- * > We want to be able to assign any rules that are available. Same thing with
- * > the fixtures: we need to show the user the filter rules, like we only allow
- * > these tags or whatever [...] If they change the rule to say, in an area, I
- * > want only comic books, only books with the tag comic books and fiction,
- * > then that's what is now only allowed in that area, and we should issue
- * > moves to adjust the books to where they need to go based off these new
- * > rules.
- *
- * ## Why this widget edits when it used to be a door
- *
- * Every issue before this one said not to build a second way to change a rule,
- * and #382 was built so nothing anywhere edited a rule's conditions. That was
- * right about **retargeting**, which is pointing a stretch of books at other
- * furniture, and it is wrong about this: the thing the owner wants to change is
- * what a place *allows*, and the place is where he is standing when he wants to
- * change it.
- *
- * What survives from that instruction is the part that was really load-bearing:
- * **there is one way books actually move.** Editing here writes nothing. It
- * produces a plan, the plan is applied, and the books are carried on the screens
- * that already exist.
- *
- * ## Pointing the books elsewhere is not on this card any more
- *
- * It was, quietly, at the bottom of it, and the owner moved it out by name:
- * "let's also change 'move these books to another bookcase', let's move that
- * out of where we define the rules." He is right about the seam. This card says
- * what a place **allows**, which is a definition; moving a stretch of books to
- * other furniture is an act on the books, and it now stands under the books.
- * See `MoveBooks`. That also leaves this card, which he has complained about
- * twice, one button shorter.
- *
- * ## "And" and "or" are two different things and they are drawn as two
- *
- * > It should be possible for the user to say "this tag or that tag", as well as
- * > "this and that". Very basic rule system is what we need to have.
- *
- * **And** is another line on one rule: all of a rule's lines have to hold.
- * **Or** is another rule on the same place: either of them files a book here.
- * That is where `domain/placement/rules.ts` said alternation goes, in the same
- * sentence that refuses the boolean tree, and the refusal is untouched. There is
- * no group inside a group here and there is nowhere to put one.
- *
- * A person adding a second tag should not have to know which of the two they
- * just used, so neither is named after its mechanism. One says "add a tag" and
- * the other says "allow something else as well", and both can be taken apart
- * again one piece at a time.
- *
- * ## A rule that claims nothing is a real state
- *
- * Somebody halfway through building one has taken every line off, and that is
- * not an error: "all of no conditions hold" is true, so a rule with no lines
- * would take the whole catalogue if the model let it, and the model does not.
- * The widget says so plainly rather than refusing to draw it.
+ * "And" is another line on one rule: all of a rule's lines have to hold. "Or"
+ * is another rule on the same place: either files a book here. There is no
+ * nesting of one inside the other. A rule with every line taken off claims
+ * nothing rather than the whole catalogue, and the widget says so rather than
+ * refusing to draw it.
  */
 export function FilterRule({
   holds,
@@ -296,22 +156,11 @@ export function FilterRule({
   /** Every rule that files books here, joined by "or". May be empty. */
   rules?: RuleSaid[]
   /**
-   * Whether any of those rules is written **on this place**, which decides the
-   * word on the button.
-   *
-   * The two are not the same question and #391 is what treating them as one
-   * cost. A plank at the end of a run holds no rule of its own and the run's
-   * rule reaches it, so this card drew "Non-fiction, carrying on" and offered
-   * "Change what belongs here". Pressing it opened an editor holding nothing,
-   * because the editor is seeded with the rules written on the place and there
-   * were none; somebody read a preview, pressed "Write it down" and was told
-   * "Nothing changed about where the books belong", which was true and read as a
-   * failure.
-   *
-   * So the word comes from this rather than from what is drawn. An area with no
-   * rule of its own says **Say** what belongs here, which is what writing one
-   * there would be. Defaulted from `rules` for the fixture card and every caller
-   * where the two are the same question.
+   * Whether any of those rules is written on this place, which decides the
+   * word on the button ("Change" vs "Say"). This is not the same question as
+   * `rules.length > 0`: a place can show a rule inherited from elsewhere while
+   * holding none of its own, and the editor only ever seeds from rules written
+   * on the place itself. Defaults to `rules.length > 0` where the two coincide.
    */
   own?: boolean
   /** Every rule that also reaches here, nearest place first. */
@@ -355,8 +204,6 @@ export function FilterRule({
           {rule.lines.length === 0 && (
             <p>It asks for nothing, so it claims nothing. Every line has to be true.</p>
           )}
-          {/* A shelf somebody prepared before the books arrived. It is waiting
-              rather than broken, and without this line the two read alike. */}
           {waitingSaid(rule.lines) && <p>{waitingSaid(rule.lines)}</p>}
           {!rule.enabled && <p>It is turned off, so it claims no book at the moment.</p>}
         </div>
@@ -371,13 +218,7 @@ export function FilterRule({
 
 /**
  * Every rule that reaches here, in the order that settles a tie: the one about
- * the smaller place first.
- *
- * Drawn only when there is a tie to settle, because on most areas there is one
- * rule and a list of one explains nothing. It is drawn while somebody is
- * writing a rule as well as while they are reading one, which is the point:
- * narrowing what an area allows does not stop the piece's own rule reaching it,
- * and somebody who did not know that would be surprised by the plan.
+ * the smaller place first. Drawn only when there is a tie to settle.
  */
 function Reaching({ beaten }: { beaten: RuleBeaten[] }) {
   if (beaten.length < 2) return null
@@ -403,21 +244,8 @@ function Reaching({ beaten }: { beaten: RuleBeaten[] }) {
 
 /**
  * The rule under a thumb: the lines it has, the way to change each one, and the
- * way to add another.
- *
- * ## Each line is a tag and a question about it, and both are changeable
- *
- * `tag is genre/fantasy` and `tag under genre` are different questions, so the
- * two are offered side by side on the line they are about rather than as a
- * setting somewhere else. Taking a line off is on the same line for the same
- * reason: the thing being changed and the way to change it are one target.
- *
- * ## Nothing here saves
- *
- * The only way forward is to see what it would do. That is not caution about
- * the write, it is what the write **is**: a rule change is where every book in
- * the collection belongs, worked out again, and a person who pressed Save
- * without reading it would have agreed to a number nobody showed them.
+ * way to add another. Nothing here saves; the only way forward is to see what
+ * it would do, since a rule change recomputes where every book belongs.
  */
 function Writing({
   holds,
@@ -479,13 +307,6 @@ function Writing({
             ))}
           </div>
 
-          {/*
-            Empty is a real state and it is where somebody halfway through
-            building a rule is standing. "All of no conditions hold" is true, so
-            a rule with nothing in it would claim the whole catalogue if the
-            model allowed it; it claims nothing instead, and this says which of
-            the two it is rather than leaving them to guess.
-          */}
           {lines.length === 0 && (
             <p>
               It asks for nothing, so it claims nothing, and no book files here until
@@ -493,9 +314,6 @@ function Writing({
             </p>
           )}
 
-          {/* Said while it is being written as well as after, so somebody
-              preparing a shelf reads it before the plan rather than wondering
-              afterwards why nothing moved. */}
           {waitingSaid(lines) && <p>{waitingSaid(lines)}</p>}
 
           {choosing && choosing.group === group ? (
@@ -505,14 +323,6 @@ function Writing({
               <Tags>
                 <AddTag onPress={() => editing.onAdd?.(group)}>Add a tag</AddTag>
               </Tags>
-              {/*
-                Taking one of two off has to be possible, or an "or" is a thing
-                somebody can build and cannot undo half of. It is here, on the
-                rule it is about, rather than in a list of rules somewhere else,
-                and it is not drawn as another dashed pill: a way of removing
-                something that looks exactly like the way of adding something is
-                a press nobody reads before making. Found by looking at it.
-              */}
               <button
                 type="button"
                 className="wf-write__off"
@@ -538,12 +348,6 @@ function Writing({
         </p>
       )}
 
-      {/*
-        "Or", said as the thing it is rather than as the word. A second rule on
-        the same place is what alternation is here, and somebody pressing this
-        should not have to know that: they are saying that something else is
-        allowed here too, and where the app puts it is the app's business.
-      */}
       <Button tone="secondary" block onPress={editing.onAlso}>
         {groups.length ? 'Allow something else as well' : 'Allow something here'}
       </Button>
@@ -553,14 +357,7 @@ function Writing({
   )
 }
 
-/**
- * The word between two ways of belonging in one place.
- *
- * Drawn as a divider rather than as a control, because there is nothing to
- * choose: the joining word between two rules on a place is always "or", the same
- * way the joining word between two lines of a rule is always "and". A dropdown
- * offering both would be offering the boolean tree this model refuses.
- */
+/** The word between two ways of belonging in one place. Always "or"; not a control. */
 function Or() {
   return (
     <div className="wf-or">
@@ -571,27 +368,9 @@ function Or() {
 
 /**
  * The tags on offer, narrowed by what has been typed into the box, and the
- * offer to make the word up where the collection means nothing by it.
- *
- * ## Why a word nobody has used yet is offered here at all
- *
- * > The comics should live on the bottom shelf of the hall bookcase, and only
- * > comics.
- *
- * That could not be said (#392). This box only ever offered tags some book
- * already carried, so preparing a shelf meant scanning a comic first and
- * tagging it by hand, which is backwards from why anybody clears a shelf: you
- * decide what goes on it **before** the books arrive.
- *
- * **It is not a second way to make a tag.** The word is decided by
- * `domain/tagging/naming.ts`, which is the same rule the panel on a book asks
- * and the one that settled the hard part: "Comic Book" and "comic books" are
- * one tag and there is no way past that. The offer is the same drawing too, so
- * a person who has made a tag on a book meets the thing they already know.
- *
- * The label under it is what the collection made of what was typed, and it is
- * only drawn where the answers do not say it themselves. A list of tags needs
- * no caption; a refusal does.
+ * offer to make the word up where the collection means nothing by it. The new
+ * word is decided by `domain/tagging/naming.ts`, the same rule the panel on a
+ * book asks, so this is not a second way to make a tag.
  */
 function Choosing({ choosing }: { choosing: RuleChoosing }) {
   return (
@@ -613,15 +392,6 @@ function Choosing({ choosing }: { choosing: RuleChoosing }) {
         </Tags>
       )}
 
-      {/* The word nobody has used, offered as the thing it is. It goes under
-          the collection's own heading and it says so, because a tag under
-          nothing is a tag no rule anybody already has can reach.
-
-          The sentence under it is the one the panel on a book already says,
-          with the half this screen adds: the shelf is prepared and it waits.
-          It does not also say "nothing of yours reads like that", which the
-          offer above says in three words and which was on screen twice until
-          this was looked at. */}
       {choosing.make && (
         <>
           <Make
@@ -663,22 +433,10 @@ export interface WouldLeave {
 }
 
 /**
- * What a rule change would do, before it is done.
- *
- * **This is the only door between editing a rule and a book moving**, and it is
- * here rather than on a screen of its own because the thing it is about is two
- * inches above it. Applying writes down where the rules now want each book and
- * carries nothing: a book moves when a person picks it up and says so, on the
- * screens that already exist for that.
- *
- * ## It never quietly drops a book
- *
- * A change that says "84 books move" having left three pinned ones out of the
- * eighty-four would be believed, and the person would come back from the
- * furniture three books short with nothing anywhere saying why. So everything
- * the rules will not touch is counted with the reason beside it, and `pinned` is
- * the one that is always there: a pin is a person overruling the rules, and it
- * beats them forever.
+ * What a rule change would do, before it is done. Applying writes down where
+ * the rules now want each book and carries nothing; a book moves only when a
+ * person picks it up and says so elsewhere. Every book the rules will not
+ * touch is counted with the reason beside it, so a total never quietly drops one.
  */
 export function WouldHappen({
   holds,
@@ -757,14 +515,6 @@ export function WouldHappen({
             <span>{one.said}</span>
           </li>
         ))}
-        {/*
-          Drawn only when there are some. A zero on this line reads as an
-          absence somebody has to work out is good news, and the answer to "how
-          many books would no rule claim" being none is the ordinary case. The
-          other two lines are counts of something that happens; this one is a
-          count of a thing going wrong. Found by looking at a real catalogue,
-          where it read "0 match no rule at all afterwards".
-        */}
         {unclaimed > 0 && (
           <li>
             <span className="wf-would__n">{unclaimed}</span>
@@ -776,12 +526,6 @@ export function WouldHappen({
         )}
       </ul>
 
-      {/*
-        The one thing this app promises and keeps: writing it down records where
-        the rules want each book and picks nothing up. A screen that said
-        "applied" and left somebody believing their books had moved would be the
-        one lie the whole ledger exists to make impossible.
-      */}
       <p>
         {carrying > 0
           ? 'Writing it down says where each book belongs. Nothing moves until you '
@@ -795,12 +539,9 @@ export function WouldHappen({
 
 /**
  * One book in the sample, said the way the ordering being looked at files it.
- *
- * Two facts and they are never the same fact. `by` is what the ordering reads,
- * and reading down that column is the whole of what the sample says; `said` is
- * whatever identifies the book once `by` has been spent. Ordering by the title
- * therefore leaves `said` as the author rather than printing the title twice,
- * which is what it did before this was looked at.
+ * `by` is what the ordering reads; `said` identifies the book by whatever `by`
+ * is not, so ordering by title leaves `said` as the author rather than
+ * repeating the title.
  */
 export interface SampleBook {
   id: number
@@ -821,14 +562,8 @@ export interface SortOption {
 }
 
 /**
- * The two ends of an ordering, which is the shortest true answer to "what
- * order are these in".
- *
- * Said in whatever the ordering reads, so it is two surnames under the author,
- * two years under the year and two titles under the title. The word between
- * them is "to" and it is a word: every arrow in this app is in the block the
- * design system refuses outright, and `wf-move__to` already made this exact
- * decision about the two ends of a carry.
+ * The two ends of an ordering. The word between them is "to", not an arrow:
+ * this design system refuses arrow glyphs outright.
  */
 export interface OrderEnds {
   first: string
@@ -837,55 +572,11 @@ export interface OrderEnds {
 
 /**
  * How this place is ordered, why it reads that way, and the way to change it.
- *
- * ## Round ten: the answer first, and the inheritance only where it bites
- *
- * Two drawings of this have now been rejected, and the second one was rejected
- * hard: "the way that we are representing the sort rule in the widget is not
- * very understandable at all, to the reader or to the user looking at it."
- *
- * What both had in common is that they drew the **model** rather than the
- * answer. The card's loudest line said "The way bookcase 2 does", which is
- * where the answer comes from and not what the answer is, and under it stood
- * three numbered levels, two of which said "the way the thing above me does".
- * Somebody who opened this page wanting to know what order their books are in
- * had to chase a pointer through three rows to find out, and the badge marking
- * which row won was the app admitting how hard it had made that.
- *
- * So the three questions a person actually arrives with are answered in the
- * order they arrive:
- *
- * - **What order are these books in?** The title, and it is always a real
- *   ordering: "By the author". Never a level, never a deferral.
- * - **Why that order?** `ends`, which is the first and last book as this
- *   ordering files them, and `where`, which is one sentence naming the place
- *   the ordering is actually set. One clause, not a chain: an area following a
- *   piece that follows the library is told "Set for the whole library", because
- *   the middle of a chain is not a fact anybody acts on.
- * - **What happens if I change it?** The answers, in place, with the ends and
- *   the books redrawing in whichever is under a thumb. That is the half of
- *   round nine nobody complained about and it is untouched.
- *
- * ## The books are only drawn while somebody is choosing
- *
- * They used to stand here always, and on an area they now stand right under
- * this widget as the board itself, in this order, drawn as books. The same six
- * books listed twice on one page in the same order is one fact spelled two
- * ways, which is how two drawings of one thing get to disagree. `ends` is what
- * survives that on both screens, because it is the fact the board cannot say at
- * a glance: what you would read walking to either end of it.
- *
- * ## What a piece of furniture and an area still do not answer the same way
- *
- * **What each follows is different**, so the caller writes `where` rather than
- * this having a sentence of its own that is true of only one of them: an area
- * follows the piece it stands on, a piece follows the whole library.
- *
- * **Only an area stops taking overflow**, and that is a consequence of the
- * change rather than a note about it, so `warn` says it while the answers are
- * open and before anything is pressed. The server says it again, in `effect`,
- * because the server is the one that knows how many places it reaches; a piece
- * of furniture is given neither, because nothing of the sort happens to one.
+ * The title always names a real ordering, never a level or a deferral. `where`
+ * names the one place the ordering is actually set, as a single clause rather
+ * than a chain: an area following a piece that follows the library is told
+ * "Set for the whole library". The caller writes `where` because a piece of
+ * furniture and an area do not inherit from the same thing.
  */
 export function SortRule({
   said,
@@ -924,13 +615,7 @@ export function SortRule({
   open?: boolean
   options?: SortOption[]
   chosen?: string
-  /**
-   * What picking this would do here, said before anything is pressed.
-   *
-   * The one consequence a person cannot see coming: an area ordered its own way
-   * takes no overflow from the area before it. It was only ever said after the
-   * server refused a save, which is a strange moment to learn it.
-   */
+  /** What picking this would do here, said before anything is pressed. */
   warn?: string
   /**
    * What the change does, as the server said it, once it has refused once.
@@ -977,12 +662,6 @@ export function SortRule({
             options={options}
           />
 
-          {/*
-            What choosing it does, drawn rather than described, and drawn
-            before anything is written. This is the part of round nine the
-            owner did not complain about: the same books, in front of him, in
-            the order the answer under his thumb would put them.
-          */}
           {(ends || sample.length > 0) && (
             <p className="wf-order__head">How they would stand</p>
           )}
@@ -1009,13 +688,7 @@ export function SortRule({
   )
 }
 
-/**
- * The first book and the last, with the word "to" between them.
- *
- * The shortest honest answer to "what order are these books in", and the one
- * the board underneath cannot give at a glance: a row of spines is a picture of
- * a room, and you cannot read the far end of it without walking there.
- */
+/** The first book and the last, with the word "to" between them. */
 function Ends({ ends }: { ends: OrderEnds }) {
   return (
     <p className="wf-ends">
@@ -1027,35 +700,15 @@ function Ends({ ends }: { ends: OrderEnds }) {
 }
 
 /**
- * The other journey, put where the books it acts on are.
- *
- * > Let's also change "move these books to another bookcase". Let's move that
- * > out of where we define the rules. Maybe we move it underneath the shelf
- * > view that we're going to replace that list with.
- *
- * It sat inside what belongs here, which is where a place is **defined**, and
- * it does not define anything: it picks up a stretch of books and points them
- * at other furniture. So it stands under the books themselves, which is what it
- * is about, and the control the owner has now complained about twice is one
- * button shorter for it.
- *
- * **Where it cannot be offered it says why, in the same place.** A rule about
- * one area alone has no stretch of books to point anywhere, and the sentence
- * saying so travelled here with the button rather than staying behind on a card
- * that no longer mentions moving anything.
- *
- * The refusal wears no heading and no box, deliberately. Titling it with the
- * words of the thing that cannot be done would put "Move these books to another
- * bookcase" on a page where there is no way to do it, which is the offer this
- * state exists to withhold; and a dashed outline around it would put the fence
- * the owner took off "remove this area" immediately above "remove this area".
- * Found by looking at an area holding no books, where both stand together.
+ * Points a stretch of books at other furniture. Stands under the books rather
+ * than on the rule card, since it acts on books rather than defining a place.
+ * Where it cannot be offered (a rule about one area alone has no stretch of
+ * books to point), it says why instead, with no heading or box.
  */
 export function MoveBooks({
   onPress,
   refused,
 }: {
-  /** Open #244's journey. Absent where there is no stretch to point. */
   onPress?: () => void
   /** Why there is nothing to point elsewhere, where there is not. */
   refused?: string

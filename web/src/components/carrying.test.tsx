@@ -1,22 +1,7 @@
 /**
- * A book a rule change displaced is put back by the screen a new book is put
- * back by.
- *
- * > There needs to be a flow inside the application to look at all those books
- * > that are marked as needing to be moved and be able to go through and
- * > reshelve each one [...] the same way as whenever we're initially shelving
- * > them.
- *
- * The owner has said twice that he likes the where-it-goes screen, and #291 asks
- * for it rather than for a second one. The gallery obeys that structurally, with
- * one `Placing` called by both, and `design.test.tsx` pins the shape there. This
- * is the same pin on the app: `ShelveView` is what draws it, and both the screen
- * a scanned book reaches and the screen a carried book reaches call that one.
- *
- * The way that comes apart is somebody hand-building the carry version to add
- * one thing to it: a heading, a count, a button above the drawing. Then the two
- * drift for a year. So this checks both halves: that there is one component, and
- * that it draws the four things in the order the design fixed.
+ * Guards against `ShelveView` being hand-forked for the carry flow: both the
+ * scan and carry journeys must call the one component, and it must draw the
+ * same four things in the same order.
  */
 
 import { readFileSync, readdirSync } from 'node:fs'
@@ -74,18 +59,9 @@ describe('a carried book is placed by the screen a new book is placed by', () =>
     }
   })
 
-  /*
-   * The four marks of the drawn design, in order: the sentence naming the
-   * neighbours, the area with the gap in it, the book in the hand under the
-   * board, and the answer a person standing at the shelf gives. Anything that
-   * reorders or drops one is a second implementation whatever it is spelled as.
-   *
-   * **They are the gallery's own marks now** (#387). This checked the app's
-   * four class names against the gallery's four, which is two lists that have
-   * to be kept in step by somebody remembering to; the placing strip is drawn
-   * by `Shelf` now, so `design.test.tsx` and this file look for the same
-   * strings and a change to one is caught in both.
-   */
+  // These are the gallery's own class names, not a separate list to keep in
+  // step: `design.test.tsx` checks the same strings, so a change to one is
+  // caught in both.
   it('draws the same four things in the same order, once', () => {
     const marks = ['wf-instruction', 'wf-gap', 'wf-shelf__inhand', 'wf-btn--primary']
 
@@ -109,20 +85,10 @@ describe('a carried book is placed by the screen a new book is placed by', () =>
     expect([...at].sort((a, b) => a - b), 'they are drawn in another order').toEqual(at)
   })
 
-  /**
-   * The other half of not forking it, and the whole of #429.
-   *
-   * One screen serving two journeys only works if each journey hands it what it
-   * needs. The carry journey did not: the screen worked out for itself where the
-   * book belonged *now*, from the rules, and with a second piece of furniture
-   * claiming the same tag that is a different plank from the one the trip named.
-   * Somebody did exactly what the app asked, no assignment named that plank, and
-   * the trip came back forever.
-   *
-   * So the fix is an argument rather than a second screen, and this is what
-   * stops it being quietly dropped: **the carry flow tells the placing preview
-   * where this trip goes**, and the journey that has no trip does not.
-   */
+  // The carry flow must tell the placing preview where the trip goes rather
+  // than letting it derive the destination from the rules: a second
+  // furniture piece claiming the same tag could otherwise recompute a
+  // different plank than the one the trip named.
   it('is told where this trip goes rather than working it out', () => {
     expect(
       read('screens/CarryingScreen.tsx'),

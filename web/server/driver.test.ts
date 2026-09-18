@@ -20,9 +20,6 @@ import { closeTestDatabase, openTestDatabase, testDatabaseUrl } from './testdb'
 
 describe('translating placeholders', () => {
   it('takes ? placeholders in the order it meets them, and numbers them', () => {
-    // Two tests until stage I, because there were two output spellings and the
-    // SQLite one had to keep saying `?`. One statement, both assertions, one
-    // spelling left.
     const three = bindParams(
       'SELECT * FROM books WHERE shelf_range = ? AND sort_key < ? AND id != ?',
       ['fiction', 'k', 7],
@@ -87,9 +84,9 @@ describe('translating placeholders', () => {
   })
 
   it('does not let an apostrophe in a comment open a string literal', () => {
-    // This is not hypothetical. CaptureQueue.edit carries the line
-    // "-- Mirrored onto the row's own columns", and a scanner that read that
-    // apostrophe as a quote would swallow the rest of the statement.
+    // CaptureQueue.edit carries a SQL comment with an apostrophe in it; a
+    // scanner that read that apostrophe as a quote would swallow the rest of
+    // the statement.
     const bound = bindParams(
       [
         'UPDATE captures SET',
@@ -151,9 +148,8 @@ describe('translating placeholders', () => {
   })
 
   it('refuses a value the statement never asked for', () => {
-    // better-sqlite3 refused this, and the refusal was worth keeping when it
-    // went: it is the mistyped-name case, and a value nobody reads is a column
-    // that quietly keeps what it had.
+    // This is the mistyped-name case: a value nobody reads is a column that
+    // quietly keeps what it had.
     expect(() => bindParams('SELECT @a', { a: 1, tilte: 'Dune' }))
       .toThrow('tilte')
   })
@@ -252,10 +248,9 @@ describe('transactions', () => {
   })
 
   it('keeps a statement from outside a transaction out of it', async () => {
-    // better-sqlite3 gave this for nothing by being synchronous: a transaction
-    // ran start to finish with no chance for anything else to slip in. An
-    // `await` inside the work is exactly such a chance, so a write from
-    // elsewhere must not end up inside a transaction that then rolls back.
+    // An `await` inside the work is a chance for something else to slip in,
+    // so a write from elsewhere must not end up inside a transaction that
+    // then rolls back.
     let release = () => {}
     const held = new Promise<void>((resolve) => { release = resolve })
 
@@ -274,11 +269,9 @@ describe('transactions', () => {
   })
 
   it('closes', async () => {
-    // A connection of its own to the same database, rather than the one the
-    // rest of this file is sharing. Closing the shared one would leave every
-    // test after this one without a catalogue, because `closeTestDatabase`
-    // forgets the pool it closed and the next `openTestDatabase` would build a
-    // second database rather than empty this one.
+    // A connection of its own, rather than the one the rest of this file is
+    // sharing: closing the shared one would leave every test after this one
+    // without a catalogue.
     const own = new PgDb(new pg.Pool({ connectionString: testDatabaseUrl() }))
     await own.close()
     await expect(own.all('SELECT 1')).rejects.toThrow()
@@ -287,11 +280,9 @@ describe('transactions', () => {
 
 describe('what imports better-sqlite3', () => {
   it('is nothing, since stage I', () => {
-    // Through stages E to H this named exactly one file, db.ts, which is what
-    // made the seam worth having: one place a driver could be reached from.
-    // The answer is now none, and the test is kept rather than deleted because
-    // the way SQLite comes back is one import, in one file, added by somebody
-    // who wanted a synchronous database for a script.
+    // The answer is empty now, and the test is kept rather than deleted
+    // because the way better-sqlite3 comes back is one import, in one file,
+    // added by somebody who wanted a synchronous database for a script.
     const here = fileURLToPath(new URL('.', import.meta.url))
     const roots = [here, join(here, '..', 'scripts')]
     const imports = /(?:from|require\()\s*['"]better-sqlite3['"]/

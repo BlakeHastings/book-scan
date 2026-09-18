@@ -1,26 +1,15 @@
 /**
- * The claim the tag cut-over rests on, checked book by book.
+ * The claim the tag cut-over rests on, checked book by book: the genre tags,
+ * applied to a catalogue, file every book into exactly the range
+ * `books.is_fiction` files it into. Every shelved book is placed twice, once
+ * by the column and once by `rangeOfGenre` over the rows `0002` derived from
+ * it, and the two answers are compared one book at a time.
  *
- * **The genre tags, applied to a catalogue, file every book into exactly the
- * range `books.is_fiction` files it into.** Not approximately, and not "the
- * counts agree": every shelved book is placed twice, once by the column the app
- * has always filed by and once by `rangeOfGenre` over the rows `0002` derived
- * from it, and the two answers are compared one book at a time.
+ * Also covers `0016`, the repair the cut-over owes: the one thing here that
+ * rewrites what somebody answered. See "One repair the cut-over owes" in
+ * docs/data-model.md.
  *
- * This is the first step of #170's cut-over that gives up the ability to make
- * that comparison afterwards. Every step before it added tables beside the ones
- * in use and left the old ones authoritative, which is what made them checkable.
- * From here `books.is_fiction` decides nothing, so the comparison has to happen
- * *during* the change: this file is that comparison, run against a catalogue
- * carrying the provenance the live one carries, and three of its tests break the
- * derivation on purpose so it is watched naming the books it should.
- *
- * It also covers `0016`, the repair the cut-over owes, which is the one thing
- * here that rewrites what somebody answered. See "One repair the cut-over owes"
- * in docs/data-model.md.
- *
- * Nothing in this file connects to anything but a scratch database it made, and
- * nothing anywhere here reads, writes or deletes a cover file.
+ * Nothing in this file connects to anything but a scratch database it made.
  */
 
 import { readFileSync } from 'node:fs'
@@ -35,16 +24,10 @@ import { migrateToLatest } from './migrate'
 import { closeScratchDatabases, migrationsThrough, scratchDatabase } from './testdb'
 
 /**
- * The catalogues open right now, given back as each test finishes with one.
- *
- * `closeScratchDatabases` closes every pool a file made, and for a file that
- * makes half a dozen that is the whole story. This one makes a dozen, and a
- * dozen pools alive at once beside the dozen `placement-backfill.test.ts` keeps
- * open ran the container out of connections under a full parallel run: `sorry,
- * too many clients already`, raised by `CREATE DATABASE` in a third file that
- * had done nothing wrong. Handing the connections back per test holds one
- * catalogue open instead of twelve. The `afterAll` still closes them, and a
- * second `end()` on a closed pool is caught there.
+ * The pools open right now, given back as each test finishes with one. This
+ * file opens roughly a dozen, which alongside other backfill test files can
+ * run the container out of connections under a full parallel run; handing
+ * them back per test avoids holding that many open at once.
  */
 const openHere: pg.Pool[] = []
 
@@ -56,10 +39,6 @@ afterAll(async () => {
   await closeScratchDatabases()
 })
 
-// ---------------------------------------------------------------------------
-// A catalogue in the state the owner's is in
-// ---------------------------------------------------------------------------
-
 interface SeedBook {
   title: string
   sortKey: string
@@ -70,14 +49,10 @@ interface SeedBook {
 }
 
 /**
- * 236 books, which is what the live catalogue held when #192 measured it.
- *
- * Every third book is non-fiction, so both ranges are populated and the
- * interesting failure, a derivation that gets the big range right and the other
- * one wrong, has somewhere to show up. Every fourth was decided by a person, so
- * `0002` writes both a `person` and a `guess` provenance and the source
- * precedence in `rangeOfGenre` is exercised over the whole catalogue rather
- * than in one contrived row.
+ * A catalogue shaped like the live one: every third book non-fiction, so
+ * both ranges are populated, and every fourth decided by a person, so the
+ * source precedence in `rangeOfGenre` is exercised across the whole
+ * catalogue rather than in one contrived row.
  */
 const LIVE_SIZED: SeedBook[] = Array.from({ length: 236 }, (_, at) => ({
   title: `Book ${String(at).padStart(3, '0')}`,
@@ -88,11 +63,9 @@ const LIVE_SIZED: SeedBook[] = Array.from({ length: 236 }, (_, at) => ({
 }))
 
 /**
- * The catalogue as stage H left it: the pre-Drizzle schema, and never migrated.
- *
- * `SCHEMA` rather than `applySchema`, for the reason the other backfill tests
- * give: `applySchema` runs the migrations itself and would hand back a database
- * that had already had the ones under test.
+ * The catalogue as the pre-Drizzle schema left it, never migrated. Uses
+ * `SCHEMA` rather than `applySchema`, which would run the migrations itself
+ * and hand back a database that had already had the ones under test.
  */
 async function catalogueOf(books: SeedBook[]): Promise<pg.Pool> {
   const pool = await scratchDatabase()
@@ -124,12 +97,10 @@ async function catalogueOf(books: SeedBook[]): Promise<pg.Pool> {
 }
 
 /**
- * A second genre tag on one book, in a database that has already been migrated.
- *
- * This is what a book corrected before #201 carries: the old book's genre tag
- * left beside the new one, and the higher-authority row the wrong one. It is
- * written straight into the tables because no code path produces one any more,
- * and **after** the migrations because the tag tables do not exist before them.
+ * A second genre tag on one book, in a database that has already been
+ * migrated. Written straight into the tables because no code path produces
+ * this state any more; must run after the migrations, since the tag tables
+ * do not exist before them.
  */
 async function alsoTagged(
   pool: pg.Pool,
@@ -151,10 +122,6 @@ async function alsoTagged(
   )
 }
 
-// ---------------------------------------------------------------------------
-// The two derivations, each asked which range every book joins
-// ---------------------------------------------------------------------------
-
 interface Filed {
   id: number
   title: string
@@ -162,13 +129,9 @@ interface Filed {
 }
 
 /**
- * Where the column files every book: what the app filed by until #223.
- *
- * **Read before the migrations run, and from `books`.** `shelved_books` does not
- * exist on a catalogue as stage H left it, and `books.is_fiction` does not exist
- * on one the migrations have finished with: `0018` drops it. Every row this seeds
- * is `shelved`, and nothing here writes to `books`, so the answer taken on the
- * way in is the answer throughout.
+ * Where the column files every book. Must be read before the migrations
+ * run: `shelved_books` does not exist on the pre-Drizzle schema, and
+ * `books.is_fiction` does not exist once `0018` drops it.
  */
 async function underTheColumn(pool: pg.Pool): Promise<Filed[]> {
   const { rows } = await pool.query<{ id: number; title: string; is_fiction: number }>(
@@ -283,30 +246,25 @@ describe('the genre tag deciding which range a book files into', () => {
 
     const before = await shelfOrder(pool, 'books WHERE checked_out_at IS NULL')
     const old = await underTheColumn(pool)
-    // Adopted, because this database has the baseline tables and has never been
-    // migrated. That is the path the real catalogue takes.
+    // Adopted: this database has the baseline tables and has never been migrated.
     expect(await migrateToLatest(pool)).toBe('adopted')
 
     const now = await underTheTags(pool)
 
     expect(old).toHaveLength(LIVE_SIZED.length)
     expect(disagreements(old, now)).toEqual([])
-    // And the column everything actually reads agrees with both, which is what
-    // says no book has to move for the derivation to change.
+    // The column everything actually reads also agrees, so no book has to
+    // move for the derivation to change.
     expect(disagreements(await underShelfRange(pool), now)).toEqual([])
 
-    // Printed rather than only asserted, because these are the two strings the
-    // pull request quotes.
     const after = await shelfOrder(pool, 'shelved_books')
     console.log(`[genre] shelf order ${before} before, ${after} after; ` +
       `${old.length} books filed twice and compared one at a time`)
     expect(after).toBe(before)
 
-    // The precedence in `rangeOfGenre` is worth nothing if every row arrives as
-    // a guess. `0002` maps `manual` to `person`, and a quarter of this
-    // catalogue was decided by one, so the comparison above ran over both.
-    // Asserted here rather than on a catalogue of its own, because a database
-    // costs connections the container has not many of; see `openHere`.
+    // The precedence in `rangeOfGenre` is worth nothing if every row arrives
+    // as a guess, so this also checks that a quarter of the catalogue,
+    // decided by a person, ran through the comparison too.
     const { rows } = await pool.query<{ source: string; n: string }>(
       `SELECT bt.source, count(*)::text AS n
          FROM book_tag bt JOIN tag t ON t.id = bt.tag_id
@@ -319,12 +277,6 @@ describe('the genre tag deciding which range a book files into', () => {
   })
 
   it('names the book that crosses when one tag is swapped for the other', async () => {
-    /*
-     * The failure this step could have that nobody would see: a book whose tag
-     * says one range and whose column says the other files into a different
-     * bookcase the moment the tag starts deciding. Swap one row and the
-     * comparison names exactly that book.
-     */
     const pool = await catalogueOf(LIVE_SIZED)
     const old = await underTheColumn(pool)
     await migrateToLatest(pool)
@@ -340,8 +292,7 @@ describe('the genre tag deciding which range a book files into', () => {
   })
 
   it('names a book whose genre tag somebody took off', async () => {
-    // The one state the running app can reach where nothing files a book, and
-    // the thing `applySchema` reports on every start.
+    // The one state the running app can reach where nothing files a book.
     const pool = await catalogueOf(LIVE_SIZED)
     const old = await underTheColumn(pool)
     await migrateToLatest(pool)
@@ -352,19 +303,15 @@ describe('the genre tag deciding which range a book files into', () => {
 
     expect(disagreements(old, await underTheTags(pool)))
       .toEqual(['Book 041: the column says fiction, the tags say nothing'])
-    // And it has not moved: `shelf_range` is written by a save and by nothing
-    // else, so the book is exactly where it was.
+    // `shelf_range` is written by a save and nothing else, so it has not moved.
     const still = await underShelfRange(pool)
     expect(still.find((one) => one.title === 'Book 041')?.range).toBe('fiction')
   })
 
   it('follows the person when a catalogue disagrees with one', async () => {
-    /*
-     * `POST /api/books/:id/tags/refresh` can put a catalogue's genre on a book
-     * a person filed, because a lookup may not retract a person's row. The
-     * column is untouched by a refresh, so the two must still agree, and they
-     * only do because `rangeOfGenre` reads the person's row first.
-     */
+    // A refresh can add a catalogue's genre alongside a person's without
+    // retracting it; the two must still agree, which holds only because
+    // `rangeOfGenre` reads the person's row first.
     const pool = await catalogueOf(LIVE_SIZED)
     const old = await underTheColumn(pool)
     await migrateToLatest(pool)
@@ -377,22 +324,16 @@ describe('the genre tag deciding which range a book files into', () => {
 })
 
 describe('the repair the cut-over owes', () => {
-  /** A catalogue with two books corrected before #201, as docs/data-model.md describes. */
+  /** A catalogue with two books already carrying the pre-repair tag shape docs/data-model.md describes. */
   async function withCorrectedBooks(): Promise<pg.Pool> {
     const pool = await catalogueOf(LIVE_SIZED)
-    /*
-     * Through `0016` rather than to the end, because `0018` drops
-     * `books.is_fiction` and this repair keeps the genre row that agrees with
-     * it. A catalogue migrated past that point is one the statement below could
-     * never have met, so watching it run there would prove nothing.
-     */
+    // Through `0016` only, not to the end: `0018` drops `books.is_fiction`,
+    // which this repair depends on, so migrating past it would test nothing.
     await migrationsThrough(pool, '0016_one_genre_tag_per_book')
-    // Book 000 is non-fiction and carries a person's `genre/non-fiction`. The
-    // old book's tag left behind is a fiction one, from a person, and it is the
-    // higher-authority row on a book whose column says non-fiction.
+    // Book 000 is non-fiction; the person's genre/fiction tag left behind is
+    // the higher-authority row on a book whose column disagrees with it.
     await alsoTagged(pool, 'Book 000', 'genre/fiction', 'person')
-    // Book 041 is fiction and carries a guess. The stale row is a person's
-    // non-fiction: the exact shape #194 described.
+    // Book 041 is fiction and carries a guess; the stale row is a person's non-fiction.
     await alsoTagged(pool, 'Book 041', 'genre/non-fiction', 'person')
     return pool
   }
@@ -400,8 +341,7 @@ describe('the repair the cut-over owes', () => {
   it('keeps the row that agrees with books.is_fiction, not the one with the higher source', async () => {
     const pool = await withCorrectedBooks()
 
-    // Before: both books carry both, and on Book 041 the person's row is the
-    // wrong one. That is the defect, stated as rows.
+    // Before: both books carry both tags, and on Book 041 the person's row is the wrong one.
     expect(await genreRowsOf(pool, 'Book 041')).toEqual([
       { slug: 'genre/fiction', source: 'guess' },
       { slug: 'genre/non-fiction', source: 'person' },
@@ -411,9 +351,8 @@ describe('the repair the cut-over owes', () => {
     const said = await noticesFrom(pool, repairStatement())
     const after = await shelfOrder(pool, 'shelved_books')
 
-    // The guess survives and the person's row goes, because the column is what
-    // the shelf was built from and the person's answer was about a different
-    // book. Keeping the higher source is the obvious answer and the wrong one.
+    // The guess survives and the person's row goes: the column is what the
+    // shelf was built from, and the person's answer was about a different book.
     expect(await genreRowsOf(pool, 'Book 041')).toEqual([
       { slug: 'genre/fiction', source: 'guess' },
     ])
@@ -421,26 +360,21 @@ describe('the repair the cut-over owes', () => {
       { slug: 'genre/non-fiction', source: 'person' },
     ])
 
-    // Two books, two rows removed, and both of them somebody's answer. A repair
-    // that silently rewrites a person's answer is the same class of thing as
-    // the defect, so the number is the accounting for it.
+    // The notice accounts for both removed rows, since a repair that
+    // rewrites a person's answer is worth surfacing.
     expect(said.some((line) =>
       line.includes('2 books carried both range genres, 2 rows removed, 2 of them a person'),
     )).toBe(true)
 
-    // And not one book moved, which the migration checks itself and refuses on.
+    // Not one book moved, which the migration checks itself and refuses on.
     expect(after).toBe(before)
     expect(said.some((line) => line.startsWith('shelf order unchanged'))).toBe(true)
     console.log(`[genre] repair shelf order ${before} before, ${after} after`)
   })
 
   it('leaves a genre that is not one of the two ranges exactly where it is', async () => {
-    /*
-     * `genre/fantasy` is a real tag somebody may have applied, and
-     * `books.is_fiction` can neither agree nor disagree with it, so the rule has
-     * nothing to say about it. Deleting it would be the loss this whole model
-     * exists to prevent.
-     */
+    // `genre/fantasy` is a real tag the fiction/non-fiction rule has nothing
+    // to say about; deleting it would be the data loss this repair must avoid.
     const pool = await withCorrectedBooks()
     await alsoTagged(pool, 'Book 041', 'genre/fantasy', 'person')
 
@@ -450,8 +384,7 @@ describe('the repair the cut-over owes', () => {
       { slug: 'genre/fantasy', source: 'person' },
       { slug: 'genre/fiction', source: 'guess' },
     ])
-    // And it is reported rather than passed over, because a book carrying two
-    // genres is still a book somebody should look at.
+    // Reported rather than passed over: a book carrying two genres is still worth a look.
     expect(said.some((line) => line.includes('1 books still carry more than one genre tag')))
       .toBe(true)
   })
@@ -461,9 +394,8 @@ describe('the repair the cut-over owes', () => {
     await pool.query(repairStatement())
     const repaired = await genreRowsOf(pool, 'Book 041')
 
-    // A migration somebody is not sure finished should be safe to set going
-    // again, and a run with nothing to do has to say so rather than going
-    // quiet: silence and success look the same in a log.
+    // Idempotent migrations must say so when there is nothing to repair,
+    // since silence and success look the same in a log.
     const said = await noticesFrom(pool, repairStatement())
     expect(await genreRowsOf(pool, 'Book 041')).toEqual(repaired)
     expect(said.some((line) =>
@@ -472,14 +404,9 @@ describe('the repair the cut-over owes', () => {
   })
 
   it('turns two derivations that disagreed into two that agree', async () => {
-    /*
-     * The point of the repair, said as the comparison this file is about.
-     *
-     * Book 003 is non-fiction and was decided by the classifier, so both its
-     * genre rows are guesses and neither outranks the other. A doubly tagged
-     * book files as fiction by tag order, which is `0013`'s rule 1, so the two
-     * models place it differently until the stale row is gone.
-     */
+    // Book 003 is non-fiction, decided by the classifier, so both genre rows
+    // are guesses and neither outranks the other; a doubly tagged book files
+    // as fiction by tag order until the stale row is gone.
     const pool = await catalogueOf(LIVE_SIZED)
     const old = await underTheColumn(pool)
     await migrationsThrough(pool, '0016_one_genre_tag_per_book')

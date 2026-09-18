@@ -1,8 +1,6 @@
 /**
- * Separators, and the derived geography that falls out of them.
- *
- * Keeps all the SQL for shelf boundaries in one place. The arithmetic itself
- * lives in shared/layout.ts and stays pure.
+ * Separators, and the derived geography that falls out of them. The arithmetic
+ * itself lives in shared/layout.ts and stays pure.
  */
 
 import type { FiledBookRow } from './db.pg'
@@ -47,70 +45,34 @@ import {
 } from '../shared/shelving'
 
 /**
- * The name every transaction that reads a shelf range and then writes to it
- * serialises on. See `TxOptions` in driver.ts for why a transaction alone is
- * not enough.
- *
- * One name per range, and that is the whole design. Books and separators in a
- * range are one thing: `addBook` reads the neighbours in a range before
- * inserting into it, `overflow` reads the layout of a range before adding a
- * boundary to it, and `moveAcrossBoundary` reads both before moving one. Two of
- * those in flight over the same range have to take turns or they compute a
- * placement each from a shelf the other is halfway through changing. Two over
- * *different* ranges never touch the same rows, and nothing that only reads
- * waits for either.
+ * Every transaction that reads a shelf range and then writes to it serialises on
+ * this name. Two in flight over one range would each compute a placement from a
+ * shelf the other is halfway through changing. See `TxOptions` in driver.ts for
+ * why a transaction alone is not enough.
  */
 export const rangeLock = (range: ShelfRange): string => `shelf:${range}`
 
 /**
  * A book row plus the camelCase key the pure layout code expects.
- *
- * `FiledPhotographedBook`, not `BookRow`, and for two reasons that arrived
- * together. A shelf is drawn as a row of spines and a spine is a photograph, so
- * every book that reaches the layout arrives with the current photograph of each
- * kind joined onto it (#228); and a spine is captioned with what the book files
- * under, which is a fact about its first credit's alias and is joined on by the
- * view (#227). See `withPhotographs` and `FiledBookRow`.
+ * `FiledPhotographedBook` rather than `BookRow`: every book that reaches the
+ * layout arrives with the current photograph of each kind joined onto it, and
+ * with what it files under, which the view joins.
  */
 export type ShelvedBook = FiledPhotographedBook & PlacementFields & { sortKey: string }
 
 /**
- * A board of the run, and the plank of furniture it is drawn on.
- *
- * **This is #447, and it is the last of the hole #356 opened.** `ShelfGroup` is
- * pure arithmetic over boundaries and knows the furniture only as a pair of
- * ordinals, so `/api/shelves` answered `4A` for a plank every other screen in
- * the app called `Hall shelf · A`, and the shelves screen ran a regular
- * expression over that string to work out which piece the board was on. It
- * guessed the word "Bookcase" for a piece that is a crate, and it was the fifth
- * reader of a rendered label in a family that has cost seven defects.
- *
- * So the route says which plank and which piece, off the same row and the same
- * `labelFor` that renders the label. `label` is the furniture's answer now
- * rather than `locationLabel`'s, which is the same string on a piece nobody has
- * named and the right string on one somebody has.
- *
  * `areaId` and `standing` are null together, and only where no piece stands at
  * the board's number at all: a range whose rule points at furniture that has
- * been taken out. A board the furniture has no *plank* row for still says which
- * piece it is on, because a cascade proposes a plank before anybody makes it and
- * the piece it would go on is real. See `RunPlanks.at`.
+ * been taken out.
  */
 export interface StandingGroup<T extends LayoutInput = LayoutInput> extends ShelfGroup<T> {
-  /** The area this board is, or null when the furniture has no row for it. */
   areaId: number | null
-  /** The piece it hangs on, and where on it, for a screen to group and order by. */
   standing: AreaStanding | null
 }
 
 /**
- * A row as the misfile check sees it: where it is, and where it belongs.
- *
- * **Both sides arrive as an area and a label, and the area is the answer.** The
- * label each side reads as comes from the same `labelFor`, so the two sides
- * agree about what a place is called as well as about which place it is; before
- * #356 one side was rendered by the ledger and the other by the ordinal walk,
- * and naming a bookcase made them two vocabularies for one plank.
+ * A row as the misfile check sees it: where it is, and where it belongs. Both
+ * sides arrive as an area and a label, and the area is the answer.
  */
 const toFiled = (
   row: FiledBookRow & PlacementFields,
@@ -136,15 +98,10 @@ const toFiled = (
 })
 
 /**
- * Where a plan takes a book, said both ways at both ends.
- *
- * **The label is what somebody reads and the id is what decides.** A plan comes
- * out of shared/layout.ts naming its two planks in ordinals, because ordinals
- * are all the arithmetic there can know; this is that plan joined back to the
- * furniture, so a screen can put "Hall shelf · B" in front of a person and send
- * the plank itself back when they say they have carried the book. #359: the
- * button used to say `1B` on a piece whose every other screen said `Hall
- * shelf · B`, and the string it said was also the key it sent.
+ * Where a plan takes a book, said both ways at both ends. The label is what
+ * somebody reads and the id is what decides: a screen puts the label in front of
+ * a person and sends the plank itself back when they say they have carried the
+ * book.
  */
 export interface Planks {
   from: Plank
@@ -152,16 +109,10 @@ export interface Planks {
 }
 
 /**
- * One direction a boundary move is open in, and what taking it costs.
- *
- * The plank half is #359's: the button says what the plank is called and sends
- * the plank itself. `empties` is #433's, and it is here because the offer said
- * nothing about the one move that removes furniture. A book alone in an area is
- * both the first and the last book of it, so both directions are open to it
- * (docs/shelving.md, "The only book in an area"), and taking either leaves the
- * area with no books to name, which takes it off the piece. That is the same
- * act #281 built a dialog for, arrived at from a different screen, and a screen
- * cannot ask before it unless the offer says it is coming.
+ * One direction a boundary move is open in, and what taking it costs. A book
+ * alone in an area is both its first and its last book, so both directions are
+ * open to it and taking either leaves the area with no books to name, which
+ * takes it off the piece. See docs/shelving.md, "The only book in an area".
  */
 export interface BoundaryOffer extends Plank {
   /** Null for the ordinary move, which re-anchors a boundary and removes nothing. */
@@ -169,25 +120,19 @@ export interface BoundaryOffer extends Plank {
 }
 
 /**
- * What removing one boundary costs, said to whoever has to agree to it (#456).
- *
- * Not `Emptying`, which is about a move whose area has no books left in it by
- * the time it goes. This one is a merge: the area comes off the piece and the
- * books that were on it join the area in front. Same act, different cost, so
- * different words.
+ * What removing one boundary costs, said to whoever has to agree to it. Not
+ * `Emptying`, which is a move whose area has no books left in it by the time it
+ * goes; this one is a merge, and the books join the area in front.
  */
 export interface AreaGoing {
-  /** The area coming off the furniture, named the way the screen names it. */
   area: string
-  /** The area its books join, which is the one drawn above it. */
+  /** The area its books join: the one drawn above it. */
   into: string
-  /** How many books are on it right now. */
   books: number
   /** Every label that reads differently once it is gone, old to new. */
   becomes: LabelChange[]
 }
 
-/** The areas a move takes off the furniture, and what reads differently after. */
 export interface Emptying {
   /** What each of them is called today, in the order they sit. */
   areas: string[]
@@ -196,17 +141,9 @@ export interface Emptying {
 }
 
 /**
- * Why a boundary move was refused, said to the person holding the book.
- *
- * Each reason gets its own sentence. Sharing one message between "that book is
- * in the middle of the plank" and "there is no plank that way" sends somebody
- * looking at the wrong thing, which is the mistake `overflow` above already
- * had to be taught once.
- *
- * `at` is the plank named the way the book's own page names it, not the way the
- * layout numbers it. A refusal is read by the person who just tapped the button,
- * and a sentence about `1A` on a bookcase they have called the hall shelf is the
- * app disagreeing with itself in front of them.
+ * Why a boundary move was refused, said to the person holding the book. `at` is
+ * the plank named the way the book's own page names it, not the way the layout
+ * numbers it.
  */
 function refusal(
   reason: BoundaryRefusal,
@@ -231,25 +168,19 @@ function refusal(
 
 /**
  * A retraction that will not be carried out, thrown so the transaction rolls
- * back with it.
- *
- * A refusal here has to undo the part of the restore that already ran, which a
- * returned value cannot do from inside the transaction. It is caught at the one
- * place it is thrown from and turned back into the same `{ ok: false, error }`
- * every other refusal in this file returns, so nothing outside sees an
- * exception.
+ * back with it: a refusal here has to undo the part of the restore that already
+ * ran, which a returned value cannot do from inside the transaction. Caught at
+ * the one place it is thrown from and turned back into the same
+ * `{ ok: false, error }` every other refusal in this file returns.
  */
 class RetractionRefused extends Error {}
 
 /**
- * Thrown when the act refused to take an area off the furniture (#456).
- *
- * `moveAcrossBoundary` reaches that act partway through its own transaction,
- * after the receipt and the re-anchoring are written, so a return value would
- * leave the caller to unpick them by hand. The throw is what takes them back
- * out: the savepoint rolls back, the outer transaction rolls back with it, and
- * what the person is told about is a room exactly as it was. Caught outside the
- * transaction, the way `RetractionRefused` already is.
+ * Thrown when the act refused to take an area off the furniture.
+ * `moveAcrossBoundary` reaches that act after the receipt and the re-anchoring
+ * are written, so the throw is what takes them back out: the savepoint rolls
+ * back and the outer transaction rolls back with it. Caught outside the
+ * transaction, the way `RetractionRefused` is.
  */
 class AreaRemovalRefused extends Error {
   constructor(readonly areaIds: readonly number[]) {
@@ -259,12 +190,9 @@ class AreaRemovalRefused extends Error {
 
 /**
  * Thrown when the act itself would not take the area, whatever anybody agreed
- * to (#465).
- *
- * A different answer from the one above and it has to stay different: that one
- * is a question the person has not been asked yet, this one is a sentence about
- * the furniture that asking would not change. Carried out of the transaction the
- * same way and for the same reason.
+ * to. A different answer from `AreaRemovalRefused` and it has to stay different:
+ * that one is a question the person has not been asked yet, this one is a
+ * sentence about the furniture that asking would not change.
  */
 class AreaRemovalImpossible extends Error {
   constructor(readonly said: string) {
@@ -272,38 +200,16 @@ class AreaRemovalImpossible extends Error {
   }
 }
 
-/**
- * Said when the shelves have changed since the move, so putting them back would
- * not put the book back.
- *
- * One sentence for both ways of finding out, because they are the same fact
- * from the person's side: something else moved, and the way out is the one that
- * was always there, which is to say where the book actually is.
- */
 const SHELVES_MOVED_ON =
   'The shelves have changed since that move, so it cannot be taken back ' +
   'without moving something else. Say where the book actually is instead.'
 
 /**
  * What a move is about to change, said as what it would take to change it back.
- *
- * Built from the boundaries as they stand **before** the move, which is the only
- * moment the answer exists: afterwards the shifted ones carry their new anchor
- * and the removed ones carry nothing.
- *
- * A re-created boundary keeps its kind, its anchor and its position, which is
- * everything that decides where a book lands. It does not keep a note or a
- * creation time, because `Separator` carries neither: the shelving code has
- * never written a note, and a boundary that had to be made again was, in fact,
- * made again. Faking the original timestamp would be the receipt asserting
- * something that did not happen.
- *
- * **The two planks go in as ids as well as as labels** (#481). `planks` is the
- * plan joined back to the furniture, taken before the write for the same reason
- * the boundaries are: it is the only moment both planks are on the face, since
- * the move is what takes one of them off. An area id survives that — a retired
- * area keeps its row, and `resequenceFace` renumbers positions rather than
- * moving rows — which is exactly the property the label does not have.
+ * Built from the boundaries and the planks as they stand before the move, which
+ * is the only moment the answer exists: afterwards the shifted boundaries carry
+ * their new anchor, the removed ones carry nothing, and the plank the move
+ * empties is off the face. The area ids survive that and the labels do not.
  */
 function receiptFor(
   range: ShelfRange,
@@ -342,31 +248,13 @@ function receiptFor(
 }
 
 /**
- * Every public method here returns a promise, for the reason given on `Store`:
- * the driver this is heading for is asynchronous, so the shape changes first,
- * while a missed `await` is still a compile error.
- *
- * Order is the shelving logic, so the sequence of reads and writes inside each
- * method is exactly what it was. Every layout still comes from a read taken
- * before the write it is compared against, and every sort still happens on the
- * rows that read returned.
- *
- * The driver is behind `Db` (driver.ts) rather than named here, so this file no
- * longer knows which database it is talking to.
- *
- * **Separators no longer have any SQL in this file** (#172). They go through
- * `SeparatorRepository`, and the removal, which is the write with an invariant
- * to protect, goes through a command handler in `application/`. Books, ranges
- * and the misfile review still read straight through `Db` here: fourteen tables
- * are coming and the pattern is being judged on one first.
+ * Order is the shelving logic: every layout comes from a read taken before the
+ * write it is compared against, and every sort happens on the rows that read
+ * returned. Separators have no SQL in this file, going through
+ * `SeparatorRepository`, and the removal through a command handler in
+ * `application/`.
  */
 export class Shelves {
-  /**
-   * The two collaborators default to the real ones, so `new Shelves(db)` still
-   * means what it did and no existing caller or test had to change. `index.ts`
-   * passes them in because the route that removes a boundary calls the handler
-   * itself rather than going back through this class.
-   */
   constructor(
     private readonly db: Db,
     private readonly separators: SeparatorRepository = new DrizzleSeparatorRepository(db),
@@ -381,26 +269,10 @@ export class Shelves {
   }
 
   /**
-   * Which plank a range begins on, or null when no rule says.
-   *
-   * `shelf_ranges.start_shelf` until #232, and the rule that claims this range's
-   * books now: it points at a fixture, and the fixture's position is the number
-   * the column held. `0013` derived one from the other, so the two agree row for
-   * row.
-   *
-   * **Null is the answer and not a hole to fill** (#479). This used to answer
-   * `{ shelf: 1, area: 0 }` for a range no rule claims, on the reasoning that
-   * drawing a shelf beats drawing none. It does not: bookcase 1 is a real piece
-   * of furniture standing in a room, usually the one fiction opens on, so the
-   * seven non-fiction books of a collection whose non-fiction rule had just been
-   * taken off were drawn standing on fiction's own entry plank, and the placing
-   * screen offered `1A` as the plank to start non-fiction at. Nothing said any
-   * of it was invented.
-   *
-   * Every reader below therefore asks and stops when the answer is null: a range
-   * with no rule has no run, so there is no run to lay books out along, no plank
-   * to name and no gap to point at. The screens say so, which is the part that
-   * makes it honest rather than merely empty.
+   * Which plank a range begins on, or null when no rule says. Null is the answer
+   * and not a hole to fill: every reader below asks and stops when it comes
+   * back, because a range with no rule has no run to lay books out along, no
+   * plank to name and no gap to point at.
    */
   private async startOf(range: ShelfRange): Promise<RangeStart | null> {
     return (await bandOf(this.db, range))?.start ?? null
@@ -408,19 +280,8 @@ export class Shelves {
 
   /**
    * The same answer said for a person: what the plank this range opens at is
-   * called, or null when no rule says where the range begins.
-   *
-   * **The one reader outside this class, and it exists so there is not a
-   * second answerer** (#479, and #463's instruction before it). Two routes
-   * have to put the words "where does this range begin" in front of somebody:
-   * the shelves screen, which draws a whole run, and the placing screen, which
-   * offers a plank to start one at. Neither may work it out. `startOf` is
-   * `bandOf` and `bandOf` is the rules, so this is that answer named by
-   * `planks`, which is the same naming every other plank on both screens gets.
-   *
-   * Not a label to put a book on. Where a particular book lands is
-   * `areaForSortKey` and then `RunPlanks.labelOf`, which is a different
-   * question with a different answer for every book but the first.
+   * called, or null when no rule says where the range begins. Not a label to put
+   * a book on, which is `areaForSortKey` and then `RunPlanks.labelOf`.
    */
   async beginsAt(range: ShelfRange): Promise<string | null> {
     const start = await this.startOf(range)
@@ -430,25 +291,17 @@ export class Shelves {
   /**
    * The books on a shelf in this range, in order. Every layout, every strip,
    * every boundary decision and the misfile review are drawn from this one
-   * statement, which is why it reads `shelved_books` and not `books` (#183).
-   *
-   * A checked-out book holds no position, so it is absent here. The layout
-   * then closes up behind it the way the shelf does, which is what lets a
-   * book be pulled out and refiled without the boundaries pretending it is
-   * still taking up room. That used to be `checked_out_at IS NULL` and is now
-   * one state of seven, and the same rows either way: the view's predicate is
-   * the only place the condition is written, so a state that must not reach a
-   * shelf cannot reach one by this statement being forgotten.
+   * statement, which is why it reads `shelved_books` and not `books`: a
+   * checked-out book holds no position and is absent, and the view's predicate
+   * is the only place that condition is written.
    */
   private async booksIn(
     range: ShelfRange,
     excludeId = 0,
   ): Promise<(FiledPhotographedBook & PlacementFields)[]> {
     // The photographs and the placements are joined on here, one statement each
-    // for the whole range, because a shelf is drawn as a row of spines and a
-    // spine is a photograph (#228), and the misfile review reads what a person
-    // last said about every one of them (#232). Asking per book would be two
-    // statements per book on the path that draws the library.
+    // for the whole range. Asking per book would be two statements per book on
+    // the path that draws the library.
     const rows = await withPlacements(this.db, await withPhotographs(
       this.db,
       await this.db.all<FiledBookRow>(
@@ -461,14 +314,10 @@ export class Shelves {
   }
 
   /**
-   * Every book in a range, with the shelf it lands on.
-   *
-   * Empty when no rule says where the range begins (#479). Not "no books": the
-   * books are still there, still in order, still recorded wherever somebody
-   * last put them. What is missing is the run to lay them along, and a layout
-   * is a walk over a run. Every caller that draws this for a person has to say
-   * which of the two silences it is looking at, which is why `shelving` below
-   * hands `begins` back beside the boards.
+   * Every book in a range, with the shelf it lands on. Empty when no rule says
+   * where the range begins, which is not the same silence as no books: a caller
+   * drawing this for a person tells the two apart by the `begins` that `shelving`
+   * hands back beside the boards.
    */
   async layout(range: ShelfRange): Promise<Placed<ShelvedBook>[]> {
     const start = await this.startOf(range)
@@ -482,13 +331,9 @@ export class Shelves {
 
   /**
    * The run drawn as boards, each joined back to the plank of furniture it is
-   * drawn on.
-   *
-   * **The join is from the address, not from the books standing there**, and
-   * that is the whole care in it. A board is a place the boundary walk laid out;
-   * where a book on it happens to stand is the ledger's answer and the two
-   * disagreeing is a misfile, which is drawn as a misfile. Taking a board's
-   * identity off its first book is exactly the phantom bookcase #434 drew.
+   * drawn on. The join is from the address, not from the books standing there:
+   * where a book happens to stand is the ledger's answer, and the two
+   * disagreeing is a misfile rather than a board's identity.
    */
   async groups(range: ShelfRange): Promise<StandingGroup<ShelvedBook>[]> {
     const separators = await this.list(range)
@@ -501,38 +346,11 @@ export class Shelves {
 
   /**
    * The run's planks, said as the furniture they are, with what stands on each.
-   *
-   * **The run is the furniture's list and not the books'** (#457). It used to be
-   * `groupByShelf`'s, which emits a board per run of books and therefore emits
-   * none at all for a plank nothing is standing on: lending the only book on an
-   * area took that area, its heading and its `Remove` off the one screen that
-   * manages areas, while `/api/fixtures` went on reporting it at nought books.
-   * A lent book is a fact about a house and a plank is a fact about a room, and
-   * `docs/shelving.md` is explicit that the boundaries are the owner's decision
-   * rather than the catalogue's contents.
-   *
-   * **A boundary is paired to its plank by identity, not by an anchor.** A
-   * separator's id is the id of the area it opens (`boundariesFrom`), so that
-   * pairing is a lookup. `groupByShelf` instead compares the separator's anchor
-   * with the sort key of the board's first book, which is the same answer only
-   * while the book that anchored the boundary is still standing there: lend it,
-   * and the line and its `Remove` disappear from an area that still has books
-   * on it. That is what put the wrong `Remove` under somebody's thumb.
-   *
-   * What has not changed is that the identity comes off the address rather than
-   * off the first book standing at it. Taking a board's identity off its books
-   * is the phantom bookcase #434 drew, and it stays out of here.
-   *
-   * **There is no fallback to `groupByShelf`'s own list any more, and removing
-   * it is half of #479.** It read: a range whose rule points at a piece that has
-   * been taken out lays its books out from `{ shelf: 1, area: 0 }`, and drawing
-   * them is a better answer than drawing nothing. It is not. `{ shelf: 1,
-   * area: 0 }` is a real plank of a real bookcase, usually the one fiction opens
-   * on, and `RunPlanks.at` names a plank the run has no row for the way a
-   * cascade's proposed plank is named — so seven non-fiction books came back
-   * drawn on `1A`, standing on fiction's own entry plank, with `areaId: null`
-   * and nothing anywhere saying the address was invented. The run now has no
-   * start, so `layout` hands back nothing and this has nothing to fall back to:
+   * The run is the furniture's list and not the books': `groupByShelf` emits a
+   * board per run of books and therefore none at all for a plank nothing is
+   * standing on. A boundary is paired to its plank by identity rather than by an
+   * anchor, because a separator's id is the id of the area it opens
+   * (`boundariesFrom`), and there is no fallback to `groupByShelf`'s own list:
    * `planks.every()` is empty exactly when the layout is.
    */
   private standing<T extends LayoutInput>(
@@ -567,12 +385,9 @@ export class Shelves {
 
   /**
    * The whole run drawn once: the boundaries, the shelves and what is on each.
-   *
-   * `groups` and `loads` are the same picture counted two ways, and reading them
-   * separately laid the run out twice for one screen. Worth having as one method
-   * rather than as two calls a route remembers to make together, because they
-   * are also then answered off one snapshot: a book saved between the two reads
-   * used to appear on a shelf whose count did not include it.
+   * `groups` and `loads` are the same picture counted two ways, answered off one
+   * snapshot so that a book saved between two reads cannot appear on a shelf
+   * whose count excludes it.
    */
   async shelving(range: ShelfRange): Promise<{
     groups: StandingGroup<ShelvedBook>[]
@@ -580,19 +395,14 @@ export class Shelves {
     loads: { label: string; count: number }[]
     /*
      * Handed back rather than read again by the route, which also has to name
-     * the plank each checked-out book would go back on. Reading the furniture
-     * twice for one screen is the same waste `shelving` exists to stop `groups`
-     * and `loads` making of the layout.
+     * the plank each checked-out book would go back on.
      */
     planks: RunPlanks
     /**
      * What the plank this run opens at is called, or null when no rule says
-     * where the range begins (#479).
-     *
-     * Handed back because an empty `groups` has two causes and a screen drawing
-     * one of them has to know which: a range with nothing catalogued in it, and
-     * a range nothing says the whereabouts of. Both used to draw the same
-     * nothing, and before #479 the second drew something worse than nothing.
+     * where the range begins. Handed back because an empty `groups` has two
+     * causes and a screen drawing one of them has to know which: a range with
+     * nothing catalogued in it, and a range nothing says the whereabouts of.
      */
     begins: string | null
   }> {
@@ -619,10 +429,9 @@ export class Shelves {
   }
 
   /**
-   * Which shelf a book with this sort key would land on.
-   *
-   * Works for a book that is not saved yet, which is the case that matters:
-   * the shelving step has to name a real shelf before the book exists.
+   * Which shelf a book with this sort key would land on. Works for a book that
+   * is not saved yet, which is the case that matters: the shelving step has to
+   * name a real shelf before the book exists.
    */
   async shelfForSortKey(range: ShelfRange, sortKey: string): Promise<string> {
     return (await this.shelvesForSortKeys(range, [sortKey]))[0]!
@@ -630,36 +439,18 @@ export class Shelves {
 
   /**
    * The same question asked about many keys at once, which is one read rather
-   * than one read each.
-   *
-   * **This is #332's finding 1.** `GET /api/shelves` asked `shelfForSortKey` once
-   * per checked-out book, and that method used to lay the entire run out to
-   * answer, so the shelves screen was O(checked-out x books-in-range) on the one
-   * screen somebody opens while standing at a bookcase. Measured at 600 books it
-   * went from 55 ms with nothing out to 1497 ms with two hundred out, and both
-   * factors grow with the collection.
-   *
-   * **The books were never consulted.** Read `layoutRange`: it walks the run in
-   * order and steps a boundary whenever `startsAt <= book.sortKey`, so where a
-   * key lands is decided by the boundaries it has passed and by where the range
-   * begins, and by nothing about the other books. They are carried through the
-   * loop and never asked anything. So laying a hundred keys out together gives
-   * each one exactly the answer that laying it out among six hundred books gave,
-   * and `shelvesForSortKeys` is that same function applied to a list. It is
-   * `shelfForSortKey` that is now defined in terms of this, so there is one
-   * implementation and not two that must agree.
-   *
-   * `shelves.test.ts` holds the proof rather than the argument: the two are
-   * compared over a seeded run, every book and every gap between books.
+   * than one read each. Where a key lands is decided by the boundaries it has
+   * passed and by where the range begins, and by nothing about the other books,
+   * so laying a hundred keys out together answers each one exactly as laying it
+   * out among the whole range would.
    */
   async shelvesForSortKeys(range: ShelfRange, sortKeys: string[]): Promise<string[]> {
     if (!sortKeys.length) return []
 
     const labels = new Array<string>(sortKeys.length).fill('')
 
-    // Every key comes back empty when no rule says where the range begins
-    // (#479). Empty is what this already answers for a key it could not place,
-    // and every caller already reads it that way.
+    // Every key comes back empty when no rule says where the range begins, which
+    // is what this already answers for a key it could not place.
     const start = await this.startOf(range)
     if (!start) return labels
 
@@ -676,14 +467,10 @@ export class Shelves {
   }
 
   /**
-   * The run laid out as though a book with this sort key were already in it.
-   *
-   * The rows are read first and the newcomer merged into the array that read
-   * returned, so the sort still runs over one consistent snapshot of the range
-   * rather than over rows fetched either side of it.
-   *
-   * Empty when no rule says where the range begins, for `layout`'s reason: the
-   * strip this draws is a row of spines on a plank, and there is no plank.
+   * The run laid out as though a book with this sort key were already in it. The
+   * rows are read first and the newcomer merged into the array that read
+   * returned, so the sort runs over one consistent snapshot of the range. Empty
+   * when no rule says where the range begins.
    */
   private async layoutWith(
     range: ShelfRange,
@@ -701,19 +488,11 @@ export class Shelves {
 
   /**
    * Everything standing on one plank right now, in the order it stands there.
-   *
-   * **Not the layout, and that is the whole of why it exists** (#429). The
-   * layout answers where a book *belongs*, which is a question about the rules;
-   * this answers what is *on* the plank, which is a question about the room. A
-   * person carrying a book to `3A` is looking at whatever is on `3A`, including
-   * the books they carried there ten seconds ago and anything the rules have no
-   * opinion about, and none of that is what a run laid out by sort key draws.
-   *
-   * `current_area_id`, which is the projection of the ledger's `placed` rows and
-   * is indexed with the sort key, so this is an index seek rather than a read of
-   * a whole range. Same reading `tripAtArea` makes at the other end of the walk,
-   * so the plank a person is told about and the plank the finished screen draws
-   * cannot come from two different answers.
+   * Not the layout: that answers where a book belongs, which is a question about
+   * the rules, and this answers what is on the plank, including books the rules
+   * have no opinion about. Reads `current_area_id`, the projection of the
+   * ledger's `placed` rows, which is the same reading `tripAtArea` makes at the
+   * other end of the walk.
    */
   async standingOn(areaId: number, excludeId = 0): Promise<ShelvedBook[]> {
     const rows = await withPlacements(this.db, await withPhotographs(
@@ -728,7 +507,6 @@ export class Shelves {
       .map((row) => ({ ...row, sortKey: row.sort_key }))
   }
 
-  /** The shelf this book lands on, end on, with the gap it goes in. */
   async strip(
     range: ShelfRange,
     sortKey: string,
@@ -737,7 +515,6 @@ export class Shelves {
     return stripAround(await this.layoutWith(range, sortKey, excludeId))
   }
 
-  /** The shelf a book already sits on, and where along it. */
   async stripOf(
     range: ShelfRange,
     bookId: number,
@@ -753,11 +530,8 @@ export class Shelves {
   }
 
   /**
-   * The same question answered as the plank, which is what a write needs.
-   *
-   * `labelFor` above says what to call the place; this says which place it is.
-   * The save route asks this one, because what it does with the answer is record
-   * a book on it (#359).
+   * `labelFor` above says what to call the place; this says which place it is,
+   * which is what a write needs.
    */
   async areaOf(range: ShelfRange, bookId: number): Promise<number | null> {
     const on = (await this.layout(range)).find((p) => p.book.id === bookId)
@@ -765,49 +539,30 @@ export class Shelves {
     return (await this.planks(range)).at({ shelf: on.shelf, area: on.area }).areaId
   }
 
-  /** This run's planks, each ready to be identified or named. See `RunPlanks`. */
   async planks(range: ShelfRange): Promise<RunPlanks> {
     return planksOf(this.db, range)
   }
 
   /**
    * The address the layout gives the plank an id names, or null when this run
-   * has no such plank.
-   *
-   * **The one door between what a screen sends and what the cascade
-   * understands** (#359). Everything in shared/layout.ts addresses a plank by
-   * two ordinals and renders them as `1B`, because ordinals are all pure
-   * arithmetic over a run can know. A screen sends the area, because an area is
-   * the only thing that stays the same place when somebody names the bookcase it
-   * is on. This is where one becomes the other, and it is deliberately the only
-   * such place: a second one would be a second opinion about which plank a
-   * button meant, and this one writes.
-   *
-   * Null is a refusal and not a fallback. An id from another run, an id for a
-   * plank that has been taken out, an id for nothing at all: all of them mean
-   * the caller is not talking about a plank of this run, and moving a real book
-   * on a guess is the whole hazard here.
+   * has no such plank. The one place an area id becomes the pair of ordinals
+   * shared/layout.ts addresses a plank by, and deliberately the only one: a
+   * second would be a second opinion about which plank a button meant. Null is a
+   * refusal and not a fallback, because moving a real book on a guess is the
+   * hazard here.
    */
   async addressOf(range: ShelfRange, areaId: number): Promise<PlankAt | null> {
     return (await this.planks(range)).addressOf(areaId)
   }
 
   /**
-   * What saying "this shelf will not take another book" would do. Read only.
-   *
-   * Two answers, and the first one is tried first on purpose.
-   *
-   * When the book being placed belongs at the END of that shelf, the book in
-   * their hand is the one that moves: it goes to the start of the next shelf
-   * and nothing already on a shelf is touched. `placing` is that book's sort
-   * key, and it is what makes this case visible at all, because the book does
-   * not exist yet and so is absent from every layout the database can produce.
-   *
-   * Otherwise the gap is in the middle, something genuinely has to come off
-   * the end to open it, and the last book moves to the front of the next
-   * shelf, creating that shelf if it does not exist. Nothing here decides
-   * whether the next shelf can cope: that is the next question to ask, and the
-   * caller walks the chain one answer at a time.
+   * What saying "this shelf will not take another book" would do. Read only. The
+   * end-of-shelf case is tried first: there the book in hand is the one that
+   * moves and nothing already shelved is touched, and `placing` is its sort key,
+   * which is what makes that case visible at all, because the book does not
+   * exist yet and is absent from every layout the database can produce.
+   * Otherwise the last book comes off the end, and whether the next shelf can
+   * cope is the next question the caller asks.
    */
   private async planOverflow(
     range: ShelfRange,
@@ -821,16 +576,16 @@ export class Shelves {
   > {
     // The address rendered, which is the key the cascade in shared/layout.ts
     // groups by. It goes no further than this file: what leaves here is the
-    // plank, said the way `Planks` says it.
+    // plank.
     const label = locationLabel(at.shelf, at.area)
     const before = await this.layout(range)
     const separators = await this.list(range)
 
     /*
-     * Before the cascade, and before the label is even checked against the
-     * shelves that exist: a book being placed can be about to go on a plank
-     * that a boundary move left bare, which has no books to name it and so is
-     * absent from the groups below.
+     * Before the cascade, and before the label is checked against the shelves
+     * that exist: a book being placed can be about to go on a plank a boundary
+     * move left bare, which has no books to name it and so is absent from the
+     * groups below.
      */
     if (placing) {
       const carry = carryOn(
@@ -844,24 +599,14 @@ export class Shelves {
 
     const groups = groupByShelf(before, separators)
     const planks = await this.planks(range)
-    // Named for a person, because these two sentences are read rather than
-    // acted on, and a bookcase somebody has named reads by that name
+    // Named for a person: a bookcase somebody has named reads by that name
     // everywhere else on the same screen.
     const here = planks.at(at).label || label
 
     /*
-     * The one thing this can refuse, and it used to be two.
-     *
-     * The other was "`here` holds only one book, so moving it along would just
-     * empty the shelf. Put the new book on the next shelf instead." That
-     * sentence told somebody to do a thing this screen offers no way of doing,
-     * and it was wrong as well as unhelpful: emptying the plank is how the gap
-     * gets opened. See `overflow`, and `docs/shelving.md` under "Placing a book
-     * on a plank that is full" and "The edge cases" (#432).
-     *
-     * Two different failures used to share one message, which sent you looking
-     * at the shelf when the real problem was that the label never existed. That
-     * is why the sentence names the shelves this run does have.
+     * The sentence names the shelves this run does have, because a label that
+     * never existed and a shelf that is full are different failures and one
+     * message for both sends somebody looking at the wrong thing.
      */
     const noSuchPlank = () => {
       const said = groups.map((g) => planks.at({ shelf: g.shelf, area: g.area }).label)
@@ -882,40 +627,11 @@ export class Shelves {
   }
 
   /**
-   * Why this run may not step onto that plank, or the empty string.
-   *
-   * **A run stops where the next run begins, and the cascade is a step along a
-   * run.** `docs/shelving.md` settles both halves: "A run runs from its rule's
-   * entry area until the next area any rule points at", and "a bookcase holds
-   * one run", which is the arrangement migration `0013` already refuses. So a
-   * new bookcase for fiction cannot be the bookcase non-fiction starts on, and
-   * saying it can is not a smaller problem than doing it.
-   *
-   * **It said it could, and then did something else entirely** (#430 item 2).
-   * Asked for a new bookcase at the end of fiction with non-fiction standing on
-   * the next number, the step read "take Crime and Punishment off 2B and put it
-   * on 3A", where `3A` was the plank a rule had just been written on saying
-   * non-fiction starts there. The write then reconciled the boundary list inside
-   * fiction's own band, which stops at that bookcase: nothing went to 3A, `2C`
-   * was retired with a book still on it, and that book was reported as moving
-   * backwards from `2C` to `2B`. One press, an instruction naming a plank
-   * nothing was written to, and a plank the person had quietly taken out.
-   *
-   * The bound is `bandOf`, so this is the same cut `runFrom` and `relocateRun`
-   * make rather than a fourth opinion about where a run ends. **It is
-   * `band.end` and not `band.limit`**, which is #499: this asks where the run
-   * stops, and a run stops at a plank. Asked the move's bookcase bound instead,
-   * it refused a step onto `2A` while a rule on `2C` made `2A` this run's own
-   * next plank, and offered a fourth plank on the bookcase behind rather than
-   * the empty one standing in front of it.
-   *
-   * Renumbering is offered as the way on because
-   * it is the move that says what this refusal is about — where the pieces
-   * stand — rather than a rule retarget, which is a different request
-   * (`relocate-run.ts`). **It is not free**, which this used to say it was:
-   * renumbering changes the order the run walks the room in, so books past the
-   * moved piece derive elsewhere and `editFixture` writes the assignments for
-   * them (#491).
+   * Why this run may not step onto that plank, or the empty string. A run stops
+   * where the next run begins and a bookcase holds one run, so the bound is
+   * `bandOf`, the same cut `runFrom` and `relocateRun` make. It is `band.end`
+   * and not `band.limit`: this asks where the run stops, and a run stops at a
+   * plank. See docs/shelving.md.
    */
   private async offTheRun(range: ShelfRange, to: PlankAt): Promise<string> {
     const band = await bandOf(this.db, range)
@@ -930,12 +646,9 @@ export class Shelves {
       && entries.has(slot.area.id))
     const piece = standing ? fixtureLabel(standing.fixture) : String(past.shelf)
     /*
-     * **More than one rule can open one plank** ("Plural since #384", see
-     * `runOwners`), so which of them this sentence names is the same question
-     * #463 was about, one rung down: a name in a refusal rather than a plank a
-     * book lands on. `find` over the rows would name whichever the database
-     * handed back, which is nothing anybody chose. `byPrecedence` is the ladder
-     * the app decides by, so the rule named here is the rule that wins.
+     * More than one rule can open one plank, so the rule named here is the one
+     * `byPrecedence` puts first, which is the ladder the app decides by. `find`
+     * over the rows would name whichever the database handed back.
      */
     const held = standing
       ? [...rules].sort(byPrecedence)
@@ -949,20 +662,11 @@ export class Shelves {
   }
 
   /**
-   * The move a full shelf would need, offered rather than made.
-   *
-   * Nothing here writes. The shelves are the record of where books physically
-   * are, and until somebody has actually carried the book there is nothing to
-   * record: a proposal is not an observation, which is the same rule #87
-   * settled for metadata edits. The boundary used to shift the moment a step
-   * was proposed, which made the book vanish off the plank the person was
-   * still standing at and stay vanished if they walked away (#111).
-   *
-   * The strip is the proposed arrangement drawn: the destination plank as it
-   * will look, with the gap where the book goes. Computed against the
-   * separators the move WOULD produce, held in memory and never saved, so the
-   * picture describes the thing being confirmed without making it true
-   * (#112).
+   * The move a full shelf would need, offered rather than made. Nothing here
+   * writes: a proposal is not an observation, and until somebody has actually
+   * carried the book there is nothing to record. The strip is computed against
+   * the separators the move would produce, held in memory and never saved, so the
+   * picture describes the thing being confirmed without making it true.
    */
   async proposeOverflow(
     range: ShelfRange,
@@ -975,7 +679,6 @@ export class Shelves {
     carry?: CarryOn
     step?: Overflow
     strip?: Strip<ShelvedBook> | null
-    /** The two planks the answer is about, identified and named. */
     planks?: Planks
   }> {
     const plan = await this.planOverflow(range, at, kindIfNew, placing)
@@ -989,10 +692,7 @@ export class Shelves {
       .map((row) => ({ ...row, sortKey: row.sort_key }))
     /*
      * Null start is unreachable from here and is answered anyway: `planOverflow`
-     * above walks the run and refuses before this line when there is none. It is
-     * `layoutRange`'s required argument that makes the impossible case visible
-     * rather than defaulted (#479), and a strip of nothing is what a run that
-     * does not exist looks like.
+     * above walks the run and refuses before this line when there is none.
      */
     const start = await this.startOf(range)
     const after = start === null
@@ -1008,12 +708,9 @@ export class Shelves {
   }
 
   /**
-   * A plan's two planks, joined back to the furniture.
-   *
-   * Read after the plan rather than before, so that a plank the plan has just
-   * made comes back with the id it was given: `overflow` below applies the
-   * boundary and then asks, which is what lets a screen record the book on the
-   * plank it went on rather than on a name for it.
+   * A plan's two planks, joined back to the furniture. Read after the plan
+   * rather than before, so a plank the plan has just made comes back with the id
+   * it was given.
    */
   private async naming(
     range: ShelfRange,
@@ -1025,7 +722,6 @@ export class Shelves {
 
   /**
    * The separator list a plan would leave behind, without writing any of it.
-   *
    * Exactly the edit `applyBoundary` makes, expressed over an array instead of
    * over the table, so the drawing and the write cannot describe different
    * shelves. The invented id is never stored and never read back: only
@@ -1052,18 +748,11 @@ export class Shelves {
   }
 
   /**
-   * The person says they have carried the book, so the shelves change.
-   *
-   * The plan is recomputed here rather than carried over from whatever was
-   * proposed a moment ago. That is the #106 rule applied to the cascade: an
-   * answer is about the shelves as they are now, and a chain unwinding one
-   * frame at a time (#110) confirms its outermost move last, long after the
-   * proposal was drawn. `expectId` is the book the person was told to move,
-   * and a mismatch is refused rather than quietly applied to a different one.
-   *
-   * The carry (#77) is applied without any of this, because there is nothing
-   * to confirm: the book is in your hand, nothing already shelved moves, and
-   * the placing question is simply re-asked against the plank it now goes on.
+   * The person says they have carried the book, so the shelves change. The plan
+   * is recomputed here rather than carried over from whatever was proposed a
+   * moment ago, and `expectId` is the book the person was told to move: a
+   * mismatch is refused rather than quietly applied to a different one. The
+   * carry is applied without any of that, because nothing already shelved moves.
    */
   async overflow(
     range: ShelfRange,
@@ -1077,23 +766,15 @@ export class Shelves {
     step?: Overflow
     carry?: CarryOn
     moves?: Move[]
-    /** The two planks the move was about, identified and named. */
     planks?: Planks
   }> {
     /*
-     * Plan, check and apply are one unit, which they had stopped being.
-     *
-     * `expectId` above is an optimistic-concurrency check, and until stage G it
-     * was performed outside any transaction, so it did not close the window it
-     * names: two people confirming there is no room on the same shelf both read
-     * the same layout, both computed the same last book, both passed the check
-     * and both applied. The result was either one separator shifted twice, so
-     * two books were pushed off a plank when one was physically carried, or two
-     * separators created at the same position, after which `list`'s ORDER BY
-     * returns them in no fixed order and the same shelf label points at
-     * different runs of books between requests.
-     *
-     * Reading and writing the same range now takes turns. See `rangeLock`.
+     * Plan, check and apply are one unit. `expectId` above is an
+     * optimistic-concurrency check, and outside a transaction it does not close
+     * the window it names: two people confirming there is no room on the same
+     * shelf both pass it, and one separator gets shifted twice or two land at
+     * the same position. Reading and writing the same range takes turns, so see
+     * `rangeLock`.
      */
     return this.db.tx(async () => {
       const plan = await this.planOverflow(range, at, kindIfNew, placing)
@@ -1127,23 +808,16 @@ export class Shelves {
         step,
         moves: await this.movesSince(range, plan.before),
         // After the write, so a plank this step has just made comes back with
-        // the id it was given rather than as a plank nothing can name.
+        // the id it was given.
         planks: await this.naming(range, step),
       }
     }, { serialiseOn: rangeLock(range) })
   }
 
   /**
-   * Write the one boundary change a plan asks for. Shared by both answers.
-   *
-   * **The recording is part of the write and not a step beside it** (#487).
-   * Overflow moves a boundary, which moves books in the run without moving them
-   * in the room, and until this it wrote nothing down: the shelving review named
-   * the trip and the carry list, which reads the ledger, said there was nothing
-   * to do. That is #458 seen from this door. `recordWhatMoved` is where the
-   * reasoning lives; what matters here is that both answers this method serves
-   * get it without either caller having a step to remember, which is #465's
-   * lesson said as code.
+   * Write the one boundary change a plan asks for. The recording is part of the
+   * write and not a step beside it, so both answers this method serves get it
+   * without either caller having a step to remember. See `recordWhatMoved`.
    */
   private async applyBoundary(
     range: ShelfRange,
@@ -1153,9 +827,8 @@ export class Shelves {
     const before = await this.whereTheRunPutsThem(range)
 
     if (plan.create) {
-      // Counted before the insert, exactly as it was: the new separator takes
-      // the position after the ones already there. `nextPosition` is the same
-      // number the length was, and says so in the domain rather than here.
+      // Counted before the insert: the new separator takes the position after
+      // the ones already there.
       const position = RangeSeparators
         .of(range, await this.separators.inRange(range))
         .nextPosition
@@ -1175,28 +848,13 @@ export class Shelves {
   }
 
   /**
-   * The first or last book of an area, carried to the plank next door.
-   *
-   * The rule lives here and in `boundaryMove`, not in the screen that offers
-   * it. A button that only ever appears on the right book is one caller away
-   * from being lost, and the caller after that would be writing a book into
-   * the middle of another plank, which is precisely the state misfile
-   * detection exists to report.
-   *
-   * This does not touch the location column. Where a book physically is was
-   * observed by a person, and it is written through PATCH /api/books/:id/
-   * location like every other observation, by whoever just moved the book.
-   * What changes here is the furniture: an area boundary, re-anchored one
-   * book along.
-   *
-   * **Except when it is the whole area** (#433). Moving the only book off a
+   * The first or last book of an area, carried to the plank next door. Nothing
+   * here writes a location: where a book physically is was observed by a person
+   * and is written through PATCH /api/books/:id/location, and what changes here
+   * is an area boundary, re-anchored one book along. Moving the only book off a
    * plank leaves the area with no books to name, so the move takes the area off
-   * the piece, and #281 settled that removing an area says what it will do and
-   * asks first. `told` is that assent, and it is carried down to the act that
-   * removes the boundary rather than checked here (#456): this method used to
-   * decide for itself, which left `DELETE /api/shelves/:id` reaching the same
-   * act through a door with no assent on it at all. `boundaryOptions` is what
-   * lets a screen know the question is coming.
+   * the piece; `told` is that assent, and it is carried down to the act that
+   * removes the boundary rather than checked here.
    */
   async moveAcrossBoundary(
     range: ShelfRange,
@@ -1208,29 +866,21 @@ export class Shelves {
     error?: string
     move?: BoundaryMove
     moves?: Move[]
-    /** The two planks the book crossed between, identified and named. */
     planks?: Planks
     /** What the refused move would have taken off the furniture. */
     empties?: Emptying | null
   }> {
     /*
      * The read that decides the move is inside the transaction with the writes
-     * it decides, which it was not until stage G. The transaction used to open
-     * around the shifts and removals only, which made those atomic with respect
-     * to each other and nothing else: a concurrent overflow landing between the
-     * layout read and the first UPDATE meant `starts_at` was written from a
-     * layout that no longer existed, and the boundary jumped to a book now in
-     * the middle of a plank. That is exactly the state `refusal('not-at-
-     * boundary')` exists to prevent, arrived at from the other side.
-     *
+     * it decides: a concurrent overflow landing between the layout read and the
+     * first write would anchor a boundary from a layout that no longer exists.
      * `remove` opens a transaction of its own and is called from inside this
      * one, which is the nesting `Db.tx` handles with a savepoint.
      */
     try {
       return await this.movedAcrossBoundary(range, bookId, direction, told)
     } catch (caught) {
-      // The act's own sentence, passed on rather than reworded: it is about the
-      // furniture and this method has nothing to add to it.
+      // The act's own sentence, passed on rather than reworded.
       if (caught instanceof AreaRemovalImpossible) {
         return { ok: false, error: `${caught.said} Nothing has been changed.` }
       }
@@ -1271,8 +921,7 @@ export class Shelves {
 
       if (!outcome.ok) {
         // The plank the sentence is about, named the way the book's own page
-        // names it. A refusal that says `1A` on a bookcase somebody has called
-        // the hall shelf is the app disagreeing with itself in front of them.
+        // names it.
         const said = outcome.atAt
           ? (await this.planks(range)).at(outcome.atAt).label || outcome.at
           : outcome.at
@@ -1281,16 +930,10 @@ export class Shelves {
 
       /*
        * Written before the change, because it is a record of what the change is
-       * about to undo. Reading the boundaries afterwards would give their new
-       * anchors, and reading them for a removal would give nothing at all.
-       *
-       * The two planks are read here for the same reason (#481). Before the
-       * write both are on the face, because a boundary move refuses at the ends
-       * of the run rather than making furniture; after it, the one the move
-       * empties is not. The ids taken here go on meaning the same two rows
-       * afterwards, which is the whole reason the receipt holds ids: a retired
-       * area keeps its row, and `resequenceFace` renumbers positions rather than
-       * moving rows, so it is the label that stops being about this plank.
+       * about to undo: reading the boundaries afterwards would give their new
+       * anchors, and reading them for a removal would give nothing at all. The
+       * two planks are read here for the same reason, since the one the move
+       * empties is off the face afterwards while its area id still names the row.
        */
       const now = new Date().toISOString()
       const between = await this.naming(range, outcome.move)
@@ -1301,10 +944,9 @@ export class Shelves {
 
       /*
        * And the run's answer as it stands, for the same reason and a different
-       * record (#487). The receipt says how to put the furniture back; it names
-       * no area and nothing that counts work reads it, which is why a move used
-       * to reach the needs-attention list and never the carry list. Both facts
-       * are true of a move, so a move writes both.
+       * record. The receipt says how to put the furniture back, names no area,
+       * and nothing that counts work reads it. Both facts are true of a move, so
+       * a move writes both.
        */
       const wanted = await this.whereTheRunPutsThem(range)
 
@@ -1315,9 +957,9 @@ export class Shelves {
       await this.separators.reanchorAll(outcome.move.shift)
       for (const id of outcome.move.remove) {
         /*
-         * The assent goes to the act rather than being spent here (#456). It
-         * refuses a removal nobody agreed to, and the throw is what takes the
-         * receipt and the re-anchoring above back out with it.
+         * The assent goes to the act rather than being spent here, and the
+         * throw is what takes the receipt and the re-anchoring above back out
+         * with it.
          */
         const removal = await this.remove(id, told)
         if (!removal.ok) {
@@ -1327,11 +969,10 @@ export class Shelves {
       }
 
       /*
-       * After the removals, so a move that empties an area is recorded once.
+       * After the removals, so a move that empties an area is recorded once:
        * `dropArea` has already written an assignment for the books that named
-       * the plank it took off, and `assignmentFor` answers null for a book that
-       * now stands where the run puts it, so this adds a row only for a book the
-       * removal was not about.
+       * the plank it took off, so this adds a row only for a book the removal
+       * was not about.
        */
       await this.recordWhatMoved(
         range,
@@ -1344,7 +985,6 @@ export class Shelves {
         ok: true,
         move: outcome.move,
         /*
-         * Everything else that ended up somewhere new, which should be nothing.
          * The moved book is deliberately absent: it is in somebody's hand, and
          * where it landed is recorded through the location route rather than
          * handed back as a job still to do.
@@ -1352,10 +992,9 @@ export class Shelves {
         moves: (await this.movesSince(range, before)).filter((move) => move.id !== bookId),
         /*
          * Read after the boundaries moved, which is what the person is about to
-         * act on: they carry the book, then say it is there, and what they send
-         * is `planks.to.areaId`. Both planks exist either side of a boundary
-         * move, since it refuses at the ends of the run rather than making
-         * furniture, so neither id here is ever null.
+         * act on. Both planks exist either side of a boundary move, since it
+         * refuses at the ends of the run rather than making furniture, so
+         * neither id here is ever null.
          */
         planks: await this.naming(range, outcome.move),
       }
@@ -1364,25 +1003,11 @@ export class Shelves {
 
   /**
    * Which plank a boundary move would land this book on, in each direction,
-   * without moving anything.
-   *
-   * Runs the same rule `moveAcrossBoundary` enforces on the write, so a
-   * screen can decide whether to offer the button before anybody taps it
-   * (#96). That is a courtesy, not the rule itself: the write path checks
-   * again regardless of what this said a moment ago, because a shelf can
-   * change between the two calls.
-   *
-   * **A plank each way, not a label each way** (#359). The button that reads
-   * this says "Move it on to ..." on the same screen as the book's recorded
-   * location, so what it says has to come from the same `labelFor`; and #358
-   * left `areasForSortKeys` answering where a run puts a key as a row rather
-   * than as a string, which is the shape reused here.
-   *
-   * **And what the move costs, not only where it goes** (#433). A book alone in
-   * an area is offered both directions and either of them takes the area off the
-   * piece, which is the same act the furniture screen asks about before doing.
-   * The screen cannot ask about something the offer does not mention, so the
-   * offer mentions it, read from the same outcome the write path enforces.
+   * without moving anything. A courtesy for the screen and not the rule itself:
+   * the write path checks again regardless, because a shelf can change between
+   * the two calls. The cost comes with the offer because either direction of a
+   * book alone in an area takes that area off the piece, and a screen cannot ask
+   * about what the offer does not mention.
    */
   async boundaryOptions(
     range: ShelfRange,
@@ -1407,12 +1032,10 @@ export class Shelves {
   }
 
   /**
-   * The areas a move takes off the furniture, or null when it takes none.
-   *
-   * Read off `move.remove`, which is the boundary list the write path is about
-   * to delete, and a boundary's id is the area it opens (`boundariesFrom`). So
-   * the question and the answer are the same rows rather than two readings of
-   * one room, which is the mistake `areaDisagreements` exists to catch.
+   * The areas a move takes off the furniture, or null when it takes none. Read
+   * off `move.remove`, the boundary list the write path is about to delete, and
+   * a boundary's id is the area it opens (`boundariesFrom`), so the question and
+   * the answer are the same rows.
    */
   private async emptying(
     range: ShelfRange,
@@ -1423,12 +1046,10 @@ export class Shelves {
   }
 
   /**
-   * The same answer asked about the boundary ids on their own.
-   *
-   * `moveAcrossBoundary`'s refusal is raised from inside its transaction and
-   * caught after it has rolled back, so the `BoundaryMove` that planned the
-   * removal is out of scope by the time the sentence is written. The ids are
-   * what survive it.
+   * The same answer asked about the boundary ids on their own, because
+   * `moveAcrossBoundary`'s refusal is caught after its transaction has rolled
+   * back and the `BoundaryMove` that planned the removal is out of scope by
+   * then. The ids are what survive it.
    */
   private async emptyingOf(
     range: ShelfRange,
@@ -1445,22 +1066,11 @@ export class Shelves {
 
   /**
    * What removing this boundary takes off the run, before anybody agrees to it.
-   * Writes nothing.
-   *
-   * Read off `groups`, which is the same picture the shelves screen draws, so
-   * the area named here is the one under the line somebody pressed and the area
-   * its books join is the one drawn above it. #281 asked for the count and the
-   * destination rather than "books will be reassigned", and both are the rows
-   * rather than a claim about them.
-   *
-   * **An area nothing stands on is drawn as a bare plank now** (#457), so it has
-   * a board like any other and both halves come off it. That paragraph used to
-   * say the opposite, and the fallbacks below are what it left behind: they are
-   * kept because a separator id that names no plank of this run at all is still
-   * possible, from a screen drawn before somebody else's removal landed.
-   *
-   * `into` is empty only for the first board of a run, which opens with no
-   * boundary and therefore has nothing drawn above it to hand books to.
+   * Writes nothing. Read off `groups`, the same picture the shelves screen
+   * draws. The fallbacks below are for a separator id that names no plank of
+   * this run at all, which is possible from a screen drawn before somebody
+   * else's removal landed, and `into` is empty only for the first board of a
+   * run, which opens with no boundary.
    */
   async removalCost(range: ShelfRange, separatorId: number): Promise<AreaGoing> {
     const groups = await this.groups(range)
@@ -1475,26 +1085,13 @@ export class Shelves {
 
   /**
    * Take back a move nobody acted on, and put the boundaries where they were.
-   *
-   * The counterpart to `moveAcrossBoundary` and deliberately not a second call
-   * to it. A move is an assignment; this is the assignment withdrawn, and the
-   * difference shows up in two places that matter.
-   *
-   * **Nothing here writes a location**, and that is the whole point. The book
-   * never left the plank the catalogue records it on, so there is nothing about
-   * the room to write down. Retracting by recording a placement and moving
-   * again would put a statement in the catalogue that nobody made, which is
-   * exactly the lie #196 exists to stop the app from asking for.
-   *
-   * **"Back" means where the boundaries were, not where the rules would put
-   * them now.** Asking for the opposite boundary move would answer the second
-   * question. After a move that emptied an area, two boundaries sit on the same
-   * anchor, and the opposite move re-anchors both, carrying the book two planks
-   * instead of one (see `boundariesBetween` in shared/layout.ts). So the undo is
-   * replayed from the receipt written when the move was made, and then checked:
-   * if the book does not land back on the plank the catalogue records, the whole
-   * thing rolls back and says so rather than leaving the shelves somewhere
-   * neither the person nor the catalogue asked for.
+   * Nothing here writes a location: the book never left the plank the catalogue
+   * records it on, so there is nothing about the room to write down. "Back"
+   * means where the boundaries were rather than where the rules would put them
+   * now, because after a move that emptied an area two boundaries sit on one
+   * anchor and the opposite move would carry the book two planks; so the undo is
+   * replayed from the receipt and then checked, and rolls back if the book does
+   * not land on the plank the catalogue records.
    */
   async retractMove(
     range: ShelfRange,
@@ -1502,10 +1099,8 @@ export class Shelves {
   ): Promise<{
     ok: boolean
     error?: string
-    /** Which way the book went back, named the way a move names it. */
     move?: { from: string; to: string }
     moves?: Move[]
-    /** The two planks the book came back between, identified and named. */
     planks?: Planks
   }> {
     try {
@@ -1522,15 +1117,6 @@ export class Shelves {
         /*
          * The run's answer before the boundaries go back, so what this undo
          * moves can be told from what it left alone. See `recordWhatMoved`.
-         *
-         * This used to be the set of boundaries standing, and the undo wrote
-         * assignments only for the books naming a plank the retraction brought
-         * back (#465). That was complete only while a move wrote nothing of its
-         * own: now that a move records where the run puts its book, a plain
-         * re-anchor has an assignment to cancel and brings no plank back, so the
-         * narrower reading would leave a trip on the carry list for a move
-         * somebody had taken back. Both sides of the act are one function, and
-         * that is what keeps them from drifting apart again.
          */
         const wanted = await this.whereTheRunPutsThem(range)
 
@@ -1564,10 +1150,7 @@ export class Shelves {
         /*
          * Both planks read off the layout rather than out of the receipt: the
          * receipt holds two ordinals written when the move was made, and the
-         * piece may have been named since. Where the book was is the layout as
-         * it stood before this undo, and where it is now is where it landed,
-         * which are the same two planks the receipt names and are named here the
-         * way every other screen names them.
+         * piece may have been named since.
          */
         const was = before.find((placed) => placed.book.id === bookId)
         const planks = await this.planks(range)
@@ -1582,11 +1165,9 @@ export class Shelves {
             to: planks.at({ shelf: landed.shelf, area: landed.area }),
           },
           /*
-           * The book itself is left out for the opposite reason it is left out
-           * of a move: there, it is in somebody's hand; here, it never left the
-           * shelf, so "carry it back" is not a job. Anything else in this list
-           * is a book that really did end up somewhere new, which is a surprise
-           * worth reporting.
+           * The book itself is left out because it never left the shelf, so
+           * "carry it back" is not a job. Anything else in this list really did
+           * end up somewhere new.
            */
           moves: (await this.movesSince(range, before)).filter((move) => move.id !== bookId),
         }
@@ -1597,22 +1178,14 @@ export class Shelves {
     }
   }
 
-  /**
-   * Which plank the run puts every shelved book of a range on, right now.
-   *
-   * `what-moved.ts` holds it, together with the recording taken from it. See
-   * there for why the answer is ids and not labels, which is #356 and #491.
-   */
+  /** See `what-moved.ts` for why the answer is ids and not labels. */
   private async whereTheRunPutsThem(range: ShelfRange): Promise<Map<number, RunAnswer>> {
     return whereTheRunPutsThem(this.db, range)
   }
 
   /**
-   * Write down where the books a boundary write moved now belong.
-   *
-   * The reasoning, and the function, are in `what-moved.ts`. It moved there when
-   * #491 found the fourth door onto the same disagreement — renumbering a piece
-   * of furniture, in `furniture.ts` — and one act still has to have one answer.
+   * Write down where the books a boundary write moved now belong. The reasoning,
+   * and the function, are in `what-moved.ts`.
    */
   private async recordWhatMoved(
     range: ShelfRange,
@@ -1623,31 +1196,19 @@ export class Shelves {
     await recordWhatMoved(this.db, range, before, reason, now)
   }
 
-  /** The moves in this range that have been made and not yet acted on. */
   async outstandingMoves(range: ShelfRange): Promise<OutstandingMove[]> {
     return this.outstanding.inRange(range)
   }
 
   /**
-   * Nothing is outstanding on this book any more.
-   *
-   * Called when a person says where the book physically is, whatever they say.
-   * That closes the gap a move opens from the other end: the catalogue now
-   * records an observation somebody made, and there is no longer an assignment
-   * sitting there unacted on to take back.
+   * Nothing is outstanding on this book any more. Called when a person says
+   * where the book physically is, whatever they say: the catalogue then records
+   * an observation somebody made, so there is no assignment left to take back.
    */
   async clearOutstandingMove(bookId: number): Promise<void> {
     await this.outstanding.clear(bookId)
   }
 
-  /**
-   * The area of this range each of these sort keys lands in.
-   *
-   * The walk itself is in `what-moved.ts`, because the recording every write
-   * that moves the run owes is taken from it, and that recording is reached from
-   * `furniture.ts` as well now (#491). This stays the name every reader in here
-   * already calls, and it is the same walk it always was.
-   */
   async areasForSortKeys(range: ShelfRange, sortKeys: string[]): Promise<(number | null)[]> {
     return areasForSortKeys(this.db, range, sortKeys)
   }
@@ -1659,42 +1220,24 @@ export class Shelves {
 
   /**
    * Which books in this range are not where the catalogue says they belong.
-   *
-   * The two halves of the comparison come from different places on purpose.
-   * Where the book is is whatever a person last confirmed, read out of the
-   * ledger's projection. Where it belongs is recomputed here from sort order and
-   * the areas the run is cut into, so inserting a book earlier in the alphabet,
-   * moving a boundary, or editing an author all shift it while the recorded one
-   * stays put.
-   *
-   * **Both halves are area ids** (#356). They used to be labels, and labels are
-   * renderings: the ledger renders `Hall shelf · A` for a named piece and the
-   * ordinal walk renders `2A` for the same plank, so the comparison could read
-   * one side and not the other and set every book on that piece aside.
-   *
-   * Strictly read only. Detection that quietly rewrote a placement to make the
-   * disagreement go away would destroy the record of where the book actually
-   * is, which is the one thing the ledger is for.
-   *
-   * Checked-out books are pulled in explicitly. They are absent from the
-   * layout, having no position, and dropping them silently would leave the
-   * caller unable to tell "not misfiled" from "not considered".
+   * Both halves are area ids and not labels, which are renderings: where the
+   * book is is whatever a person last confirmed, read out of the ledger's
+   * projection, and where it belongs is recomputed here from sort order and the
+   * areas the run is cut into. Strictly read only, because rewriting a placement
+   * to make the disagreement go away would destroy the record of where the book
+   * actually is. Checked-out books are pulled in explicitly, having no position
+   * and so being absent from the layout.
    */
   async review(range: ShelfRange): Promise<ShelvingReview> {
     const faces = await areaFaces(this.db)
     /*
-     * The books, not the layout, and it never needed the layout (#479). Both
-     * sides of this comparison are areas: where the book is comes off the
-     * ledger's projection on the row, and where it belongs comes off
-     * `areasForSortKeys`, which walks the run directly. The layout's own answer,
-     * the label it draws each book under, is read by nothing here.
-     *
-     * It mattered the day the layout stopped inventing a run for a range no rule
-     * claims. `layout` is empty then, and reading it here would have taken every
-     * book of that range off the one list that says a book is not where it
-     * belongs — silently, on exactly the state that produces the most of them.
+     * The books, not the layout: where the book is comes off the ledger's
+     * projection on the row and where it belongs comes off `areasForSortKeys`,
+     * which walks the run directly. `layout` is empty for a range no rule
+     * claims, so reading it here would silently take every book of that range
+     * off the one list that says a book is not where it belongs;
      * `areasForSortKeys` answers null for every key instead, which is
-     * `unplaceable`, which is what the review already says out loud.
+     * `unplaceable`.
      */
     const books = (await this.booksIn(range))
       .map((row) => ({ ...row, sortKey: row.sort_key }))
@@ -1705,8 +1248,8 @@ export class Shelves {
 
     const off = (
       await withPlacements(this.db, await this.db.all<FiledBookRow>(
-        // `catalogued_books`, not `books`, and only for the joined filing name:
-        // the state is stated here as it always was. See `FiledBookRow`.
+        // `catalogued_books`, not `books`, for the joined filing name; the state
+        // is stated here. See `FiledBookRow`.
         `SELECT * FROM catalogued_books WHERE shelf_range = ? AND state = ?
           ORDER BY sort_key ASC`,
         [range, CHECKED_OUT],
@@ -1716,12 +1259,10 @@ export class Shelves {
     const review = reviewShelving([...onShelf, ...off])
 
     /*
-     * **The same note the carry screen has drawn since #447**, on the list that
-     * sends somebody to the shelf in the first place. A row reading "last seen
-     * on 1B, now puts it on 1B" is two planks wearing one letter, which is legal
-     * (`fixture.position` is not unique) and which #491 produces five of from a
-     * single renumber. `sharedNumberOf` is the one reading of it, so a note on
-     * one screen and silence on the other is not a thing this can drift into.
+     * A row reading "last seen on 1B, now puts it on 1B" is two planks wearing
+     * one letter, which is legal because `fixture.position` is not unique.
+     * `sharedNumberOf` is the one reading of it, so a note on one screen and
+     * silence on the other is not a thing this can drift into.
      */
     return {
       ...review,
@@ -1739,22 +1280,12 @@ export class Shelves {
   }
 
   /**
-   * Take the area a boundary opens off the furniture.
-   *
-   * The rule and the transaction now live in
-   * `application/shelving/remove-separator.ts`, where the prose that used to be
-   * here went with them. This stays because `moveAcrossBoundary` below removes
-   * boundaries as part of a larger move, and because the route and the tests
-   * that already say `shelves.remove(id)` are not what this change is about.
-   *
-   * **It is the same act as `DELETE /api/areas/:id` and goes through the same
-   * function** (#465). It used to rewrite the boundary list instead, which
-   * retired the wrong plank and recorded nothing, so the books it moved were
-   * left naming a plank they were not standing on.
-   *
-   * **`told` is not defaulted to yes and must not become so** (#456). Every
-   * door to this act is refused until somebody has been asked, and a caller
-   * that says nothing is a caller nobody asked.
+   * Take the area a boundary opens off the furniture. The rule and the
+   * transaction live in `application/shelving/remove-separator.ts`, and this is
+   * the same act as `DELETE /api/areas/:id` through the same function. `told` is
+   * not defaulted to yes and must not become so: every door to this act is
+   * refused until somebody has been asked, and a caller that says nothing is a
+   * caller nobody asked.
    */
   async remove(
     id: number,
@@ -1764,11 +1295,8 @@ export class Shelves {
   }
 
   /**
-   * What physically has to move if this run of books becomes the new one.
-   *
-   * Called with the layout captured before a change so the caller can tell the
-   * user which books to shift, rather than leaving the catalogue and the
-   * shelves to drift apart.
+   * What physically has to move if this run of books becomes the new one. Called
+   * with the layout captured before a change.
    */
   async movesSince(range: ShelfRange, before: Placed<ShelvedBook>[]): Promise<Move[]> {
     return diffLayout(before, await this.layout(range))

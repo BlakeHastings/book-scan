@@ -17,13 +17,6 @@ describe('reading what was typed into the one box', () => {
     expect(readQuery('0571224148')).toEqual({ kind: 'isbn', isbn: '0571224148' })
   })
 
-  /*
-   * The case that decides where the length check goes. Somebody typing an ISBN
-   * passes through every length on the way to thirteen, and answering "no book
-   * has that ISBN" at nine digits is the silent failure the reading exists to
-   * avoid. Words are a search that finds nothing yet; an ISBN is an assertion
-   * that there is exactly one answer.
-   */
   it('does not call a half-typed ISBN an ISBN', () => {
     expect(readQuery('978057122').kind).toBe('words')
     expect(readQuery('97805712241423').kind).toBe('words')
@@ -37,8 +30,7 @@ describe('reading what was typed into the one box', () => {
 
   it('reads anything else as titles and authors together', () => {
     expect(readQuery('mieville')).toEqual({ kind: 'words', words: 'mieville' })
-    // A title that is nothing but digits is still a title, because no book has
-    // a four digit ISBN and every collection has a copy of this one.
+    // A title that is nothing but digits is still a title: no book has a four digit ISBN.
     expect(readQuery('1984')).toEqual({ kind: 'words', words: '1984' })
     expect(readQuery('catch-22')).toEqual({ kind: 'words', words: 'catch-22' })
   })

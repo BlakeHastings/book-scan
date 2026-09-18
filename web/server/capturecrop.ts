@@ -2,27 +2,15 @@
  * Giving a queued capture the same derivatives a catalogued book gets: the
  * three photographs cut down to the book, and a hash of the front.
  *
- * A capture used to be three photographs and nothing else, so the queue could
- * not show a cropped front and a book held up to the camera could not be
- * recognised as one already waiting to be shelved. Both come from the same
- * gap, which is why this is one file rather than two.
- *
- * The rules are the ones the books path already keeps, and they are kept here
- * by using its code rather than by copying its behaviour:
- *
- *   - The photograph is the record. `cropPhotos` writes new files with derived
- *     names onto the photograph's own row, and nothing anywhere in this path
- *     opens a photograph for writing.
- *   - A slot named in `cropped` with no crop beside it was looked at and
- *     declined, which is a different fact from never having been looked at.
- *   - Hashing fails closed. A frame with no detail in it is refused by
- *     `coverHash`, and a refusal leaves the stored hash exactly as it was rather
- *     than storing something that would go on to be compared. A wrong match is
- *     worse than no match.
+ * Reuses the books path's own code rather than copying its behaviour, so
+ * nothing here opens a photograph for writing; `cropPhotos` does that. A slot
+ * named in `cropped` with no crop beside it was looked at and declined, which
+ * differs from never having been looked at. Hashing fails closed: a frame
+ * with no detail is refused by `coverHash`, and the stored hash is left
+ * exactly as it was rather than replaced with something to be compared wrongly.
  *
  * The reader and writer are injected rather than opened here, the same seam
- * `crop.ts` and `rehash.ts` use, so the caller decides which directory is
- * being touched and a test needs no directory at all.
+ * `crop.ts` and `rehash.ts` use.
  */
 
 import {
@@ -35,12 +23,11 @@ import {
 } from './crop'
 import { coverHash } from './imagehash'
 
-/** A capture with photographs in it, and somewhere to put what they yield. */
 export interface DerivableCapture extends CroppableBook {
   front_hash: string
 }
 
-/** Where the outcome goes. `CaptureQueue` satisfies this. */
+/** `CaptureQueue` satisfies this. */
 export interface CaptureSink extends CropSink {
   setFrontHash: (id: number, hash: string) => Promise<void>
 }
@@ -56,12 +43,10 @@ export interface UnhashedSource extends CaptureSink {
 }
 
 /**
- * What became of the front hash.
- *
- * `refused` and `unreadable` are told apart deliberately. The first is the
- * detector doing its job on a frame with nothing in it, and re-running will
- * refuse it again; the second is a file that has gone missing, which is a
- * problem to fix rather than a fact about a photograph.
+ * What became of the front hash. `refused` and `unreadable` are told apart
+ * deliberately: the first is the detector doing its job on a frame with
+ * nothing in it and will refuse again on retry; the second is a file that has
+ * gone missing, a problem to fix.
  */
 export type HashOutcome = 'written' | 'kept' | 'refused' | 'unreadable' | 'absent'
 
@@ -74,17 +59,14 @@ export interface CaptureOutcome {
  * Crop a capture's photographs and hash its front.
  *
  * Idempotent on both halves: a slot already in `cropped` is skipped and a
- * front hash already stored is kept, so a second pass finds nothing to do and
- * an interrupted one leaves what it finished done. `force` re-examines both,
- * which is what to use after a change to the detector or the hash format.
+ * front hash already stored is kept, so a second pass finds nothing to do.
+ * `force` re-examines both, for use after a change to the detector or the hash
+ * format.
  *
- * **The hash goes first, and the order is the point rather than a preference.**
- * These used to run the other way round, in one `try` a rung above, so a
- * detector that threw on one photograph took the hash of that same photograph
- * with it and the capture was left unhashed forever (#294). The two are not
- * equally valuable: a capture with no crop is a capture shown whole, and a
- * capture with no hash is a book the next person can photograph a second time
- * without being told, which is the thing #237 exists to prevent.
+ * The hash runs first, deliberately: if cropping throws, the hash has already
+ * happened, so a capture is never left unhashed by a crop failure. A capture
+ * with no hash is a book the next person could photograph a second time
+ * without being told, which is worse than one merely shown uncropped.
  */
 export async function deriveCapture(
   sink: CaptureSink,
@@ -113,23 +95,17 @@ export interface HashSweep {
 }
 
 /**
- * Hash the front of every queued capture that has not got one.
+ * Hash the front of every queued capture that has not got one, so an unhashed
+ * capture is a state the app recovers from rather than a permanent one.
  *
- * The repair half of #294, and it is what makes an unhashed capture a state
- * the app recovers from rather than a permanent one. A hash used to be written
- * on exactly one background pass and never again, so a capture that missed it
- * (a server stopped mid-flight, a disk that hiccupped, a reading that hung and
- * held the whole worker up behind it) stayed unhashed for as long as it stayed
- * in the queue, silently.
+ * Cheap by construction: it only looks at queued captures whose front
+ * photograph carries no hash, which on a healthy server is none of them.
+ * Running it twice costs a second pass over whatever is left and changes
+ * nothing.
  *
- * Cheap by construction: it only ever looks at queued captures whose front
- * photograph carries no hash, which on a healthy server is none of them. It
- * reads photographs and writes hashes and touches nothing else, so running it
- * twice costs a second pass over whatever is left and changes nothing.
- *
- * A frame with no detail is still refused rather than guessed at, so a capture
- * of a blank wall is counted here on every sweep instead of being quietly
- * given a number that would go on to be compared against somebody's book.
+ * A frame with no detail is still refused rather than guessed at, so it is
+ * counted here on every sweep instead of being quietly given a hash that
+ * would go on to be compared wrongly.
  */
 export async function hashQueuedFronts(
   source: UnhashedSource,
@@ -151,14 +127,12 @@ export async function hashQueuedFronts(
 /**
  * Hash the front photograph, in the one format `imagehash.ts` writes.
  *
- * Deliberately the original and not the crop. The books path hashes the
- * photograph, a match is decided by comparing one against another, and a hash
- * of a crop compared against a hash of a whole photograph would be two
- * different framings of the same book scored as though they were comparable.
- * Same algorithm, same format tag, same input, or the comparison is not one.
+ * Deliberately the original, not the crop: a match is decided by comparing
+ * one hash against another, and a crop hashed here against a whole photograph
+ * hashed elsewhere would score two different framings of the same book as
+ * comparable when they are not. Same algorithm, same format tag, same input.
  *
- * Only the reader is wanted, not the writer: nothing here produces a file, and
- * narrowing the parameter says so where a comment would only claim it.
+ * Only the reader is wanted, not the writer: nothing here produces a file.
  */
 export async function hashFront(
   sink: CaptureSink,
@@ -173,9 +147,9 @@ export async function hashFront(
   try {
     source = Buffer.from(await io.read(capture.front_image))
   } catch {
-    // A photograph that has gone missing leaves whatever hash was there. A
-    // stale hash is useless, but blanking it would throw away the evidence
-    // that this capture was ever hashed, exactly as `rehash` argues.
+    // A photograph that has gone missing leaves the stored hash as it was; a
+    // stale hash is useless, but blanking it would lose the evidence the
+    // capture was ever hashed. See rehash.ts.
     return 'unreadable'
   }
 
@@ -183,9 +157,8 @@ export async function hashFront(
   try {
     hash = await coverHash(source)
   } catch {
-    // No detail in the frame, or bytes that are not an image. Either way
-    // there is nothing honest to store, and something dishonest here would be
-    // offered to somebody as the book in their hands.
+    // No detail in the frame, or bytes that are not an image; either way
+    // there is nothing safe to store as a hash.
     return 'refused'
   }
 
@@ -234,10 +207,10 @@ export interface BackfillOptions extends CropOptions {
 /**
  * Work through the captures already in the queue.
  *
- * New captures are derived by the worker as their photographs arrive, so this
- * exists for the ones photographed before any of that. Nothing calls it on a
- * timer and no route triggers it: `crop-captures.ts` is the front end, and
- * like the two backfills before it, it is a dry run unless told otherwise.
+ * New captures are derived by the worker as their photographs arrive; this
+ * exists for ones photographed before that ran. Nothing calls it on a timer
+ * and no route triggers it: `crop-captures.ts` is the front end, and it is a
+ * dry run unless told otherwise.
  */
 export async function backfillCaptures(
   source: CaptureSource,

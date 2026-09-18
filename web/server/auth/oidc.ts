@@ -1,42 +1,24 @@
 /**
- * The authorization code flow with PKCE, server-side, and nothing else (#521).
+ * The authorization code flow with PKCE, server-side, and nothing else. No
+ * token ever reaches the client, because a token in a browser is a credential in
+ * a place this app cannot revoke. What the browser gets is a cookie addressing a
+ * row in `session`, which this app owns and can delete.
  *
- * Not implicit, and no token ever reaches the client: #510 says so and the
- * reason is that a token in a browser is a credential in a place this app cannot
- * revoke. What the browser gets is a cookie addressing a row in `session`, which
- * this app owns and can delete.
- *
- * ## Why there is no library here
- *
- * `openid-client` and `passport` are both fine and both are a dependency plus
- * their transitive trees, in a repository whose whole server has express, pg and
- * drizzle and nothing else in front of a request. What is actually needed is
- * three things — a PKCE pair, a URL, and a POST that comes back with an ID token
- * — and each of them is a handful of lines against `node:crypto` and `fetch`.
- * The part that would be worth a library is signature verification, and the
- * section below is why that part is not done at all.
- *
- * ## The ID token's signature is deliberately not checked, and this is allowed
- *
+ * The ID token's signature is deliberately not checked, and this is allowed.
  * OpenID Connect Core 1.0 section 3.1.3.7 item 6 says, of the code flow: "If the
  * ID Token is received via direct communication between the Client and the Token
  * Endpoint (which it is in this flow), the TLS server validation MAY be used to
- * validate the issuer in place of checking the token signature."
+ * validate the issuer in place of checking the token signature." `exchange`
+ * posts to a hard-coded HTTPS endpoint belonging to the provider, over a TLS
+ * connection Node validates, carrying a client secret only this server holds,
+ * and the token does not pass through the browser, so there is nothing in
+ * between to have altered it.
  *
- * That is exactly the case here. `exchange` posts to a hard-coded HTTPS endpoint
- * belonging to the provider, over a TLS connection Node validates, carrying a
- * client secret only this server holds. The token does not pass through the
- * browser, so there is nothing in between to have altered it, and a token that
- * came back from Google's token endpoint over a validated TLS connection is from
- * Google whatever its header says.
+ * What is checked instead, and all of it is: `iss` is the provider's, `aud` is
+ * this app's client id, `exp` has not passed, `nonce` is the one this server put
+ * in the authorization request, and `sub` is present.
  *
- * **What is checked, and all of it is:** `iss` is the provider's, `aud` is this
- * app's client id, `exp` has not passed, `nonce` is the one this server put in
- * the authorization request, and `sub` is present. Those are the claims that
- * make a token this token rather than some other valid one, and a signature
- * check would not add any of them.
- *
- * **What would flip this:** a flow where the token reaches this server through
+ * What would flip this: a flow where the token reaches this server through
  * anything but a direct call to the token endpoint. There is none, and if one is
  * ever added it needs JWKS and real verification, not this file's shortcut.
  */
@@ -46,10 +28,8 @@ import { createHash, randomBytes } from 'node:crypto'
 import type { SignInTrouble } from '../../shared/auth'
 import type { SignInProviderConfig } from './providers'
 
-/** How long this server waits on a provider before giving up. */
 const TOKEN_TIMEOUT_MS = 10_000
 
-/** 32 random bytes as base64url, which is how every opaque value here is made. */
 export function opaque(): string {
   return randomBytes(32).toString('base64url')
 }
@@ -70,7 +50,6 @@ export function pkce(): { verifier: string; challenge: string } {
   }
 }
 
-/** Where the browser is sent to authorize. */
 export function authorizationUrl(
   provider: SignInProviderConfig,
   args: { redirectUri: string; state: string; nonce: string; challenge: string },
@@ -90,17 +69,10 @@ export function authorizationUrl(
 /**
  * What a provider refused with, in a shape a route can answer from.
  *
- * **`trouble` is required, and that is the point of it** (#557). Until these
- * routes redirected, the message was the whole answer: it went into a JSON body
- * a browser rendered as a page, so nothing downstream ever had to know which
- * kind of refusal this was. Now the callback has to choose one of six sentences
- * for a person, and the only place that choice can be made correctly is here,
- * where the refusal is decided. A `catch` reading the message to work it out
- * would be a string match on English, and the next throw added would quietly
- * fall into whichever branch its wording happened to hit.
- *
- * So every `throw` names its reason, `grep` finds all of them at once, and a new
- * one cannot be written without deciding what a person is told.
+ * `trouble` is required, so every `throw` names its reason where the refusal is
+ * decided. A `catch` working it out from the message would be a string match on
+ * English, and the next throw added would quietly fall into whichever branch its
+ * wording happened to hit.
  */
 export class SignInRefused extends Error {
   constructor(
@@ -117,12 +89,9 @@ export class SignInRefused extends Error {
 /**
  * Trade the authorization code for an ID token, server to server.
  *
- * Bounded, for the reason `server/bounded-fetch.ts` exists: a reader with no
- * `AbortController` behind it is a dependency that can hang, and this one has
- * somebody standing in front of a browser waiting on it. It is not
- * `fetchBounded` itself because that helper is for the book catalogues — it is
- * GET-only, it puts everything in the query string, and the vocabulary it
- * answers with is checked by `source-watch.ts` and reaches `/api/health`.
+ * Bounded, because a reader with no `AbortController` behind it is a dependency
+ * that can hang, and this one has somebody standing in front of a browser
+ * waiting on it.
  *
  * The client secret goes in the body rather than in a Basic header. Both are
  * allowed by RFC 6749 and Google documents the body form; the body is not
@@ -161,7 +130,7 @@ export async function exchange(
       throw new SignInRefused(
         `${provider.label} refused the sign-in (HTTP ${response.status}).`,
         // The provider answered, and its answer was no. Trying again gets the
-        // same no, which is what separates this from `unavailable` below.
+        // same no.
         'refused',
       )
     }
@@ -173,8 +142,7 @@ export async function exchange(
       aborted
         ? `${provider.label} did not answer in time.`
         : `${provider.label} could not be reached.`,
-      // Nobody was asked, so nothing about this sign-in was decided. It is the
-      // one refusal here where trying again in a minute is real advice.
+      // Nobody was asked, so nothing about this sign-in was decided.
       'unavailable',
       error,
     )
@@ -188,7 +156,6 @@ export async function exchange(
   return claimsFrom(payload.id_token, provider, now)
 }
 
-/** One claim set, as far as this app cares about it. */
 interface Claims {
   iss?: unknown
   aud?: unknown
@@ -201,16 +168,12 @@ interface Claims {
 }
 
 /**
- * Read an ID token's claims and refuse it unless every one of them is right.
- *
- * See the header for why the signature is not among them and why that is
- * permitted. Exported so `oidc.test.ts` can drive each refusal on its own: a
- * check nobody has watched fail is not a check.
+ * Read an ID token's claims and refuse it unless every one of them is right. See
+ * the header for why the signature is not among them and why that is permitted.
  *
  * `aud` may be a string or an array of strings; both are in the specification.
- * `email_verified` is read and **not** used to decide anything, because email
- * decides nothing here: it is a label on `user_identity`, an unverified one is
- * simply a label that may be wrong, and the identity is `(iss, sub)` either way.
+ * `email_verified` is read and deliberately not used to decide anything: email
+ * is a label on `user_identity`, and the identity is `(iss, sub)` either way.
  */
 export function claimsFrom(
   idToken: string,
@@ -244,8 +207,7 @@ export function claimsFrom(
 
   // Seconds since the epoch, per the specification, and compared with no leeway.
   // A clock skew allowance is a window in which an expired token is accepted,
-  // and the tokens this reads are seconds old because this server asked for them
-  // itself a moment ago.
+  // and the tokens this reads are seconds old.
   if (typeof claims.exp !== 'number' || claims.exp * 1000 <= now.getTime()) {
     throw new SignInRefused('That ID token has expired.', 'refused')
   }

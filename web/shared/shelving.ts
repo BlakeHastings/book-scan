@@ -1,9 +1,5 @@
 /**
  * The shelving algorithm. See docs/shelving.md for the reasoning.
- *
- * Everything here is a pure function over plain data: no database, no network,
- * no DOM. That is deliberate, because it is the part most worth testing and
- * the part most likely to need tweaking once real books hit real shelves.
  */
 
 export type ShelfRange = 'fiction' | 'nonfiction'
@@ -12,39 +8,16 @@ export type ShelfRange = 'fiction' | 'nonfiction'
  *  comparing whole joined keys reproduces tuple comparison exactly. */
 export const SEP = '\x1f'
 
-// ---------------------------------------------------------------------------
-// Normalisation
-// ---------------------------------------------------------------------------
-
 /**
  * Fold text down to letters, digits and single spaces, so a byte order
- * collation orders it correctly without the ICU extension.
+ * collation orders it correctly without the ICU extension. Space (0x20)
+ * sorting below every letter is load-bearing: it is what makes `SMITH ANN`
+ * come before `SMITHSON A`, and `SEP` sorts below the space, which is what
+ * makes the flattened sort key reproduce tuple comparison.
  *
- * Space (0x20) sorting below every letter is load-bearing: it is what makes
- * `SMITH ANN` come before `SMITHSON A`. `SEP` sorts below the space, which is
- * what makes the flattened sort key reproduce tuple comparison.
- *
- * **Letters, not `[A-Z]`, and that is issue #195.** This dropped everything
- * outside `[A-Z0-9 ]` until then, which is not a fold at all for a name written
- * in a script that has no `A-Z` in it: `Фёдор Достоевский` came back empty, so
- * the book's author component of the sort key was empty and it sorted ahead of
- * every book in its range, its filing name could not be looked up or overridden
- * (both are keyed on this), and the needs-attention list called it "unknown
- * author" while its own page named the author. Keeping the letters is the
- * smallest change that makes all four of those one answer again.
- *
- * Accents are still folded away, and only by the combining marks Latin
- * decomposes into: `Böll` is `BOLL` and `García` is `GARCIA` exactly as before,
- * so nothing that was already filed moves. `domain/authorship/nameKey` keeps
- * accents on purpose and says at itself why the two differ.
- *
- * **The one place this is not exactly the stored order.** `books.sort_key`
- * collates `C`, which is UTF-8 byte order, and this code compares the same keys
- * with `<`, which is UTF-16 code unit order. Those agree for every character in
- * the basic plane and disagree only for one outside it compared against
- * U+E000..U+FFFF, which is a rare CJK ideograph filed against a private use
- * character. Worth knowing rather than worth guarding: the pre-#195 fold agreed
- * with the collation by having nothing but ASCII in it, and this one does not.
+ * `books.sort_key` collates UTF-8 byte order and this code compares the same
+ * keys in UTF-16 code unit order. Those agree for every character in the basic
+ * plane and disagree only for one outside it compared against U+E000..U+FFFF.
  */
 export function normalise(value: string): string {
   return (value ?? '')
@@ -61,10 +34,6 @@ export function padNumbers(value: string): string {
   return value.replace(/\d+/g, (digits) => digits.padStart(6, '0'))
 }
 
-// ---------------------------------------------------------------------------
-// Author filing name
-// ---------------------------------------------------------------------------
-
 const PARTICLES = new Set([
   'van', 'von', 'de', 'del', 'della', 'der', 'den', 'di', 'da', 'du', 'das',
   'dos', 'la', 'le', 'las', 'los', 'lo', 'ter', 'ten', 'af', 'av', 'bin',
@@ -79,8 +48,8 @@ const HONORIFICS = new Set([
   'dr', 'prof', 'sir', 'dame', 'lady', 'lord', 'rev', 'fr',
 ])
 
-/** Strip a token down to comparable letters. Keeps the apostrophe so
- *  `O'Brien` stays one word and never looks like the particle `o`. */
+/** Keeps the apostrophe so `O'Brien` stays one word and never looks like the
+ *  particle `o`. */
 function bare(token: string): string {
   return token.replace(/[^A-Za-z']/g, '').toLowerCase()
 }
@@ -97,18 +66,9 @@ function bare(token: string): string {
  * Neither is separable by heuristic, which is why the author_filing override
  * table exists. Do not try to fix these here.
  *
- * **This is the only derivation of a filing name in the app**, and it is in
- * `shared/` so that it can be. The client renders it as you type, `Store.
- * filingFor` stores it when no override exists, and `PrintedName.derivedFiling`
- * is it. Two of those disagreeing is not a cosmetic difference: opening a book
- * whose stored filing name is not what the client would derive pins the stored
- * one into the draft as an override (`App.tsx`), so the disagreement is written
- * back the next time somebody saves.
- *
- * **It answers a name for anything with a name in it**, falling back to what was
- * printed. Nothing that files a book can use an empty answer: the empty string
- * sorts ahead of every real one, so a book with an author would be shelved as
- * though it had none (#195).
+ * It answers a name for anything with a name in it, falling back to what was
+ * printed. The empty string sorts ahead of every real one, so a book with an
+ * author would otherwise be shelved as though it had none.
  */
 export function filingName(display: string): string {
   const printed = (display ?? '').replace(/\s+/g, ' ').trim()
@@ -128,9 +88,8 @@ export function filingName(display: string): string {
     suffixes.unshift(tokens.pop()!)
   }
 
-  // Everything that was there was an honorific or a suffix, so the heuristic
-  // has nothing to invert. What is printed on the book is the answer, and an
-  // empty string is not one: see the note above.
+  // Everything there was an honorific or a suffix, so there is nothing to
+  // invert, and an empty answer is not usable: see the note above.
   if (!tokens.length) return printed
 
   const withSuffix = (base: string) =>
@@ -147,18 +106,12 @@ export function filingName(display: string): string {
   return withSuffix(first ? `${last}, ${first}` : last)
 }
 
-/** The filing author is whoever is listed first. */
 export function primaryAuthor(authors: string[]): string {
   return authors.find((name) => name.trim().length > 0)?.trim() ?? ''
 }
 
-// ---------------------------------------------------------------------------
-// Title filing name
-// ---------------------------------------------------------------------------
-
 const LEADING_ARTICLES = ['THE', 'A', 'AN']
 
-/** Normalised title with a leading English article removed. */
 export function titleFiling(title: string): string {
   const value = normalise(title)
   for (const article of LEADING_ARTICLES) {
@@ -166,10 +119,6 @@ export function titleFiling(title: string): string {
   }
   return value
 }
-
-// ---------------------------------------------------------------------------
-// Sort key
-// ---------------------------------------------------------------------------
 
 export interface SortKeyInput {
   /** Filing name, already overridden if an override exists. */
@@ -183,9 +132,6 @@ export interface SortKeyInput {
  * Flatten `(author, hasSeries, series, index, title)` into one comparable
  * string. `hasSeries` is 0 for series books so an author's series blocks sit
  * ahead of their standalone titles.
- *
- * To interleave series at their alphabetical position instead, drop the
- * hasSeries component and fall back to the title for standalones.
  */
 export function buildSortKey(input: SortKeyInput): string {
   const author = padNumbers(normalise(input.authorFiling))
@@ -197,10 +143,6 @@ export function buildSortKey(input: SortKeyInput): string {
 
   return [author, hasSeries, padNumbers(series), index, title].join(SEP)
 }
-
-// ---------------------------------------------------------------------------
-// Locations
-// ---------------------------------------------------------------------------
 
 export interface ParsedLocation {
   shelf: number
@@ -219,70 +161,34 @@ export function formatLocation(location: ParsedLocation): string {
   return `${location.shelf}${location.section}`
 }
 
-/*
- * `compareLocations` stood here: an ordering over two labels that answered 0
- * for two it could not parse, which is every label on a piece somebody has
- * named. Its last caller was `buildPlacement`, asking it whether two
- * neighbours stand in the same place, and #468 is what that answered. Deleted
- * with that caller rather than left for the next one, because a comparison
- * over renderings has no reader here that is not eventually asking about
- * identity, and identity is the area's id. Nothing orders planks by label:
- * the layout walks the run in the order the furniture stands in the room.
- */
-
-// ---------------------------------------------------------------------------
-// Placement
-// ---------------------------------------------------------------------------
-
 export interface Neighbour {
   id: number
   title: string
   authorFiling: string
   /**
-   * The printed string this book carries, `books.authors` unjoined.
-   *
-   * The filing name comes from a credit row, and a book can be missing one: a
-   * queued book that has not been credited yet, or a save whose credit write
-   * did not land. `authorFiling` is then empty, and this is what `describe`
-   * falls back to before it says nobody knows, because the book still carries
-   * a name a person can read even when nothing has been filed against it.
+   * The printed string this book carries, `books.authors` unjoined. The filing
+   * name comes from a credit row and a book can be missing one, so this is what
+   * `describe` falls back to before it says nobody knows.
    */
   authors: string
   /**
    * Where this book stands, as a person reads it. Empty when nobody has said.
-   *
-   * **A rendering, and nothing is decided from it.** The same string is what
-   * `FiledBook.location` is, for the same reason: the label a plank reads as
-   * changes the moment somebody names the piece holding it, so two planks of
-   * one named piece are two labels that no longer look like `4A` and `4B` to
-   * anything reading them back. See `areaId`.
+   * A rendering, and nothing is decided from it: see `areaId`.
    */
   location: string
   /**
-   * The area `location` is a rendering of, or null when nobody has said.
-   *
-   * The identity half, and the half `buildPlacement` asks whether two
-   * neighbours are on one plank. It used to compare the two labels, through an
-   * ordering that reported two labels it could not parse equal, so on a named
-   * piece every pair of neighbours was "the same place" and the instruction
-   * somebody reads at a bookcase named one plank where there were two (#468).
+   * The area `location` is a rendering of, or null when nobody has said. The
+   * identity half, and the half `buildPlacement` asks whether two neighbours
+   * are on one plank.
    */
   areaId: number | null
   sortKey: string
-  /**
-   * Filenames of this book's photos, served from /api/covers.
-   *
-   * The spine is the one that matters when placing a book: it is what you
-   * actually see looking at a shelf. Front and back are there as fallbacks
-   * for books photographed before the spine slot was filled.
-   */
+  /** Filenames of this book's photos, served from /api/covers. */
   images: { front: string; back: string; edge: string }
 }
 
-/** Which photo of a book is being shown in place of its spine. */
 export type ShelfSlot = 'edge' | 'front' | 'back' | ''
 
-/** Crops of the three photos, cut to the book. Absent where there is none. */
 export interface BookCrops {
   front?: string
   back?: string
@@ -293,14 +199,9 @@ export interface BookCrops {
  * The best photo for recognising a book on a shelf, and which slot it is.
  *
  * Spine first, by a mile: it is the only face you can see with the book
- * shelved. Front then back are fallbacks for books catalogued before the
- * spine slot existed, and the slot comes back with the filename so a caller
- * can crop it correctly and say what it is looking at. A cover standing in
- * for a spine should not be passed off as one.
- *
- * The single place this precedence is written down. The server sends strips
- * through it and the library draws its rows through it, and two copies of
- * this would be two rows of books that disagree about the same shelf.
+ * shelved. The slot comes back with the filename so a caller can crop it
+ * correctly and say what it is looking at, rather than pass a cover off as a
+ * spine. The single place this precedence is written down.
  */
 export function shelfImage(images: {
   front: string
@@ -308,9 +209,7 @@ export function shelfImage(images: {
   edge: string
   /**
    * Crops cut to the book itself. As in `bookCover`, the slot is chosen first
-   * and the crop of that slot then stands in for the whole frame, so the three
-   * views agree about which face of a book they are drawing whether or not any
-   * of them cropped.
+   * and the crop of that slot then stands in for the whole frame.
    */
   crops?: BookCrops
 }): {
@@ -327,7 +226,6 @@ export function shelfImage(images: {
   return { name: '', slot: '', whole: '' }
 }
 
-/** Which picture of a book is on screen, when the picture is the point. */
 export type CoverSlot = ShelfSlot | 'catalogue'
 
 export interface BookCover {
@@ -348,17 +246,12 @@ export interface BookCover {
 /**
  * The picture of a book, for a view whose whole content is pictures.
  *
- * The opposite question from `shelfImage`, and so the opposite order. There the
- * spine wins because it is the only face you can see with the book shelved;
- * here the book is lying face up on a screen, so the front comes first.
- *
- * A photograph of this copy beats the catalogue's picture every time. An ISBN
- * often has several cover designs against it, and a design somebody has never
- * seen looks like the wrong book. The catalogue's is the last resort and comes
- * back labelled, so a grid can say whose picture it is instead of quietly
- * passing it off. That precedence, and that honesty, is the one the scan view
- * has always used; this is the same rule with the slot travelling alongside,
- * moved next to `shelfImage` so the two views cannot drift apart.
+ * The opposite order from `shelfImage`: the book is lying face up on a screen,
+ * so the front comes first. A photograph of this copy beats the catalogue's
+ * picture every time, because an ISBN often has several cover designs against
+ * it and a design somebody has never seen looks like the wrong book. The
+ * catalogue's is the last resort and comes back labelled so a grid can say
+ * whose picture it is.
  */
 export function bookCover(images: {
   front: string
@@ -367,13 +260,9 @@ export function bookCover(images: {
   /** The publisher's cover for this ISBN. Not a photo of this copy. */
   catalogue: string
   /**
-   * Crops of the three photos, cut to the book itself.
-   *
-   * Which slot wins is decided first and is unaffected by these: a front photo
-   * still beats a spine whether or not either has been cropped. Only once the
-   * slot is chosen does the crop of that slot stand in for the whole frame, so
-   * a view showing the surrounding room is never showing it because a
-   * different photo happened to crop better.
+   * Crops of the three photos, cut to the book itself. Which slot wins is
+   * decided first and is unaffected by these: only once the slot is chosen does
+   * the crop of that slot stand in for the whole frame.
    */
   crops?: BookCrops
 }): BookCover {
@@ -399,17 +288,14 @@ export function bookCover(images: {
   return { name: '', whole: '', slot: '', fromCatalogue: false, cropped: false }
 }
 
-/** Best photo for recognising a book on a shelf. Spine first, by a mile. */
 export function shelfPhoto(neighbour: Neighbour | null): string {
   return neighbour ? shelfImage(neighbour.images).name : ''
 }
 
 /**
- * Which slot shelfPhoto picked, so a thumbnail can be framed accordingly.
- *
- * A spine and a cover want opposite crops at thumbnail size: the useful part
- * of a spine is its top, where the title starts, while a cover reads best from
- * its middle.
+ * Which slot shelfPhoto picked. A spine and a cover want opposite crops at
+ * thumbnail size: the useful part of a spine is its top, where the title
+ * starts, while a cover reads best from its middle.
  */
 export function shelfPhotoSlot(neighbour: Neighbour | null): ShelfSlot {
   return neighbour ? shelfImage(neighbour.images).slot : ''
@@ -422,31 +308,17 @@ export type PlacementKind =
   | 'end-of-range'
   | 'first-in-range'
   /**
-   * A position on one plank rather than a position in a run (#429).
-   *
-   * Every kind above is a statement about a whole range, because every one of
-   * them was answered by looking the book up in the run it belongs to. A book
-   * being carried is answered about the plank somebody is standing at, and there
-   * are books of that range on other planks, so "first in non-fiction" and "last
-   * in non-fiction" are both false of it. See `placementOnAPlank`.
+   * A position on one plank rather than a position in a run. Every kind above
+   * is a statement about a whole range, so "first in non-fiction" and "last in
+   * non-fiction" are both false of a book being carried to one plank. See
+   * `placementOnAPlank`.
    */
   | 'on-a-plank'
   /**
-   * No rule says where this range begins, so nothing says where the book goes
-   * (#479).
-   *
-   * **Not an error and not a wait.** It is the state every collection is in
-   * before anybody has written a rule, and the state a collection returns to
-   * the moment a rule is taken off the last place that served a range, which
-   * the rule editor warns about in those words: "the library would have no rule
-   * saying where it begins". The book still has a range, the sequence still
-   * knows which two books it falls between, and what is missing is the one
-   * thing the rules alone can say.
-   *
-   * It is a kind rather than a null placement because the range is known. A
-   * book carrying no genre tag gets no placement at all, which is a different
-   * absence: there is no run for it to be in, rather than a run standing
-   * nowhere.
+   * No rule says where this range begins, so nothing says where the book goes.
+   * Not an error and not a wait: it is the state every collection is in before
+   * anybody has written a rule. A book carrying no genre tag gets no placement
+   * at all, which is a different absence.
    */
   | 'range-has-no-start'
 
@@ -457,7 +329,6 @@ export interface Placement {
   successor: Neighbour | null
   /** Pre-filled location for the user to confirm or override. */
   suggestedLocation: string
-  /** One line, ready to render large on a phone held next to a shelf. */
   instruction: string
 }
 
@@ -468,20 +339,10 @@ const RANGE_LABEL: Record<ShelfRange, string> = {
 
 /**
  * The best name to show for a book when nothing is to be invented: the filing
- * name if there is one, the string the book itself carries otherwise, and
- * empty only when neither exists.
- *
- * One function for every place that asks this question: `describe` below,
- * the misfile instruction in `reviewShelving`, and the needs-attention row
- * `ShelfView` draws from a `Misfile` directly rather than from its
- * `instruction` string. All three used to stop at `authorFiling`, which is
- * empty for a book with no credit even though `books.authors` still holds
- * what was printed, so all three said nobody was known about a book that
- * named its own author on the cover (#195 found the same gap in the
- * needs-attention list once before, for a different reason). Each caller
- * still decides what to say when even this comes up empty, because "Unknown
- * author" and "unknown author" are two different sentences to two different
- * readers.
+ * name if there is one, the string the book itself carries otherwise, and empty
+ * only when neither exists. Each caller decides what to say when it comes up
+ * empty, because "Unknown author" and "unknown author" are two different
+ * sentences to two different readers.
  */
 export function bestKnownAuthor(authorFiling: string, authors: string): string {
   return authorFiling || authors.trim()
@@ -496,19 +357,13 @@ function describe(neighbour: Neighbour): string {
  * Build the instruction shown to the user. Neighbours come from the store;
  * this function only decides how to say it.
  *
- * Location is descriptive rather than prescriptive: we never claim a book
- * *must* go in a section, only which two books it belongs between. The
- * suggested location is a starting point the user can override, which is what
- * makes a full shelf a non-event.
+ * Location is descriptive rather than prescriptive: we never claim a book must
+ * go in a section, only which two books it belongs between.
  *
- * **`rangeStart` is null when no rule says where the range begins** (#479), and
- * that answer is `bandsOf`'s rather than anything invented here or by either
- * caller. It used to be a string either way, and the two callers each made up
- * their own: `Shelves.startOf` said the first bookcase and `Store.rangeStart`
- * said bookcase 4 for non-fiction, so the same missing rule produced two
- * different planks. Neither had a specification behind it, and the owner
- * settled that there is not supposed to be one: a range begins wherever the
- * rule set says, and where the rule set says nothing there is nowhere.
+ * `rangeStart` is null when no rule says where the range begins, and that
+ * answer is `bandsOf`'s rather than anything invented here or by a caller: a
+ * range begins wherever the rule set says, and where it says nothing there is
+ * nowhere.
  */
 export function buildPlacement(
   range: ShelfRange,
@@ -520,10 +375,9 @@ export function buildPlacement(
 
   /*
    * Asked before the four sentences below, because every one of them names the
-   * range's start where a neighbour cannot be named, and there is no plank to
-   * name. The two books either side are still carried: they are the sequence,
-   * which is a fact about the books rather than about the furniture, and the
-   * screen draws them under a sentence that says why there is no place yet.
+   * range's start where a neighbour cannot be named, and here there is no plank
+   * to name. The two books either side are still carried: they are the
+   * sequence, which is a fact about the books rather than the furniture.
    */
   if (rangeStart === null) {
     return {
@@ -540,12 +394,8 @@ export function buildPlacement(
 
   if (predecessor && successor) {
     /*
-     * On ids, never on the two labels (#468). This asked an ordering over
-     * labels, which answered "equal" for two labels it could not parse: every
-     * label on a piece somebody has named. So it said "one plank" about every
-     * boundary on a named bookcase, in the sentence a person acts on standing
-     * at it. A label is a rendering; only the area says whether two books
-     * stand in the same place.
+     * On ids, never on the two labels. A label is a rendering; only the area
+     * says whether two books stand in the same place.
      */
     const samePlace =
       predecessor.areaId !== null && predecessor.areaId === successor.areaId
@@ -613,21 +463,12 @@ export function buildPlacement(
 }
 
 /**
- * The same sentence about one plank, for a book somebody is carrying to it
- * (#429).
+ * The same sentence about one plank, for a book somebody is carrying to it.
  *
- * **`buildPlacement` above answers about a range and this one cannot.** Its
- * four sentences say "first in non-fiction" and "last in non-fiction", which are
- * true of a book looked up in the run it belongs to and false of a book being
- * put on a particular plank: the neighbours here are the two books either side
- * of it *on that plank*, and there is a whole range of other books on other
- * planks either side of them. Somebody carrying the third of eight books onto an
- * empty `3A` would otherwise be told, twice, that it is the last book in
- * non-fiction.
- *
- * So the plank is the subject of every sentence, and each one names it. Nothing
- * here is a second opinion about *which* plank: that is settled by the trip
- * before this is called, which is the whole of the fix in #429.
+ * The neighbours here are the two books either side of it on that plank, so the
+ * plank is the subject of every sentence and each one names it. Nothing here is
+ * a second opinion about which plank: that is settled by the trip before this is
+ * called.
  */
 export function placementOnAPlank(
   range: ShelfRange,
@@ -653,26 +494,10 @@ export function placementOnAPlank(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Where a book stands
-// ---------------------------------------------------------------------------
-
 /**
  * The piece a book's area hangs on, and where the two of them stand in the room.
- *
- * The other half of `location`. A label answers "what does somebody read"; this
- * answers "which place is it, where does that place stand among the others, and
- * what is the piece holding it called", which are the three questions a drawing
- * of the room has to ask and none of which a label can be asked without being
- * taken apart again.
- *
- * **Taking a label apart is what this replaces.** The library's boards were cut
- * where the label string changed and headed by a regular expression over it, so
- * a book whose genre tag moved it into the other run while it went on standing
- * where it always had drew a second copy of its bookcase in the middle of
- * another one (#434). That is the fifth time a place has been answered twice and
- * disagreed: #356, #380, #401 and #430 are the others, and every one of them was
- * a rendering being read back as if it were an identity.
+ * The other half of `location`, which is only a rendering and cannot be asked
+ * these questions without being taken apart again.
  *
  * The ordinals rather than the label for the ordering, for the reason
  * `FiledBook.standing` gives: the walk goes in the order the furniture stands in
@@ -681,14 +506,12 @@ export function placementOnAPlank(
  * this catalogue has.
  */
 export interface AreaStanding {
-  /** The piece the area hangs on, as itself rather than as its number. */
   fixtureId: number
   /** The piece's ordinal, 1-based, which is the `1` in `1A`. */
   fixture: number
   /**
-   * The area's ordinal on that piece, 0-based, which is the `A` in `1A`.
-   *
-   * The face it reads as, so an area somebody retired while books were still
+   * The area's ordinal on that piece, 0-based, which is the `A` in `1A`. The
+   * face it reads as, so an area somebody retired while books were still
    * standing on it keeps the plank a person would walk to rather than the
    * negative the row stores.
    */
@@ -699,14 +522,6 @@ export interface AreaStanding {
   kind: string
 }
 
-// ---------------------------------------------------------------------------
-// Misfile detection
-// ---------------------------------------------------------------------------
-
-/**
- * One book, seen from both sides of the disagreement this section exists to
- * find.
- */
 export interface FiledBook {
   id: number
   title: string
@@ -714,34 +529,28 @@ export interface FiledBook {
   /** The printed string this book carries. See `Neighbour.authors`. */
   authors: string
   /**
-   * Where a person last said this book physically is, as a label to read.
-   *
-   * Empty when nobody has ever said. **Nothing is decided from this**: it is a
-   * rendering of `areaId`, and the label a piece of furniture reads as changes
-   * the moment somebody names it. See `areaId`.
+   * Where a person last said this book physically is, as a label to read. Empty
+   * when nobody has ever said. Nothing is decided from this: it is a rendering
+   * of `areaId`, and the label a piece of furniture reads as changes the moment
+   * somebody names it.
    */
   location: string
   /**
    * The area a person last put this book in, which is where it actually is.
-   *
    * Null when nobody has ever said. This is the identity half of `location` and
    * it is the half the judgement is made on.
    */
   areaId: number | null
   /**
    * Where sort order and the furniture put it now, as a label to read.
-   *
-   * Recomputed from the catalogue every time, so editing an author, a series
-   * or the genre moves this while `location` stays where it was. That is
-   * exactly the re-shelving case: the book has to physically move, and the gap
-   * between the two areas is what says so.
+   * Recomputed from the catalogue every time, so editing an author, a series or
+   * the genre moves this while `location` stays where it was.
    */
   derivedLocation: string
   /** The area the order now puts it in. Null when the run has none to give. */
   derivedAreaId: number | null
   /**
    * Where the area it is in stands, for ordering the walk. Null with `areaId`.
-   *
    * Ordinals rather than the label, because the list is walked in the order the
    * furniture stands in the room and a name sorts alphabetically.
    */
@@ -751,7 +560,6 @@ export interface FiledBook {
   checkedOut: boolean
 }
 
-/** Why a book was left out of the list rather than reported in it. */
 export type ExcludedReason =
   /** Physically off the shelf, so there is no position to disagree with. */
   | 'checked-out'
@@ -759,15 +567,10 @@ export type ExcludedReason =
   | 'never-placed'
   /**
    * The run this book files into has no area to put it on, so there is nothing
-   * to compare where it is against.
-   *
-   * The one remaining way a book can reach this check and not be judged by it,
-   * and it means the furniture is missing rather than the book: a range whose
-   * rule points at a piece that has been taken out has no run at all. **A count
-   * of these is a fact somebody needs and never a row to drop quietly.** This
-   * replaces `unreadable-location`, which was reached by a label the check could
-   * not parse and took 181 of 238 books out of the answer the day a bookcase was
-   * given a name (#356). Labels are no longer read here at all.
+   * to compare where it is against. It means the furniture is missing rather
+   * than the book: a range whose rule points at a piece that has been taken out
+   * has no run at all. A count of these is a fact somebody needs and never a
+   * row to drop quietly.
    */
   | 'unplaceable'
 
@@ -776,7 +579,6 @@ export interface Excluded {
   reason: ExcludedReason
 }
 
-/** A book whose physical position disagrees with where it now belongs. */
 export interface Misfile {
   book: FiledBook
   /** What to read for where it is. */
@@ -784,99 +586,49 @@ export interface Misfile {
   /** What to read for where it belongs. */
   to: string
   /**
-   * The area it belongs in, which is what saying "moved it" writes.
-   *
-   * The label is for the person and the id is for the request, and they are two
-   * fields for the reason `/api/carry/trip` takes two ids: a label is derived
-   * from where a piece stands and what it is called, so somebody naming a
-   * bookcase between drawing this list and acting on a row would send the write
-   * to a plank that no longer answers to that name.
+   * The area it belongs in, which is what saying "moved it" writes. The label
+   * is for the person and the id is for the request: a label is derived from
+   * where a piece stands and what it is called, so somebody naming a bookcase
+   * between drawing this list and acting on a row would send the write to a
+   * plank that no longer answers to that name.
    */
   toAreaId: number
-  /** One line, ready to read standing in front of the shelves. */
   instruction: string
   /**
    * The number both ends stand at when the two planks read the same, else null.
-   *
-   * "Last seen on 1B. The order now puts it on 1B." is a sentence somebody
-   * carries out and changes nothing, and it is a real state rather than a
-   * rendering fault: `fixture.position` is deliberately not unique (`schema.ts`)
-   * and two pieces standing at one number draw two planks with one letter. The
-   * carry screen has said so since #447; this row said nothing, and #491 is the
-   * defect that produces five of them at once.
+   * `fixture.position` is deliberately not unique (`schema.ts`), so two pieces
+   * standing at one number draw two planks with one letter.
    *
    * Filled in by the caller rather than here, because working it out needs the
    * pieces the two planks hang on and `shared/` may not reach the furniture.
-   * `sharedNumberOf` in `domain/placement/carry.ts` is the one reading, so the
-   * two screens cannot end up disagreeing about when to say it.
+   * `sharedNumberOf` in `domain/placement/carry.ts` is the one reading.
    */
   sharedNumber: number | null
 }
 
 export interface ShelvingReview {
-  /** Books to physically pick up and move. */
   misfiles: Misfile[]
-  /** Books deliberately not judged, and why. Reported, never counted as errors. */
+  /** Reported, never counted as errors. */
   excluded: Excluded[]
 }
 
 /**
- * Reconcile where books are with where they belong.
- *
- * Locations are descriptive, not prescriptive. Sort order is the truth about
- * what sequence books should be in; the recorded location is the truth about
- * where a book physically is. The two drift apart as books are shelved, and
- * this is the only thing that notices.
- *
- * A misfile is a book that is *on a shelf* and is not in the area its sort
- * position now lands in. Nothing else. In particular this function never
+ * Reconcile where books are with where they belong. A misfile is a book that is
+ * on a shelf and is not in the area its sort position now lands in. This never
  * writes: a book reported here stays exactly where the catalogue says it is
  * until a person says they moved it.
  *
- * ## It compares areas, not what they are called
+ * The judgement is `areaId` against `derivedAreaId`, and the labels are only
+ * ever shown to somebody. Nothing here parses a label: the two sides are
+ * rendered by different code and agree only while no furniture is named.
  *
- * An area has an id and a label is a rendering of it, which is why
- * `docs/data-model.md` has no label column and why `labelFor` is the only place
- * one comes from. The two sides of this comparison are rendered by different
- * code: the ledger renders the area a person put the book in, and the layout
- * renders the plank an ordinal walk lands on. Those agree only while nothing is
- * named, so the day a bookcase was given a name the check could read one side
- * and not the other and set 181 of 238 books aside, and answered an empty list
- * that read as "everything is fine" (#356).
- *
- * So the judgement is `areaId` against `derivedAreaId` and the labels are only
- * ever shown to somebody. **Nothing here parses a label**, and a comparison
- * added below that does is this defect coming back on the next rename.
- *
- * ## Why this rather than the ordering invariant
- *
- * docs/shelving.md states the check as "location rank must be non-decreasing
- * down the sort order". Comparing against the derived location is strictly
- * stronger and strictly kinder:
- *
- *   - It cannot miss anything the rank check catches. Derived locations are
- *     non-decreasing by construction, so an inversion among recorded locations
- *     is impossible unless at least one of them already disagrees with its
- *     derived one.
- *   - It blames the right book. A rank check compares each book with its
- *     neighbour and flags the second of the pair, so a single book put on the
- *     wrong bookcase gets its innocent successor reported instead of itself.
- *   - It names the destination. "Move this to 2A" is actionable; "this sorts
- *     after that" leaves the person to work out where it goes.
- *
- * ## What is deliberately not reported
- *
- * False positives are expensive here: the output is a list somebody walks to
- * the shelf and physically handles, so a list that is mostly wrong gets
- * ignored and hides the real misfiles inside it. Three cases are therefore
- * excluded rather than flagged, and returned under `excluded` so the exclusion
- * is visible instead of silent.
+ * Three cases are excluded rather than flagged, and returned under `excluded`
+ * so the exclusion is visible instead of silent.
  *
  * Call this once per range. Fiction and non-fiction are independent ordered
  * lists that never interact, so their locations are not comparable and must
- * never arrive in the same call.
- *
- * The input does not need to be sorted. Every judgement is per book.
+ * never arrive in the same call. The input does not need to be sorted; every
+ * judgement is per book.
  */
 export function reviewShelving(books: FiledBook[]): ShelvingReview {
   const misfiles: Misfile[] = []
@@ -908,7 +660,7 @@ export function reviewShelving(books: FiledBook[]): ShelvingReview {
       to,
       toAreaId: book.derivedAreaId,
       // Null until a caller that can see the furniture says otherwise. See
-      // `Misfile.sharedNumber`, and `Shelves.review` for the one that does.
+      // `Misfile.sharedNumber`.
       sharedNumber: null,
       instruction:
         `${book.title} (${bestKnownAuthor(book.authorFiling, book.authors) || 'unknown author'}) is at ` +
@@ -918,8 +670,8 @@ export function reviewShelving(books: FiledBook[]): ShelvingReview {
 
   // Ordered by where the book currently is, because that is the order somebody
   // walks the shelves picking them up. Where the furniture stands rather than
-  // what it is called: a piece named "Hall shelf" is not walked to between 1 and
-  // 2 because H sorts there.
+  // what it is called: a piece named "Hall shelf" is not walked to between 1
+  // and 2 because H sorts there.
   misfiles.sort((a, b) =>
     (a.book.standing?.fixture ?? 0) - (b.book.standing?.fixture ?? 0) ||
     (a.book.standing?.plank ?? 0) - (b.book.standing?.plank ?? 0) ||

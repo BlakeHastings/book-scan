@@ -1,15 +1,8 @@
 /**
- * What the tagging application layer needs from the outside world, said as
- * interfaces it owns.
- *
- * The second port file in the codebase, and deliberately the same shape as
- * `application/shelving/ports.ts`: the arrow points inwards, nothing here names
- * a driver, a query builder or a connection, and `npm run lint:layers` is what
- * checks that rather than a reviewer.
- *
- * Nothing here returns rows. A `Tag` is a tag and an `AppliedTag` carries a
- * `TagSlug`, so column names stop at the implementation and the rule in
- * `domain/tagging/tags.ts` never has to know one.
+ * What the tagging application layer needs from the outside world. Nothing
+ * here returns rows: a `Tag` is a tag, an `AppliedTag` carries a `TagSlug`, so
+ * the domain rule never sees a column name. `npm run lint:layers` enforces the
+ * inward-only imports.
  */
 
 import type { AppliedTag, TagConfidence, TagSlug, TagSource } from '../../domain/tagging/tags'
@@ -31,25 +24,18 @@ export interface TagApplication {
 }
 
 /**
- * The vocabulary, and which books carry what.
+ * The vocabulary, and which books carry what. Not a generic repository: every
+ * method is something the tagging code actually does.
  *
- * Small on purpose, and not a generic repository. Every method is one of the
- * things the tagging code actually does; a `find(criteria)` would be a query
- * builder wearing a repository's name.
- *
- * **There is no `rename` that takes a slug to a slug, and that absence is the
- * design.** A slug is the identity, rules reference it, and rewriting one makes
- * every rule mentioning it stop matching. `relabel` is the whole of renaming.
+ * No `rename` from slug to slug, deliberately: a slug is the identity rules
+ * reference, and rewriting one would break every rule mentioning it.
+ * `relabel` changes only the display label.
  */
 export interface TagRepository {
   /**
-   * Make sure this slug exists, and answer the tag it names.
-   *
-   * Idempotent, and **it never rewrites an existing tag's slug or label**. A
-   * second caller arriving with the same slug and a different label gets the
-   * label that is already there: labels are changed by somebody deciding to
-   * change one, through `relabel`, not as a side effect of a catalogue lookup
-   * spelling a heading differently this week.
+   * Ensures this slug exists, returning the tag it names. Idempotent: a
+   * second call with the same slug and a different label keeps the existing
+   * label.
    */
   define(slug: TagSlug, label: string, note?: string): Promise<Tag>
 
@@ -57,10 +43,8 @@ export interface TagRepository {
   relabel(slug: TagSlug, label: string): Promise<void>
 
   /**
-   * The vocabulary, or the part of it at or under one slug.
-   *
-   * The prefix is answered as a range over the slug rather than by filtering in
-   * this process, which is what `COLLATE "C"` on that column bought.
+   * The vocabulary, or the part at or under one slug. Implemented as a range
+   * scan over the sorted `COLLATE "C"` column, not an in-process filter.
    */
   vocabulary(under?: TagSlug): Promise<Tag[]>
 
@@ -68,52 +52,39 @@ export interface TagRepository {
   of(bookId: number): Promise<AppliedTag[]>
 
   /**
-   * Write these applications, replacing the confidence of any that are already
-   * there from the same source. Applying a tag twice is not an error: somebody
-   * saying a thing again means the same as saying it once.
+   * Writes these applications, replacing the confidence of any already there
+   * from the same source. Applying a tag twice is not an error.
    */
   apply(bookId: number, applications: readonly TagApplication[]): Promise<void>
 
   /**
-   * Take tags off a book.
-   *
-   * `source` narrows it to that source's own rows, which is what a lookup
-   * retracting its claims needs and is the only thing a lookup is allowed to
-   * do. Omitting it removes the tag whoever applied it, which is what a person
-   * asking for it to be gone means.
+   * Takes tags off a book. `source` narrows to that source's own rows (what a
+   * lookup retracting its claims needs); omitted, removes the tag regardless
+   * of who applied it.
    */
   retract(bookId: number, slugs: readonly TagSlug[], source?: TagSource): Promise<void>
 
   /**
-   * Take a word out of the vocabulary, and only while nothing carries it.
+   * Takes a word out of the vocabulary, only while nothing carries it. The
+   * "nothing carries it" check must be part of the same statement as the
+   * delete, not a check beforehand: `book_tag` cascades from `tag`, so a
+   * disagreement between check and delete could take a person's tag off every
+   * book they put it on.
    *
-   * Answers whether it went. **The "nothing carries it" is part of the
-   * statement, not a question asked before it**, for the same reason `retract`
-   * puts `source` in the `where`: `book_tag` cascades from `tag`, so a delete
-   * that was merely checked first is a delete that can take a person's tag off
-   * every book they put it on if the check and the delete disagree. Making it
-   * one statement means the worst outcome is that nothing happens.
-   *
-   * A rule naming the slug is the other refusal and it is **not** here: a rule
-   * is placement's, this port is the vocabulary's, and a repository reaching
-   * into `rule_condition` would be this layer knowing how a rule stores a tag.
-   * `ForgetTagHandler` is where the two refusals meet.
+   * A rule naming the slug is refused elsewhere, not here: that is
+   * placement's concern. `ForgetTagHandler` combines both refusals.
    */
   remove(slug: TagSlug): Promise<boolean>
 }
 
 /**
- * Atomicity, and mutual exclusion per book.
+ * Restating a source's tags is a read then a write; two racing on one book
+ * can each decide what the other is about to delete, so the work is
+ * serialised per book.
  *
- * Restating a source's tags is a read then a write, and two of them racing on
- * one book can each decide what the other is about to delete. That is the same
- * shape as the separator renumbering defect stage G fixed, so it is prevented
- * the same way: the work is serialised on the book.
- *
- * Deliberately a second, narrower port rather than a shared `Transactions`.
- * `application/shelving/ports.ts` serialises on a shelf range, this serialises
- * on a book, and a single interface covering both would be a lock namespace
- * with two meanings, which is a lock that serialises against nothing.
+ * A separate port from `application/shelving/ports.ts`'s `Transactions`
+ * (which serialises on a shelf range): one lock namespace covering both would
+ * serialise against nothing.
  */
 export interface BookTransactions {
   /** Run `work` atomically, and serialised against other work on this book. */

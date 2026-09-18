@@ -1,12 +1,7 @@
 /**
- * The decisions the backup makes without a database or a subprocess: what a
- * dump is called, which dumps retention deletes, how a connection is rewritten
- * for a container, and above all what counts as a difference.
- *
- * `compareDigests` is the part worth guarding hardest. It is the only thing
- * standing between a broken dump and a green log line, and its failure mode is
- * silence: a comparison that quietly stops comparing something reads exactly
- * like a backup that keeps working.
+ * `compareDigests` is the part worth guarding hardest: its failure mode is
+ * silence, since a comparison that quietly stops comparing something reads
+ * exactly like a backup that keeps working.
  *
  * The digest SQL itself is exercised against a real Postgres in
  * backup.pg.test.ts, because what it is worth is a property of the server.
@@ -33,11 +28,9 @@ import {
 import { parseArgs } from './backup-catalogue'
 
 /**
- * The tables in the fixture below. A short stand-in for the real list, which
- * comes out of the catalogue rather than out of any file: `backup.pg.test.ts`
- * is where the derivation is checked against a real schema. What matters here
- * is that two of these, `tag` and `book_tag`, are tables the hard-coded six
- * never named.
+ * A short stand-in for the real table list, which `backup.pg.test.ts` checks
+ * against a real schema. Two of these, `tag` and `book_tag`, are tables the
+ * hard-coded six never named.
  */
 const TABLES = [
   'area', 'author_filing', 'book_authors', 'book_tag', 'books', 'captures',
@@ -82,12 +75,10 @@ describe('what counts as a difference', () => {
   })
 
   /**
-   * The whole argument for hashing the shelf order rather than counting rows.
    * A collation difference does not lose a book, it reorders them, so every
-   * count on both sides is identical and the app then tells somebody to put a
-   * book in the wrong place. This is the real failure reproduced in the pull
-   * request that added this file: a dump restored with COLLATE "C" lost from
-   * books.sort_key matched on all six counts and all six content digests.
+   * count on both sides is identical and the app then tells somebody to put
+   * a book in the wrong place. This is the whole argument for hashing the
+   * shelf order rather than counting rows.
    */
   it('fails on the shelf order alone, with every count matching', () => {
     const differences = compareDigests(digest(), digest({ shelfOrder: '719a2f4c3fad76d03e' }))
@@ -149,15 +140,6 @@ describe('what counts as a difference', () => {
     expect(compareDigests(digest(), wrecked)).toHaveLength(TABLES.length * 2 + 2)
   })
 
-  /**
-   * The defect in #212, as the smallest thing that shows it.
-   *
-   * `book_tag` was not among the six names the comparison used to carry, so a
-   * restore that lost a row from it matched on every line the tool printed and
-   * the run said `RESTORED AND VERIFIED`. Nothing read the table yet, which is
-   * why it was survivable; at the cut-over `tag` replaces `books.is_fiction`
-   * and the unchecked table becomes the authoritative one.
-   */
   it('fails on a table the hard-coded six never named', () => {
     const short = digest({
       counts: { ...digest().counts, book_tag: 411 },
@@ -170,10 +152,9 @@ describe('what counts as a difference', () => {
   })
 
   /**
-   * Why the table list is compared in its own right rather than left implicit
-   * in the counts. An empty table that did not come back at all has the same
-   * count and the same content digest as one that did, so this line is the only
-   * thing between a missing table and a green run.
+   * An empty table that did not come back at all has the same count and the
+   * same content digest as one that did, so comparing the table list itself
+   * is the only thing between a missing table and a green run.
    */
   it('notices a table that did not come back, even an empty one', () => {
     const empty = digest({
@@ -200,12 +181,10 @@ describe('what counts as a difference', () => {
   })
 
   /**
-   * The dumps already on the owner's disk have manifests naming six tables and
-   * no table list at all, because they were written before this. Such a
-   * manifest cannot speak for the other thirteen, and reporting them as missing
-   * would print thirteen failures for a dump that holds every one of them, at
-   * the exact moment somebody is verifying yesterday's dump because today's
-   * failed. So it is compared on what it described, and the run says PARTIAL.
+   * An older manifest with no table list at all cannot speak for tables it
+   * never named, and reporting them as missing would print false failures
+   * for a dump that holds every one of them. So it is compared only on what
+   * it described.
    */
   it('compares an older manifest only on the tables it described', () => {
     const older = digest()
@@ -231,16 +210,14 @@ describe('what counts as a difference', () => {
 
 describe('which table the divider order hash reads (#240)', () => {
   /**
-   * The literal shape of #240: master's own idea of the schema (`area`, since
-   * #232) is not what the catalogue on the day the bug was found actually had.
-   * Deriving this from the table list, the way `CATALOGUE_TABLES_SQL` already
-   * derives coverage, is what lets `readDigest` work against either rather
-   * than needing to be told which one it is talking to.
+   * Deriving this from the table list, the way `CATALOGUE_TABLES_SQL`
+   * already derives coverage, is what lets `readDigest` work against either
+   * `area` or `separators` rather than needing to be told which one it is
+   * talking to.
    */
   it('picks area when it is there, whether or not separators is too', () => {
     expect(chooseDividerTable(['area', 'books'])).toBe('area')
-    // The dual-write window #213 describes: both tables exist and agree, and
-    // area is the one kept, because it is the one #232 left standing.
+    // Both tables may exist at once; area is the one kept when they do.
     expect(chooseDividerTable(['area', 'books', 'separators'])).toBe('area')
   })
 
@@ -320,9 +297,8 @@ describe('retention', () => {
   })
 
   /**
-   * The bound that matters on this machine, where free disk has twice gone
-   * under 2 GB in a day. The count limit alone is not a bound: a catalogue that
-   * grows makes fourteen dumps mean fourteen times a number nobody is watching.
+   * The count limit alone is not a bound: a catalogue that grows makes
+   * fourteen dumps mean fourteen times a number nobody is watching.
    */
   it('removes by size once the count limit is satisfied', () => {
     const plan = planRetention(
@@ -352,10 +328,9 @@ describe('retention', () => {
 
 describe('reaching the host from inside a container', () => {
   /**
-   * pg_dump runs in a container here because the client tools are not installed
-   * on the machine, and a container cannot reach 127.0.0.1 on the host. Getting
-   * this wrong produces a connection refused once a day at 03:30 and nowhere
-   * else.
+   * pg_dump runs in a container here because the client tools are not
+   * installed on the machine, and a container cannot reach 127.0.0.1 on the
+   * host.
    */
   it('rewrites a loopback host', () => {
     expect(containerConnection('postgres://postgres:secret@127.0.0.1:5433/bookscan').url)
@@ -407,9 +382,9 @@ describe('the client has to be new enough for the server', () => {
 
 describe('the command line', () => {
   /**
-   * The rule AGENTS.md states for every tool here. A connection string sitting
-   * in a shell must not be able to decide which catalogue a scheduled job
-   * touches, so the two variables that name the live catalogue are not read.
+   * A connection string sitting in a shell must not be able to decide which
+   * catalogue a scheduled job touches, so the two variables that name the
+   * live catalogue are not read.
    */
   it('does not read the connection the running app reads', () => {
     const previous = process.env.ConnectionStrings__bookscan
@@ -424,18 +399,10 @@ describe('the command line', () => {
   })
 
   /**
-   * #215. The two variables the scheduled task uses are a real mechanism with a
-   * good reason behind it, and for a while they were also a trapdoor: they were
-   * read whenever the flag was absent, they were set at `Machine` scope so that
-   * a task could carry a password out of its command line, and a bare
-   * `npx tsx server/backup-catalogue.ts` in any shell on that machine therefore
-   * opened the live catalogue.
-   *
-   * These tests set the variables themselves rather than depending on a clean
-   * environment, so they say the same thing on a machine where the old
-   * machine-scope variables are still there as they do in CI where they are not.
-   * That is the difference between a test that guards this and a test that
-   * merely happens to pass.
+   * These tests set the environment variables themselves rather than
+   * depending on a clean one, so they say the same thing on a machine where
+   * old machine-scope variables are still set as they do in CI where they
+   * are not.
    */
   const withEnv = (values: Record<string, string | undefined>, body: () => void): void => {
     const previous = new Map(Object.keys(values).map((key) => [key, process.env[key]]))

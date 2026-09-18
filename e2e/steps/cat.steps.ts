@@ -1,17 +1,15 @@
 /**
- * Watching the cat, which is the one thing in this app that has to be watched.
+ * Watching the cat, which is the one thing in this app that has to be
+ * watched.
  *
- * Everywhere else in this suite a wait is a wait on a condition, never a sleep,
- * because a fixed pause standing in for an answer that arrives when it arrives
- * is a flake with a timer on it. **Here the passing of time is the measurement
- * rather than a way of avoiding one.** The question is whether the drawing is
- * different a second from now, and there is no condition that answers it: the
- * only way to find out what a frame looks like is to be there when it is drawn.
+ * Everywhere else in this suite a wait is a wait on a condition, never a
+ * sleep. Here the passing of time is the measurement itself: the question is
+ * whether the drawing differs a second from now, and the only way to find out
+ * is to be there when it is drawn.
  *
- * What is compared is always two frames from the same run of the same browser,
- * seconds apart. No image is stored and nothing is compared against a baseline,
- * so there is no font, driver or graphics stack that can make this go red
- * without the cat having changed.
+ * What is compared is always two frames from the same run of the same
+ * browser, seconds apart, so no font, driver or graphics stack can make this
+ * go red without the cat having changed.
  */
 
 import { createHash } from 'node:crypto'
@@ -88,26 +86,16 @@ Then('the cat should be drawn exactly one way over {int} seconds', async (
 })
 
 /**
- * Where he is, which is the thing nothing was asking (#427).
+ * Where he is: whether he is resting on the first thing to do, not merely
+ * near it.
  *
- * The first attempt hung him off the bottom of the counts, with a tail let out
- * far enough to reach the buttons underneath, and every check in this file
- * passed: the tail moved, it went behind, its pixels were where they should be.
- * He was still in the metrics grid, which is what the owner saw in a second.
+ * `.wf-cat__rest` is the drawing of him without the tail; lying on something
+ * means his underside is within twelve pixels of that thing's top edge. The
+ * tail is asked about separately.
  *
- * So this measures the cat rather than the tail. `.wf-cat__rest` is the drawing
- * of him, without the tail, and lying on something means his underside is on
- * that thing's top edge: within twelve pixels of it, which is a cat resting on a
- * button rather than a cat floating above one. The tail is asked about
- * separately, and its own scenario is the one that says it goes behind.
- *
- * The last part is what stops the tail being let out again: nothing of him is
- * drawn below the buttons, on a screen that often draws only one of them. That
- * one is asked in pixels rather than in boxes, because a stroked path reports a
- * box a great deal bigger than the ink inside it: Blink inflates it by the
- * stroke width times the miter limit, which here is about twenty pixels of
- * nothing. The honest question is whether anything under the buttons changes
- * when he is taken away, and that is what is asked.
+ * The strip under the buttons is compared by pixels rather than by boxes: a
+ * stroked SVG path reports a bounding box inflated by the stroke width times
+ * the miter limit, about twenty pixels wider than the ink inside it here.
  */
 Then('he should be lying on the first thing I can do', async ({ page }) => {
   const resting = page.locator('.wf-cat__rest')
@@ -159,10 +147,9 @@ async function hide(page: Page, away: boolean): Promise<void> {
 /**
  * And he is clear of the counts, which is the complaint said the other way.
  *
- * Two ways of asking it, because either alone can be satisfied by an accident:
- * nothing of him is drawn inside that grid, and no pixel of him is level with
- * it. A cat positioned out of flow can be a child of anything, so the DOM
- * question and the geometry question are different questions.
+ * Two ways of asking it, since either alone can be satisfied by an accident: a
+ * cat positioned out of flow can be a child of anything, so the DOM question
+ * and the geometry question are different questions.
  */
 Then('no part of him should be in among the counts', async ({ page }) => {
   const counts = page.locator('.wf-stats')
@@ -211,19 +198,16 @@ Then('his tail should reach into the first thing I can do', async ({ page }) => 
 })
 
 /**
- * And it is underneath rather than over the top, which is the whole of "behind".
+ * And it is underneath rather than over the top, which is the whole of
+ * "behind".
  *
- * Proved by taking him away. If any part of him were painted over the button,
- * the pixels of the button where his tail runs would change when he goes; they
- * do not, so whatever of him is inside them is behind them. Two shots of the
- * same rectangle in the same second, so nothing but the cat can be the
- * difference, and no stored image to go stale.
+ * Proved by taking him away: if any part of him were painted over the button,
+ * the pixels where his tail runs would change when he goes.
  *
- * The rectangle is the overlap of the two boxes pulled four pixels inside the
- * button rather than the button element itself. A button has fractional page
- * coordinates and rounded corners, and both let a screenshot of the element
- * carry a sliver of the page above and beside it, where the tail is legitimately
- * visible. That sliver would fail this every time while the drawing was right.
+ * The compared rectangle is the overlap of the two boxes, inset four pixels
+ * from the button element itself: fractional page coordinates and rounded
+ * corners can let a screenshot of the element carry a sliver of the page
+ * above and beside it, where the tail is legitimately visible.
  */
 Then('taking him away should change nothing about it', async ({ page }) => {
   const door = await page.locator('.wf-door').first().boundingBox()

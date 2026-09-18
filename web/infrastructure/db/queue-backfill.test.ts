@@ -1,32 +1,24 @@
 /**
- * The migration that dissolves the `captures` queue table into `books`, run on
- * a database in the state the owner's catalogue is in.
+ * The migration that dissolves the `captures` queue table into `books`,
+ * run on a database in the state the owner's catalogue is in: built by
+ * `applySchema` and never migrated, so a run here adopts the baseline and
+ * then applies everything after it.
  *
- * That state is specific, and it is why this is a test file rather than a
- * paragraph in a pull request: the live catalogue was built by `applySchema`
- * during stage H and has never had a migration recorded against it, so a run
- * there **adopts** the baseline and then applies everything after it. That is
- * what is done below, on a database seeded here.
+ * Four claims are checked by a machine:
  *
- * Four claims have to be checked by a machine.
- *
- * 1. **Every queue row becomes a book**, in the state its status said it was in.
- *    A row left behind is a scan nothing can find, which is the thing dissolving
- *    the table was supposed to stop being possible.
- * 2. **No book reaches a shelf.** Every row this migration writes is in an early
- *    state, so the shelf order hash `docs/backup-runbook.md` compares restores
- *    with has to be the same string either side of it. A count does not move
- *    when an ordering does, and an ordering that moved has not lost a book: it
- *    has told somebody to put one in the wrong place.
- * 3. **The queue's three image columns become `capture` rows**, which is the
- *    decision `0006` deferred here on purpose because a capture with no book had
- *    nowhere to hang its photographs.
- * 4. **It is safe to run twice**, because a queue row that already names its
+ * 1. Every queue row becomes a book, in the state its status said it was
+ *    in. A row left behind is a scan nothing can find.
+ * 2. No book reaches a shelf. Every row this migration writes is in an
+ *    early state, so the shelf order hash `docs/backup-runbook.md`
+ *    compares restores with has to be the same string either side of it.
+ * 3. The queue's three image columns become `capture` rows, which is the
+ *    decision `0006` deferred here on purpose because a capture with no
+ *    book had nowhere to hang its photographs.
+ * 4. It is safe to run twice, because a queue row that already names its
  *    book is skipped.
  *
- * Nothing in this file, or in the migration it exercises, connects to anything
- * but a scratch database this test made, and nothing anywhere reads, writes or
- * deletes a cover file. What moves is the record of which file is what.
+ * Nothing in this file, or in the migration it exercises, connects to
+ * anything but a scratch database this test made.
  */
 
 import { readFileSync } from 'node:fs'
@@ -57,10 +49,9 @@ interface Queued {
 }
 
 /**
- * The shelf order hash, spelled exactly as `server/backup.ts` spells it. The
- * point of reusing the expression rather than writing a clearer one is that this
- * is the string a restore is verified against, so a migration that leaves it
- * alone leaves the check guarding the backups alone too.
+ * The shelf order hash, spelled exactly as `server/backup.ts` does: this is
+ * the string a restore is verified against, so a migration that leaves it
+ * alone leaves that check alone too.
  */
 const SHELF_ORDER = "md5(string_agg(id::text, ',' order by sort_key, id))"
 
@@ -79,13 +70,9 @@ async function statesIn(pool: pg.Pool): Promise<Record<string, number>> {
 }
 
 /**
- * A catalogue with books on a shelf and a queue beside it, in the shape stage H
- * left behind.
- *
- * `SCHEMA` rather than `applySchema`, which runs the migrations itself and would
- * hand back a database that had already had these. `SCHEMA` is the fixed point
- * the baseline is proved against, and it is what stage H left on the live
- * catalogue.
+ * A catalogue with books on a shelf and a queue beside it. Uses `SCHEMA`
+ * rather than `applySchema`, which runs the migrations itself and would
+ * hand back a database that had already had these.
  */
 async function catalogueOf(shelved: number, queue: Queued[]): Promise<pg.Pool> {
   const pool = await scratchDatabase()
@@ -131,16 +118,14 @@ describe('the queue table dissolving into books', () => {
     await migrateToLatest(pool)
 
     expect(await statesIn(pool)).toEqual({
-      // The three shelved books stage H left, which 0008 stated.
       shelved: 3,
       scanned: 1,
       unidentified: 1,
       identified: 1,
     })
 
-    // Every row, including the one that was already a book, names the book it
-    // is. That column is what makes a second run a no-op, so it is asserted
-    // rather than left as an implementation detail.
+    // Every row names the book it is, including the one that already was
+    // one; that column is what makes a second run a no-op.
     const orphaned = await pool.query('SELECT id FROM captures WHERE book_id IS NULL')
     expect(orphaned.rowCount).toBe(0)
   }, 60_000)
@@ -150,10 +135,9 @@ describe('the queue table dissolving into books', () => {
     const before = await hashOf(pool, 'books')
     await migrateToLatest(pool)
 
-    // Taken over `books` before, because there was no view then and every row
-    // in it was on a shelf, and over `shelved_books` after, which is the same
-    // question asked of the relation that now answers it. Four rows arrived in
-    // `books` in between and not one of them may show up here.
+    // Taken over `books` before (no view existed yet and every row was on
+    // a shelf) and over `shelved_books` after: four rows arrived in
+    // `books` in between and none may show up here.
     expect(await hashOf(pool, 'shelved_books')).toBe(before)
     expect(before).not.toBeNull()
   }, 60_000)
@@ -173,10 +157,9 @@ describe('the queue table dissolving into books', () => {
          FROM books WHERE state = 'unidentified'`,
     )
     expect(row.rows[0]).toEqual({
-      // Empty because nobody has read this book, not because anything was
-      // lost. A title nobody has stated has no value, and a book that belongs
-      // nowhere yet has no range and no key, which is a second reason it can
-      // never reach a shelf.
+      // Empty because nobody has read this book, not lost: a title nobody
+      // has stated has no value, and a book with no range or key can never
+      // reach a shelf.
       title: '', shelf_range: '', sort_key: '',
       state: 'unidentified',
       isbn13: '9780553287899',
@@ -189,15 +172,9 @@ describe('the queue table dissolving into books', () => {
       scanned_at: '2026-02-03T04:05:06.000Z',
     })
 
-    /*
-     * The photographs are rows, not columns, since #228, so the claim this test
-     * has always made is made of `capture`: what the queue knew about this
-     * book's pictures came across and is still here two migrations later.
-     *
-     * `crop_file` and `examined` come from the queue's own `front_crop` and
-     * `cropped`, which `0011` read. The spine is a `spine`, because `edge` was a
-     * column name and this vocabulary is the model's.
-     */
+    // `crop_file` and `examined` come from the queue's own `front_crop`
+    // and `cropped`. The spine is a `spine` here, though `edge` was the
+    // column name: that vocabulary is the model's.
     const photographs = await pool.query(
       `SELECT c.kind, c.file, c.crop_file, c.examined
          FROM capture c JOIN books b ON b.id = c.book_id
@@ -212,13 +189,11 @@ describe('the queue table dissolving into books', () => {
   }, 60_000)
 
   /**
-   * The half of `0006` that was deferred here on purpose.
-   *
-   * Its reasoning was that `captures.book_id` was nullable, because a capture
-   * waiting to be confirmed was not a book yet, while `capture.book_id` is NOT
-   * NULL because a book exists from its first photograph. A queue row with no
-   * book had photographs and nowhere to hang them. Once the queue row is a book
-   * row that objection dissolves with the table.
+   * The half of `0006` deferred here on purpose: `captures.book_id` was
+   * nullable, since a capture waiting to be confirmed was not a book yet,
+   * while `capture.book_id` is NOT NULL because a book exists from its
+   * first photograph. Once the queue row is a book row that objection
+   * dissolves with the table.
    */
   it('turns the queue photographs nobody could migrate into capture rows', async () => {
     const pool = await catalogueOf(1, [{
@@ -234,12 +209,11 @@ describe('the queue table dissolving into books', () => {
         WHERE b.state = 'scanned' ORDER BY c.kind`,
     )
     expect(rows.rows).toEqual([
-      // `edge` becomes `spine`, which is the vocabulary docs/data-model.md
-      // settles and the same rename 0006 made.
+      // `edge` becomes `spine`, the vocabulary docs/data-model.md settles.
       { kind: 'back', file: 'q_back.jpg', crop_file: '', examined: true },
       { kind: 'front', file: 'q_front.jpg', crop_file: 'q_front_crop.jpg', examined: true },
-      // Named in no slot of `cropped`, so the detector has never looked at it,
-      // which is a different fact from having looked and declined.
+      // Named in no slot of `cropped`, so the detector has never looked at
+      // it, a different fact from having looked and declined.
       { kind: 'spine', file: 'q_edge.jpg', crop_file: '', examined: false },
     ])
   }, 60_000)
@@ -250,10 +224,10 @@ describe('the queue table dissolving into books', () => {
     const after = await statesIn(pool)
     const captures = await pool.query('SELECT count(*)::text AS n FROM capture')
 
-    // `migrateToLatest` records what it applied, so a second call runs nothing
-    // at all. Running the file itself again is the case that matters: it is
-    // what a rebuilt journal or a hand-run recovery would do, and it is where a
-    // migration that trusted its own statements would double every queue row.
+    // `migrateToLatest` records what it applied, so a second call runs
+    // nothing; running the file itself again is what a rebuilt journal or
+    // a hand-run recovery would do, and where a migration that trusted its
+    // own statements would double every queue row.
     await pool.query(migrationSql())
 
     expect(await statesIn(pool)).toEqual(after)

@@ -1,34 +1,19 @@
 /**
  * The three tasks, and what counts as having done them.
  *
- * They live here rather than in whatever was typed at an agent, because the
- * point of this harness is running it again after a change and comparing. A
- * task that was worded slightly differently the second time is a number that
- * cannot be compared with the first.
- *
- * **Each task is somebody's goal and names no screen, no button and no route.**
- * That is the whole design. Naming one would be telling the driver the answer
- * and measuring nothing but typing speed.
- *
- * **Completion is decided from rows, never from the driver's own account.** An
- * agent that believes it finished is exactly the witness that must not be
- * trusted, and the interesting failure here is somebody doing five reasonable
- * things and ending up with a world that does not match what they were asked
- * for.
+ * Each task names no screen, no button and no route: naming one would tell the
+ * driver the answer and measure only typing speed. Completion is decided from
+ * rows, never from the driver's own account, since an agent that believes it
+ * finished is exactly the witness that must not be trusted.
  */
 
 /** Anything a person would call a comic, however the tag ended up spelled. */
 const COMICS = /comic|graphic novel|manga/i
 
 /**
- * The two bookcases task 3 names out loud, and the only two it may rearrange.
- *
- * Task 3 asks for books to come off bookcase 4 and go onto bookcase 3. Those two
- * pieces are the request: taking the run's planks off the one it leaves is a
- * real consequence of it, said in the plan before anybody presses anything, and
- * standing planks on the one it goes to is the request itself. **Every other
- * piece in the room is somebody else's furniture and this task may not change
- * it**, which is the difference between a consequence and collateral damage.
+ * The two bookcases task 3 names: books come off bookcase 4 and go onto
+ * bookcase 3. Every other piece is somebody else's furniture and this task may
+ * not change it.
  */
 const ABOUT = { off: 4, onto: 3 }
 
@@ -114,13 +99,9 @@ export const TASKS = [
      */
     check(world, baseline, standing = [], drawnBefore = null) {
       /*
-       * The shelved ones only, and this is a correction the first run earned.
-       * A checked-out book is in somebody's bag rather than on bookcase 4, so
-       * it cannot be carried off it, and the app says so plainly on the plan
-       * ("One checked out. Left alone."). Counting it would have marked a
-       * correct outcome as a failure. Recorded here rather than quietly fixed:
-       * a check written before the run and adjusted after it is exactly the
-       * thing that has to be visible.
+       * Shelved only: a checked-out book is in somebody's bag rather than on
+       * bookcase 4, so it cannot be carried off it, and counting it would mark
+       * a correct outcome as a failure.
        */
       const nonFiction = world.books.filter((book) => /genre\/non-fiction/.test(book.tags) && book.state === 'shelved')
       const stillOnFour = nonFiction.filter((book) => book.fixture_position === 4)
@@ -128,21 +109,11 @@ export const TASKS = [
       const waiting = world.outstanding.filter((move) => move.shelf_range === 'nonfiction')
 
       /*
-       * #391, and it is here because the first pass of this task passed every
-       * part above while deleting a bookcase.
-       *
-       * The person put the hall bookcase up in task 1, gave it four shelves and
-       * named one Comics. Applying the move deleted the piece, all four areas
-       * and the name, and said nothing. Every number this task had was about
-       * books, so a world where somebody's furniture had been destroyed scored
-       * exactly the same as one where it had not.
-       *
-       * **Furniture the person built is not this task's to remove**, whatever
-       * happens to the books, so the pieces and the areas standing when the task
+       * Furniture the person built is not this task's to remove, whatever
+       * happens to the books: the pieces and areas standing when the task
        * began have to still be rows when it ends. Rows rather than faces: a
-       * shelf the run takes with it comes off the piece it was on, which is a
-       * real consequence of a real request and is said in the plan. Deleting it
-       * is not.
+       * shelf the run takes with it coming off its piece is a real consequence
+       * of the request, but deleting the piece is not.
        */
       const before = standing.filter((row) => row.fixture_id !== null)
       const pieces = new Set(world.furniture.map((row) => row.fixture_id))
@@ -153,30 +124,15 @@ export const TASKS = [
       const lostAreas = before.filter((row) => row.area_id !== null && !areas.has(row.area_id))
 
       /*
-       * #420, and it is the part of this check that was missing rather than
-       * wrong.
-       *
-       * The two above ask whether the rows survived, and the second pass of the
-       * loop walked straight through both: applying the move left the hall
-       * bookcase standing and all four of its shelves as rows, at
-       * `area_position` -4 to -1, drawn by no screen, the piece answering
-       * "0 areas, 0 books", and the rule task 2 wrote still filing comics onto
-       * one of them. Every row was there. **What went was reachability**, and a
-       * guard that measures the wrong thing is worse than none, because it is
-       * believed.
-       *
-       * So these three ask the app instead of the table, through
-       * `GET /api/fixtures`, which is what the screens are drawn from:
-       *
-       *  - nothing the person could reach when the task began became
-       *    unreachable, on any piece the task was not about;
-       *  - no shelf appeared that nobody asked for, anywhere but on the
-       *    bookcase the books were going to (that is the `4D`);
-       *  - no rule is left filing books onto a shelf the app will not draw.
-       *
-       * **An absent drawing fails them rather than passing them.** A run from a
-       * harness that never asked the app what it draws cannot say any of this,
-       * and saying nothing has to read as "not judged", never as ok.
+       * Rows surviving is not enough: applying the move can leave a piece and
+       * its shelves standing as rows while no screen draws them and a rule
+       * still files onto one. So these three ask the app instead of the table,
+       * through `GET /api/fixtures`, the same endpoint the screens are drawn
+       * from: nothing reachable when the task began became unreachable outside
+       * the two bookcases in play, no shelf appeared that nobody asked for
+       * except on the destination bookcase, and no rule is left filing onto a
+       * shelf the app will not draw. An absent drawing fails these rather than
+       * passing them.
        */
       const drawnNow = shelvesDrawn(world.drawn)
       const drawnThen = shelvesDrawn(drawnBefore)
@@ -243,14 +199,12 @@ export function taskById(id) {
 /**
  * Run a task's check and fold its parts into one answer.
  *
- * `standing` is the furniture as it was when the task began, which is a
- * different question from `baseline` and cannot be got from it: the baseline is
- * the seeded world, and what tasks two and three have to be judged against is
- * what the person had after task one. See task 3, and #391.
+ * `standing` is the furniture as it was when the task began, a different
+ * question from `baseline`: what tasks two and three are judged against is
+ * what the person had after task one, not the seeded world.
  *
- * `drawing` is the same moment asked of the app rather than of the rows: what
- * the person could actually reach when the task began. Rows and reachability are
- * two different questions and #420 is the cost of only ever asking the first.
+ * `drawing` is that same moment asked of the app rather than of the rows: what
+ * the person could actually reach when the task began.
  */
 export function judge(task, world, baseline, standing = [], drawing = null) {
   const { parts } = task.check(world, baseline, standing, drawing)

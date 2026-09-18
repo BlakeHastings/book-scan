@@ -1,50 +1,14 @@
 /**
  * Which of the three screens this browser gets, decided by asking the server.
  *
- * `docs/the-gate.md` is the server half. It answers `401` with `anonymous`,
- * `403` with `waiting`, and the route when the caller is admitted, and until
- * this file existed nothing in the client read any of it: a person meeting the
- * app got a line of red saying "Sign in to use this." and no way to.
+ * A `401` means this browser is not signed in; a `403` means the caller is
+ * recognised but not admitted. The two are kept distinct rather than
+ * collapsed into "logged out", so a signed-in-but-waiting caller is not told
+ * to sign in again.
  *
- * ## The two refusals are different, and that is the whole point
- *
- * A `401` means this browser is not signed in. A `403` means somebody is signed
- * in, is exactly who they say they are, and has not been let in. #521 spelled
- * out what treating the second as the first costs: they sign in successfully,
- * are told they are not signed in, and sign in again, for ever. So the two
- * words the server writes are carried all the way here rather than collapsed
- * into "logged out" at the first place that reads a status code.
- *
- * ## Nothing here is remembered
- *
- * The state is asked for, never stored anywhere it would outlive the answer,
- * and re-asked whenever something suggests it has moved. #524: "a client that
- * remembers being admitted is a client that will show the app to somebody who
- * has just been disabled." The gate reads `enabled` off the `user` row on every
- * single request for that reason; a cache on this side would hand the saving
- * back.
- *
- * ## Three things move it, and none of them is a timer
- *
- * 1. **The first ask**, on mount.
- * 2. **A refusal reaching `lib/api.ts`.** Every request in the app goes through
- *    one function, so any of them can be the one that finds out. The word
- *    travels out through `whenTheGateRefuses` rather than back to whichever
- *    screen happened to ask, because the thing that has to change is the app
- *    and not that screen.
- * 3. **A photograph that would not load.** See `coversAreBehindTheGate` below.
- *
- * and a fourth that is not an event this app can generate: coming back to the
- * tab. See `useEffect` on `visibilitychange`.
- *
- * **"None of them is a timer" was measured against a person, and it cost the
- * waiting screen** (#558). That screen deliberately makes no requests, so it can
- * generate none of the three, and somebody sitting on it after being let in sat
- * there for forty seconds having made zero. Every other screen in the app makes
- * requests and therefore has the second of the three available to it; the one
- * that does not is the one waiting for the answer to change. Still no
- * timer, decided rather than inherited: the words on it now say what does move
- * it, and `design/Gate.tsx` on `WaitingList` carries the whole argument.
+ * The state is never cached. It is re-asked on mount, on any request
+ * refusal, on a cover image failing to load, and on the tab regaining
+ * visibility, rather than polled on a timer.
  */
 
 import {
@@ -82,22 +46,13 @@ export function useGate(): Gate {
 /**
  * A photograph that answers `401` is not a broken image.
  *
- * The covers went behind the gate with everything else under `/api` (#521), and
- * they are the one thing this app asks for without going through
- * `lib/api.ts`: the browser fetches them itself, from a `src` attribute. So a
- * session that expires while somebody is looking at a shelf turns every
- * photograph on the page into a failed request that no `catch` in this codebase
- * can see, and the app draws a page of grey holes while believing it is signed
- * in.
+ * Covers are fetched directly by the browser from an `<img src>`, not
+ * through `lib/api.ts`, so a session expiring while a shelf is open turns
+ * every photograph into a failed request no `catch` here can see.
  *
- * This is one listener rather than an `onError` on each `<img>` because there
- * are eight of them across the design system and the ninth is the one that
- * would be forgotten. `error` does not bubble from a resource load, but it does
- * capture, which is what the `true` is doing.
- *
- * It asks the server rather than assuming: an image can fail for reasons that
- * have nothing to do with the gate, and the answer to "am I still signed in" is
- * the same one endpoint every other path here uses.
+ * One listener rather than an `onError` per `<img>`, since `error` does not
+ * bubble from a resource load but does capture, which is what the `true` is
+ * for.
  */
 function coversAreBehindTheGate(ask: () => void): () => void {
   const onError = (event: Event) => {
@@ -119,44 +74,19 @@ function coversAreBehindTheGate(ask: () => void): () => void {
 }
 
 /**
- * What the app knows after a refusal, which includes who is holding the session
- * (#558).
+ * What the app knows after a refusal. The person (email, etc.) is carried
+ * over from the previous answer rather than re-asked, since a `403` refuses
+ * this same cookie's user, not a different one; only `enabled` changes,
+ * taken from the state just given.
  *
- * A refusal reaching `lib/api.ts` carries one word and no person: the gate's
- * `403` body is `{ state, error }`, because `docs/the-gate.md` is explicit that
- * nothing about somebody beyond `enabled` is read on a request that every
- * photograph makes. So this used to replace the whole answer with `{ state }`,
- * and the waiting screen it put up said only "Sign out" where the same screen
- * reached by a reload says "Signed in as somebody@example".
- *
- * **That is the wrong screen to lose an address from.** Its one offer is "sign
- * out if you meant to arrive as somebody else", and picking the wrong account is
- * exactly the case it exists for. It is hard to act on an offer to change
- * identity from a screen that will not say which identity you have.
- *
- * **The person is carried rather than re-asked, and that is the whole choice.**
- * The alternative is a second request to `GET /api/auth/session` alongside every
- * refusal, which would fetch a fact this browser is already holding: the refusal
- * changed which of the three states the caller is in, not who the caller is.
- * They are the same session either way, because a `403` is this cookie's own
- * user being refused.
- *
- * What does move is `enabled`, so it is taken from the state the server just
- * said rather than carried, and `anonymous` drops the person entirely, because
- * there is nobody to describe. That is what `SessionAnswer` means by an absent
- * `user`.
- * The first ask on mount is what fills this in for somebody who arrives on the
- * waiting screen with no earlier answer, so nothing here has to invent one.
- *
- * Exported for `gate.test.tsx`, which asserts the property that matters: the two
- * ways onto that screen draw the same thing.
+ * Exported for `gate.test.tsx`.
  */
 export function afterTheGateSaid(
   was: SessionAnswer | null,
   state: AuthState,
 ): SessionAnswer {
-  // Unchanged rather than rebuilt, so a refusal on a screen already showing this
-  // state is not thirty re-renders when thirty photographs fail at once.
+  // Returns the same reference when the state is unchanged, so many failing
+  // photographs on one page do not cause a re-render each.
   if (was?.state === state) return was
   if (state === 'anonymous' || !was?.user) return { state }
   return { state, user: { ...was.user, enabled: state === 'admitted' } }
@@ -165,17 +95,15 @@ export function afterTheGateSaid(
 /**
  * The gate, in front of everything.
  *
- * Draws nothing at all while the first answer is in flight. That is one request
- * against the loopback API, and the alternative is a sign-in screen that
- * flashes up in front of somebody who was already signed in.
+ * Draws nothing while the first answer is in flight, so an already
+ * signed-in caller does not see the sign-in screen flash up first.
  */
 export function GateProvider({ children }: { children: ReactNode }) {
   const [answer, setAnswer] = useState<SessionAnswer | null>(null)
   /*
-   * A counter rather than a boolean, because two things can ask at once: a page
-   * of thirty photographs all failing is thirty error events, and the one that
-   * matters is that the question gets asked, not that it gets asked thirty
-   * times. Each bump supersedes the answer to the one before it.
+   * A counter rather than a boolean: bumping it twice in a row (two failing
+   * photographs) has to trigger the effect twice, and setting a boolean to
+   * the same value again would not.
    */
   const [asked, setAsked] = useState(0)
   const reask = useCallback(() => setAsked((n) => n + 1), [])
@@ -185,18 +113,14 @@ export function GateProvider({ children }: { children: ReactNode }) {
     api.auth.session()
       .then((said) => { if (live) setAnswer(said) })
       /*
-       * This endpoint is in front of the gate and answers in all three states,
-       * so a failure here is the server being unreachable rather than a
-       * refusal. Treated as anonymous, which is the honest screen for it: this
-       * browser cannot show anybody the app, and the way in is what it can
-       * offer. The sign-in press then fails visibly rather than this drawing a
-       * silent blank page.
+       * A failure here means the server is unreachable, not a refusal (this
+       * endpoint answers in all three states), so it is treated as anonymous
+       * rather than leaving a blank page.
        */
       .catch(() => { if (live) setAnswer({ state: 'anonymous' }) })
     return () => { live = false }
   }, [asked])
 
-  /* The server refused something, somewhere. Take its word for the state. */
   useEffect(() => whenTheGateRefuses((state) => {
     setAnswer((was) => afterTheGateSaid(was, state))
   }), [])
@@ -204,13 +128,8 @@ export function GateProvider({ children }: { children: ReactNode }) {
   useEffect(() => coversAreBehindTheGate(reask), [reask])
 
   /*
-   * And ask again on coming back to the tab.
-   *
-   * A phone at a bookshelf is put in a pocket and taken out again, and the
-   * enable script takes effect on the next request rather than on a timer, so
-   * the app can sit on a screen for an hour after the answer has changed. It is
-   * one request per return to the tab, which is the cheapest way to keep the
-   * promise this file is named for: the server says, the client asks.
+   * Ask again on returning to the tab: a phone can sit on a screen for an
+   * hour after the answer has changed, since nothing else here would notice.
    */
   useEffect(() => {
     const onShown = () => { if (document.visibilityState === 'visible') reask() }
@@ -221,10 +140,9 @@ export function GateProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     await api.auth.signOut()
     /*
-     * Said rather than assumed, through the same channel a refusal uses, so
-     * there is one path into the state and not two. The cookie is gone, so the
-     * next ask would say this anyway; this is what makes the screen change
-     * before the round trip that would prove it.
+     * Said through the same channel a refusal uses, so there is one path
+     * into the state; this changes the screen before the round trip that
+     * would otherwise prove it.
      */
     theGateSaid('anonymous')
   }, [])
@@ -242,19 +160,12 @@ export function GateProvider({ children }: { children: ReactNode }) {
 }
 
 /**
- * Why the last sign-in did not finish, read off this page's own address (#557).
+ * Why the last sign-in did not finish, read off this page's address.
  *
- * **The parameter selects a sentence and never supplies one.** Everything drawn
- * from this is a constant in this repository: `signInTroubleIn` refuses anything
- * that is not one of the six words `shared/auth.ts` holds, and the provider's
- * name is looked up in the list the server just sent rather than taken from the
- * URL. So the worst a stranger can do by handing somebody a link is choose which
- * of six true sentences this app says about a sign-in that did not happen, which
- * is what a closed set buys over a message in a query string.
- *
- * The address is read once and left alone. Stripping it would take a reload back
- * to a screen that says nothing about why it is being looked at, and this
- * sentence stays true however many times it is read.
+ * The query parameter only selects among a closed set of known sentences
+ * (`signInTroubleIn` rejects anything else), and the provider name is
+ * looked up in the list the server sent rather than taken from the URL, so
+ * a crafted link cannot inject arbitrary text.
  */
 function troubleOnThisPage(ways: SignInProvider[]): SignInTroubleSaid | undefined {
   const asked = new URLSearchParams(window.location.search)
@@ -267,16 +178,10 @@ function troubleOnThisPage(ways: SignInProvider[]): SignInTroubleSaid | undefine
 /**
  * The way in, drawn from `GET /api/auth/providers`.
  *
- * The list is asked for rather than written here, which is what makes adding
- * Microsoft later a configuration change. Each button is a plain navigation to
- * the `start` path the server gave, and it has to be one: the provider answers
- * by redirecting the browser back, so this is a journey out of the page rather
- * than a request from inside it.
- *
- * **That is also why this screen is where a failed sign-in lands.** A journey
- * out of the page comes back as a navigation, so nothing in `lib/api.ts` ever
- * sees it and no `catch` in this codebase can. The server redirects here saying
- * which of six things happened, and this is the one place that reads it.
+ * Each button is a plain navigation to the `start` path the server gave,
+ * not a request: the provider redirects the browser back, so it must leave
+ * the page, which is why a failed sign-in lands back here rather than
+ * surfacing through a `catch` in `lib/api.ts`.
  */
 function WayInScreen() {
   usePaper()
@@ -286,9 +191,8 @@ function WayInScreen() {
     let live = true
     api.auth.providers()
       .then((said) => { if (live) setWays(said.providers) })
-      /* An empty list is the honest drawing for "nobody answered which ways in
-         there are", and it is the same drawing as a server configured with
-         none. Either way there is no button that would work. */
+      /* An empty list here is treated the same as a server with no
+         providers configured: no button would work either way. */
       .catch(() => { if (live) setWays([]) })
     return () => { live = false }
   }, [])
@@ -310,7 +214,7 @@ function WayInScreen() {
   )
 }
 
-/** Signed in, and not let in. The screen #524 exists for. */
+/** Signed in, but not let in. */
 function WaitingScreen() {
   usePaper()
   const { answer, signOut } = useGate()
@@ -323,9 +227,6 @@ function WaitingScreen() {
         leaving={leaving}
         onSignOut={() => {
           setLeaving(true)
-          /* Whatever happens, this screen stops being the one to press again:
-             it succeeds and the way in replaces it, or it fails and the state
-             is re-asked. There is nothing else this person can do here. */
           void signOut().catch(() => setLeaving(false))
         }}
       />

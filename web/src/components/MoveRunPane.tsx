@@ -1,59 +1,3 @@
-/**
- * Move a stretch of books onto another bookcase: say where it should live, see
- * every book that has to be carried, then record it.
- *
- * This is #244's screen wearing the design system (#326). **The behaviour behind
- * it is untouched**: the same two requests, the same plan, the same apply, the
- * same three states. What changed is the chrome, because this screen was the one
- * paper seam left in the journey: describe the furniture, change what belongs
- * where, land on a screen that looks like the old app, apply, then carry books
- * on screens that look like the new one.
- *
- * ## Three screens, one job
- *
- * The gallery draws two of them, `move` and `plan`, and this pane draws a third
- * that the wireframes have no state for: what applying just wrote. That is kept
- * rather than dropped, because it is the only place anybody is told how many
- * `assigned` rows were written, and because "apply" landing straight on the
- * carry list would give the person no way to tell a plan that wrote fifty rows
- * from one that wrote none.
- *
- * ## A run no move can pick up says so before it offers anywhere to put it
- *
- * Some runs cannot be moved, and the commonest of them is ordinary rather than
- * broken: a rule naming one plank serves a range perfectly well, which is what
- * "say what belongs here" writes and what #430 item 1 keeps legal, and a rule
- * about one plank does not describe a bookcase's worth of run to carry
- * elsewhere. That refusal is right and it is untouched. What was wrong is that
- * it arrived after somebody had read a convincing description of the run and
- * chosen one of three bookcases (#486), so it is asked now before the picker is
- * drawn and drawn in place of it.
- *
- * ## Nothing here moves a book, and the screen says so out loud
- *
- * Applying records where the rules want each book. The books move when a person
- * carries them and says so, and **the list of what is outstanding already
- * exists**: `assigned` disagreeing with where the book was last seen. This
- * screen ends by pointing at the carry flow rather than growing a second list.
- *
- * ## A plan is not a flat list, and it never quietly drops a book
- *
- * 187 moves on a 414 pixel screen is not something anybody reads standing in
- * front of a bookcase, so the moves are one numbered line per pair of areas.
- * Every book the rules will **not** touch is named, with the reason, because a
- * plan that says "50 books move" having quietly left three pinned ones out would
- * be believed, and the person would come back from the bookcase three books
- * short with no idea why. The books that do move are named a screen later, on
- * the trip they belong to.
- *
- * ## What is already waiting
- *
- * Applying does not start a job of its own: these fifty join a list that may
- * already have three on it, and the screen after this one says fifty-three. A
- * plan that reported its own fifty and then handed over a list of a different
- * number would look like an arithmetic bug.
- */
-
 import { Card, Confirmation, Nothing } from '../design/Card'
 import { TopBar, type TabName } from '../design/Chrome'
 import { Button, Choice } from '../design/Controls'
@@ -90,14 +34,11 @@ interface Props {
    */
   areas: AreaHolding[]
   /**
-   * Why this run cannot be moved anywhere, in the server's words, or empty when
-   * it can.
-   *
-   * **Known before a destination is offered, which is the whole of #486.** The
-   * refusal itself is unchanged and correct: a rule naming one plank does not
-   * describe a bookcase's worth of run to carry somewhere else. What was wrong
-   * was that it arrived after somebody had read a description of the run and
-   * chosen one of three bookcases to send it to.
+   * Why this run cannot be moved anywhere, in the server's words, or empty
+   * when it can. Known before a destination is offered: a rule naming one
+   * plank does not describe a bookcase's worth of run to carry elsewhere,
+   * and that refusal must arrive before the picker, not after somebody has
+   * already chosen a bookcase.
    */
   refused: string
   /** The bookcases this move can land on, the one it is on included. */
@@ -124,13 +65,8 @@ interface Props {
   onCarry: () => void
 }
 
-/**
- * What this stretch of books is cut into, as a sentence.
- *
- * `counted` writes the number out in words, so its first character is the one
- * that has to be lifted to start a sentence. The same lift `BelongsPane` makes
- * for the same reason.
- */
+// `counted` writes the number out in words, so the sentence's leading
+// capital has to be added by hand.
 function cut(areas: readonly AreaHolding[]): string {
   const said = `${counted(areas.length, 'area')}: `
     + `${areas.map((area) => `${area.label} with ${plural(area.books, 'book')}`).join(', ')}.`
@@ -161,12 +97,8 @@ export function MoveRunPane({
     <RoomFrame top={<TopBar title={`Move ${named}`} onBack={onBack} />} tabs={tabs}>
       <Trouble said={error} />
 
-      {/*
-        Where the run lives, drawn from the moment the server has said where
-        that is. Nought is not a bookcase and is what "not answered yet" reads
-        as, and a screen with nothing on it says less than a screen claiming
-        bookcase 0.
-      */}
+      {/* Nought means "not answered yet"; a screen with nothing on it says
+          less than a screen claiming bookcase 0. */}
       {livesOn > 0 && (
         <Card kind="Where it lives now" title={`Bookcase ${livesOn}`}>
           {areas.length > 0 && (
@@ -177,12 +109,8 @@ export function MoveRunPane({
         </Card>
       )}
 
-      {/*
-        The refusal, where there is one, instead of the picker rather than after
-        it. Three destinations and a button that exists to say no is the defect
-        #486 is about, and the words are the server's own so that what the
-        screen says and what the write would have said are one sentence.
-      */}
+      {/* The words are the server's own, so what the screen says and what
+          the write would have said are one sentence. */}
       {refused ? <Nothing said={refused} /> : livesOn > 0 && (
         <>
           <Choice
@@ -260,8 +188,6 @@ export function Planned({
         </Card>
       )}
 
-      {/* The furniture half of the plan, which used to be left unsaid. See
-          `WhatMovesWithIt`: #391 is what that cost somebody. */}
       <WhatMovesWithIt plan={plan} />
 
       {plan.staying > 0 && (
@@ -272,9 +198,8 @@ export function Planned({
         />
       )}
 
-      {/* Never silently empty. Every book the rules will not touch is named,
-          with the reason beside it, which is what makes the headline count a
-          claim somebody can check rather than a number to be believed. */}
+      {/* Never silently empty: every book the rules will not touch is
+          named, with the reason beside it. */}
       {leftAlone > 0 && (
         <Card weight="quiet" kind="Left alone" title={saidBooks(leftAlone)}>
           <p>
@@ -331,12 +256,9 @@ export function Planned({
 }
 
 /**
- * What applying wrote, and the way on to the work.
- *
- * The count is of `assigned` rows written, which is not the same number as the
- * books to carry and is deliberately said separately: a second apply of the same
- * plan writes nothing and still has fifty books to carry, and a screen that
- * conflated the two would report that as a plan that did nothing.
+ * `wrote` and `moved` are deliberately separate counts: a second apply of
+ * the same plan writes nothing but still has the same books to carry, and
+ * conflating the two would report that as a plan that did nothing.
  */
 function Applied({
   named, applied, tabs, onCarry,
@@ -368,23 +290,10 @@ function Applied({
 }
 
 /**
- * What the move does to the shelves themselves, before anybody presses Apply.
- *
- * **The half of a run move that is not about books**, and #391 is what leaving
- * it unsaid cost. Somebody put up a bookcase called Hall, gave it four shelves
- * and named one Comics, then moved non-fiction from bookcase 4 to bookcase 3.
- * The Hall stood after bookcase 4 with no rule on it, so it was the tail of the
- * non-fiction run: the move took all four of its planks and left it bare, and
- * every word on every screen was about books.
- *
- * The plan has known which planks it moves since #244 and drew none of them.
- * They are drawn now, and a piece the move would leave with nothing on it is
- * named on its own, because that is the sentence somebody would want to have
- * read first. #307 set the shape: a plan that would leave something empty says
- * so before it happens.
- *
- * Nothing is deleted either way. The piece keeps standing and its planks are
- * retired, so moving the run back puts every one of them, and its name, back.
+ * A piece the move would leave with nothing on it is named on its own,
+ * before it happens. Nothing is deleted either way: the piece keeps
+ * standing and its planks are retired, so moving the run back puts every
+ * one of them, and its name, back.
  */
 function WhatMovesWithIt({ plan }: { plan: RunMovePlan }) {
   if (plan.planks.length === 0) return null

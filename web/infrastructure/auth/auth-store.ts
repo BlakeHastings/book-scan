@@ -1,30 +1,15 @@
 /**
  * Every statement the gate and the sign-in make, in the layer that owns
- * statements (#521).
+ * statements. The SQL is generated from `infrastructure/db/schema.ts` through
+ * `infrastructure/db/query.ts`, so a renamed column is a compile error here;
+ * `Db` owns the connection and the transaction, and Drizzle never sees one.
+ * One class rather than four repositories, because the four tables are one
+ * subject the gate reads across in a single question.
  *
- * Built the way #172 established and every slice since has followed: the SQL is
- * generated from `infrastructure/db/schema.ts` through `infrastructure/db/query.ts`,
- * so a column renamed in the schema is a compile error here rather than a
- * statement that fails on somebody's shelf, and `Db` still owns the connection
- * and the transaction. Drizzle never sees a connection.
- *
- * It is one class rather than four repositories because the four tables are one
- * subject and the gate reads across them in a single question. Splitting them
- * would mean a `SessionRepository` that has to join `user` to answer anything
- * useful, which is two objects sharing one query.
- *
- * ## What this deliberately does not do
- *
- * - **It never looks anybody up by email.** `emailOf` exists for the enable
- *   script's list and takes an exact address, and even that refuses an ambiguous
- *   answer rather than picking one. #510: two providers can assert the same
- *   address about different people, and treating that as one person is an
- *   account takeover.
- * - **It never links a second identity to an existing user.** `findOrCreate`
- *   creates a new user for an unknown `(issuer, subject)`, always. Linking is a
- *   deliberate act by somebody already signed in and is not in #521.
- * - **It holds no notion of a role.** There is nothing here to grant and
- *   nothing to check beyond `enabled`, on purpose: #171 has not decided roles.
+ * Deliberately: never looks anybody up by email, since two providers can
+ * assert the same address about different people; never links a second
+ * identity to an existing user, `findOrCreate` always creates a new user for
+ * an unknown `(issuer, subject)`; holds no notion of a role beyond `enabled`.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -39,21 +24,16 @@ import { session, signInFlow, user, userIdentity } from '../db/schema'
 export const SESSION_DAYS = 30
 
 /**
- * How stale a session may get before a use writes to it.
- *
- * Renewal on every request would mean a write per request, and an ordinary
- * screen makes half a dozen. An hour keeps a thirty day window sliding without
- * making the gate a writer.
+ * How stale a session may get before a use writes to it. Renewal on every
+ * request would mean a write per request; an hour keeps the window sliding
+ * without making the gate a writer.
  */
 export const RENEW_AFTER_MINUTES = 60
 
 /**
- * How long a half-finished sign-in is allowed to sit unfinished.
- *
- * The number is in `shared/auth.ts` because the flow cookie's `Max-Age` and a
- * sentence on the login screen have to say the same thing, and #557 records what
- * a drift between the first two would do: it changes which of six things a
- * person is told happened to them.
+ * How long a half-finished sign-in is allowed to sit unfinished. The number
+ * lives in `shared/auth.ts` because the flow cookie's `Max-Age` and a
+ * sentence on the login screen have to say the same thing.
  */
 export const FLOW_MINUTES = SIGN_IN_FLOW_MINUTES
 
@@ -65,7 +45,6 @@ function later(when: Date, minutes: number): string {
   return at(new Date(when.getTime() + minutes * 60_000))
 }
 
-/** A person, as the gate and the sign-in need one. */
 export interface UserRow {
   id: string
   enabled: boolean
@@ -73,7 +52,6 @@ export interface UserRow {
   enabled_at: string | null
 }
 
-/** One external identity, and the person it belongs to. */
 export interface IdentityRow {
   issuer: string
   subject: string
@@ -85,11 +63,9 @@ export interface IdentityRow {
 }
 
 /**
- * What the gate asks for, and it is one row rather than two.
- *
- * The join is the design. `enabled` is read from `user` on every request rather
- * than copied onto the session, so disabling somebody takes effect on their next
- * request instead of whenever their session happens to expire.
+ * What the gate asks for, in one row rather than two. `enabled` is read from
+ * `user` on every request rather than copied onto the session, so disabling
+ * somebody takes effect on their next request instead of at session expiry.
  */
 export interface LiveSession {
   token_hash: string
@@ -99,7 +75,6 @@ export interface LiveSession {
   enabled: boolean
 }
 
-/** A half-finished sign-in, as the callback consumes one. */
 export interface FlowRow {
   state: string
   provider: string
@@ -108,7 +83,6 @@ export interface FlowRow {
   next: string
 }
 
-/** A person and the identities they hold, which is what the script prints. */
 export interface UserWithIdentities extends UserRow {
   identities: IdentityRow[]
 }
@@ -117,18 +91,14 @@ export class AuthStore {
   constructor(private readonly db: Db) {}
 
   /**
-   * The one question the gate asks, answered in one round trip.
+   * The one question the gate asks, answered in one round trip. A session is
+   * live when it exists, has not been revoked and has not expired; a revoked
+   * or expired row answers the same as no row: anonymous, and a `401`.
    *
-   * A session is live when it exists, has not been revoked and has not expired.
-   * A revoked or expired row answers nothing, which is the same answer as no row
-   * at all: `anonymous`, and a `401`. Whether the person may come in is a
-   * separate field and a separate refusal.
-   *
-   * **Nothing about the person beyond `enabled` is read here**, and that is
-   * because this runs on every request the app answers. Their email and name are
-   * wanted by exactly one route, `GET /api/auth/session`, which asks
-   * `latestIdentity` for them; putting that join here would make every request
-   * for a photograph pay for a screen's caption.
+   * Nothing about the person beyond `enabled` is read here, because this
+   * runs on every request the app answers. Email and name are wanted by
+   * exactly one route, `GET /api/auth/session`, which asks `latestIdentity`
+   * instead.
    */
   async liveSession(tokenHash: string, now: Date): Promise<LiveSession | undefined> {
     const query = statement(
@@ -151,11 +121,8 @@ export class AuthStore {
   }
 
   /**
-   * The identity this person most recently signed in with.
-   *
-   * A person may hold more than one, and the screen that says "signed in as"
-   * should say the one they just used rather than the first they ever had.
-   * Absent only for a user with no identity at all, which nothing here creates.
+   * The identity this person most recently signed in with. Absent only for a
+   * user with no identity at all, which nothing here creates.
    */
   async latestIdentity(userId: string): Promise<IdentityRow | undefined> {
     const query = statement(
@@ -168,11 +135,9 @@ export class AuthStore {
   }
 
   /**
-   * Start a session for a person who has just proved who they are.
-   *
-   * Takes the hash, never the token: the caller mints the random value, hands it
-   * to exactly one browser, and gives this the digest. Nothing in this process
-   * keeps the token after the response is written.
+   * Start a session for a person who has just proved who they are. Takes the
+   * hash, never the token: the caller mints the random value and hands it to
+   * exactly one browser.
    */
   async openSession(tokenHash: string, userId: string, now: Date): Promise<void> {
     const insert = statement(sql`
@@ -191,9 +156,8 @@ export class AuthStore {
   }
 
   /**
-   * Push a session's window forward, and only when it has gone stale.
-   *
-   * The `last_used_at` condition is in the statement rather than in the caller
+   * Push a session's window forward, and only when it has gone stale. The
+   * `last_used_at` condition is in the statement rather than in the caller
    * so two requests arriving together cannot both decide to write.
    */
   async renewSession(tokenHash: string, now: Date): Promise<void> {
@@ -232,18 +196,12 @@ export class AuthStore {
   }
 
   /**
-   * The person behind an external identity, creating them if this pair has never
-   * been seen.
+   * The person behind an external identity, creating them if this pair has
+   * never been seen. `enabled` is left off the insert so the schema's default
+   * applies, rather than being written here as `false`.
    *
-   * **A new pair is a new person, always.** Not a match on email, not a prompt,
-   * not a merge: see the header, and `schema.ts` on `user_identity`. The row is
-   * created with `enabled` false, which is the schema's default and is written
-   * here as nothing rather than as `false`, so there is no second place the
-   * default could be changed.
-   *
-   * `email` and `name` are refreshed on every sign-in because a provider is the
-   * authority on both and they change. `last_seen_at` moves with them, which is
-   * what makes "the identity they just used" answerable.
+   * `email` and `name` are refreshed on every sign-in because the provider is
+   * the authority on both, and `last_seen_at` moves with them.
    */
   async findOrCreate(
     identity: { issuer: string; subject: string; email: string; name: string },
@@ -321,12 +279,9 @@ export class AuthStore {
   }
 
   /**
-   * Everybody, newest first, with the identities each holds.
-   *
-   * The enable script's whole read. Two queries rather than a join, because the
-   * shape wanted is a person with a list under them and a join hands back a row
-   * per identity, which the caller would then have to fold. There is one owner
-   * and a waiting list, so the number of rows is not the consideration.
+   * Everybody, newest first, with the identities each holds. Two queries
+   * rather than a join, because a join would return one row per identity and
+   * the caller would have to fold them into the nested shape wanted.
    */
   async everybody(): Promise<UserWithIdentities[]> {
     const people = statement(build.select().from(user).orderBy(desc(user.createdAt)))
@@ -346,12 +301,8 @@ export class AuthStore {
 
   /**
    * The people an exact email address names, which may be none and may be
-   * several.
-   *
-   * Several is not an error here and is not resolved here. It is handed back so
-   * the script can refuse and print them, because picking one would be this
-   * codebase deciding that an address identifies a person, which is the thing
-   * #510 says it does not.
+   * several. Several is not resolved here; picking one would be deciding
+   * that an address identifies a person, which this store does not do.
    */
   async byEmail(email: string): Promise<UserWithIdentities[]> {
     const everyone = await this.everybody()
@@ -361,20 +312,14 @@ export class AuthStore {
   }
 
   /**
-   * Let somebody in, or stop letting them in.
+   * Let somebody in, or stop letting them in. `enabled_at` records when the
+   * door was opened and is cleared when it is shut.
    *
-   * `enabled_at` records when the door was opened and is cleared when it is
-   * shut, so a person who was admitted and then was not does not read as having
-   * been admitted all along.
+   * Disabling does not touch their sessions on purpose: the gate reads
+   * `enabled` on every request, so the next one answers `403`. A separate
+   * revocation sweep exists for "throw away the credential" instead.
    *
-   * **Disabling does not touch their sessions on purpose.** The gate reads
-   * `enabled` on every request, so the next one they make answers `403`. A
-   * revocation sweep exists as its own switch for the different question of
-   * "throw away the credential", which is what you want after a stolen phone
-   * rather than after a decision about who is admitted.
-   *
-   * Answers whether anything changed. A row already in the wanted state matches
-   * nothing and reports `false`, which is what lets the script say "already
+   * Returns whether anything changed, so the script can say "already
    * enabled" rather than claiming to have done something.
    */
   async setEnabled(id: string, enabled: boolean, now: Date): Promise<boolean> {
@@ -409,18 +354,10 @@ export class AuthStore {
   }
 
   /**
-   * Take a half-finished sign-in, once.
-   *
-   * `DELETE ... RETURNING` rather than a select and a delete, so two callbacks
-   * carrying the same state cannot both be answered: exactly one statement
-   * removes the row and only that one gets it back. An authorization code that
-   * is replayed therefore fails with nothing to check it against, which is what
-   * the row is for.
-   *
-   * Expired flows are swept in the same statement rather than on a timer,
-   * because the only thing that has to be true of them is that they cannot be
-   * used, and a delete on the way past is cheaper than something that has to be
-   * running.
+   * Take a half-finished sign-in, once. `DELETE ... RETURNING` rather than a
+   * select and a delete, so two callbacks carrying the same state cannot
+   * both be answered: only the one statement that removes the row gets it
+   * back.
    */
   async takeFlow(state: string, now: Date): Promise<FlowRow | undefined> {
     const sweep = statement(

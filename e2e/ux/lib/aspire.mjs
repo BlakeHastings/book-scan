@@ -1,12 +1,11 @@
 /**
  * Asking the AppHost where the app is and what database it opened.
  *
- * A trimmed copy of the argument e2e/support/aspire.ts makes, in plain
- * JavaScript so this harness needs no build step: Aspire assigns the ports, so
- * nothing here may assume 5173 or 3001, and the connection is read out of the
- * api resource's own environment rather than rebuilt from a guess.
- *
- * It never reads ConnectionStrings__bookscan or BOOKSCAN_DATA from a shell.
+ * A trimmed copy of the argument `e2e/support/aspire.ts` makes, in plain
+ * JavaScript so this harness needs no build step: nothing here may assume
+ * fixed ports, and the connection is read out of the api resource's own
+ * environment rather than rebuilt from a guess. It never reads
+ * ConnectionStrings__bookscan or BOOKSCAN_DATA from a shell.
  */
 
 import { execFile } from 'node:child_process'
@@ -17,9 +16,7 @@ import { dirname, resolve } from 'node:path'
 const run = promisify(execFile)
 
 const here = dirname(fileURLToPath(import.meta.url))
-/** e2e/ux */
 export const UX_ROOT = resolve(here, '..')
-/** The repository root, which is where the AppHost lives. */
 export const REPO_ROOT = resolve(UX_ROOT, '..', '..')
 
 export async function aspire(args, { timeoutMs = 5 * 60 * 1000, env } = {}) {

@@ -1,12 +1,9 @@
 /**
  * Making the file Chromium plays as a camera.
  *
- * The generator itself lives in `web/scripts/e2e-video-fixture.ts` so that it
- * can use the cover fixtures the unit tests already read barcodes out of. It
- * is run here as a child process rather than imported, because it needs the
- * web package's own dependencies (sharp, bwip-js) and its own TypeScript
- * toolchain, and reaching sideways into another package's node_modules is a
- * good way to get a mystery on somebody else's machine.
+ * Run as a child process rather than imported: the generator, in
+ * `web/scripts/e2e-video-fixture.ts`, needs the web package's own
+ * dependencies (sharp, bwip-js) and its own TypeScript toolchain.
  */
 
 import { execFile } from 'node:child_process'
@@ -21,31 +18,22 @@ const run = promisify(execFile)
 /**
  * tsx's entry point, addressed directly.
  *
- * Not `npm run` and not `npx`: on Windows both of those are `.cmd` shims,
- * which Node refuses to spawn without a shell, and a shell would need every
- * path quoted by hand. Node running a `.mjs` file needs neither.
+ * Not `npm run` or `npx`: on Windows both are `.cmd` shims, which Node
+ * refuses to spawn without a shell.
  */
 const TSX = join(WEB_ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs')
 const GENERATOR = join(WEB_ROOT, 'scripts', 'e2e-video-fixture.ts')
 
 /**
- * Generate the camera video for one ISBN, unless it is already current.
- *
- * "Current" means newer than the generator and the cover fixtures it draws
- * with, so an edit to either produces a new video rather than a stale one that
- * silently keeps passing.
+ * Generates the video unless it is already newer than the generator and the
+ * cover fixtures it draws with, so an edit to either produces a fresh video
+ * rather than a stale one that silently keeps passing.
  */
 export async function ensureCameraVideo(isbn: string): Promise<string> {
   return generate(cameraVideoFor(isbn), ['back', isbn])
 }
 
-/**
- * The same, showing a front cover instead.
- *
- * Same generator, same freshness rule; only the argument differs. A front
- * carries no barcode, which is the whole reason a scenario would want it: it
- * is the photograph that makes the app fall through to comparing covers.
- */
+/** Same generator and freshness rule as `ensureCameraVideo`, showing a front cover instead. */
 export async function ensureFrontCameraVideo(title: string, author: string): Promise<string> {
   return generate(frontCameraVideoFor(title), ['front', title, author])
 }

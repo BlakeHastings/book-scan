@@ -1,26 +1,4 @@
-/**
- * The tags on the check-the-details screen (#372).
- *
- * Three things are pinned here and each one is a rule that would be broken by
- * somebody being helpful rather than by somebody being careless.
- *
- * The first is #304 arriving on a new screen. A genre is written only when a
- * source stated one or a person answered the two options, and this screen now
- * has a free-text box on it. The box may never produce a genre tag, which
- * `domain/tagging/naming.ts` enforces and its tests prove; what is checked here
- * is the other half, that the two options are still the two options and that a
- * tag somebody typed is drawn beside them rather than instead of one.
- *
- * The second is the pinned design rule that a tag is drawn by its label and
- * never by its slug. `design.test.tsx` checks it of every gallery screen and
- * nothing checked it of the app, where the tags come off the wire carrying both
- * halves and the slug is the one that is right there in the object.
- *
- * The third is that the way in is not drawn when there is nowhere to write to.
- *
- * Rendered as markup rather than driven in a browser, the way
- * `HomePane.test.tsx` does it: this project has no DOM in its test setup.
- */
+/** Rendered as markup rather than driven in a browser: this project has no DOM in its test setup. */
 
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
@@ -53,12 +31,8 @@ function drawn(over: {
   return renderToStaticMarkup(
     <CaptureReview
       draft={{ ...emptyDraft, title: 'Watchmen', ...over.draft }}
-      /*
-       * Null on both, which is the case the file was written for and is also
-       * the shape of #435: no source answered, so there is no lookup at all.
-       * The warning below is drawn from `catalogued` and never from a lookup,
-       * so a test that wants it says so on its own.
-       */
+      // Deliberately null: the warning below is drawn from `catalogued`,
+      // never from `lookup`, so a test that needs it sets `catalogued` directly.
       lookup={null}
       catalogued={over.catalogued ?? null}
       photos={{}}
@@ -113,13 +87,8 @@ describe('the tags on the check-the-details screen', () => {
     expect(markup).toContain('Comic book')
   })
 
-  /*
-   * The pinned rule, reaching the app. A tag arrives here as a slug and a
-   * label together, so drawing the wrong half is one property away and would
-   * put `subject/comic-book` on a screen, which is showing somebody a row id.
-   * The pattern is the shape of a slug rather than a list of known ones,
-   * because the next slug is the one that gets rendered by accident.
-   */
+  // Matches the shape of a slug generically, rather than checking for known
+  // slugs by name, so a future tag does not slip through unmatched.
   it('draws a tag by its label and never by its slug', () => {
     const markup = words(drawn({
       tags: [applied('subject/comic-book', 'Comic book')],
@@ -129,38 +98,15 @@ describe('the tags on the check-the-details screen', () => {
     expect(markup).not.toMatch(/\b[a-z][a-z0-9]*\/[a-z][a-z0-9-]*\b/)
   })
 
-  /*
-   * A capture is a row in `books` from its first photograph (#183), so there is
-   * almost always somewhere to write a tag. Almost is not always, and a target
-   * that answers 404 is worse than no target.
-   */
   it('does not offer the way in when there is nothing to write a tag on', () => {
     expect(words(drawn({ canTag: false }))).not.toContain('Add a tag')
   })
 
-  /* The panel is opened rather than being on the screen: this is the fast path
-     and a screen somebody is trying to get a book off does not carry a search
-     box for tags it may never need. */
   it('opens the naming panel rather than drawing one on the screen', () => {
     expect(drawn()).not.toContain('wf-name')
   })
 })
 
-/**
- * What the photographs read, on the one screen that still shows it.
- *
- * **These tests were written against the other screen and moved here** (#409).
- * `CaptureEvidence` had two callers, and the owner named it off the screen for
- * a book the catalogue already holds: "we have text underneath the images
- * coming from the OCR system. We shouldn't show those, they're very intrusive."
- * That leaves one caller, which is this screen, and it is the screen the block
- * was written for: the case the whole of #147 is about is a capture the
- * photographs read something off and no catalogue matched, so there is no
- * title, and that is precisely the book somebody has to work out by hand.
- *
- * Nothing in the claims changed in the move. The reading is shown, it says what
- * it is and how much to trust it, and it never reaches a field.
- */
 describe('a queued capture with cover text and no title', () => {
   const nameless = (over: Parameters<typeof drawn>[0] = {}) =>
     drawn({ ...over, draft: { title: '', ...over.draft } })
@@ -179,11 +125,8 @@ describe('a queued capture with cover text and no title', () => {
     expect(markup).toContain('often wrong')
   })
 
-  /*
-   * The point of showing it at all is undone by pre-filling it. OCR is a
-   * lossy reading of a photograph, and a guess sitting in the Title box is
-   * one save away from entering the catalogue as a confirmed value.
-   */
+  // Deliberately not pre-filled: OCR is a lossy reading, and a guess sitting
+  // in the Title box is one save away from becoming a confirmed value.
   it('leaves the Title box empty rather than filling it with the reading', () => {
     const markup = nameless({ coverText: 'Song of Solomon' })
 
@@ -198,19 +141,11 @@ describe('a queued capture with cover text and no title', () => {
     expect(markup).not.toContain('use as title')
   })
 
-  /*
-   * Three people work one pile and a note is how one hands the book to the
-   * next, so it belongs on the screen where the next one picks it up.
-   */
   it('shows the note that came with it', () => {
     expect(nameless({ captureNote: 'No ISBN confirmed. Barcode is torn.' }))
       .toContain('No ISBN confirmed. Barcode is torn.')
   })
 
-  /* The block itself is absent rather than empty, checked on the class: this
-     screen says the word "evidence" in the card that stands in for a lookup
-     nothing answered, which is prose about what is underneath rather than the
-     thing underneath. */
   it('quotes nothing when the photographs produced nothing', () => {
     const markup = nameless()
 
@@ -218,12 +153,8 @@ describe('a queued capture with cover text and no title', () => {
     expect(markup).not.toContain('class="evidence"')
   })
 
-  /*
-   * #156. With the guess out of the Title box this button is dead until
-   * somebody names the book, and it was live before, so the page has to say
-   * why rather than leave a person prodding at it. In the page and not only in
-   * the button's tooltip: this runs on a phone, where nothing hovers.
-   */
+  // The reason is in the page rather than a tooltip: this runs on a phone,
+  // where nothing hovers.
   it('says what would let it be shelved, rather than only refusing', () => {
     expect(nameless({ coverText: 'Song of Solomon' }))
       .toContain('Type the title off the book to shelve it')
@@ -235,16 +166,6 @@ describe('a queued capture with cover text and no title', () => {
   })
 })
 
-/**
- * The book is already in the catalogue, and no source could name it (#435).
- *
- * The warning used to be read off the lookup, so it existed only where some
- * catalogue had answered. That is the wrong way round: a book nobody can look
- * up has nothing on screen to recognise it by, so it is precisely the book
- * somebody photographs a second time, and it was the one book that got no
- * warning at all. What is checked here is that the two are independent on this
- * screen: no lookup whatsoever, and the warning is still drawn.
- */
 describe('a book the catalogue already holds', () => {
   const shelved: CataloguedBook = { id: 45, title: 'Song of Solomon', location: '1B' }
 
@@ -265,9 +186,6 @@ describe('a book the catalogue already holds', () => {
   })
 
   it('does not refuse the save, because two copies genuinely turn up', () => {
-    // A finding to put in front of a person, never a gate. The same rule the
-    // queue half is held to: an answer with no way past it is one somebody
-    // escapes by photographing the book again.
     expect(drawn({ catalogued: shelved, draft: { title: 'Song of Solomon' } }))
       .not.toContain('Type the title off the book to shelve it')
   })

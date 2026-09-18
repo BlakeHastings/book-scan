@@ -1,30 +1,17 @@
 /**
- * The baseline migration, against a real Postgres.
+ * The baseline migration, against a real Postgres, which it has to be: every
+ * question here is about what a Postgres catalogue says about itself.
  *
- * Two claims are made in the pull request that introduced this file, and
- * neither of them is worth anything unless a machine checks it:
+ * Two things are checked. The baseline produces the schema `SCHEMA` produces:
+ * the same columns in the same order with the same types, defaults, nullability
+ * and collations, the same indexes, the same constraints under the same names
+ * and the same identity sequences. And a database that already has this schema
+ * is adopted rather than rebuilt, with its rows still there afterwards.
  *
- * 1. **The baseline produces the schema the app produces today.** Not
- *    approximately: the same columns in the same order with the same types,
- *    defaults, nullability and collations, the same indexes, the same
- *    constraints under the same names, and the same identity sequences. Both
- *    databases are built here and diffed, so "faithful transcription" is a test
- *    result rather than a claim about having read carefully.
- *
- * 2. **A database that already has this schema is adopted, not rebuilt.** That
- *    is the case that actually happens: the Postgres container has a persistent
- *    volume per checkout, so every developer already has a database full of
- *    tables the migrator has never seen. The rows are still there afterwards,
- *    which is asserted with a book in the table rather than inferred.
- *
- * Postgres only, and it has to be: every question here is about what a Postgres
- * catalogue says about itself.
- *
- * **Since #179 the baseline is not the only migration**, so claim 1 is asked of
- * the baseline on its own, applied by `applyBaseline` below. Running the folder
- * and diffing against `SCHEMA` would now compare the schema the app is moving
- * towards against the schema it came from and report every deliberate change as
- * a failure.
+ * The baseline is not the only migration, so the first is asked of the baseline
+ * on its own, applied by `applyBaseline` below. Running the whole folder and
+ * diffing against `SCHEMA` would report every deliberate later change as a
+ * failure.
  */
 
 import { readFileSync } from 'node:fs'
@@ -37,32 +24,27 @@ import { MigrationFailed, migrateToLatest } from './migrate'
 import { closeScratchDatabases, scratchDatabase } from './testdb'
 
 /**
- * An empty database of its own, handed back when the file finishes.
- *
- * The making moved to `testdb.ts` when #179 added two more files that need the
- * same thing. It is the same database this file always made, created with a
- * linguistic collation on purpose: a byte ordered one would make every `COLLATE
- * "C"` comparison below vacuous by ordering correctly whatever the column said.
+ * An empty database of its own, handed back when the file finishes. Created with
+ * a linguistic collation on purpose: a byte ordered one would make every
+ * `COLLATE "C"` comparison below vacuous by ordering correctly whatever the
+ * column said.
  */
 const scratch = scratchDatabase
 
 afterAll(async () => {
-  // Connections only. Dropping the four or five databases used to happen here
-  // and was where this file waited behind whatever checkpoint Postgres was
-  // already running for somebody else's drop; #343 moved every drop in the
-  // suite to after the last test. See infrastructure/db/testdb.ts.
+  // Connections only. Every drop in the suite happens after the last test; see
+  // infrastructure/db/testdb.ts.
   await closeScratchDatabases()
 })
 
 /**
- * Everything about the shape of a database that anything depends on.
- *
- * Deliberately read out of the catalogue rather than compared as SQL text. The
- * two schemas are written in different languages by different tools, and what
- * has to match is what Postgres ended up with.
+ * Everything about the shape of a database that anything depends on, read out of
+ * the catalogue rather than compared as SQL text: the two schemas are written in
+ * different languages by different tools, and what has to match is what Postgres
+ * ended up with.
  *
  * `public` only, so Drizzle's own `drizzle.__drizzle_migrations` bookkeeping is
- * out of scope: it is the migrator's, not the catalogue's.
+ * out of scope.
  */
 async function describeSchema(pool: pg.Pool) {
   const columns = await pool.query(
@@ -99,14 +81,10 @@ async function describeSchema(pool: pg.Pool) {
 }
 
 /**
- * The baseline, run on its own.
- *
- * There are migrations after it now, so `migrateToLatest` no longer answers the
- * question this file's first claim is about: the baseline is a transcription of
- * `SCHEMA`, and everything after it is a change to that schema on purpose. So
- * the baseline is applied by hand here, statement by statement, exactly as
- * Drizzle's migrator would. **This is the only place that does that**, and it is
- * why the migration folder is read rather than the file named.
+ * The baseline, run on its own, statement by statement exactly as Drizzle's
+ * migrator would. `migrateToLatest` would run everything after it too, and
+ * everything after it is a change to this schema on purpose. This is the only
+ * place that applies a migration by hand.
  */
 async function applyBaseline(pool: pg.Pool): Promise<void> {
   const path = fileURLToPath(new URL('./migrations/0000_baseline.sql', import.meta.url))
@@ -172,46 +150,19 @@ describe('the baseline migration on an empty database', () => {
     // it. If both sides ever lost the collation together the diff would still
     // be green, and a shelf would quietly reorder. See SORT_KEY_COLUMNS.
     //
-    // Four of these decide shelf order. `tag.slug` is the fifth and is here for
-    // a different reason: a prefix range over it is how "everything under
-    // genre" is answered, and on a linguistic collation that range is neither
-    // an index seek nor dependably the right rows.
+    // Four of these decide shelf order. `tag.slug` is here for a different
+    // reason: a prefix range over it is how "everything under genre" is
+    // answered, and on a linguistic collation that range is neither an index
+    // seek nor dependably the right rows. `area.starts_at` is the quietest of
+    // all to get wrong, being the sort key of the first book in a run and
+    // compared against `books.sort_key` to decide which plank a book is on:
+    // under a linguistic collation that comparison does not fail, it returns a
+    // nearly right answer. It is read off the catalogue here rather than left to
+    // the fact that `collatedText` was used, which is a claim about the source.
     //
-    // `author_alias.filing_name` is the sixth, added by #180. It is a filing
-    // name, so it is the same kind of column as `books.author_filing`: the first
-    // component of a sort key today and the second tiebreak of every sort
-    // strategy in docs/data-model.md that is not `author`. Nothing orders by it
-    // yet, and it carries the collation now because adding it once a shelf is
-    // ordered by the column means rewriting the column that decides the order.
-    //
-    // `book_placement.sort_key` is the eighth, added by #185. A ledger row
-    // carries the book's key as it stood, so a row can be read back as a
-    // position against `area.starts_at` after an edit has re-keyed the book, and
-    // a comparison between two differently collated columns is the same nearly
-    // right answer described below.
-    //
-    // `area.starts_at` is the seventh, added by #184, and it is the one that
-    // would be quietest of all to get wrong. It is `separators.starts_at` under
-    // a new name: the sort key of the first book in a run, compared against
-    // `books.sort_key` to decide which plank a book is on. Under a linguistic
-    // collation that comparison does not fail, it returns a nearly right answer,
-    // and the whole model would order by a linguistic collation and look almost
-    // correct. It is asserted here rather than left to the fact that
-    // `collatedText` was used, because that is a claim about the source and this
-    // is a reading off the catalogue.
-    //
-    // `separators.starts_at` was the eighth until #232 dropped the table, and
-    // its going is why the sentence above is no longer about two columns holding
-    // the same anchor. There is one column a plank's beginning is compared in.
-    //
-    // The last nine are the three views, added by #183, and they are the reason
-    // this query is not filtered to tables. `catalogued_books` and
-    // `queued_books` arrived with the second half of it, alongside
-    // `shelved_books`. A view column takes the type, and so
-    // the collation, of the expression behind it, and that view is what every
-    // ordering query reads from now on. If it ever came back uncollated the shelf
-    // would reorder under a linguistic collation exactly as it would have done
-    // before any of this existed, silently, and nothing else here would notice.
+    // The nine view columns are why this query is not filtered to tables. A view
+    // column takes the type, and so the collation, of the expression behind it,
+    // and those views are what every ordering query reads.
     const migrated = await scratch()
     await migrateToLatest(migrated)
 
@@ -271,15 +222,9 @@ describe('a database that already has these tables', () => {
     // The baseline did not run: every column it would have created is exactly
     // as it was, on a database that already had rows in it.
     //
-    // Not "the tables are untouched", which is what this used to say and what
-    // stopped being true at #183. `0007` adds `books.state`, `0010` adds the
-    // eleven columns that were the queue table, `0014` adds
-    // `books.current_area_id`, `0019` drops the ten that held photographs,
-    // `0021` and `0022` drop one apiece, and `0024` to `0026` drop the three
-    // #232 took: those are the migrations that alter a table the baseline
-    // created rather than add one beside it, and `0027` and `0028` take two of
-    // the tables away entirely. So the claim worth making is that a later
-    // migration's deliberate additions and removals are the *only* difference. A
+    // Not "the tables are untouched": later migrations alter tables the baseline
+    // created and take two of them away entirely, so the claim worth making is
+    // that their deliberate additions and removals are the only difference. A
     // baseline that had run would show up as every column being rebuilt, which
     // this still catches.
     //
@@ -293,20 +238,11 @@ describe('a database that already has these tables', () => {
     const tablesOf = (rows: Record<string, unknown>[]) =>
       [...new Set(ofBaseline(rows).map((row) => String(row.table_name)))]
     /*
-     * The baseline tables the cut-over dropped, and they are the first two this
-     * repository has ever dropped.
-     *
-     * `separators` is `area` under a name that says what it anchors and
-     * `shelf_ranges` is two `placement_rule` rows, both #232's. Until then
-     * twelve columns had gone and no table had, which is why `captures` is still
-     * sitting there with its rows and nothing reading it.
-     *
-     * Named rather than counted for the reason the columns are, and more so: a
-     * table that disappeared without somebody writing it down is a worse
-     * accident than a column that did. A column takes its own values; a table
-     * takes its indexes, its identity sequence and every row anybody put in it,
-     * and there is no ledger of boundaries to read one back out of the way
-     * `book_placement` holds what `books.location` said.
+     * The baseline tables a later migration dropped. Named rather than counted
+     * for the reason the columns are, and more so: a table that disappeared
+     * without somebody writing it down is a worse accident than a column that
+     * did, because it takes its indexes, its identity sequence and every row
+     * anybody put in it.
      */
     const droppedTables = ['separators', 'shelf_ranges']
     expect(tablesOf(before.columns).filter((table) => !tablesOf(after.columns).includes(table)))
@@ -331,23 +267,10 @@ describe('a database that already has these tables', () => {
         'books.current_area_id',
       ])
     /*
-     * The columns the cut-over dropped, in the order the baseline declared them.
-     *
-     * Ten of them are `0019`'s: the photographs are rows in `capture` now (#228).
-     * `books.is_fiction` is `0021`'s and `books.author_filing` is `0022`'s, which
-     * are the two halves of #227: a book's genre is `book_tag` and its filing
-     * name is its first credit's alias. `author_filing` is still a column on the
-     * three views, joined back on, which is why the collation assertion below is
-     * unchanged and this one is not.
-     *
-     * `books.location`, `books.shelved_at` and `books.checked_out_at` are #232's,
-     * one migration each, `0024` to `0026`. The ledger is where a book is: a
-     * `book_placement` row says where somebody put it, when, and who said so, and
-     * `books.current_area_id` is the fold of those rows kept where a shelf can be
-     * drawn from it. The three columns between them said only the present tense,
-     * so what replaces them says more rather than the same thing elsewhere, and
-     * the label the client still reads is derived from the area rather than
-     * stored.
+     * The columns later migrations dropped, in the order the baseline declared
+     * them. `author_filing` is still a column on the three views, joined back
+     * on, which is why the collation assertion above is unchanged and this one
+     * is not.
      *
      * Listed by name for the reason the additions above are. A column that
      * disappeared without somebody writing it down is the accident this test
@@ -364,7 +287,7 @@ describe('a database that already has these tables', () => {
       .toEqual([...gone])
 
     // And every column that survived is byte for byte what the baseline made it,
-    // apart from where it sits in the row now that fifteen among them have gone.
+    // apart from where it sits in the row now that some among them have gone.
     const withoutPosition = ({ ordinal_position: _, ...rest }: Record<string, unknown>) => rest
     expect(ofSurviving(after.columns).filter((row) => was.has(named(row))).map(withoutPosition))
       .toEqual(ofSurviving(before.columns)
@@ -395,10 +318,9 @@ describe('a database that is neither empty nor this schema', () => {
   it('is refused, and the missing column is named', async () => {
     const pool = await scratch()
     await pool.query(SCHEMA)
-    // `separators` still, though #232 dropped the table: adoption is a claim
-    // about the baseline, which created it, and is decided before a migration
-    // runs. A baseline table that a later migration takes away is exactly as
-    // good a place to break the schema as one that survives.
+    // `separators`, though a later migration drops the table: adoption is a
+    // claim about the baseline, which created it, and is decided before any
+    // migration runs.
     await pool.query('ALTER TABLE separators DROP COLUMN note')
 
     await expect(migrateToLatest(pool)).rejects.toThrow(/separators has no note/)
@@ -415,20 +337,17 @@ describe('a database that is neither empty nor this schema', () => {
 })
 
 /**
- * What a person sees when a migration will not finish (#199).
+ * What a person sees when a migration will not finish.
  *
  * These assert on the whole shape of the message rather than only that the
- * reason appears somewhere in it, and that is the point. Before this, the
- * reason **did** appear somewhere in it: Drizzle's message is the failing
- * statement, and the statement contains the `RAISE EXCEPTION` line, so a test
- * matching `/would have lost a crop/` passed against a message that was the SQL
- * source of the sentence rather than the sentence. So each case here also says
- * what must **not** be in the message.
+ * reason appears somewhere in it. Drizzle's message is the failing statement,
+ * and the statement contains the `RAISE EXCEPTION` line, so a test matching
+ * `/would have lost a crop/` passes against the SQL source of the sentence
+ * rather than the sentence. Each case here also says what must not be in it.
  *
- * Two kinds of failure, deliberately. One is raised on purpose by a guard, and
- * one is an ordinary Postgres error that nothing in this repository wrote. They
- * arrive through different paths, and a fix that only reads well for the one
- * that was tested is worse than none, because it looks solved.
+ * Two kinds of failure, deliberately: one raised on purpose by a guard, one an
+ * ordinary Postgres error that nothing in this repository wrote. They arrive
+ * through different paths.
  */
 describe('a migration that will not finish', () => {
   async function refusalFrom(pool: pg.Pool): Promise<MigrationFailed> {
@@ -441,7 +360,7 @@ describe('a migration that will not finish', () => {
     const pool = await scratch()
     await pool.query(SCHEMA)
     // A crop naming a file no photograph does. `0006` refuses rather than
-    // losing it; see capture-backfill.test.ts for what that guard is for.
+    // losing it.
     await pool.query(
       `INSERT INTO books (title, shelf_range, is_fiction, sort_key, scanned_at,
                           front_image, front_crop)
@@ -458,7 +377,7 @@ describe('a migration that will not finish', () => {
     // than the whole folder.
     expect(refusal.message).toContain('0006_photographs_become_capture_rows.sql')
 
-    // Not the statement. This is the assertion the old test could not make.
+    // Not the statement.
     expect(refusal.message).not.toContain('DO $$')
     expect(refusal.message).not.toContain('RAISE EXCEPTION')
     expect(refusal.message.split('\n')).toHaveLength(3)
@@ -471,7 +390,7 @@ describe('a migration that will not finish', () => {
     expect(inspect(refusal, { depth: 5 })).not.toContain('DO $$')
 
     // The error postgres raised, not swallowed: its SQLSTATE, its `where` and
-    // its own stack are all still there for whoever needs them.
+    // its own stack are all still there.
     const cause = refusal.cause as { code?: string; where?: string; stack?: string }
     expect(cause.code).toBe('P0001')
     expect(cause.where).toContain('at RAISE')
@@ -498,8 +417,8 @@ describe('a migration that will not finish', () => {
   })
 
   it('leaves the schema where it was, which is what the message claims', async () => {
-    // The message says no migration was applied. Nothing else here checks that,
-    // and it is the sentence somebody deciding whether to roll back reads.
+    // The message says no migration was applied, and nothing else here checks
+    // that.
     const pool = await scratch()
     await pool.query(SCHEMA)
     await pool.query('CREATE TABLE "tag" (id integer)')

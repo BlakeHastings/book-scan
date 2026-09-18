@@ -2,35 +2,27 @@
  * `OutstandingMoveRepository` over Drizzle, executed through `Db`.
  *
  * The same shape as `DrizzleSeparatorRepository` beside it, including the
- * hand-spelled insert and the hand-written hydration, and for the same reasons
- * written out there.
+ * hand-spelled insert and the hand-written hydration, and for the same
+ * reasons written out there.
  *
- * ## The one column that is not a column
+ * `restore` holds JSON, the only place in this schema that does. What has
+ * to be stored is "the boundaries this one move touched, and what each of
+ * them was": a list, of two shapes, whose entries are meaningful only
+ * together and only until the move is settled or taken back. Nothing
+ * queries it, joins to it, or aggregates it, and a child table would give
+ * every entry an index and a foreign key it has no use for, while still
+ * being unable to reference the separators the move deleted.
  *
- * `restore` holds JSON. It is the only place in this schema that does, so it is
- * worth saying what makes it different from the alternative rather than leaving
- * it to look like a shortcut.
+ * The cost is that a malformed value is a runtime error rather than a
+ * schema error, so it is parsed defensively: a row that does not read back
+ * as a receipt is reported as no receipt at all, which leaves the move
+ * outstanding and the person with the "Moved it" they always had.
  *
- * What has to be stored is "the boundaries this one move touched, and what each
- * of them was". That is a list, of two shapes, whose entries are meaningful only
- * together and only until the move is settled or taken back. Nothing queries it,
- * nothing joins to it, nothing aggregates it, and nothing outside the retraction
- * reads it at all. A child table would give every one of those an index and a
- * foreign key it has no use for, and would still not be able to reference the
- * separators the move deleted, which are half of what the receipt is for.
- *
- * The cost is that a malformed value is a runtime error rather than a schema
- * error, so it is parsed defensively: a row that does not read back as a receipt
- * is reported as no receipt at all, which leaves the move outstanding and the
- * person with the "Moved it" they always had.
- *
- * ## The two planks are two fields each, and nothing here reads one back
- *
- * `from`/`to` are what the planks were called and `fromArea`/`toArea` are which
- * planks they were (#481). This hydrates both and parses neither: the whole
- * point of the ids is that a receipt no longer has to be read as an address, and
- * a lookup added here would put that back. See `schema.ts` for why they are not
- * a foreign key, which is the same argument `restore` makes above.
+ * `from`/`to` are what the planks were called and `fromArea`/`toArea` are
+ * which planks they were. This hydrates both and parses neither: the
+ * whole point of the ids is that a receipt no longer has to be read as an
+ * address, and a lookup added here would put that back. See `schema.ts`
+ * for why they are not a foreign key, the same argument `restore` makes above.
  */
 
 import { eq, sql } from 'drizzle-orm'
@@ -84,11 +76,9 @@ function parseRestore(value: string): Restore {
 
 /**
  * A plank id as the driver hands it back, which is not always a number.
- *
- * `node-postgres` returns `bigint`-shaped columns as strings, and every other
- * read of an area id in this repository puts a `Number` around it for that
- * reason. Null stays null: it is the one answer this column has that is not an
- * id, and turning it into 0 would be a receipt naming a plank nobody has.
+ * `node-postgres` returns `bigint`-shaped columns as strings. Null stays
+ * null: it is the one answer this column has that is not an id, and
+ * turning it into 0 would name a plank nobody has.
  */
 const plank = (value: number | null): number | null =>
   value === null || value === undefined ? null : Number(value)
@@ -104,16 +94,16 @@ const toMove = (row: OutstandingMoveRow): OutstandingMove => ({
 })
 
 /**
- * Merge a new move into whatever is already outstanding for the book.
+ * Merge a new move into whatever is already outstanding for the book. The
+ * older entry wins for a boundary named twice, because the receipt says
+ * where things were the last time this book and its shelf agreed, and the
+ * older entry is the only one that still points there. `from` is older for
+ * the same reason: it is where the book physically is, and no move
+ * changes that.
  *
- * The older entry wins for a boundary named twice, because the receipt says
- * where things were the last time this book and its shelf agreed, and the older
- * one is the only entry that still points there. `from` is older for the same
- * reason: it is where the book physically is, and no move changes that.
- *
- * **`fromArea` travels with `from` and is not decided separately.** They are the
- * address and the identity of one plank, and a receipt whose two halves came
- * from different moments would name two places (#481).
+ * `fromArea` travels with `from` and is not decided separately: they are
+ * the address and the identity of one plank, and a receipt whose two
+ * halves came from different moments would name two places.
  */
 function merged(existing: OutstandingMove | undefined, made: OutstandingMove): OutstandingMove {
   if (!existing) return made

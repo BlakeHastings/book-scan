@@ -1,31 +1,16 @@
 /**
- * The count, and the two refusals, over real HTTP (#521).
+ * Walks the app's own router stack and counts, rather than asserting a list
+ * of paths: a list only proves the doors somebody thought of, and would stay
+ * green while a new one was added unprotected. It finds the gate by name,
+ * counts what is registered before and after it, and fails if anything but
+ * the five open doors is above the line.
  *
- * ## Why this file counts rather than describes
+ * The numbers it prints match `docs/the-gate.md`; if they disagree, the
+ * document is wrong.
  *
- * `docs/auth-surface.md` found seventy-two ways into this app and not one of
- * them locked, and #521's own words about the fix are that "a test proves the
- * door you thought of is locked; the finding is the door you did not". A file
- * that asserted a list of paths would be exactly that: a list of the doors
- * somebody thought of, going green while a seventy-third was added below it.
- *
- * So this walks the app's own router stack and counts. It finds the gate by
- * name, counts what is registered before it and after it, and fails if anything
- * but the five open doors is above the line. A route added tomorrow is behind
- * the gate or this file says which one is not, by path, without anybody
- * updating it.
- *
- * The numbers it prints are the numbers in `docs/the-gate.md`. If they
- * disagree, the document is wrong and this is right.
- *
- * ## And it asks, as well as reading
- *
- * The stack tells you where a check is mounted. It does not tell you what the
- * check answers, and the whole of #510's middle state is about the difference
- * between two refusals. So the three states are driven over HTTP against a real
- * Postgres, on the harness the other `*.routes.test.ts` files use, including on
- * `/api/covers`, which is the door `docs/auth-surface.md` measured answering
- * `200` with the photograph to a stranger.
+ * The stack shows where a check is mounted but not what it answers, so the
+ * three refusal states are also driven over real HTTP against a real
+ * Postgres, on the harness the other `*.routes.test.ts` files use.
  */
 
 import type { AddressInfo } from 'node:net'
@@ -93,13 +78,10 @@ afterAll(async () => {
 })
 
 /**
- * Express's router stack, typed as much as it can be.
- *
- * `app._router` is not part of Express's public surface, and reading it here is
- * a deliberate trade: the alternative is a list of paths in this file, which is
- * the thing that cannot catch the route somebody adds next. Express 4 has had
- * this shape for its whole life, and if it ever changes this file fails loudly
- * with nothing found rather than passing while counting nothing.
+ * `app._router` is not part of Express's public surface; reading it here is
+ * a deliberate trade against a list of paths, which could not catch a route
+ * added later. If this shape ever changes, `stackOf` fails loudly with
+ * nothing found rather than passing while counting nothing.
  */
 interface Layer {
   name: string
@@ -146,25 +128,16 @@ describe('the count', () => {
     const behind = stack.slice(gateAt(stack) + 1).flatMap(named)
 
     /*
-     * Seventy-one was `docs/auth-surface.md`'s count, taken by reading
-     * `server/index.ts` one route at a time at commit 3690dc5. If this number
-     * moves, a route was added or removed, and the question to answer is which —
-     * not to edit the number until it is green.
-     *
-     * It moved to seventy-three at #452, and the two are `POST /api/tags` and
-     * `DELETE /api/tags`: the third door onto naming a tag, which is the one
-     * with no book in it, and the sweep that undoes it. Both are ordinary
-     * handlers under `/api` registered below the gate with every other one, so
-     * they are covered by where they are rather than by anybody remembering, and
-     * the loop underneath is what says so.
+     * If this number moves, a route was added or removed, and the question
+     * to answer is which, not to edit the number until it is green.
      */
     expect(behind).toHaveLength(73)
     expect(behind).toContain('POST /api/tags')
     expect(behind).toContain('DELETE /api/tags')
 
-    // And every one of them is under /api, which is what makes the mount above
-    // cover them. A handler registered on any other path would be reachable
-    // without a session and this is what would say so.
+    // And every one of them is under /api, which is what makes the mount
+    // above cover them. A handler registered on any other path would be
+    // reachable without a session and this is what would say so.
     for (const door of behind) expect(door, door).toMatch(/^[A-Z]+ \/api(\/|$)/)
   })
 
@@ -174,8 +147,8 @@ describe('the count', () => {
 
     // The thumbnail route, which is a route layer.
     expect(behind.flatMap(named)).toContain('GET /api/covers/:name')
-    // And the static mount, which is not: it is `express.static`, which Express
-    // records under the name of its own handler. This is door seventy-two.
+    // And the static mount, which is not a route layer: it is
+    // `express.static`, recorded under the name of its own handler.
     expect(behind.some((layer) => layer.name === 'serveStatic')).toBe(true)
     expect(stack.slice(0, gateAt(stack)).some((layer) => layer.name === 'serveStatic')).toBe(false)
   })
@@ -185,23 +158,14 @@ describe('the count', () => {
     const above = stack.slice(0, gateAt(stack))
 
     /*
-     * Route layers are the five. Everything else above the gate is middleware
-     * that answers nothing, and there are exactly four of them:
+     * `query` and `expressInit` are Express's own head-of-stack middleware.
+     * `jsonParser` is `express.json`, and `apiCache` sets one cache header
+     * and calls `next`; it sits above the gate deliberately, since the two
+     * refusals are answers about a person too.
      *
-     * - `query` and `expressInit`, which Express itself puts at the head of
-     *   every app's stack. They parse the query string and set `req.res`.
-     * - `jsonParser`, which is `express.json` reading a body.
-     * - `apiCache`, which is `mountCachePolicy` (#566). It sets one header and
-     *   calls `next`, and it is above the gate deliberately: the two refusals
-     *   are answers about a person too, and the five open doors below include a
-     *   sign-in redirect carrying a `state` and a nonce.
-     *
-     * The list is asserted rather than filtered, because the failure this is
-     * here for is somebody mounting something above the gate, and a check that
-     * allowed "middleware in general" would allow exactly that. So a fourth
-     * name arriving here is a change somebody had to make on purpose, which is
-     * what this line is for. That it answers nothing is not asserted here but
-     * below, by the refusal it sits above still being a refusal.
+     * Asserted as an exact list rather than filtered, since the failure this
+     * guards against is somebody mounting something new above the gate, and
+     * a check that allowed "middleware in general" would allow exactly that.
      */
     const notRoutes = above.filter((layer) => !layer.route).map((layer) => layer.name)
     expect(notRoutes).toEqual(['query', 'expressInit', 'jsonParser', 'apiCache'])
@@ -220,18 +184,14 @@ describe('the three states, asked rather than read', () => {
       body: JSON.stringify({ name: 'A bookcase a stranger made', kind: 'bookcase' }),
     })
 
-    // 201 is what `docs/auth-surface.md` measured here, from another machine on
-    // the network, with no credential of any kind.
     expect(response.status).toBe(401)
     expect(await response.json()).toMatchObject({ state: 'anonymous' })
     /*
-     * And this line is also what says `apiCache` did not become a sixth door
-     * (#566). It is the one thing mounted above the gate that this repository
-     * wrote, and a middleware up there that answered, or that failed to call
-     * `next`, would turn this refusal into something else. It sets a header and
-     * gets out of the way, and the header is on the refusal because a stored
-     * `401`, served later to somebody who has since been let in, is the same
-     * defect from the other side.
+     * The header is on the refusal too, because a stored `401` served later
+     * to somebody who has since been let in would be the same defect from
+     * the other side. `apiCache` sets it and gets out of the way; a
+     * middleware here that answered, or failed to call `next`, would turn
+     * this refusal into something else.
      */
     expect(response.headers.get('cache-control')).toBe('private, no-cache')
   })
@@ -260,14 +220,10 @@ describe('the three states, asked rather than read', () => {
   })
 
   /**
-   * The one `docs/auth-surface.md` called "the single most important line": an
-   * unauthenticated request for a known cover filename answering 200 with the
-   * photograph and a thirty day immutable cache header on it.
-   *
-   * Both cover doors, because they are two: the static mount serves the file
-   * and the route beside it re-encodes a smaller copy of the same file, and a
-   * gate that covered one and not the other would still hand the collection
-   * over, one thumbnail at a time.
+   * Both cover doors, because they are two: the static mount serves the
+   * file and the route beside it re-encodes a smaller copy of the same
+   * file, and a gate that covered one and not the other would still hand
+   * the collection over, one thumbnail at a time.
    */
   it('refuses a stranger a photograph by name, at both doors', async () => {
     expect((await ask(`/api/covers/${COVER}`)).status).toBe(401)
@@ -292,16 +248,9 @@ describe('the three states, asked rather than read', () => {
   })
 
   /**
-   * `GET /api/health` is behind the gate, and this is the trade #521 asked to be
-   * decided out loud.
-   *
-   * It answers the collection's counts, the database host, port and name, and
-   * the lookup tallies. The counts are the collection and the rest is where the
-   * collection lives, so a stranger is owed none of it. AGENTS.md calls it "the
-   * one command for a running server" and it still is: `curl -i` against it
-   * still answers, and a `401` is a running server saying so as plainly as a
-   * body did. What it stops doing is telling anybody who asks how many books
-   * somebody owns.
+   * `/api/health` answers the collection's counts and where the database
+   * lives, so a stranger is owed none of it. A `401` here still proves the
+   * server is up, which is what this asserts alongside the refusal.
    */
   it('refuses a stranger the health endpoint, and still proves the server is up', async () => {
     const response = await ask('/api/health')
@@ -316,9 +265,9 @@ describe('the three states, asked rather than read', () => {
   })
 
   /**
-   * The catch-all 404 is behind the gate as well, which is a small improvement
-   * on top of the point: a stranger cannot learn which paths this app answers by
-   * asking, because every one of them says the same thing.
+   * The catch-all 404 is behind the gate too: a stranger cannot learn which
+   * paths this app answers by asking, because every one of them says the
+   * same thing.
    */
   it('does not tell a stranger which /api paths exist', async () => {
     expect((await ask('/api/books')).status).toBe(401)

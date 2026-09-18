@@ -1,10 +1,4 @@
-/**
- * The torch controls.
- *
- * Feature-detected on every path, because the phone this is for is not the
- * phone anyone here is testing on, and a torch that is asked for and refused
- * must leave the shutter working exactly as it did.
- */
+/** Feature-detected on every path, since the phone this is for is not the phone anyone here is testing on. */
 
 import { describe, expect, it, vi } from 'vitest'
 import { setTorch, torchAvailable } from './scanner'
@@ -69,8 +63,7 @@ describe('setTorch', () => {
   })
 
   it('stays dark rather than breaking the shutter when the constraint is refused', async () => {
-    // A phone can advertise the capability and still refuse it. Somebody in
-    // the middle of photographing a book must not get an error for that.
+    // A phone can advertise the capability and still refuse it.
     const stream = fakeStream({
       capabilities: { torch: true },
       applyConstraints: () => Promise.reject(new Error('not supported')),

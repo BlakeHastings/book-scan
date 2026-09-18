@@ -1,18 +1,10 @@
 /**
- * Which interface the server listens on, and what it refuses (#539).
- *
- * The three things this file is here to hold, in the order they matter:
- *
- * 1. **The default does not move.** Unset, empty and blank all mean loopback,
- *    which is what every deployment that has not thought about this gets, and
- *    what this app has done since it was a development server. A change that
- *    opened it would be a change that made an app reachable without anybody
- *    deciding to, and this is the test that would go red.
- * 2. **A value it does not recognise is refused rather than defaulted.** A
- *    deployment that asked to be reachable and silently was not would look
- *    exactly like the bind it was trying to change.
- * 3. **The start log says which, both ways round.** The two addresses differ by
- *    one character and by everything else in what they mean.
+ * The default does not move: unset, empty and blank all mean loopback,
+ * which is what every deployment that has not thought about this gets. A
+ * value it does not recognise is refused rather than defaulted, since a
+ * deployment that asked to be reachable and silently was not would look
+ * exactly like the bind it was trying to change. The start log says which,
+ * both ways round.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -42,10 +34,9 @@ describe('the bind', () => {
   })
 
   /*
-   * The value everybody types. Refusing it is the whole of the "a word rather
-   * than an address" decision, so this is the case that would be quietly deleted
-   * by somebody who thought the refusal was pedantry, and the message is what
-   * has to make the case to them at 2am.
+   * Refusing this is the whole of the "a word rather than an address"
+   * decision, so it is the case a future editor might mistake for pedantry
+   * and remove.
    */
   it('refuses the address that means the same thing, and says which word to use', () => {
     expect(() => bindFrom({ [BIND]: '0.0.0.0' })).toThrow(/is "0\.0\.0\.0"/)
@@ -65,9 +56,9 @@ describe('the bind', () => {
   })
 
   /*
-   * The contract declares these two pairs and
-   * `scripts/check-deploy-contract.mjs` holds the file to them. This is the same
-   * claim from the other side, so a change here fails a test as well as a check.
+   * `scripts/check-deploy-contract.mjs` holds the file to these same two
+   * pairs from the other side, so a change here fails a test as well as a
+   * check.
    */
   it('knows two answers and only two', () => {
     expect(Object.entries(BIND_ADDRESSES)).toEqual([['loopback', '127.0.0.1'], ['all', '0.0.0.0']])

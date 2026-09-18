@@ -1,11 +1,10 @@
 /**
- * The record itself (#348).
- *
  * `lookup-sources.test.ts` beside this one drives it through a real lookup
- * against real HTTP servers, which is what proves the wiring. What is here is
- * the thing being wired: the distinction between a source with nothing to say
- * and a source that said nothing, the closed vocabulary that keeps an API key
- * out of a diagnostic, and the decision not to log a line per request.
+ * against real HTTP servers, which is what proves the wiring. What is here
+ * is the thing being wired: the distinction between a source with nothing to
+ * say and a source that said nothing, the closed vocabulary that keeps an
+ * API key out of a diagnostic, and the decision not to log a line per
+ * request.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -29,11 +28,10 @@ afterEach(() => {
 describe('what a server that has looked nothing up reports', () => {
   it('names every catalogue at nought rather than leaving them out', () => {
     /*
-     * The whole point of the seeded list. "Google Books was asked and answered
-     * nothing" and "Google Books is not in this report" are different facts,
-     * and an absent entry reads as the second while meaning the first. That
-     * ambiguity is the defect this file exists for, so it must not be possible
-     * to reintroduce it by reporting only what happened to be asked.
+     * "Google Books was asked and answered nothing" and "Google Books is not
+     * in this report" are different facts, and an absent entry reads as the
+     * second while meaning the first. This must report every catalogue, not
+     * only what happened to be asked.
      */
     const report = sourceStandings()
     expect(report.map((one) => one.source)).toEqual([...CATALOGUES])
@@ -45,10 +43,10 @@ describe('what a server that has looked nothing up reports', () => {
 
 describe('a source with nothing to say is not a source that said nothing', () => {
   it('counts a catalogue that answered and had no record as having answered', () => {
-    // Open Library has no record of six of the 238 books in the real
-    // catalogue. That is a fact about those books, not about the request, and
-    // recording it as a failure would make the report useless for finding the
-    // real one.
+    // Open Library legitimately has no record of some books in the real
+    // catalogue. That is a fact about those books, not about the request,
+    // and recording it as a failure would make the report useless for
+    // finding the real one.
     noteSourceAnswer('Open Library', 'no record')
     noteSourceAnswer('Open Library', 'no record')
 
@@ -82,11 +80,11 @@ describe('the reason a source gives', () => {
   it('refuses anything else, because this reaches a log and /api/health', () => {
     /*
      * The Google Books request carries the API key in its query string. A
-     * reason built by stringifying an error, a response or a URL would carry
-     * the key into the log and into the health endpoint, which is precisely the
-     * diagnostic #348 says must never hold one. So the vocabulary is closed and
-     * checked here rather than trusted from the caller, and a caller that
-     * widens it gets "did not answer" instead of a leak.
+     * reason built by stringifying an error, a response, or a URL would
+     * carry the key into the log and into the health endpoint. The
+     * vocabulary is closed and checked here rather than trusted from the
+     * caller, so a caller that widens it gets "did not answer" instead of a
+     * leak.
      */
     noteSourceAnswer('Google Books', 'no reply', 'https://www.googleapis.com/books/v1/volumes?key=SEKRIT')
 
@@ -138,12 +136,11 @@ describe('what reaches the log', () => {
 describe('a catalogue that was wanted and not asked (#305)', () => {
   it('is neither an answer nor a silence, and says nothing in the log', () => {
     /*
-     * The third thing that can happen to a source, added when two of them came
-     * with a rate limit. Nothing was sent, so the catalogue did nothing: folded
-     * into `silent` this would read as a library being down, and folded into
-     * `asked` it would read as a request that was made. It is also not worth a
-     * line in the log, because unlike a source going quiet it is a decision this
-     * process made on purpose and can explain from the counter alone.
+     * Nothing was sent, so the catalogue did nothing: folded into `silent`
+     * this would read as a library being down, and folded into `asked` it
+     * would read as a request that was made. It is also not worth a line in
+     * the log, since this is a decision the process made on purpose rather
+     * than a source going quiet.
      */
     noteSourceSkipped('Library of Congress')
     noteSourceSkipped('Library of Congress')
@@ -165,12 +162,9 @@ describe('a catalogue that was wanted and not asked (#305)', () => {
 
 describe('a refusal is not a failure', () => {
   /*
-   * The pair that was folded together until this existed. Both are "the
-   * catalogue did not reply", and `lastSilence` told them apart only for the
-   * most recent one, so a source that had refused thirty-nine times and timed
-   * out once reported a timeout. What a person does next differs completely:
-   * a refusal is answered by configuration this afternoon, and a failure is
-   * answered by waiting.
+   * Both `declined` and `failed` are "the catalogue did not reply", but what
+   * a person does next differs completely: a refusal is answered by
+   * configuration this afternoon, and a failure is answered by waiting.
    */
   it('counts the three statuses that mean "I heard you and I will not"', () => {
     for (const status of ['HTTP 401', 'HTTP 403', 'HTTP 429']) {
@@ -243,10 +237,9 @@ describe('a reply that held the book is not a reply that did not', () => {
 describe('the coarse three stay the sums of the finer ones', () => {
   it('holds after every kind of thing that can happen to a source', () => {
     /*
-     * `asked`, `answered` and `silent` are read by things written before the
-     * finer counters existed, including the sentence in AGENTS.md. They are
-     * incremented beside the finer ones rather than derived on the way out, so
-     * this is the test that stops the two halves drifting.
+     * `asked`, `answered` and `silent` are incremented beside the finer
+     * counters rather than derived from them, so this is the test that stops
+     * the two from drifting apart.
      */
     for (const outcome of ['record', 'record', 'no record'] as const) {
       noteSourceAnswer('K10plus', outcome)

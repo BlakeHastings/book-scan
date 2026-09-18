@@ -1,8 +1,6 @@
 /**
- * The draft is the only thing that reaches the server, so a field the client
- * drops here is a field the catalogue never records. `isbnSource` went missing
- * exactly this way: every book catalogued at the camera was stored unable to
- * say whether its ISBN was decoded from a barcode or guessed at by OCR.
+ * The draft is the only thing that reaches the server, so a field the
+ * client drops here is a field the catalogue never records.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -57,10 +55,6 @@ describe('draftFromBook', () => {
   })
 })
 
-/**
- * The reading half of the handoff in #65: what the worker read off the
- * photographs, with what a person worked out laid on top of it.
- */
 describe('draftFromCapture', () => {
   const capture = (fields: Partial<Capture>): Capture => ({
     id: 1, status: 'ready', front_image: '', back_image: '', edge_image: '',
@@ -88,7 +82,6 @@ describe('draftFromCapture', () => {
 
     expect(draft.title).toBe('Dune Messiah')
     expect(draft.isbnSource).toBe('manual')
-    // Untouched fields still come from the lookup underneath.
     expect(draft.authors).toBe('Frank Herbert')
     expect(draft.publisher).toBe('Ace Books')
   })
@@ -98,16 +91,14 @@ describe('draftFromCapture', () => {
       draft_json: '{not json', edit_json: '{not json either', title_guess: 'Dune',
       isbn13: '9780441013593',
     }))
-    // Nothing readable, so nothing claimed: the row's own ISBN column comes
-    // through and the rest is empty rather than the page being taken down.
     expect(draft.title).toBe('')
     expect(draft.isbn13).toBe('9780441013593')
   })
 
   /*
-   * #156. The Title box is filled from this draft and Save writes the draft to
-   * the catalogue, so a guess reaching it is a guess entering the catalogue
-   * looking exactly like a title somebody read off the book.
+   * The Title box is filled from this draft and Save writes it to the
+   * catalogue, so a guess reaching it would enter the catalogue looking
+   * exactly like a title somebody read off the book.
    */
   it('leaves the title empty when the only one is what OCR read', () => {
     const draft = draftFromCapture(capture({ title_guess: 'S0NG 0F SOLOMQN' }))
@@ -123,18 +114,10 @@ describe('draftFromCapture', () => {
   })
 
   /**
-   * The number the row has is the number the screen says (#436).
-   *
-   * "ISBN - Not read yet" was drawn two inches under a note reading "Barcode on
-   * the back reads 9780030000126", on a capture whose row carried that number
-   * and whose database row still does. A person reading that retypes thirteen
-   * digits the app already has, off a book they have to go and find.
-   *
-   * A catalogue's record is not obliged to carry the identifier it was found
-   * by, which is the way this happens without anybody doing anything wrong: the
-   * lookup answered, its own `isbn13` is empty, and the draft took the empty
-   * one because the lookup is the base. The row's column is the fallback and it
-   * is the fallback for the identifier only.
+   * A catalogue's record is not obliged to carry the identifier it was
+   * found by: the lookup answered, its own `isbn13` is empty, and the
+   * draft took the empty one because the lookup is the base. The row's
+   * column is the fallback, and it is the fallback for the identifier only.
    */
   it('falls back to the row\'s own ISBN when the lookup carries none', () => {
     const draft = draftFromCapture(capture({
@@ -144,7 +127,6 @@ describe('draftFromCapture', () => {
     }))
 
     expect(draft.isbn13).toBe('9780030000126')
-    // And the rest of the record is still the catalogue's, not the row's.
     expect(draft.title).toBe('Dune')
   })
 
@@ -160,8 +142,8 @@ describe('draftFromCapture', () => {
     expect(draft.isbnSource).toBe('barcode')
   })
 
-  /* The lookup wins where it has an answer: a corrected ISBN that refetched is
-     the whole point of `Change ISBN`, and a stale column must not undo it. */
+  /* The lookup wins where it has an answer: a corrected ISBN that
+     refetched must not be undone by a stale column. */
   it('does not let the row overrule an ISBN the lookup does carry', () => {
     const draft = draftFromCapture(capture({
       isbn13: '9780030000126',
@@ -171,10 +153,7 @@ describe('draftFromCapture', () => {
   })
 })
 
-/**
- * Naming a row and filling in a field are two jobs, and #156 is what happened
- * while one value did both.
- */
+/** Naming a row and filling in a field are two separate jobs. */
 describe('captureName', () => {
   const capture = (fields: Partial<Capture>): Capture => ({
     id: 41, status: 'ready', front_image: '', back_image: '', edge_image: '',
@@ -209,9 +188,9 @@ describe('captureName', () => {
 })
 
 /**
- * Only what changed is claimed as a person's decision. Sending the whole draft
- * would tell the server that every field was decided by a human and shut the
- * background worker out of a capture because somebody fixed one word.
+ * Only what changed is claimed as a person's decision: sending the whole
+ * draft would tell the server every field was decided by a human and shut
+ * the background worker out of a capture because somebody fixed one word.
  */
 describe('editFromDraft', () => {
   const shown = { ...emptyDraft, title: 'Dune', authors: 'Frank Herbert' }
@@ -232,14 +211,10 @@ describe('editFromDraft', () => {
 })
 
 /**
- * The seam #61 lived in.
- *
- * The shelving step walks somebody to a shelf, names it, and is told the book
- * fits. That answer only reaches the catalogue if this call sends it: the PUT
- * cannot carry it, because the server deliberately refuses to let a metadata
- * edit move a book that a person placed by hand. Nothing else on the client
- * knows the label, so a regression here is silent until the library starts
- * reporting the move somebody has already made.
+ * The shelving step walks somebody to a shelf, names it, and is told the
+ * book fits. That answer only reaches the catalogue if this call sends
+ * it: the PUT cannot carry it, since the server refuses to let a
+ * metadata edit move a book that a person placed by hand.
  */
 describe('updateAndShelve', () => {
   interface Sent { url: string; method: string; body: unknown }
@@ -266,8 +241,8 @@ describe('updateAndShelve', () => {
   it('records the shelf the person confirmed, through the location route', async () => {
     const sent = captureFetch()
 
-    // The draft still carries the location the book was loaded with, which is
-    // the stale one: it is where the book WAS, not where it has just been put.
+    // The draft still carries the stale location the book was loaded
+    // with: where the book WAS, not where it has just been put.
     await api.updateAndShelve(7, { ...emptyDraft, title: 'Dune', location: '1A' }, 42)
 
     expect(sent.map((call) => `${call.method} ${call.url}`)).toEqual([
@@ -275,16 +250,15 @@ describe('updateAndShelve', () => {
       'PATCH /api/books/7/location',
       'POST /api/books/7/checkout',
     ])
-    // The plank, not what it is called: a label is derived from where the piece
-    // stands and what its owner named it, and only the id is the place (#359).
+    // The plank, not what it is called: a label is derived from where the
+    // piece stands and what its owner named it.
     expect((sent[1]?.body as { areaId: number }).areaId).toBe(42)
   })
 
   /**
-   * The second half of the same observation. Somebody has walked to a plank
-   * with the book in their hand and said it fits, so the book is on the
-   * bookcase, and saying so on every confirmed placement costs nothing: asking
-   * for the state a book is already in is a no-op rather than a write (#15).
+   * Saying the book is on the bookcase on every confirmed placement costs
+   * nothing: asking for the state a book is already in is a no-op rather
+   * than a write.
    */
   it('says the book is on the bookcase, because somebody just put it there', async () => {
     const sent = captureFetch()
@@ -304,24 +278,15 @@ describe('updateAndShelve', () => {
   })
 
   /**
-   * The hole the test above left open, and it was a live defect (#409).
+   * The draft a catalogued book is loaded into holds the label rendered
+   * for wherever the ledger has the book, and no field on the form
+   * changes it, so it would go out in the body of every save unless
+   * stripped. The server reads a location in that body as somebody saying
+   * where the book is now and tries to resolve the label back to a
+   * plank, which fails on a bookcase somebody has named.
    *
-   * "Says nothing about the location" was checked as "sends no location write",
-   * and the edit itself was carrying one the whole time: the draft a catalogued
-   * book is loaded into holds the label the app rendered for wherever the ledger
-   * has the book, no field on the form changes it, and it went out in the body
-   * of every save. The server reads a location in that body as somebody saying
-   * where the book is now, and resolves the label back to a plank.
-   *
-   * **On a bookcase somebody has named, nothing resolves it.** The label is a
-   * phrase like "Hall shelf · A", the save is refused with `UnknownPlank`, and
-   * what reaches the person is "Something went wrong." So no book on a named
-   * piece of furniture could be edited and saved at all. Found by pressing the
-   * notice on a misfiled book, which now opens the shelving step and ends in
-   * this save; the browser suite walks that on a named bookcase.
-   *
-   * Checked on the body rather than on the call list, because the call list is
-   * what looked right while this was broken.
+   * Checked on the body rather than the call list, since the call list
+   * looked right while this was broken.
    */
   it('carries no location in the edit itself, whatever the draft holds', async () => {
     const sent = captureFetch()
@@ -333,8 +298,8 @@ describe('updateAndShelve', () => {
     expect((sent[0]?.body as { location: string }).location).toBe('')
   })
 
-  /* And with a plank confirmed, the same: where the book is comes from the one
-     call that says so, addressed by id. */
+  /* And with a plank confirmed, the same: where the book is comes from
+     the one call that says so, addressed by id. */
   it('leaves the location to the location route even when one was confirmed', async () => {
     const sent = captureFetch()
 
@@ -347,13 +312,11 @@ describe('updateAndShelve', () => {
   })
 
   /**
-   * The seam #87 lived in, and the reason it cost something irreplaceable.
-   *
-   * Editing a note is not a statement about where a book physically is, and
-   * checking a book in on the strength of it being out overwrote the moment it
-   * was taken down. There is no history table, so that moment does not come
-   * back. A metadata-only save must therefore say nothing about the bookcase
-   * at all, exactly as it says nothing about the location.
+   * Editing a note is not a statement about where a book physically is:
+   * checking a book in on the strength of it being edited would overwrite
+   * the moment it was actually taken down, which there is no history
+   * table to recover. A metadata-only save must say nothing about the
+   * bookcase.
    */
   it('says nothing about the bookcase when no one has been to a shelf', async () => {
     const sent = captureFetch()
@@ -370,13 +333,8 @@ describe('updateAndShelve', () => {
 })
 
 /**
- * What the camera keeps of a reading no catalogue answered (#436).
- *
- * The screen after the shutter was headed "Barcode on the back reads
- * 9780030000126", the queue row showed that number and the database had it, and
- * two inches under the banner the ISBN read "Not read yet". The camera had two
- * answers for a settled capture, a found lookup and an error banner, and a
- * barcode nothing has ever catalogued is neither.
+ * What the camera keeps of a reading no catalogue answered: a barcode
+ * nothing has ever catalogued is neither a found lookup nor an error.
  */
 describe('withReadIsbn', () => {
   const read = {
@@ -389,8 +347,8 @@ describe('withReadIsbn', () => {
     expect(draft.isbnSource).toBe('barcode')
   })
 
-  /* No catalogue answered, so there is nothing else to carry and carrying
-     anything else would be this app inventing a record (#147). */
+  /* No catalogue answered, so there is nothing else to carry: carrying
+     anything else would be this app inventing a record. */
   it('claims nothing else about the book', () => {
     const draft = withReadIsbn(emptyDraft, read)
     expect(draft.title).toBe('')
@@ -398,8 +356,7 @@ describe('withReadIsbn', () => {
     expect(draft.publisher).toBe('')
   })
 
-  /* A background pass landing behind somebody's typing must not overwrite it,
-     which is the precedence the server keeps (#65) said on this side too. */
+  /* A background pass landing behind somebody's typing must not overwrite it. */
   it('leaves an ISBN a person has already answered exactly as it is', () => {
     const typed = { ...emptyDraft, isbn13: '9780441013593', isbnSource: 'manual' }
     expect(withReadIsbn(typed, read)).toBe(typed)
@@ -420,19 +377,11 @@ describe('withReadIsbn', () => {
 })
 
 /**
- * The two refusals are different, and this is where the client learns which.
- *
- * `docs/the-gate.md`: a `401` means this browser is not signed in and a `403`
- * means somebody is signed in and has not been let in. #521 named the cost of
- * collapsing them and #524 was opened to stop it happening on this side: "a
- * client that cannot tell them apart cannot choose between the login screen and
- * the waiting screen", and one that treats the second as a sign-out sends a
- * waiting person round the login loop for ever.
- *
- * Every request in this app goes through one function, so this is the one place
- * that reads the word, and the word travels out of it rather than back to
- * whichever screen happened to ask, because the thing that has to change is the
- * whole app rather than that screen.
+ * A `401` means this browser is not signed in; a `403` means somebody is
+ * signed in and has not been let in. Every request goes through one
+ * function, so this is the one place that reads the word, and the word
+ * travels out to whoever is listening rather than back to whichever
+ * screen happened to ask.
  */
 describe('what the client is told when the gate refuses', () => {
   /** Answer whatever is asked for with a status and a body. */
@@ -459,9 +408,8 @@ describe('what the client is told when the gate refuses', () => {
   })
 
   /*
-   * The one this issue exists for. A 403 is a live session belonging to
-   * somebody who has not been let in, and the answer to it is the waiting
-   * screen. Anything here saying "anonymous" is the login loop being built.
+   * A 403 is a live session belonging to somebody who has not been let
+   * in, and the answer to it is the waiting screen, never anonymous.
    */
   it('carries "waiting" out of a 403, and never says the caller is signed out', async () => {
     const heard: string[] = []
@@ -480,10 +428,9 @@ describe('what the client is told when the gate refuses', () => {
   })
 
   /*
-   * A refusal about the request rather than about who made it. The furniture
-   * routes answer 409 with an effect on it and no state, and a client reading a
-   * status code instead of the server's own word would one day have to decide
-   * for itself what a 403 from somewhere else meant.
+   * A refusal about the request rather than about who made it: a client
+   * reading a status code instead of the server's own word would have to
+   * decide for itself what a 403 from somewhere else meant.
    */
   it('says nothing about the gate for a refusal the gate did not make', async () => {
     const heard: string[] = []

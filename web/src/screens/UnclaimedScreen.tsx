@@ -1,29 +1,8 @@
 /**
- * The books no rule claims, and somebody saying what one of them is.
+ * The list is re-read every time somebody comes back from settling a book, since which rule
+ * takes which book is decided by `claim` on the server and cannot be worked out here.
  *
- * **Two panes and one route**, which is what `ReviewScreen` already does with a
- * capture and a catalogued book. The two are one journey rather than two doors
- * to one room: you arrive at the list, settle a book, and come back to the list
- * you left. A route of its own would have meant carrying which book it is about
- * in `navigation`, which is where the things two unrelated screen groups share
- * live, and nothing but this list opens it.
- *
- * ## The list is asked for again every time somebody comes back
- *
- * Saying what a book is changes the answer to the question this screen is. A
- * book that was carrying nothing may now be claimed and gone, or may now carry
- * a word no rule asks for and have moved from the first block to the second.
- * Both are worth seeing, and neither can be worked out here: which rule takes
- * which book is `claim` on the server, and there is one opinion about it on
- * purpose.
- *
- * So the re-read is what turns walking back into an answer, and the answer is
- * said in a line. Without it, settling the book at the top of a dozen looks the
- * same whether a rule took it or nothing did.
- *
- * **Nothing here writes a tag by itself** (#304). Every write is
- * `useTagging.add` or `.remove`, and every call to either is a person pressing a
- * word.
+ * Nothing here writes a tag by itself: every write is `useTagging.add` or `.remove`.
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -67,31 +46,17 @@ export function UnclaimedScreen() {
 
   useEffect(() => { void read() }, [read])
 
-  /*
-   * What the catalogue holds about the one book being settled.
-   *
-   * Asked for here rather than carried on the list: the list answers what makes
-   * a row, and the publisher, the year and the length are what somebody decides
-   * a genre on. One book at a time, so a list of five hundred costs nothing.
-   */
   useEffect(() => {
     if (!saying) return
     let live = true
     setRecord(null)
     api.getBook(saying.id)
       .then((answer) => { if (live) setRecord(answer.book) })
-      .catch(() => { /* The facts are an addition to that screen, not the screen. */ })
+      .catch(() => { /* Deliberately ignored: the catalogue record is an addition to that screen, not the screen itself. */ })
     return () => { live = false }
   }, [saying])
 
-  /**
-   * Back to the list, with what the book now says written into it.
-   *
-   * The book is remembered before the read, because the read is what takes it
-   * off the list, and gone from the list is exactly what "a rule has it now"
-   * means. `tagging.carried` is the book's own answer rather than a guess made
-   * from what was pressed, so several words said in a row read correctly.
-   */
+  /** The book is remembered before the read, since the read is what takes it off the list. */
   const leaveSaying = () => {
     const book = saying
     const labels = tagging.tags.map((tag) => tag.label)
@@ -139,9 +104,6 @@ export function UnclaimedScreen() {
       settled={settled}
       tabs={tabs}
       onBack={() => setRoute('home')}
-      /* The last answer goes when a new question is asked. A line about the
-         previous book, on the way into this one, is somebody reading the wrong
-         title while deciding. */
       onSay={(book) => { setSettled(null); setSaying(book) }}
       onClaimed={openClaim}
       onFurniture={() => openRoom('furniture')}

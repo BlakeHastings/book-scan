@@ -1,33 +1,23 @@
 /**
- * The migration that gives every book a state, and the view that is the only
- * relation a shelf is drawn from, run on a database in the state the owner's
- * catalogue is in.
+ * The migration that gives every book a state, and the view that is the
+ * only relation a shelf is drawn from, run on a database in the state the
+ * owner's catalogue is in: built by `applySchema` and never migrated, so a
+ * run here adopts the baseline and then applies everything after it.
  *
- * That state is specific and it is why this file exists rather than a paragraph
- * in a pull request: the live catalogue was built by `applySchema` during stage
- * H and has never had a migration recorded against it, so a run there **adopts**
- * the baseline and then applies everything after it. That is what is done below,
- * on a database seeded here.
+ * Two claims are checked by a machine:
  *
- * Two claims have to be checked by a machine, and the second one is the whole
- * risk in #183.
+ * 1. Every book ends up in the state it is actually in, taken from the
+ *    column the shelf has always been drawn with. The migration counts
+ *    that itself and refuses to finish when a row is left undecided.
  *
- * 1. **Every book ends up in the state it is actually in**, taken from the
- *    column the shelf has always been drawn with rather than from an assumption
- *    about what a row in `books` means. The migration counts that itself and
- *    refuses to finish when a row is left undecided.
+ * 2. No book moved. The shelf order hash `docs/backup-runbook.md` compares
+ *    restores with is taken either side of the migration and has to be the
+ *    same string. The same check is then shown failing to move for the
+ *    right reason, by putting a book in the catalogue that is not on a
+ *    shelf and watching it stay out of the view.
  *
- * 2. **No book moved.** The shelf order hash `docs/backup-runbook.md` compares
- *    restores with is taken either side of the migration and has to be the same
- *    string. A count does not move when an ordering does, and an ordering that
- *    moved has not lost a book: it has told somebody to put one in the wrong
- *    place. Then the same check is shown failing to move for the right reason,
- *    by putting a book in the catalogue that is not on a shelf and watching it
- *    stay out of the view, out of the neighbours and out of the layout.
- *
- * Nothing in this file, or in the migration it exercises, connects to anything
- * but a scratch database this test made, and nothing anywhere reads, writes or
- * deletes a cover file.
+ * Nothing in this file, or in the migration it exercises, connects to
+ * anything but a scratch database this test made.
  */
 
 import { readFileSync } from 'node:fs'
@@ -40,21 +30,15 @@ import { migrateToLatest } from './migrate'
 import { closeScratchDatabases, migrationsThrough, scratchDatabase } from './testdb'
 
 /**
- * As far down the folder as a test about one of these columns can be taken.
+ * As far down the folder as a test about one of these columns can be
+ * taken. `0024` drops `books.location`, `0025` `books.shelved_at` and
+ * `0026` `books.checked_out_at`, so a test about one of those columns
+ * cannot run against a database that has had the whole folder.
  *
- * `0024` drops `books.location`, `0025` `books.shelved_at` and `0026`
- * `books.checked_out_at`, so a test whose subject is one of those columns cannot
- * be written against a database that has had the whole folder: the thing it is
- * asking about is not there to ask. Stopping the chain is not a weaker
- * assertion, it is the only place the assertion can be made, and the tests that
- * are about the state rather than the column go all the way and read the ledger.
- *
- * `0022` rather than `0023`, which drops nothing and would be the tighter stop.
- * `0023` opens with a `CREATE TEMP TABLE ... ON COMMIT DROP` and `migrationsThrough`
- * runs statements one at a time on a pool, so the temporary table is gone before
- * the block that reads it. Drizzle's migrator wraps a migration in a transaction
- * and this stand-in deliberately does not, which is a fact about the stand-in
- * rather than about the migration.
+ * `0022` rather than `0023`, which drops nothing: `0023` opens with a
+ * `CREATE TEMP TABLE ... ON COMMIT DROP`, and `migrationsThrough` runs
+ * statements one at a time on a pool rather than in one transaction, so the
+ * temp table would already be gone before the block that reads it.
  */
 const BEFORE_THE_DROPS = '0022_the_alias_is_where_a_book_files'
 
@@ -71,12 +55,9 @@ interface Seed {
 }
 
 /**
- * A database with the pre-Drizzle schema and some books in it.
- *
- * `SCHEMA` rather than `applySchema`, which runs the migrations itself and would
- * hand back a database that had already had this one. `SCHEMA` is the fixed
- * point the baseline is proved against, and it is what stage H left on the live
- * catalogue.
+ * A database with the pre-Drizzle schema and some books in it. Uses
+ * `SCHEMA` rather than `applySchema`, which runs the migrations itself and
+ * would hand back a database that had already had this one.
  */
 async function catalogueOf(books: Seed[]): Promise<pg.Pool> {
   const pool = await scratchDatabase()
@@ -99,11 +80,9 @@ async function catalogueOf(books: Seed[]): Promise<pg.Pool> {
 }
 
 /**
- * The shelf order hash, spelled exactly as `server/backup.ts` and the stage H
- * rehearsal spell it. The point of reusing the expression rather than writing a
- * clearer one is that this is the string a restore is verified against, so a
- * migration that leaves it alone leaves the check that guards the backups alone
- * too.
+ * The shelf order hash, spelled exactly as `server/backup.ts` does: this is
+ * the string a restore is verified against, so a migration that leaves it
+ * alone leaves that check alone too.
  */
 const SHELF_ORDER = "md5(string_agg(id::text, ',' order by sort_key, id))"
 
@@ -122,13 +101,10 @@ async function statesIn(pool: pg.Pool): Promise<Record<string, number>> {
 }
 
 /**
- * A catalogue the size of the real one, with a realistic number of books off
- * the shelf.
- *
- * 236 books is what the live catalogue held when #192 measured it, and every
- * seventh one is checked out, which is more than the owner has ever had out at
- * once and is deliberately so: the interesting failure is a migration that gets
- * the common case right and the other one wrong.
+ * A catalogue the size of the real one, with a realistic number of books
+ * off the shelf: every seventh one checked out, more than the owner has
+ * ever had out at once, so a migration that gets the common case right and
+ * the uncommon one wrong has somewhere to show up.
  */
 const LIVE_SIZED: Seed[] = Array.from({ length: 236 }, (_, at) => ({
   title: `Book ${String(at).padStart(3, '0')}`,
@@ -144,8 +120,7 @@ describe('books getting the state they are in', () => {
       { title: 'In a box on the floor', checkedOutAt: '2026-03-01T00:00:00.000Z' },
     ])
 
-    // Adopted, because this database has the baseline tables and has never been
-    // migrated. That is the path the real catalogue would take.
+    // Adopted: this database has the baseline tables and has never been migrated.
     expect(await migrateToLatest(pool)).toBe('adopted')
 
     const rows = await pool.query<{ title: string; state: string }>(
@@ -161,8 +136,7 @@ describe('books getting the state they are in', () => {
     const pool = await catalogueOf(LIVE_SIZED)
     await migrateToLatest(pool)
 
-    // Read out of the fixture rather than written down, so the assertion cannot
-    // drift from the seed. 236 books, 34 of them checked out.
+    // Read out of the fixture rather than written down, so the assertion cannot drift from the seed.
     const out = LIVE_SIZED.filter((book) => book.checkedOutAt).length
     expect(await statesIn(pool)).toEqual({
       shelved: LIVE_SIZED.length - out,
@@ -170,9 +144,8 @@ describe('books getting the state they are in', () => {
     })
     expect(out).toBe(34)
 
-    // No row anywhere else, which is the guard's own claim asserted from
-    // outside it: `scanned` is the column's default and is true of no row that
-    // was already in the catalogue.
+    // No row anywhere else: `scanned` is the column's default and true of
+    // no row already in the catalogue.
     const undecided = await pool.query<{ n: string }>(
       "SELECT count(*)::text AS n FROM books WHERE state NOT IN ('shelved', 'checked_out')",
     )
@@ -190,34 +163,21 @@ describe('books getting the state they are in', () => {
 
     // The whole catalogue, which nothing was supposed to reorder or lose.
     expect(await hashOf(pool, 'books')).toBe(catalogueBefore)
-    // And the shelf, read the new way. This is the pair that matters: the same
-    // books in the same order, arrived at through a view instead of a WHERE
-    // clause, on a database whose own collation is linguistic.
+    // The pair that matters: the same books in the same order, arrived at
+    // through a view instead of a WHERE clause.
     expect(await hashOf(pool, 'shelved_books')).toBe(shelfBefore)
     expect(shelfBefore).not.toBe(catalogueBefore)
 
-    // Printed rather than only asserted, because these two strings are what the
-    // pull request quotes and a reader should be able to see where they came
-    // from. See `docs/backup-runbook.md` for what else compares them.
+    // See `docs/backup-runbook.md` for what else compares these hashes.
     console.log(`[state] catalogue order ${catalogueBefore}, shelf order ${shelfBefore}`)
   })
 
   it('keeps a book that is not on a shelf out of the view, which is the point', async () => {
-    /*
-     * The check above proving it can fail. Every row so far was `shelved` or
-     * `checked_out`, so a view that dropped its predicate would have hashed the
-     * same and passed. Here is a book in the catalogue that is not on a shelf:
-     * it must be in `books`, must not be in `shelved_books`, and must move the
-     * shelf order hash if it ever reaches it.
-     *
-     * `unidentified` is the state the queue table holds today, and putting one
-     * between two real books on somebody's shelf listing is the failure #183
-     * exists to design against.
-     *
-     * The chain stops short of #232 because the last assertion is the one that
-     * makes this test mean anything, and it is written in `checked_out_at`. See
-     * BEFORE_THE_DROPS.
-     */
+    // Proves the check above can fail: every row so far was `shelved` or
+    // `checked_out`, so a view that dropped its predicate would have hashed
+    // the same and passed. This book must be in `books`, must not be in
+    // `shelved_books`, and must move the shelf order hash if it ever
+    // reaches it. The chain stops before the drops; see BEFORE_THE_DROPS.
     const pool = await catalogueOf([
       { title: 'Alpha', sortKey: 'key-0001' },
       { title: 'Gamma', sortKey: 'key-0003' },
@@ -244,21 +204,16 @@ describe('books getting the state they are in', () => {
     expect(onShelf.rows.map((row) => row.title)).toEqual(['Alpha', 'Gamma'])
     expect(await hashOf(pool, 'shelved_books')).toBe(shelfBefore)
 
-    // And the same row read the way the old code read it, which is what the
-    // view replaces. This is the assertion that says the two are not the same
-    // question any more: `checked_out_at IS NULL` lets it straight through.
+    // The same row read the old way, which the view replaces:
+    // `checked_out_at IS NULL` lets it straight through.
     expect(await hashOf(pool, 'books', 'WHERE checked_out_at IS NULL'))
       .not.toBe(shelfBefore)
   })
 
   it('plans the shelf query on the partial index rather than reading the table', async () => {
-    /*
-     * A partial index whose predicate does not match the query's is not a slower
-     * index, it is an index the planner cannot use at all, and the only symptom
-     * is a sequential scan nobody looks at. `enable_seqscan = off` asks whether
-     * the index is usable rather than whether the planner preferred it, which on
-     * a fixture this size it never would.
-     */
+    // A partial index whose predicate does not match the query's cannot be
+    // used at all. `enable_seqscan = off` asks whether the index is usable
+    // rather than whether the planner preferred it.
     const pool = await catalogueOf(LIVE_SIZED)
     await migrateToLatest(pool)
 
@@ -283,9 +238,8 @@ describe('books getting the state they are in', () => {
   })
 
   it('refuses a state that is not one of the seven', async () => {
-    // The check constraint, which is what stops a typo becoming a book nothing
-    // can see. Asserted with a value that reads plausibly rather than with
-    // rubbish: `shelfed` is the mistake somebody actually makes.
+    // Asserted with a value that reads plausibly rather than rubbish:
+    // `shelfed` is the mistake somebody actually makes.
     const pool = await catalogueOf([{ title: 'Dune' }])
     await migrateToLatest(pool)
 
@@ -302,23 +256,12 @@ describe('books getting the state they are in', () => {
   })
 
   it('refuses to finish when a book would be left with no state', async () => {
-    /*
-     * The loud failure, watched rather than asserted about.
-     *
-     * It is not reachable from the migration's own two statements: `checked_out_at`
-     * is either null or it is not, so between them they state every row. It is
-     * here for the edit that breaks that, which would otherwise give half a
-     * catalogue a state no shelf query can see and complete quietly. So the guard
-     * is run against a row it was never given a chance to decide about, read out
-     * of the shipped file rather than copied into this test, because a copy is a
-     * second thing to keep in step and would go green while the file was wrong.
-     *
-     * On a catalogue the guard could have met, which since #232 is not the same
-     * thing as the latest one: the rest of that block reads `checked_out_at`, so
-     * on a fully migrated database the only reachable outcome is the one this
-     * asserts, and a guard that can fail for one reason only is not being
-     * watched. See BEFORE_THE_DROPS.
-     */
+    // Not reachable from the migration's own two statements normally, since
+    // `checked_out_at` is either null or not; forced here for the edit that
+    // breaks that. Read out of the shipped file rather than copied into
+    // this test, so a copy cannot drift from the file and pass anyway. Run
+    // against the schema before the drops, since the guard reads
+    // `checked_out_at`; see BEFORE_THE_DROPS.
     const pool = await catalogueOf([{ title: 'Dune' }, { title: 'Neuromancer' }])
     await migrationsThrough(pool, BEFORE_THE_DROPS)
     await pool.query("UPDATE books SET state = 'scanned' WHERE title = 'Dune'")
@@ -339,11 +282,9 @@ describe('books getting the state they are in', () => {
   })
 
   it('leaves the column the state was derived from exactly as it was', async () => {
-    // Nothing is dropped by this migration, which is what made the state safe to
-    // add: it is written beside `checked_out_at` rather than instead of it, so
-    // the two can be compared for as long as both exist. #232 is where the
-    // column goes, four years of migrations later in folder terms and one
-    // fortnight in real ones, and the test below is the other side of that.
+    // Nothing is dropped by this migration: the state is written beside
+    // `checked_out_at` rather than instead of it, so the two can be
+    // compared for as long as both exist.
     const pool = await catalogueOf([
       { title: 'On the shelf' },
       { title: 'Out', checkedOutAt: '2026-03-01T00:00:00.000Z' },
@@ -360,19 +301,12 @@ describe('books getting the state they are in', () => {
   })
 
   it('says the same moment out of the ledger once the column has gone', async () => {
-    /*
-     * What the client reads, after `0026` took the column it used to be read
-     * from. The same two books and the same two answers, derived rather than
-     * stored: `withPlacements` in `server/placement-ledger.ts` answers
-     * `checked_out_at` from the `created_at` of the latest `checked_out` row, and
-     * only while the book is in that state, and this is that expression asked of
-     * the catalogue directly so a failure names the rows rather than the wrapper.
-     *
-     * The state is what says a book is out and the ledger says when it left. That
-     * is the whole cut-over in two columns of a result set, and the moment has to
-     * survive it: a book that went out on the first of March did not go out today
-     * because a migration ran.
-     */
+    // What the client reads once `0026` takes the column away:
+    // `withPlacements` in `server/placement-ledger.ts` answers
+    // `checked_out_at` from the `created_at` of the latest `checked_out`
+    // ledger row, and only while the book is in that state. This is that
+    // expression asked of the catalogue directly, so a failure names the
+    // rows rather than the wrapper.
     const pool = await catalogueOf([
       { title: 'On the shelf' },
       { title: 'Out', checkedOutAt: '2026-03-01T00:00:00.000Z' },

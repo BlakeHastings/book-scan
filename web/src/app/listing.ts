@@ -1,31 +1,11 @@
 /**
- * A listing of books, a page at a time.
+ * Sixty, because three columns of covers at 414 wide is twenty rows, about five screens of
+ * scrolling, and a page a person can reach the bottom of before the next one lands is too small.
  *
- * The library and the find screen ask the same question with different
- * narrowings, and both are drawn on a phone against a collection that is 288
- * books today and is added to most days. So neither of them asks for the whole
- * catalogue: they ask for a page, draw it, and ask for the next one when
- * somebody reaches the bottom.
- *
- * ## Why a page and not all of it
- *
- * The library is the screen with the most books in the product, and the drawing
- * assumed a number. At ten times today's catalogue, one response is several
- * megabytes of JSON on a phone before anything appears, and several thousand
- * elements in the page before it can be scrolled. A page bounds both: what
- * arrives, and what is drawn.
- *
- * Sixty, because three columns of covers at 414 wide is twenty rows, which is
- * about five screens of scrolling, and because a page a person can reach the
- * bottom of before the next one lands is a page that was too small.
- *
- * ## The narrowing decides when it starts again
- *
- * Everything about a query except which page it is lives in `key`. When that
- * changes, the listing starts from the first page and replaces what it held,
- * because a page three of one question is not a page three of another. Adjusted
- * during the render that sees it rather than in an effect afterwards, so there
- * is never a moment where the next page of the old question is in flight.
+ * Everything about a query except which page it is lives in `key`. When that changes, the
+ * listing starts from the first page and replaces what it held. This is adjusted during the
+ * render that sees it rather than in an effect afterwards, so there is never a moment where the
+ * next page of the old question is in flight.
  */
 
 import { useEffect, useState } from 'react'
@@ -58,8 +38,7 @@ export function useListing(query: BookQuery, page = PAGE): Listing {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  // A different question, from this render on. React re-runs the component
-  // before touching the DOM, so nothing is drawn against the old answer.
+  // React re-runs the component before touching the DOM, so nothing is drawn against the old answer.
   if (at.key !== key) setAt({ key, pages: 1 })
 
   useEffect(() => {
@@ -82,8 +61,6 @@ export function useListing(query: BookQuery, page = PAGE): Listing {
       })
 
     return () => { live = false }
-    // `at` is the whole of what decides the request: the narrowing, as a
-    // string, and how far down it somebody has read.
   }, [at, page])
 
   return {

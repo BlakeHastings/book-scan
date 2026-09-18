@@ -1,74 +1,3 @@
-/**
- * The corner, and the short list of things that are yours behind it.
- *
- * ## What this is for
- *
- * The furniture screens are good and until now nothing in the app led to them.
- * They sat behind a quiet button at the foot of the shelves screen, which is
- * itself behind a quiet button at the foot of the library, so somebody who
- * wanted to describe a new bookcase had no way to guess where that lived. The
- * owner asked for the fix by shape:
- *
- * > The top right corner should be a profile picture like icon, and then
- * > whenever you select it, it should open up that menu, and in there should
- * > be an option to change fixtures, like "my fixtures", that way it takes
- * > them to the page to edit their fixtures.
- *
- * ## One definition, two callers
- *
- * The corner is on the first screen and on the library, and it is drawn from
- * here on both. Written out per screen it would be two chances for the word,
- * the glyph or the destination to say something slightly different, which is
- * the fault this codebase keeps taking copies off screens for. `Portrait` and
- * `Corner` themselves live in the design system, where the gallery draws the
- * same two.
- *
- * ## Where a person's name would be, the collection is
- *
- * An account menu opens with who you are signed in as; there is nobody to say,
- * so this opens with what you have. That line is what stops the ring above it
- * reading as a login somebody forgot to wire up, and it is the part of #329
- * that survived the owner overruling the cat. See `Portrait` in `Chrome.tsx`.
- *
- * **Nothing here is drawn until it is known.** The books come from the summary
- * the app already holds, and the pieces come from a read of the room made when
- * the menu is opened and not before: a menu on the first screen that fetched
- * the furniture on every visit would be a request per app launch for a line of
- * text nobody has asked to see yet. Until each answers, the line it belongs to
- * is short rather than guessed at.
- *
- * ## Two ways in, and why not three
- *
- * **Your fixtures** is the reason this exists, and it is called exactly what
- * the corner above it and the screen it opens are both called: a menu entry
- * disagreeing with its destination is the same fault as two components
- * sharing a name. It was **Your furniture**, opened from **Your room**, until
- * #362 overruled #333's argument for both; see `FIXTURES_WORD` in
- * `Chrome.tsx` for the argument and the reversal.
- *
- * **Settings** is the owner's own second thought ("preferences, or maybe not
- * preferences, instead settings"). It is the one word in an interface nobody
- * has to be taught, and the point of this change is that things stop being
- * unfindable.
- *
- * Your tags is deliberately not a third row: it is already one press from the
- * top of every library screen, and a second door to a room the screen already
- * opens is the fault the first screen had its camera card taken off for.
- *
- * ## And the way out, which is not a third row either
- *
- * Signing out is here since #524, under the two ways rather than beside them,
- * because it opens nothing. The corner is where somebody looks for it:
- * `Portrait` in `Chrome.tsx` said as much while there was nothing to find,
- * "the first tap goes looking for 'Sign out' and finds furniture". There is a
- * session to end now, so there is something to find.
- *
- * The address under it is what the session says this browser is signed in as.
- * It is the fact that makes the press worth offering: on a shared machine, or
- * after picking the wrong account at Google, it is the only thing on any screen
- * of this app that says which person the collection is being shown to.
- */
-
 import { useEffect, useState, type ReactElement, type ReactNode } from 'react'
 import { Corner, FIXTURES_WORD, Portrait } from '../design/Chrome'
 import { useGate } from '../app/gate'
@@ -86,32 +15,20 @@ export interface RoomMenu {
 }
 
 /**
- * What the line where a name would be says, given what has come back so far.
- *
- * Exported for its test. Every branch of it is a real state of the app: the
- * counts arrive from a request the first screen makes, the room arrives from
- * one this menu makes when it opens, and either can still be in flight.
+ * Exported for its test. Both arguments can be null independently, while
+ * their own requests are still in flight; every combination is a real state,
+ * not an error.
  */
 export function roomLine(books: number | null, pieces: number | null): string {
-  /* Digits for the books and a word for the pieces, which is the line this app
-     already draws elsewhere: "1,204 books" is a count and "five fixtures" is a
-     sentence, and somewhere around a dozen is where one becomes the other. */
+  // Digits for books, a word for pieces: matches the format this app already
+  // uses elsewhere for each.
   const said = books === null ? '' : `${grouped(books)} ${books === 1 ? 'book' : 'books'}`
   if (pieces === null) return said || 'Everything you own'
   const fixtures = counted(pieces, 'fixture')
   return said ? `${said}, ${fixtures}` : fixtures
 }
 
-/**
- * What the line under **Sign out** says, given who is signed in and how the
- * last press went.
- *
- * Exported for its test, like `roomLine` above, and for the same reason: every
- * branch is a real state. The address is empty when the provider sent none, the
- * press is in flight for as long as one request takes, and it can fail, at
- * which point saying nothing would leave somebody pressing a button that has
- * already refused them once.
- */
+/** Exported for its test, like `roomLine` above; every branch is a real state, including an empty address when the provider sent none. */
 export function signOutNote(email: string, going: Going): string | undefined {
   if (going === 'going') return 'Signing out.'
   if (going === 'refused') return 'That did not work. Try again.'
@@ -129,20 +46,14 @@ export function useRoomMenu(): RoomMenu {
   const [going, setGoing] = useState<Going>('no')
   const [room, setRoom] = useState<FurnitureDto | null>(null)
 
-  /*
-   * Read once, the first time the menu is opened, and kept for the rest of the
-   * sitting. A menu that re-read the room on every open would be a request
-   * behind a tap that has to feel instant, and the two counts it draws are the
-   * kind that change when somebody has just been on the screen it opens, which
-   * is the screen that re-reads for itself.
-   */
+  // Fetched once, on first open, and cached for the session: re-reading on
+  // every open would put a request behind a tap that must feel instant.
   useEffect(() => {
     if (!open || room) return undefined
     let live = true
     api.furniture()
       .then((answer) => { if (live) setRoom(answer) })
-      /* A line of text that could not be read is left out. There is nothing
-         here worth putting an error on somebody's first screen for. */
+      // Deliberately silent: an error here is not worth surfacing on the first screen.
       .catch(() => {})
     return () => { live = false }
   }, [open, room])
@@ -163,9 +74,8 @@ export function useRoomMenu(): RoomMenu {
         ways={[
           {
             word: FIXTURES_WORD,
-            /* The fixtures screen's own second line, word for word, because a
-               menu that summarised a screen in its own words would be two
-               sentences somebody has to keep agreeing. */
+            // Same words as the fixtures screen's own second line: two
+            // independent summaries would drift apart.
             note: room ? roomSaid(room.fixtures) : undefined,
             onPress: () => { setOpen(false); openRoom('furniture') },
           },
@@ -180,9 +90,8 @@ export function useRoomMenu(): RoomMenu {
           note: signOutNote(answer?.user?.email ?? '', going),
           onPress: () => {
             setGoing('going')
-            /* The sheet is deliberately not closed first. A press that succeeds
-               replaces this whole screen with the way in, and a press that does
-               not has to leave somebody looking at the thing that refused. */
+            // Deliberately not closed first: success replaces the whole
+            // screen, and failure must leave the refusal visible.
             void signOut().catch(() => setGoing('refused'))
           },
         }}

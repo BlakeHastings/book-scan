@@ -1,21 +1,19 @@
 /**
- * Reading a MARC record, and asking two catalogues for one without being rude
- * to them (#305).
+ * Two halves, and they are separate on purpose. `readMarc` and
+ * `pagesFromExtent` are given the XML a national catalogue actually sends,
+ * because the failures worth catching are a namespace prefix, an entity and
+ * a house style for writing "535 pages", none of which a hand-written
+ * fixture would have if the fixture were invented rather than copied.
+ * `askSupplementaryCatalogues` is run against two real HTTP servers, for
+ * the reason `lookup-sources.test.ts` gives: what is under test is what
+ * this file makes of a status code, a dropped socket and a body that is
+ * not a record, and a stubbed `fetch` would be this file asserting against
+ * its own idea of those.
  *
- * Two halves, and they are separate on purpose. `readMarc` and `pagesFromExtent`
- * are given the XML a national catalogue actually sends, because the failures
- * worth catching are a namespace prefix, an entity and a house style for
- * writing "535 pages", none of which a hand-written fixture would have if the
- * fixture were invented rather than copied. `askSupplementaryCatalogues` is run
- * against two real HTTP servers, for the reason `lookup-sources.test.ts` gives:
- * what is under test is what this file makes of a status code, a dropped socket
- * and a body that is not a record, and a stubbed `fetch` would be this file
- * asserting against its own idea of those.
- *
- * `BOOKSCAN_SRU_PACE_MS` is set to 0 before the module is imported, so the rate
- * limiter does not make the suite spend real seconds proving a rule about
- * seconds. The one test that is about the limiter sets its own interval and is
- * the only place a real wait happens.
+ * `BOOKSCAN_SRU_PACE_MS` is set to 0 before the module is imported, so the
+ * rate limiter does not make the suite spend real seconds proving a rule
+ * about seconds. The one test that is about the limiter sets its own
+ * interval and is the only place a real wait happens.
  */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
@@ -222,11 +220,8 @@ describe('reading a MARC record', () => {
 
   it('reads no name out of a record that carries two', () => {
     /*
-     * The refusal, checked rather than promised. This record has an author in
-     * 100 and an illustrator in 700, and it is the shape that produced the
-     * measurement's finding: of 34 apparent author gains, 5 were a translator or
-     * an illustrator correctly recorded in 700, 18 were the same person under a
-     * different spelling, 10 were the wrong person, and 1 was real.
+     * This record has an author in 100 and an illustrator in 700, exactly
+     * as a real record carries them.
      */
     const record = readMarc(LOC_MARC)!
 
@@ -289,11 +284,10 @@ describe('asking both catalogues', () => {
 
   it('is rank order even when the ranked-first catalogue is the slower one', async () => {
     /*
-     * Both are asked at once, so which of them replies first is a fact about an
-     * afternoon. If it decided anything, a book saved twice could get two
-     * different page counts, so it decides nothing: Library of Congress leads
-     * because the measurement verified 34 of 34 of its records as the right
-     * book, not because it is quick.
+     * Both are asked at once, so which of them replies first is a fact
+     * about an afternoon; if it decided anything, a book saved twice could
+     * get two different page counts. Library of Congress leads by rank,
+     * not by speed.
      */
     locDelayMs = 150
 
@@ -303,9 +297,8 @@ describe('asking both catalogues', () => {
   })
 
   it('records a reply with no record as having answered, not as a failure', async () => {
-    // The ordinary case and the reason #305 exists. Library of Congress holds
-    // 131 of the 238 books in the real catalogue, so it has nothing to say about
-    // rather more of them than it does.
+    // A reply with no record is the ordinary case: a catalogue can
+    // genuinely have nothing to say about a book.
     locDoes = 'no records'
 
     const records = await askSupplementaryCatalogues(ISBN, 3000)
@@ -340,11 +333,9 @@ describe('asking both catalogues', () => {
 
   it('gives up on a catalogue that never replies, inside the budget', async () => {
     /*
-     * #299 bounded the one reader this app had because an unbounded one is a
-     * dependency that can hang, and #305 adds two more things that can. Nothing
-     * here reaches `fetch` without an `AbortController` behind it, and this is
-     * that proved rather than asserted: the server is told to answer nothing at
-     * all and the call still returns.
+     * Nothing here reaches `fetch` without an `AbortController` behind it,
+     * and this is that proved rather than asserted: the server is told to
+     * answer nothing at all and the call still returns.
      */
     locDoes = 'hangs'
     const started = Date.now()
@@ -391,11 +382,10 @@ describe('the rate limiter', () => {
 
   it('declines rather than queueing past the caller\'s deadline', async () => {
     /*
-     * The promise that makes a limiter safe to put in front of somebody holding
-     * a book. A rate limiter normally turns a burst into a queue, and a queue in
-     * front of a person photographing books is the "work behind other work" #294
-     * is the cautionary tale about. Here the queue has a hard end: the worst it
-     * can do to a scan is cost it one source for one book.
+     * A rate limiter normally turns a burst into a queue, and a queue in
+     * front of a person photographing books is a real hazard. Here the
+     * queue has a hard end: the worst it can do to a scan is cost it one
+     * source for one book.
      */
     const started = Date.now()
     expect(await reserveSlot('a busy catalogue', 60_000, 5000)).toBe(true)

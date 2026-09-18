@@ -1,16 +1,12 @@
 /**
  * Storing crops of a book's photographs beside the photographs.
  *
- * `bookcrop.ts` decides where the book is. This decides what happens to the
- * answer, and it has exactly one rule that matters: **the original is never
- * written to.** A crop is a new file with a derived name, recorded on the
- * photograph's own row, and every path through this file either adds one or
- * records that it could not. There is no branch here that opens a photograph
- * for writing.
+ * `bookcrop.ts` decides where the book is; this decides what happens to the
+ * answer. The original is never written to: a crop is a new file with a
+ * derived name, recorded on the photograph's own row.
  *
- * The reader and writer are injected rather than opened here, so the caller
- * decides which directory is being touched and a test needs no directory at
- * all. That is the same seam `rehash.ts` uses, for the same reason.
+ * The reader and writer are injected rather than opened here, the same seam
+ * `rehash.ts` uses.
  */
 
 import { cropBook, type CropRefusal } from './bookcrop'
@@ -19,26 +15,15 @@ import type { Store } from './store'
 export const CROP_SLOTS = ['front', 'back', 'edge'] as const
 export type CropSlot = (typeof CROP_SLOTS)[number]
 
-/*
- * `recordCrop` used to be here. It writes what the detector made of one
- * photograph onto that photograph's row, so it lives in `photographs.ts` beside
- * everything else that writes one (#200, #228). `Store.setCrop` and
- * `CaptureQueue.setCrop` both call it there.
- */
-
 export interface CropIo {
   read: (name: string) => Buffer | Promise<Buffer>
   write: (name: string, data: Buffer) => void | Promise<void>
 }
 
 /**
- * Where the outcome of looking at one photograph gets written.
- *
- * `Store` satisfies this for books somebody has filed and `CaptureQueue` for
- * books still waiting to be identified, which since #183 are rows in one table
- * and are cropped by two different passes. Both implementations are now a call
- * to `recordCrop` above; the interface stays because the two passes are still
- * two, and it is what lets a test hand the detector somewhere to write.
+ * Where the outcome of looking at one photograph gets written. `Store`
+ * satisfies this for filed books and `CaptureQueue` for books still waiting
+ * to be identified.
  */
 export interface CropSink {
   setCrop: (id: number, slot: CropSlot, name: string) => Promise<void>
@@ -59,7 +44,6 @@ export function cropName(original: string): string {
 /** A photograph the detector has been shown, and what it made of it. */
 export interface SlotOutcome {
   slot: CropSlot
-  /** The photograph. */
   image: string
   /** The crop, or '' when the book could not be found. */
   crop: string
@@ -75,16 +59,12 @@ export interface CropOptions {
 }
 
 /**
- * A row with photographs in it. A book or a queued capture: both are books in
- * different states, and both arrive with the current photograph of each slot
- * flattened onto them, so both are croppable on exactly the same terms.
+ * A row with photographs in it: a book or a queued capture, both croppable on
+ * exactly the same terms.
  *
- * **These are not columns any more (#228).** They are derived from `capture` by
- * `withPhotographs`, which means the detector is offered the newest photograph
- * of each slot rather than the only one there was room for. `cropped` names the
- * slots whose current photograph has been examined, so a re-shot spine is a slot
- * that wants looking at again, which is exactly right: nothing has looked at
- * *this* photograph.
+ * Derived from `capture` by `withPhotographs`, so the detector is offered the
+ * newest photograph of each slot. `cropped` names the slots whose current
+ * photograph has been examined, so a re-shot spine counts as unexamined again.
  */
 export interface CroppableBook {
   id: number
@@ -101,9 +81,8 @@ export interface CroppableBook {
  * Crop whichever of a row's photographs have not been looked at yet.
  *
  * Idempotent: a slot already in `cropped` is skipped, so a second run finds
- * nothing to do and an interrupted run leaves the slots it finished done. A
- * photograph that cannot be read is reported and skipped, never blanked, for
- * the same reason `rehash` leaves a stale hash alone rather than clearing it.
+ * nothing to do. A photograph that cannot be read is reported and skipped,
+ * never blanked, the same as `rehash` leaving a stale hash alone.
  */
 export async function cropPhotos(
   sink: CropSink,
@@ -124,9 +103,9 @@ export async function cropPhotos(
     try {
       source = Buffer.from(await io.read(image))
     } catch {
-      // A photo that has gone missing must not cost us the slots after it,
-      // and it must not be recorded as "looked at and no book found" either,
-      // because that is a statement about a photograph nobody has seen.
+      // A photo that has gone missing must not cost the slots after it, and
+      // must not be recorded as "looked at and no book found": that would be
+      // a statement about a photograph nobody has seen.
       outcomes.push({ slot, image, crop: '', refusal: 'unreadable' })
       continue
     }
@@ -185,12 +164,8 @@ export interface CropAllOptions extends CropOptions {
 /**
  * Crop every photograph in the catalogue that has not been looked at.
  *
- * Nothing calls this on a timer and no route triggers it. There are hundreds
- * of photographs of somebody's real collection behind this, the cost of
- * re-reading them all is his to spend, and a derived file appearing beside
- * every photograph he owns is his decision to make. `crop-books.ts` is the
- * front end, and like the rehash before it, it is a dry run unless told
- * otherwise.
+ * Nothing calls this on a timer and no route triggers it: `crop-books.ts` is
+ * the front end, and it is a dry run unless told otherwise.
  */
 export async function cropCatalogue(
   store: Store,

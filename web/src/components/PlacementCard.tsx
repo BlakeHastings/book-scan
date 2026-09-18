@@ -8,27 +8,12 @@ export function coverUrl(filename: string): string {
   return filename ? `/api/covers/${encodeURIComponent(filename)}` : ''
 }
 
-/**
- * The same photo, resized by the server before it is sent.
- *
- * For a screen that is nothing but pictures. One book at full size is fine;
- * a grid of a hundred is tens of megabytes of image to draw thumbnails with,
- * and on a phone that is somebody's data allowance. The server only answers a
- * short list of widths, so this must ask for one of them.
- */
+/** The server only answers a fixed list of widths, which is why this only accepts one of them. */
 export function coverThumbUrl(filename: string, width: 160 | 320 | 640): string {
   return filename ? `${coverUrl(filename)}?w=${width}` : ''
 }
 
-/**
- * One book this one goes beside, drawn as the list rows every other set of
- * books in the app is drawn as.
- *
- * The label is the whole point of the row and so it goes where a row's second
- * line goes, in front of the name: "After · Miéville, China" is which side and
- * who, in the order somebody standing at a shelf wants them. The place stays on
- * the right, in the column a plank label lines up in.
- */
+/** The label goes in front of the name, in a row's second line ("After · Miéville, China"), which is the order somebody standing at a shelf wants them; place stays on the right, in the column a plank label lines up in. */
 function NeighbourRow({
   label, neighbour, emptyText,
 }: {
@@ -51,20 +36,10 @@ function NeighbourRow({
 }
 
 /**
- * Where a book goes, said in words, for a placement that arrived with no run
- * of books in it.
- *
- * **The drawing is the answer and this is what is left when there is no
- * drawing.** `PlacementView` reaches for it when a placement has no strip,
- * which is an empty range or a server older than the strip, and it is the only
- * way in: everywhere else the shelf itself is drawn with the gap in it, which
- * is what the owner asked for twice.
- *
- * So it says the same three things the drawn one does, in the design system's
- * own parts rather than in a card of its own: the sentence a person reads
- * walking to the shelf, and the two books either side with the one being placed
- * between them. Nothing here is a second arrangement of a book: they are `Row`,
- * which is what the library, the queue and the carry list are made of.
+ * The fallback for a placement with no strip (an empty range, or a server too
+ * old to send one); everywhere else the shelf itself is drawn with the gap in
+ * it. Built from `Row`, the same component the library, queue and carry list
+ * use, so this is not a second way of drawing a book.
  */
 export function PlacementCard({
   placement,

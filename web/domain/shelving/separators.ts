@@ -1,37 +1,13 @@
 /**
- * The boundaries of one shelf range, and the invariant that holds them together.
+ * The boundaries of one shelf range. The aggregate is the whole set, not one
+ * boundary, because the invariant is about the set: positions are 0, 1, 2, ...
+ * with no gaps and no repeats. A repeat means `Shelves.list`'s
+ * `ORDER BY position` can return the same shelf label pointing at different
+ * runs of books between requests.
  *
- * ## What this is
- *
- * A separator is a physical fact: somebody stood at a bookcase, said "this
- * plank is full", and the next book began a new one. The row records where that
- * happened by naming the sort key of the first book on the new shelf, so
- * removing the book it points at leaves the boundary describing the right
- * *place* rather than orphaning it.
- *
- * The aggregate is all of one range's boundaries together, not one boundary,
- * because the invariant is about the set: **positions are 0, 1, 2 ... with no
- * gaps and no repeats.** A gap or a repeat is not cosmetic. `Shelves.list`
- * orders by `position`, so two boundaries sharing one means the same shelf
- * label points at different runs of books between requests, every book in the
- * range derives a plank it is not on, and the misfile check reports the whole
- * range as wrong. That is a real outcome, arrived at twice: once from two
- * removals racing each other and once from two overflows creating a boundary at
- * the same position (see the transaction notes in `Shelves.remove` and
- * `Shelves.overflow`).
- *
- * ## Why it is in `domain/`
- *
- * Nothing here knows there is a database. `without` computes a removal and the
- * renumbering that keeps the rest contiguous, and hands both back; whoever owns
- * the storage writes them. That is the whole of the separation, and it is worth
- * testing exactly because it is small: this file has no fixtures, no container
- * and no async, so the rule that positions stay contiguous is stated somewhere
- * a reader can check it in ten seconds.
- *
- * **`separators` is mid-rename and nothing here anticipates it.** #170 turns it
- * into `area` with a parent, and docs/shelving.md records that an area is not a
- * plank. What is modelled here is what exists today.
+ * Nothing here knows there is a database: `without` computes a removal and the
+ * renumbering that keeps the rest contiguous, and hands both back for whoever
+ * owns storage to write.
  */
 
 import type { Separator } from '../../shared/layout'
@@ -44,15 +20,9 @@ export class RangeSeparators {
   ) {}
 
   /**
-   * The boundaries of one range, put in position order.
-   *
-   * Sorted here rather than trusted from the caller, and a store that already
-   * ordered by `position` loses nothing by it. The reason is the failure this
-   * type exists to prevent: when two rows share a position, `ORDER BY position`
-   * returns them in whatever order the server felt like, so "the order they
-   * arrived in" is exactly the thing that is not dependable in the case that
-   * matters. Ties break on id, which is stable and is the order they were
-   * created in.
+   * The boundaries of one range, in position order. Sorted here rather than
+   * trusted from the caller, since a shared position makes `ORDER BY position`
+   * unstable; ties break on id, which is stable and reflects creation order.
    */
   static of(range: ShelfRange, separators: readonly Separator[]): RangeSeparators {
     const ordered = [...separators].sort(
@@ -67,11 +37,9 @@ export class RangeSeparators {
   }
 
   /**
-   * The position the next boundary takes: after the ones already there.
-   *
-   * The count rather than the highest position plus one. They are the same
-   * number while the invariant holds, and when it does not, this is the one
-   * that closes the gap instead of widening it.
+   * The count, not the highest position plus one. These differ only when the
+   * invariant is broken, in which case this is the one that closes the gap
+   * instead of widening it.
    */
   get nextPosition(): number {
     return this.ordered.length
@@ -83,17 +51,9 @@ export class RangeSeparators {
   }
 
   /**
-   * The boundary this range would lose, or `null` when it has no such boundary.
-   *
-   * Null is not an error: a request to remove a line somebody else has already
-   * removed has got what it asked for, and that is what the store did before
-   * this existed.
-   *
-   * **It used to answer the renumbering as well**, because a separator carried
-   * its ordinal in a column and taking one out left a gap. Since #232 a boundary
-   * is the `area` it opens and its position is where that area sits in the run,
-   * so the ordinals are contiguous by construction and the only thing left to
-   * decide is which boundary goes.
+   * The boundary this range would lose, or `null` when it has none. Null is
+   * not an error: a request to remove an already-removed boundary has got
+   * what it asked for.
    */
   without(id: number): Separator | null {
     return this.ordered.find((separator) => separator.id === id) ?? null

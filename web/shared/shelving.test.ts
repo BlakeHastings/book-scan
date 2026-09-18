@@ -16,17 +16,10 @@ describe('normalise', () => {
   })
 
   it('keeps space sorting below letters so short surnames come first', () => {
-    // This is the property that makes SMITH ANN precede SMITHSON A.
     expect(normalise('Smith, Ann') < normalise('Smithson, A')).toBe(true)
   })
 
   it('keeps letters that are not A-Z rather than folding a name to nothing', () => {
-    // Issue #195. Dropping everything outside [A-Z0-9 ] is a fold for a Latin
-    // name and a deletion for one written in another script, and a name that
-    // folds to nothing sorts ahead of every name in the range.
-    // ё and й lose their marks the way é does, because rule 1 does not know
-    // which alphabet it is looking at. Filing Достоевский next to Достоевскии
-    // is the same trade already accepted for Böll and Boll.
     expect(normalise('Фёдор Достоевский')).toBe('ФЕДОР ДОСТОЕВСКИИ')
     expect(normalise('村上春樹')).toBe('村上春樹')
     expect(normalise('Νίκος Καζαντζάκης')).toBe('ΝΙΚΟΣ ΚΑΖΑΝΤΖΑΚΗΣ')
@@ -34,26 +27,22 @@ describe('normalise', () => {
   })
 
   it('keeps both halves of a name that mixes scripts', () => {
-    // The one that surprises. The Latin half used to be the whole answer, so
-    // this name and a plain `Smith` folded to the same key and filed together.
     expect(normalise('Smith, Иван')).toBe('SMITH ИВАН')
     expect(normalise('Smith, Иван')).not.toBe(normalise('Smith'))
-    // Still governed by the space rule above, so it lands inside the SMITH
-    // block rather than after SMITHSON.
     expect(normalise('Smith, Ann') < normalise('Smith, Иван')).toBe(true)
     expect(normalise('Smith, Иван') < normalise('Smithson, A')).toBe(true)
   })
 
   it('folds accents the same way it always did, so nothing already filed moves', () => {
-    // The combining marks Latin decomposes into are still dropped. Cyrillic ё
-    // decomposes the same way and loses its diaeresis for the same reason.
+    // Cyrillic ё decomposes into e + combining diaeresis, the same mechanism
+    // that drops Latin accents.
     expect(normalise('García')).toBe('GARCIA')
     expect(normalise('Фёдор')).toBe(normalise('Федор'))
   })
 })
 
 describe('filingName', () => {
-  // The table from docs/shelving.md, including the two known-wrong cases.
+  // See docs/shelving.md; includes two known-wrong cases.
   const cases: [string, string][] = [
     ['Ursula K. Le Guin', 'Le Guin, Ursula K.'],
     ['J. R. R. Tolkien', 'Tolkien, J. R. R.'],
@@ -80,9 +69,8 @@ describe('filingName', () => {
   })
 
   it('is knowingly wrong on Spanish compound surnames', () => {
-    // Documented limitation. If this ever starts passing, the override table
-    // may no longer be needed for this case, but do not "fix" it with a
-    // heuristic: middle names are indistinguishable from a second surname.
+    // Documented limitation, not a bug to fix with a heuristic: middle names
+    // are indistinguishable from a second surname.
     expect(filingName('Gabriel García Márquez')).toBe('Márquez, Gabriel García')
   })
 
@@ -92,18 +80,15 @@ describe('filingName', () => {
   })
 
   it('inverts a name written in another script the way it inverts any other', () => {
-    // Issue #195. The heuristic never had a problem with these names; nothing
-    // reached it, because the caller folded them away first.
     expect(filingName('Фёдор Достоевский')).toBe('Достоевский, Фёдор')
     expect(filingName('Νίκος Καζαντζάκης')).toBe('Καζαντζάκης, Νίκος')
-    // A CJK name is written surname first and has no spaces, so it is a
-    // mononym to this and files as printed, which is right.
+    // A CJK name has no spaces, so it reads as a mononym and files as printed.
     expect(filingName('村上春樹')).toBe('村上春樹')
   })
 
   it('answers what was printed when it has nothing to invert', () => {
-    // Not tidiness. An empty filing name sorts ahead of every real one, so a
-    // book with an author would shelve as though it had none (#195).
+    // An empty filing name sorts ahead of every real one, so a book would
+    // shelve as though it had no author.
     expect(filingName('Dr.')).toBe('Dr.')
     expect(filingName('(Various)')).toBe('(Various)')
   })
@@ -149,9 +134,7 @@ describe('buildSortKey', () => {
   })
 
   it('files a non-Latin author in the range rather than ahead of all of it', () => {
-    // Issue #195. The author component was empty for these, which is what
-    // every key starts with, so the book landed first in its range whatever
-    // else was on the shelf.
+    // The author component leads every key, so an empty one sorts first regardless of title.
     const dostoevsky = key('Достоевский, Фёдор', 'Crime and Punishment')
     expect(key('Austen, Jane', 'Persuasion') < dostoevsky).toBe(true)
     expect(key('Zusak, Markus', 'The Book Thief') < dostoevsky).toBe(true)
@@ -175,10 +158,7 @@ describe('parseLocation', () => {
   })
 
   it('does not understand a label with a piece\'s name in it, and should not', () => {
-    // Not a gap to close. This form is what somebody typed and what the ledger
-    // wrote down before pieces had names; a label a person reads today is
-    // rendered from a row, and the row is what says which plank it is. #468 is
-    // what happened when a decision was made from the null this returns.
+    // Deliberate: a label is what somebody typed, not what decides which plank it is; the row does.
     expect(parseLocation('Hall shelf · A')).toBeNull()
   })
 })
@@ -212,14 +192,6 @@ describe('buildPlacement', () => {
     expect(result.instruction).toContain('boundary')
   })
 
-  /*
-   * #468, and the reason a neighbour carries its area. The two labels are what
-   * a person reads off a piece they have named, `parseLocation` understands
-   * neither, and the ordering this used to ask reported two labels it could
-   * not parse equal. Deciding "same plank" from that told somebody standing at
-   * a bookcase to file a book between two books that are not both on the plank
-   * it named.
-   */
   it('sees the boundary between two planks of a piece somebody has named', () => {
     const result = buildPlacement(
       'nonfiction',
@@ -233,10 +205,7 @@ describe('buildPlacement', () => {
     expect(result.instruction).toContain('Hall shelf · B')
   })
 
-  /*
-   * The other half of the same claim: two pieces really can stand on one
-   * number, so one label can name two planks. `AreaStanding` says why.
-   */
+  // See `AreaStanding`: two areas can legitimately share a label.
   it('keeps two planks apart when they read as the same label', () => {
     const result = buildPlacement(
       'fiction', neighbour(1, 'Alpha', '4A', 2), neighbour(2, 'Beta', '4A', 11), '1A',
@@ -266,9 +235,6 @@ describe('buildPlacement', () => {
   })
 
   it('falls back to the printed authors string when a neighbour has no filing name', () => {
-    // A book with no author_author credit still carries books.authors, which
-    // is a name a person can read. Saying nobody is known is only honest once
-    // that is checked too. See #235.
     const uncredited: Neighbour = {
       id: 2, title: 'Beta', authorFiling: '', authors: 'J. R. R. Tolkien',
       location: '1A', areaId: 7, sortKey: '2', images: { front: '', back: '', edge: '' },
@@ -279,13 +245,8 @@ describe('buildPlacement', () => {
   })
 
   /**
-   * A range no rule serves (#479).
-   *
-   * `rangeStart` is null then, and it is null because `bandsOf` says so rather
-   * than because anything here or in either caller worked it out. Four of the
-   * five sentences above name the range's start where a neighbour cannot be
-   * named, and the fifth is nothing but the start, so this is asked before any
-   * of them and is a kind of its own.
+   * `rangeStart` null means no rule names where the range begins at all,
+   * distinct from a range whose neighbours simply have no location.
    */
   describe('when no rule says where the range begins', () => {
     it('says so, and offers no plank', () => {
@@ -310,8 +271,6 @@ describe('buildPlacement', () => {
     })
 
     it('still carries the two books either side, which is the sequence', () => {
-      // The furniture is what is missing. Where this book falls among the books
-      // is a fact about the books, it is unchanged, and the screen draws it.
       const result = buildPlacement(
         'fiction', neighbour(1, 'Alpha', '1A', 7), neighbour(2, 'Beta', '1A', 7), null,
       )
@@ -320,9 +279,7 @@ describe('buildPlacement', () => {
     })
 
     it('is not what an empty label means, which is a neighbour nobody has placed', () => {
-      // '' and null are different answers and used to be one. A range with a
-      // start whose neighbours have no recorded location still has somewhere to
-      // suggest; a range with no start has nowhere.
+      // '' and null differ: a start with unplaced neighbours still has somewhere to suggest, a null start has nowhere.
       const result = buildPlacement(
         'fiction', neighbour(1, 'Alpha', ''), neighbour(2, 'Beta', ''), '1A',
       )
@@ -342,14 +299,8 @@ describe('buildPlacement', () => {
 })
 
 /**
- * The same question asked about one plank, for a book somebody is carrying to it.
- *
- * Every test here is really one claim: **no sentence says anything about the
- * range.** `buildPlacement` above is entitled to, because it looked the book up
- * in the run; these neighbours are the two books either side of a gap on one
- * plank, and the rest of the range is on other planks. Somebody carrying the
- * third of eight books onto an empty plank was told, twice, that it was the last
- * book in non-fiction (#429).
+ * Unlike `buildPlacement`, no instruction here mentions the range: these
+ * neighbours are only the two books either side of a gap on one plank.
  */
 describe('placementOnAPlank', () => {
   const neighbour = (id: number, title: string): Neighbour => ({
@@ -426,9 +377,7 @@ describe('shelfPhoto', () => {
   })
 
   it('picks the slot before it looks at the crops, exactly as bookCover does', () => {
-    // A cropped front does not promote the front over an uncropped spine. The
-    // spine wins on a shelf whatever happened to crop, or two books on the
-    // same shelf would be drawn showing different faces.
+    // Crop status never affects slot choice, or two books on a shelf could show different faces depending on which happened to have a crop.
     const picked = shelfImage({
       front: 'f.jpg', back: '', edge: 'e.jpg', crops: { front: 'f_crop.jpg' },
     })
@@ -442,9 +391,7 @@ describe('bookCover', () => {
     ({ front: '', back: '', edge: '', catalogue: '', ...overrides })
 
   it('shows the front cover first, since the book is lying face up', () => {
-    // The opposite order from shelfImage, on purpose. A spine wins on a shelf
-    // because it is the only face you can see; a grid of covers is showing
-    // the face nobody can see from the shelf.
+    // Opposite priority from shelfImage, deliberately: a shelf only shows the spine, a cover grid shows the face you can't see there.
     const picked = bookCover(images({ front: 'f.jpg', edge: 'e.jpg', back: 'b.jpg', catalogue: 'c.jpg' }))
     expect(picked.name).toBe('f.jpg')
     expect(picked.slot).toBe('front')
@@ -470,8 +417,6 @@ describe('bookCover', () => {
   })
 
   it('admits to nothing at all rather than handing back a broken src', () => {
-    // Both halves can be missing: a book nobody has photographed, whose ISBN
-    // no catalogue has a cover for. The grid draws a name instead.
     const picked = bookCover(images({}))
     expect(picked.name).toBe('')
     expect(picked.slot).toBe('')
@@ -496,10 +441,7 @@ describe('bookCover', () => {
   })
 
   it('picks the slot before it looks at the crops', () => {
-    // The front photo has no crop and the spine does. The front still wins:
-    // otherwise a grid would show a spine for one book and a cover for the
-    // next because of which photo happened to crop, which is a worse rule
-    // than either "always the front" or "always the spine".
+    // Front still wins even with no crop of its own, or a grid would show different faces for books depending on which happened to have a crop.
     const picked = bookCover({
       ...images({ front: 'f.jpg', edge: 'e.jpg' }),
       crops: { edge: 'e_crop.jpg' },
@@ -510,8 +452,7 @@ describe('bookCover', () => {
   })
 
   it('does not pretend a publisher picture was cropped', () => {
-    // There is no room around a catalogue image to cut away, so it is never
-    // marked as cut down to the book.
+    // A catalogue image has no room around it to cut away, so it is never marked as cropped.
     const picked = bookCover({
       ...images({ catalogue: 'c.jpg' }),
       crops: { front: 'f_crop.jpg' },
@@ -523,15 +464,7 @@ describe('bookCover', () => {
 })
 
 describe('reviewShelving', () => {
-  /**
-   * A plank, as the furniture would hand it over: an id, a label and where it
-   * stands.
-   *
-   * The tests below name planks the way a person does, `1A` and `2C`, and this
-   * turns that into the shape the check reads. Two labels for one plank is the
-   * case #356 is about, so a label is never the key here either: `plank` is what
-   * decides identity and the label is only what a row would show.
-   */
+  /** Planks are matched by id, not label: `1A` and `2C` are just how a person names them for the test. */
   const planks = new Map<string, { id: number; fixture: number; plank: number }>()
   const plank = (label: string) => {
     const found = planks.get(label)
@@ -588,8 +521,7 @@ describe('reviewShelving', () => {
   })
 
   it('falls back to the printed authors string when a book has no filing name', () => {
-    // Same fallback as buildPlacement's instruction, and the same reason: an
-    // empty author_filing does not mean nothing is known. See #235.
+    // Same fallback as buildPlacement's instruction: an empty authorFiling does not mean nothing is known.
     const review = reviewShelving([
       book(1, '3C', '1A', { authorFiling: '', authors: 'Ursula K. Le Guin' }),
     ])
@@ -605,9 +537,6 @@ describe('reviewShelving', () => {
   })
 
   it('blames the stray book rather than its innocent neighbour', () => {
-    // The failure mode of the pairwise rank check this replaced. Book 2 is on
-    // the wrong bookcase; comparing each book with the one before it flags
-    // book 3, which is exactly where it should be, and lets book 2 off.
     const review = reviewShelving([
       book(1, '1A', '1A'), book(2, '3C', '1A'), book(3, '1B', '1B'),
       book(4, '1B', '1B'), book(5, '1C', '1C'),
@@ -616,8 +545,6 @@ describe('reviewShelving', () => {
   })
 
   it('reports every book a moved boundary displaced, not just the first', () => {
-    // Marking a shelf full pushes a whole run along. All of them are physical
-    // jobs and none of them will happen if only one is listed.
     expect(ids(reviewShelving([
       book(1, '1A', '1A'), book(2, '1A', '1B'), book(3, '1A', '1B'),
       book(4, '1B', '1C'),
@@ -625,9 +552,6 @@ describe('reviewShelving', () => {
   })
 
   it('judges the plank rather than what it is called', () => {
-    // One plank, rendered twice: the ledger writes what the piece is called and
-    // the layout writes where it stands. Reading the strings sends somebody
-    // across the room for nothing, and #356 is what happened when it did.
     const one = book(1, '4B', '4B')
     expect(ids(reviewShelving([
       { ...one, location: 'Hall shelf · B', derivedLocation: '4B' },
@@ -636,8 +560,6 @@ describe('reviewShelving', () => {
   })
 
   it('does not stop judging a book because its bookcase has a name', () => {
-    // The defect exactly: a label the check could not parse took the book out
-    // of the answer, so a book in the wrong place came back as nothing to do.
     const stray = book(1, '3C', '1A')
     const review = reviewShelving([
       { ...stray, location: 'Hall shelf · C', derivedLocation: 'Hall shelf · A' },
@@ -654,17 +576,12 @@ describe('reviewShelving', () => {
   })
 
   it('leaves a checked-out book out of it, having no position to be wrong', () => {
-    // Off the shelf entirely. Its old location is not a claim about anywhere.
     const review = reviewShelving([book(1, '1A', '', { checkedOut: true })])
     expect(review.misfiles).toEqual([])
     expect(review.excluded[0]!.reason).toBe('checked-out')
   })
 
   it('says so when the run has nowhere to put a book, rather than passing it', () => {
-    // The one way left to reach this check and not be judged by it, and it is
-    // about the furniture rather than about the book. It is reported so the
-    // count can be said out loud: a book nobody has looked at is not a book
-    // that is fine.
     const review = reviewShelving([book(1, '1A', '')])
     expect(review.misfiles).toEqual([])
     expect(review.excluded.map((e) => [e.book.id, e.reason])).toEqual([[1, 'unplaceable']])
@@ -678,7 +595,6 @@ describe('reviewShelving', () => {
   })
 
   it('does not need its input sorted', () => {
-    // Every judgement is per book, so there is no precondition to violate.
     const shuffled = [book(3, '1B', '1B'), book(1, '2A', '1A'), book(2, '1A', '1A')]
     expect(ids(reviewShelving(shuffled))).toEqual([1])
   })

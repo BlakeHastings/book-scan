@@ -1,24 +1,15 @@
 /**
- * #240, proved against both schemas rather than only against the one master
- * happens to have.
- *
- * `readDigest` used to read `area` unconditionally, because that is the
- * schema master has had since #232. Against a catalogue that had not been
- * migrated that far it died with `relation "area" does not exist`, and it did
- * so after `backup-catalogue.ts` had already printed the dump's filename: the
- * one line left in the log said a backup had been taken, and none had.
- *
- * `chooseDividerTable` in `server/backup.ts` asks the catalogue instead of
- * assuming, the way `CATALOGUE_TABLES_SQL` already asks it for the table
- * list (#216). This file is the proof the issue asks for: one catalogue built
- * from migrations to the exact shape the error trace names, `area` not
- * existing at all, and one built to the schema master has today, both read
- * with nothing thrown.
+ * `chooseDividerTable` in `server/backup.ts` asks the catalogue what
+ * divider table it has rather than assuming one, the way
+ * `CATALOGUE_TABLES_SQL` already asks it for the table list. This file
+ * proves both shapes read with nothing thrown: a catalogue built from
+ * migrations before `area` exists at all, and one built to the schema
+ * master has today.
  *
  * Nothing here reads, writes or connects to anything under
- * book-scan-production-data or 127.0.0.1:5433. Every database is a scratch
- * one this file makes, on the container the run started, swept after the last
- * test in the run by `server/pgcontainer.ts`.
+ * book-scan-production-data or 127.0.0.1:5433. Every database is a
+ * scratch one this file makes, on the container the run started, swept
+ * after the last test in the run by `server/pgcontainer.ts`.
  */
 
 import pg from 'pg'
@@ -44,9 +35,7 @@ describe('the schema before #232 (and before #216, before area exists at all)', 
   /**
    * `0011_the_queue_becomes_books` is the last migration before
    * `0012_the_furniture_becomes_rows` creates `area`. A catalogue stopped
-   * there is the literal shape of the error #240 reports: `separators` is
-   * the only boundary table there is, exactly as it was on the day this
-   * schema shipped, long before #232 gave it a rival and then dropped it.
+   * there has `separators` as the only boundary table there is.
    */
   it('reads the divider order from separators, with no area table to fall back on', async () => {
     const pool = await scratchDatabase()

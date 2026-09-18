@@ -2,15 +2,8 @@
  * The two things every save does to a book besides writing its row: settle
  * the genre tag that files it, and keep its author credits in step.
  *
- * Pulled out of `server/index.ts` (#234) so a second caller can run the same
- * steps rather than restate them. `scripts/seed-world.ts` is that caller: a
- * seeded shelved book has to carry a genre tag and author credits the way a
- * real save leaves them, because those are what the current model derives a
- * book's shelf range and filing name from (#223, #227), and a seed that skips
- * them builds a world the app itself cannot place. AGENTS.md names #195 as
- * what a second copy of what a save does turns into, which is the trap this
- * file avoids: `createApp` and `seed-world.ts` both call these functions
- * rather than each writing their own version of what a save is.
+ * `createApp` and `scripts/seed-world.ts` both call these functions rather
+ * than each writing their own version of what a save is.
  */
 
 import { GENRE } from '../domain/tagging/catalogue-claims'
@@ -25,39 +18,19 @@ import type { DraftBook } from './store'
 
 /**
  * Write what this save says a book is under, and answer the range that puts
- * it in.
+ * it in. Runs before the row is written, and the range it returns is what
+ * the row is written with.
  *
- * **This is the cut-over (#223).** Until now the genre was written twice from
- * one draft, into `books.is_fiction` by `Store` and into `book_tag` here, and
- * the column was what decided the shelf range. Now the tag decides: this runs
- * *before* the row is written, and the range it returns is what the row is
- * written with.
+ * Restates rather than applies: it takes off only the tags of the source
+ * doing the restating, so a lookup does not disturb a person's tag and a
+ * person's answer does not leave a guess behind. The range comes from
+ * reading the tags back afterwards, via `rangeOfGenre`, rather than from the
+ * claim just made, since a book can carry both a person's genre and a
+ * catalogue's and only that read says which one the shelf follows.
  *
- * The source is the provenance the draft already carries, mapped by
- * `genreStatedBy`. Restating rather than applying is what makes an edit from
- * fiction to non-fiction take the old tag off, and it takes off only the tags
- * of the source doing the restating, so a person's tag is not disturbed by a
- * lookup and a guess is not left behind by a person.
- *
- * Reading the tags back rather than returning the range of the claim is the
- * point of the whole exercise: a book can carry a person's genre and a
- * catalogue's, and which of them the shelf follows is `rangeOfGenre`'s answer
- * rather than whatever this particular save happened to say.
- *
- * ## A save that states nothing writes nothing, and answers null
- *
- * #304. When no catalogue stated a genre and no person set one, there is no
- * claim to restate, so this restates none: not an empty claim list, which is a
- * withdrawal, but no statement at all. **A guess already on the book therefore
- * stays exactly where it is**, which matters because every book saved before
- * this change carries one. Stripping those is a separate decision and it is the
- * owner's.
- *
- * What comes back is still `rangeOfGenre` over what the book carries
- * afterwards, which is the same read as ever. So a book that already had a
- * genre tag keeps its range, and a book that has never had one answers null:
- * nothing files it, no rule claims it, and the caller writes a row that is in
- * neither run rather than one filed somewhere nobody chose.
+ * A save that states nothing writes nothing and reads back whatever is
+ * already there: an already-guessed genre is left alone rather than
+ * withdrawn, and a book that has never had one answers null.
  */
 export async function settleGenre(
   restateTags: RestateTagsHandler,
@@ -68,22 +41,16 @@ export async function settleGenre(
   const { tag } = genreStatedBy(draft)
   const now = new Date().toISOString()
 
-  // Nothing stated, so nothing restated, and the book is read back as it
-  // stands. An empty claim list here would be this source taking back what it
-  // said before, which is not what a silent lookup means.
+  // Nothing stated, so nothing restated: an empty claim list here would mean
+  // this source took back what it said before, which is not what a silent
+  // lookup means.
   if (!tag) return rangeOfGenre(await tags.of(bookId))
 
   /*
-   * A save states the genre and says nothing about anything else, and `within`
-   * is what makes that true of the write as well as of the sentence.
-   *
-   * Restating a source takes back everything that source no longer claims, and
-   * the source here is usually `person`: somebody tapped Fiction. Without the
-   * namespace this claim would be the whole of what that person had ever said
-   * about the book, so a tag they had just applied by hand went away on the
-   * save, silently, and the only thing that would have reported it is the tag
-   * not being there afterwards. Since #372 a person can apply one from the
-   * check-the-details screen, so this stopped being theoretical.
+   * `within: GENRE` scopes the restatement to genre tags only. Without it,
+   * restating a source's claims would take back everything that source had
+   * ever said about the book, including a tag applied by hand moments
+   * before.
    */
   await restateTags.handle({
     bookId,
@@ -93,25 +60,18 @@ export async function settleGenre(
     now,
   })
 
-  // A person having answered, the guess is withdrawn: it was this app's
-  // inference about the same question, and leaving it behind would show a book
-  // as both fiction and non-fiction with no way to tell which is current. That
-  // is the guess taking back its own claim, which is the only thing it is
-  // allowed to do, and it is why the person's row is written first.
-  //
-  // The other way round is not this function's to do and never will be. A
-  // saved guess leaves a person's answer exactly where it is; the only thing
-  // that takes one off is the book turning out to be a different book, which
-  // `PUT /api/books/:id` settles before this runs (#194).
+  // The guess is withdrawn once a person has answered, since leaving it would
+  // show the book as both fiction and non-fiction with no way to tell which
+  // is current. This is one-directional: a saved guess never removes a
+  // person's answer.
   if (tag.source === 'person') {
     await restateTags.handle({ bookId, source: 'guess', claims: [], within: GENRE, now })
   }
 
   const settled = rangeOfGenre(await tags.of(bookId))
-  // The claim above was either written or already there, so the book carries
-  // a genre tag by the time this reads. Nothing here is guarding against a
-  // state the model allows: an absence would mean the restatement did not
-  // land, which is a broken write and not a book to file somewhere anyway.
+  // The claim above was either written or already there, so the book must
+  // carry a genre tag by now; an absence here means the restatement did not
+  // land, not a state the model allows.
   if (!settled) {
     throw new Error(`book ${bookId} carries no genre tag after a save that stated one`)
   }
@@ -122,16 +82,11 @@ export async function settleGenre(
  * Keep the credits in step with what was just saved about a book, and file
  * the first-listed name when somebody has said what it files under.
  *
- * **This is `Store.saveFilingOverride`, arrived at the alias** (#227). That
- * method wrote the `author_filing` override table, which `Store.filingFor`
- * consulted on the next save; the alias holds the same fact now, so the
- * correction is written where the shelf reads it.
- *
  * Two calls, because they are two different statements about a name.
  * `introduce`, inside `creditBook`, sets a filing name only when the name is
- * new, which is what stops a re-save undoing somebody's correction. Filing one
- * is somebody saying so, and it has to reach a name this collection has
- * already met, which is the case `introduce` deliberately will not touch.
+ * new, so a re-save cannot undo somebody's correction; filing one explicitly
+ * requires a name this collection has already met, which `introduce`
+ * deliberately will not touch.
  */
 export async function recordCredits(
   creditBook: CreditBookHandler,

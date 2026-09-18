@@ -1,5 +1,3 @@
-// Print every scenario result out of a Playwright JSON report, with the first
-// lines of any error, so a loop's answer can be read as a table.
 import { readFileSync } from 'node:fs'
 
 const report = JSON.parse(readFileSync(process.argv[2], 'utf8'))

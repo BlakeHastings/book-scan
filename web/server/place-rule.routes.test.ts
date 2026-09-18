@@ -1,25 +1,3 @@
-/**
- * Changing what a place allows, driven over real HTTP against a room with books
- * in it.
- *
- * **Books in it is the point**, the same as in `furniture.routes.test.ts`: every
- * one of these has a trivial answer on an empty catalogue and a real one on
- * somebody's. What is being proved is not that a row can be written. It is the
- * four promises the feature is made of:
- *
- * - **the plan writes nothing**, so a rule stays a draft on the screen until
- *   somebody has read what it would do;
- * - **the plan and the write are the same answer**, so what was approved is what
- *   is recorded;
- * - **nothing is quietly left out**, and a pinned book is counted with the
- *   reason beside it rather than subtracted from the headline;
- * - **applying moves no book**, because a book moves when a person carries it.
- *
- * A rule with no lines is checked here rather than only in the domain, because
- * the whole reason it claims nothing is to make a half-built rule safe, and
- * "safe" means safe over a real catalogue with a real ledger under it.
- */
-
 import type { AddressInfo } from 'node:net'
 import type { Server } from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -78,12 +56,8 @@ const draft = (at: number, genre = NON_FICTION_SLUG): DraftBook => ({
 
 /**
  * A room: eight non-fiction books cut into three areas on one bookcase, two
- * fiction books elsewhere, and a tag somebody applied by hand to three of them.
- *
- * The hand-applied tag is what makes this catalogue able to answer the owner's
- * question at all. "Only comic books and fiction" is a rule about two tags, and
- * a catalogue whose only vocabulary is the genre a lookup stated can only ever
- * be asked one question.
+ * fiction books elsewhere, and a tag applied by hand to three of them, which
+ * is what lets a rule combine a tag with a genre.
  */
 async function buildWorld(): Promise<number[]> {
   const ids: number[] = []
@@ -134,8 +108,8 @@ async function call(method: string, path: string, body?: unknown): Promise<Answe
     ...(body === undefined
       ? {}
       : { body: JSON.stringify(body) }),
-    // The suite arrives holding a session, because every route under /api is
-    // behind the gate since #521 and a request without one is refused 401.
+    // Every route under /api is behind the gate, so a request without a
+    // session cookie is refused 401.
     headers: {
       cookie,
       ...(body === undefined ? {} : { 'content-type': 'application/json' }),
@@ -212,7 +186,6 @@ describe('planning a change to what a place allows', () => {
     expect(status).toBe(200)
     expect(await everyLine()).toEqual(linesBefore)
     expect(await everyPlacement()).toEqual(placementsBefore)
-    // And it is a real answer rather than an empty one: something would move.
     expect(body.plan.claiming).toBe(3)
   })
 
@@ -232,19 +205,15 @@ describe('planning a change to what a place allows', () => {
 
     expect(body.plan.holds).toBe('Anything tagged Comic books and tagged Non-fiction')
     expect(body.plan.names).toEqual(['Comic books and Non-fiction'])
-    // Two lines and both have to hold: three books carry the tag and one of
-    // those three is fiction, so the rule reaches two of them.
+    // Three books carry the tag but one of them is fiction, so the rule
+    // (comics and non-fiction) reaches two.
     expect(body.plan.claiming).toBe(2)
   })
 
   /**
-   * A rule with nothing in it is a real state, and the one this feature would
-   * be dangerous without.
-   *
-   * "All of no conditions hold" is true, so an empty rule would take the whole
-   * catalogue if `domain/placement/rules.ts` let it. It does not, and this is
-   * that promise held over a real catalogue rather than over a list of two
-   * rules in a unit test: nothing is claimed, and the phrase says so.
+   * An empty rule does not claim everything, even though "all of no
+   * conditions hold" is vacuously true: `domain/placement/rules.ts` refuses
+   * to let it.
    */
   it('claims nothing when it asks for nothing, and says which of the two that is', async () => {
     const piece = await nonFiction()
@@ -259,18 +228,9 @@ describe('planning a change to what a place allows', () => {
   })
 
   /**
-   * #391: a draft with no rules on a place with no rules is not a change, and
-   * the screen had no way to tell that from a rule nothing carries.
-   *
-   * The usability baseline walked into it. Somebody opened the editor on a plank
-   * that files by overflow, added nothing, asked what would move, read a
-   * sentence about tags nothing carries, pressed "Write it down" and was told
-   * "Nothing changed about where the books belong". Every step of that was
-   * truthful and the sequence read as an afternoon's work being lost.
-   *
-   * `already` beside `names` is the pair that tells the two apart, and the write
-   * is unchanged: it wrote nothing then and it writes nothing now, because there
-   * was nothing to write.
+   * `already` alongside `names` is what tells a no-op draft from a real
+   * change; the write itself is unchanged, since there is nothing to write
+   * either way.
    */
   it('says how many rules the place holds today, beside how many it would', async () => {
     const piece = await nonFiction()
@@ -355,12 +315,9 @@ describe('planning a change to what a place allows', () => {
   })
 
   /**
-   * A slug nobody has defined and nobody has named is still a refusal.
-   *
-   * What changed at #392 is that a line may **name** a word; it may not quote an
-   * identity out of thin air. The label is what a person typed and the slug is
-   * worked out from it, and a line that carries only the slug is a request no
-   * screen in this app makes.
+   * A line may name a word (a label the slug is worked out from); it may not
+   * quote a slug identity directly, which is a request no screen in this app
+   * makes.
    */
   it('refuses a tag the vocabulary has never heard of and nobody named', async () => {
     const piece = await nonFiction()
@@ -414,13 +371,9 @@ describe('reading the rules on a place, which is the one read that speaks slugs'
   })
 
   /**
-   * And every other read still answers in labels only.
-   *
-   * `furniture.routes.test.ts` holds this over `/api/fixtures` and over
-   * `/api/books/:id/claim` for the rules the migration wrote. It is worth
-   * holding over a rule somebody wrote themselves as well, because that is the
-   * path that did not exist when those two were written and it is the one that
-   * nearly put an identity on every reading screen in the app.
+   * The same guarantee `furniture.routes.test.ts` holds for `/api/fixtures`
+   * and `/api/books/:id/claim`, held here for a rule somebody wrote
+   * themselves.
    */
   it('leaves the identity out of every other read, on a rule somebody wrote', async () => {
     const piece = await nonFiction()
@@ -460,18 +413,15 @@ describe('applying a change to what a place allows', () => {
     const lines = await everyLine()
     expect(lines.filter((line) => line.value === COMICS.value)).toHaveLength(1)
 
-    // The area now says what it allows, in its own words, on the next read.
     const after = await nonFiction()
     expect(after.areas[1].holds).toBe('Anything tagged Comic books')
     expect(after.areas[1].rule.name).toBe('Comic books')
   })
 
   /**
-   * Applying records where the rules want each book. **It carries nothing.**
-   *
-   * `placed` is where somebody last said a book was, and only a person standing
-   * in front of it changes that. This is the invariant every other part of the
-   * app leans on, so it is asserted on the rows rather than inferred.
+   * Applying records where the rules want each book; it does not move any
+   * book. `placed` is where somebody last said a book was, and only a person
+   * standing in front of it changes that.
    */
   it('moves no book, and says where the rules now want them instead', async () => {
     const piece = await nonFiction()
@@ -508,11 +458,9 @@ describe('applying a change to what a place allows', () => {
   })
 
   /**
-   * A rule written on a place that had none, which is how a person starts.
-   *
    * The row does not exist until this call, and it is created pointing at the
-   * area rather than at the piece: `placement_rule` names exactly one of them
-   * and the database check constraint is the guard.
+   * area rather than at the piece: `placement_rule` names exactly one of
+   * them, and the database check constraint is the guard.
    */
   it('writes a rule on a place that never had one', async () => {
     const piece = await nonFiction()
@@ -533,14 +481,6 @@ describe('applying a change to what a place allows', () => {
     ])
   })
 
-  /**
-   * Taking every line off is allowed, and the area then says so plainly.
-   *
-   * It is his room. What the app owes him is the truth about what he has just
-   * done, which is that nothing files there any more, and not a refusal. This is
-   * the state somebody is standing in halfway through swapping one tag for
-   * another, so it has to be reachable and it has to be readable.
-   */
   it('lets a rule be emptied, and the place says it claims nothing', async () => {
     const piece = await nonFiction()
     const area = piece.areas[1].id
@@ -566,14 +506,9 @@ describe('applying a change to what a place allows', () => {
   })
 
   /**
-   * Taking the rule off altogether is a different thing from emptying it, and
-   * the difference is visible: the piece takes the area back.
-   *
-   * **A rule somebody takes off is really gone**, which is what makes "or" safe
-   * to offer: an alternation you can build and cannot take half of is worse than
-   * no alternation. `book_placement.rule_id` is `ON DELETE RESTRICT`, so the
-   * reference is let go first, and what a person asks of an assignment still
-   * answers, because the reason on the row is the rule's own name.
+   * `book_placement.rule_id` is `ON DELETE RESTRICT`, so the reference must
+   * be let go before the rule row itself is deleted; the reason recorded on
+   * the placement row is the rule's own name, which still reads afterward.
    */
   it('gives the area back to the piece when its own rule is taken off', async () => {
     const piece = await nonFiction()
@@ -592,13 +527,6 @@ describe('applying a change to what a place allows', () => {
     expect(await db.all('SELECT id FROM placement_rule WHERE area_id = ?', [area])).toEqual([])
   })
 
-  /**
-   * "This tag or that tag": a second rule on the same place.
-   *
-   * Both name the area, so both open the same stretch and neither can send a
-   * book anywhere the other would not. What changes is what the place says it
-   * holds, and it says both in one sentence.
-   */
   it('takes a second rule on one place, and says both in one sentence', async () => {
     const piece = await nonFiction()
     const area = piece.areas[1].id
@@ -618,7 +546,6 @@ describe('applying a change to what a place allows', () => {
       .toBe('Anything tagged Comic books, or anything tagged Non-fiction')
   })
 
-  /** And one of the two comes off on its own, leaving the other working. */
   it('takes one of two off and leaves the other claiming', async () => {
     const piece = await nonFiction()
     const area = piece.areas[1].id
@@ -632,8 +559,7 @@ describe('applying a change to what a place allows', () => {
       ],
     })
 
-    // Read back the way a screen does, which is the one route that speaks
-    // identities, and hand one of the two straight back with the other left out.
+    // Read back the way a screen does: the one route that speaks identities.
     const { body } = await get(`/api/placement/rule?about=area&placeId=${area}`)
     const [first, second] = body.rules
     await post('/api/placement/rule', { about: 'area', placeId: area, rules: [second] })
@@ -645,13 +571,9 @@ describe('applying a change to what a place allows', () => {
   })
 
   /**
-   * Two rules reach one area and the one about the smaller place wins there.
-   *
-   * What is worth pinning is the half that surprised whoever wrote this: an area
-   * rule **opens a stretch**, so the areas after it on the same piece carry on
-   * under it rather than under the piece's rule. That is `runFrom` doing exactly
-   * what it has always done, and it is why the plan says the area stops taking
-   * overflow and the areas after it come with it.
+   * An area rule opens a stretch, so the areas after it on the same piece
+   * carry on under it rather than under the piece's rule. That is `runFrom`
+   * doing what it always does.
    */
   it('opens a stretch at the area, which the areas after it carry on', async () => {
     const piece = await nonFiction()
@@ -670,20 +592,6 @@ describe('applying a change to what a place allows', () => {
   })
 })
 
-/**
- * Preparing a shelf for books that are not there yet (#392).
- *
- * The usability baseline could not do this at all: a rule could only ask for a
- * tag some book already carried, and the only place in the app that could invent
- * one was the review pane of a book still in the queue. So "the comics should
- * live on the bottom shelf, and only comics" required owning a comic first,
- * which is backwards from why anybody clears a shelf.
- *
- * Driven over HTTP against a real catalogue, because the promises are about what
- * is on disk afterwards: the plan writes no tag, the apply writes exactly one,
- * and the word goes through the same fold that stops two spellings becoming two
- * tags rather than around it.
- */
 describe('naming a word where the rule is written', () => {
   /** What the screen sends: the label somebody typed, and the slug it makes. */
   const MANGA = { operator: 'is' as const, tag: 'subject/manga', label: 'Manga' }
@@ -702,21 +610,14 @@ describe('naming a word where the rule is written', () => {
     })
 
     expect(status).toBe(200)
-    // The phrase reads off the word somebody typed rather than falling back to
-    // the rule's own name, which is what a slug with no row behind it would do.
+    // The phrase reads off the word somebody typed rather than falling back
+    // to the rule's own name, which is what a slug with no row behind it
+    // would do.
     expect(body.plan.holds).toBe('Anything tagged Manga')
     expect(body.plan.names).toEqual(['Manga'])
     expect(body.plan.claiming).toBe(0)
-    /*
-     * And it is not a change that does nothing, which is the thing somebody
-     * preparing a shelf would otherwise find out afterwards: an area gaining
-     * its first rule stops taking what overflows from the area before it, so
-     * books leave it even though the new word claims none of them. #385 already
-     * says that in the plan and it is what the note is for.
-     */
     expect(body.plan.opens).toBe(true)
     expect(body.plan.moving).toBeGreaterThan(0)
-    // Nothing at all is written by a plan, including the word.
     expect(await tagRows()).toEqual(before)
   })
 
@@ -732,9 +633,6 @@ describe('naming a word where the rule is written', () => {
 
     expect(await tagRows()).toContainEqual({ slug: 'subject/manga', label: 'Manga' })
 
-    // And the shelf reads as one that is waiting rather than as one that is
-    // broken: it says what it is for, in the word somebody chose, and says that
-    // nothing carries it.
     const after = await nonFiction()
     expect(after.areas[1].holds).toBe('Anything tagged Manga')
     expect(after.areas[1].rule.conditions).toEqual([
@@ -743,12 +641,9 @@ describe('naming a word where the rule is written', () => {
   })
 
   /**
-   * The tag stops being a promise the moment a book carries it.
-   *
-   * This is the whole point of preparing a shelf, and the half a test asserting
-   * only on the rule would miss: the count beside the line is what turns
-   * "waiting" into "filing", and it comes from the same rollup the tags screen
-   * counts with.
+   * The count beside the line comes from the same rollup the tags screen
+   * counts with, which is what turns "waiting" into "filing" the moment a
+   * book carries the word.
    */
   it('stops waiting when a book carries the word', async () => {
     const piece = await nonFiction()
@@ -770,13 +665,9 @@ describe('naming a word where the rule is written', () => {
   })
 
   /**
-   * The one thing this must not become is a second way to make a tag.
-   *
-   * #377 settled the hard part: the slug is byte-ordered, so "Comic Book" and
-   * "comic books" would be two rows meaning one thing with nothing anywhere
-   * reporting it. The rule that stops that is `domain/tagging/naming.ts`, and a
-   * word arriving through a placement rule goes through it exactly as a word
-   * arriving through a book does.
+   * A word arriving through a placement rule goes through the same fold as a
+   * word arriving through a book (`domain/tagging/naming.ts`), so two
+   * spellings of one tag do not become two rows.
    */
   it('refuses a second spelling of a word the collection already keeps', async () => {
     const piece = await nonFiction()
@@ -796,7 +687,6 @@ describe('naming a word where the rule is written', () => {
     expect(await tagRows()).toEqual(before)
   })
 
-  /** #304: a genre is stated on a book, and typing the word is not stating it. */
   it('refuses to make a second Fiction, and points at the one there is', async () => {
     const piece = await nonFiction()
 
@@ -814,12 +704,9 @@ describe('naming a word where the rule is written', () => {
   })
 
   /**
-   * The slug is checked against the answer rather than taken from the request.
-   *
-   * Otherwise a caller could name a word and have it written anywhere in the
-   * vocabulary, and `NAMED_UNDER` would be a suggestion rather than the rule it
-   * says it is: a tag under nothing is a tag no rule anybody already has can
-   * reach.
+   * The slug is checked against the server's own answer rather than trusted
+   * from the request, or `NAMED_UNDER` would be a suggestion rather than a
+   * rule: a tag under nothing is a tag no existing rule can reach.
    */
   it('refuses a word asked for under a heading of the caller\'s choosing', async () => {
     const piece = await nonFiction()
@@ -837,7 +724,6 @@ describe('naming a word where the rule is written', () => {
     expect(body.error).toMatch(/written under subject/)
   })
 
-  /** Applying twice writes one tag, the same way it writes one rule. */
   it('is safe to apply twice and leaves one word behind, not two', async () => {
     const piece = await nonFiction()
 
@@ -861,16 +747,6 @@ describe('naming a word where the rule is written', () => {
 })
 
 describe('two places asking for one tag, which is allowed and was silent', () => {
-  /**
-   * #430 item 1, both halves, over the room it was found in.
-   *
-   * A second piece of furniture was given "anything tagged Non-fiction". The
-   * preview said "No book would have to be carried, 25 stay exactly where they
-   * are", writing it down said "Nothing changed about where the books belong",
-   * and seven non-fiction books sitting on another bookcase were never
-   * mentioned. Two places asking for one tag is allowed and stays allowed; what
-   * it stops being is the app saying nothing about it.
-   */
   it('names the place already asking for these books when its rule wins', async () => {
     const piece = await nonFiction()
     const { body: added } = await post('/api/fixtures', { kind: 'bookshelf' })
@@ -882,18 +758,16 @@ describe('two places asking for one tag, which is allowed and was silent', () =>
       rules: [{ id: null, conditions: [{ operator: 'is', tag: 'genre/non-fiction' }] }],
     })
 
-    // Nothing moves, which was true before and is still true. What is new is
-    // that the plan says which place is keeping them and why.
     expect(body.plan.moving).toBe(0)
     expect(body.plan.claiming).toBe(8)
     expect(body.plan.alsoClaims).toEqual([{ place: piece.label, books: 8, keeps: 8 }])
   })
 
   /**
-   * The same disagreement said as the two answers it produced: the preview
-   * counted the books whose label did not change, and the engine counted the
-   * books whose area did. Two pieces standing on one number is what pulls them
-   * apart, and it is an arrangement `slotsInOrder` says this catalogue has.
+   * The preview counts books whose label did not change; the engine counts
+   * books whose area did. Two pieces standing on one number is what could
+   * pull those apart, in an arrangement `slotsInOrder` produces for this
+   * catalogue.
    */
   it('previews the same number of books the write then assigns', async () => {
     const piece = await nonFiction()
@@ -903,8 +777,8 @@ describe('two places asking for one tag, which is allowed and was silent', () =>
     const { body: plank } = await post(`/api/fixtures/${added.fixture.id}/areas`, {})
 
     // An area rule, because `claim` tries an area before a piece: this is the
-    // twin bookcase actually taking the books rather than asking for them and
-    // losing. Both planks read alike, which is the whole of the defect.
+    // twin bookcase actually taking the books rather than losing to the
+    // piece's own rule.
     expect(plank.area.label).toBe(piece.areas[0].label)
 
     const draftRule = {

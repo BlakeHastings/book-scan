@@ -1,21 +1,11 @@
-// What the deployment contract's two checkers must catch, and what they must
-// let through.
+// What the deployment contract's two checkers must catch, and what they must let
+// through. The two face opposite ways.
 //
-//   node scripts/check-deploy-contract.test.mjs
-//
-// Two things are under test and they face opposite ways.
-//
-// `check-deploy-contract.mjs` holds the contract to this repository's source, so
-// that "these are the variables" stays true as the code moves. Its failure mode
-// is silence: a scan that matches nothing passes, and a contract nobody checks
-// is exactly the shape of defect this project keeps finding. So the cases below
-// break each fact in turn and require a complaint.
-//
-// `deploy/check-config.mjs` holds a deployment's configuration to the contract,
-// and ships inside the image. Its failure mode is the opposite: refusing a
-// configuration that is fine, which would teach the one person who runs it to
-// stop running it. So the last block is a configuration that is correct, and it
-// must say nothing is wrong.
+// `check-deploy-contract.mjs` holds the contract to this repository's source,
+// and its failure mode is silence, so the cases below break each fact in turn
+// and require a complaint. `deploy/check-config.mjs` holds a deployment's
+// configuration to the contract, and its failure mode is refusing a
+// configuration that is fine, so the last blocks require silence.
 
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -49,9 +39,9 @@ const has = (name, lines, fragment) => {
   }
 }
 
-// --- Finding the variables. Four shapes, because the codebase has four, and the
-// --- fourth is the whole sign-in surface: providers.ts names its variables once
-// --- as constants and then indexes an environment with them.
+// Four shapes, because the codebase has four. The fourth is the sign-in surface:
+// providers.ts names its variables once as constants and then indexes an
+// environment with them.
 {
   const names = envNamesIn(`
     const a = process.env.BOOKSCAN_DATA
@@ -65,9 +55,7 @@ const has = (name, lines, fragment) => {
   check('finds a name held in a constant', names.has('BOOKSCAN_OIDC_GOOGLE_CLIENT_ID'), true)
 }
 
-// A variable named in prose is not a variable that is read. This file's own
-// sources are dense with comments naming variables, and counting those would
-// make the contract look complete while the code had moved on.
+// A variable named in prose is not a variable that is read.
 {
   check('block comments are ignored', withoutComments('/* BOOKSCAN_GHOST */ x').includes('GHOST'), false)
   check('line comments are ignored', withoutComments('// BOOKSCAN_GHOST\nx').includes('GHOST'), false)
@@ -75,9 +63,6 @@ const has = (name, lines, fragment) => {
   check('a name only in a comment is not read', envNamesIn("// see 'BOOKSCAN_GHOST'\n").size, 0)
 }
 
-// --- Both directions, which is the point. An undeclared variable is a deployer
-// --- finding out at runtime; a declared one nobody reads is a deployer setting
-// --- something that does nothing.
 {
   const declared = [{ name: 'BOOKSCAN_DATA', readAt: 'web/server/index.ts' }]
 
@@ -115,9 +100,7 @@ const has = (name, lines, fragment) => {
   )
 }
 
-// --- The facts a deployer trips over, each broken in turn. These are the ones
-// --- where being wrong is expensive: a published port that reaches nothing, and
-// --- a mount that is not there.
+// The facts a deployer trips over, each broken in turn.
 {
   const good = {
     contract,
@@ -128,14 +111,6 @@ const has = (name, lines, fragment) => {
   }
   check('the tree as it stands agrees with the contract', factProblems(good).length, 0)
 
-  /*
-   * The bind is four facts rather than one since #539, because it is a choice
-   * now: the variable that decides it, what each word means, which word is the
-   * default, and that the listen call takes what those produced. The last is the
-   * one that catches the change nobody would notice. Every word could still be
-   * right while `app.listen` carried an address of its own, and the contract
-   * would be describing a variable that does nothing.
-   */
   has(
     'a word that means a different address than the contract says',
     factProblems({ ...good, serverBind: good.serverBind.replace("loopback: '127.0.0.1',", "loopback: '127.0.0.2',") }),
@@ -193,14 +168,10 @@ const has = (name, lines, fragment) => {
   )
 }
 
-// --- The boundary. This repository is public and the one that deploys it is
-// --- private on purpose, so a hostname arriving here is a hostname that is
-// --- public forever. The catalogue origins and the registry are the exceptions.
 {
-  // The same list `main` builds, and it is built the same way on purpose: a host
-  // is excused because the contract declares a deployment must reach it, never
-  // because a script names it. #537 added the sign-in hosts, of which
-  // `login.microsoftonline.com` is the one this repository actually writes down.
+  // The same list `main` builds, and built the same way on purpose: a host is
+  // excused because the contract declares a deployment must reach it, never
+  // because a script names it.
   const allowed = [
     ...contract.dependencies.outboundHttps.hosts.map((one) => one.host),
     ...contract.dependencies.outboundHttps.signInHosts.map((one) => one.host),
@@ -225,8 +196,8 @@ const has = (name, lines, fragment) => {
   )
 }
 
-// --- The consumer's half: a configuration checked against the contract. Each of
-// --- the refusals the server makes at start, asked before it starts.
+// The consumer's half: each of the refusals the server makes at start, asked
+// before it starts.
 {
   const ok = {
     ConnectionStrings__bookscan: 'postgres://user:pw@db:5432/bookscan',
@@ -237,8 +208,6 @@ const has = (name, lines, fragment) => {
   }
   const errors = (env) => checkConfig(env, contract).errors
 
-  // The case that matters most, because a checker that fails a good
-  // configuration is a checker nobody runs twice.
   check('a correct deployment is passed', errors(ok).length, 0)
 
   has('no connection string', errors({}), 'ConnectionStrings__bookscan is not set')
@@ -273,15 +242,8 @@ const has = (name, lines, fragment) => {
 
   has('a port that is not a port', errors({ ...ok, PORT: 'three thousand' }), 'PORT is set to something that is not a number')
 
-  /*
-   * The bind (#539). The value a deployer is likeliest to reach for is the one
-   * that is refused, so that is the case with teeth: `0.0.0.0` is what everybody
-   * types and it is not what this variable takes.
-   *
-   * The open bind is deliberately not an error and not a warning. It is a
-   * decision a deployment is allowed to make, and what it earns is a note saying
-   * which state it is now in.
-   */
+  // An open bind is deliberately neither an error nor a warning: it is a
+  // decision a deployment is allowed to make, and it earns a note.
   has('an address where a word belongs', errors({ ...ok, BOOKSCAN_BIND: '0.0.0.0' }), 'which is not loopback or all')
   has('a word nobody defined', errors({ ...ok, BOOKSCAN_BIND: 'public' }), 'which is not loopback or all')
   check('the default spelled out is still the default', errors({ ...ok, BOOKSCAN_BIND: 'loopback' }).length, 0)
@@ -306,14 +268,11 @@ const has = (name, lines, fragment) => {
   check('an unrelated variable is not the app\'s business', checkConfig({ ...ok, PATH: '/usr/bin' }, contract).warnings.length, 0)
 
   // Two of these variables are a Postgres password and an OAuth client secret.
-  // A checker whose output cannot be pasted into an issue will not be run.
   const everything = checkConfig({ ...ok, BOOKSCAN_DEV_SIGN_IN: 'blake', PORT: 'nope' }, contract)
   const printed = [...everything.errors, ...everything.warnings, ...everything.notes].join('\n')
   check('no value is ever printed', /user:pw|a-secret|an-id/.test(printed), false)
 }
 
-// --- The env-file reader, which is how a consumer checks a configuration
-// --- without handing a container the values.
 {
   const parsed = parseEnvFile('# a comment\nexport A=1\nB="two"\nC=\n\nnot a line\n')
   check('parses a key', parsed.A, '1')

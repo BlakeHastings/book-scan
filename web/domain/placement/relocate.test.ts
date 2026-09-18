@@ -24,10 +24,7 @@ const onTag = (
   ...over,
 })
 
-/**
- * The shape the owner's catalogue is in: fiction on bookcase 1, non-fiction on
- * bookcase 4 cut into three planks, and no bookcases 2 or 3 in the rows at all.
- */
+/** Fiction on bookcase 1, non-fiction on bookcase 4 cut into three planks; bookcases 2 and 3 are absent. */
 const FICTION = onTag(1, 'genre/fiction', { id: 1, fixtureId: 1 })
 const NON_FICTION = onTag(2, 'genre/non-fiction', { id: 2, fixtureId: 4 })
 const RULES = [FICTION, NON_FICTION]
@@ -44,12 +41,7 @@ const ORDER = slotsInOrder(
 
 describe('moving a run to another bookcase', () => {
   it('renames nothing: the planks it makes are different rows from the ones it leaves', () => {
-    /*
-     * The whole reason this is a rule retarget and not a fixture renumber. If
-     * the areas came along, every book would keep the area it was placed in and
-     * its label would move with the furniture, so the plan would be empty and
-     * nobody would carry anything.
-     */
+    // If the areas moved with the furniture, every book would keep the area it was placed in and the plan would be empty.
     const moved = relocateRun(ORDER, RULES, 2, 3)
     expect(moved.ok).toBe(true)
     if (!moved.ok) return
@@ -61,8 +53,7 @@ describe('moving a run to another bookcase', () => {
   })
 
   it('takes the run\'s own cuts with it, plank for plank', () => {
-    // 4A, 4B and 4C become 3A, 3B and 3C, anchored where they were, so the same
-    // books land together and capacity never comes into it.
+    // Anchored where they were: capacity never comes into it.
     const moved = relocateRun(ORDER, RULES, 2, 3)
     if (!moved.ok) throw new Error(moved.error)
 
@@ -98,13 +89,11 @@ describe('moving a run to another bookcase', () => {
     expect(labelFor(placementOf(
       { tagSlugs: ['genre/fiction'], sortKey: 'A' }, moved.move.rules, moved.move.order,
     )!.slot)).toBe('1A')
-    // And the fiction run does not flow onto the bookcase non-fiction left,
-    // because nothing is standing on it any more.
+    // Fiction does not flow onto the emptied bookcase.
     expect(moved.move.order.some((slot) => slot.fixture.position === 4)).toBe(false)
   })
 
   it('is a no-op, not a refusal, when the run is already there', () => {
-    // Applying twice has to be safe, and the second call is this case.
     const moved = relocateRun(ORDER, RULES, 2, 4)
     if (!moved.ok) throw new Error(moved.error)
     expect(moved.move.planks).toEqual([])
@@ -112,9 +101,7 @@ describe('moving a run to another bookcase', () => {
   })
 
   it('refuses a bookcase another run is standing on', () => {
-    // A bookcase holds one run. Pouring non-fiction onto fiction's shelves is
-    // the arrangement `0013` refuses outright, and merging two runs is a
-    // question #242 leaves open rather than one to answer here.
+    // A bookcase holds only one run; merging two runs is out of scope here.
     const moved = relocateRun(ORDER, RULES, 2, 1)
     expect(moved).toEqual({ ok: false, error: expect.stringContaining('Bookcase 1 already has') })
   })
@@ -136,20 +123,9 @@ describe('moving a run to another bookcase', () => {
     expect(relocateRun(ORDER, nowhere, 2, 3).ok).toBe(false)
   })
 
-  /**
-   * #499: the half of #420 `nextRunStartAfter` cannot see.
-   *
-   * A bookcase somebody else's run begins on is that run's furniture, and half
-   * of one is nobody's to take. `nextRunStartAfter` says that about the pieces
-   * a run stops at, because until #499 a second run opening on the piece a run
-   * already opened on could not be reached: the band arithmetic bounded the
-   * earlier range at its own start and left it with no planks at all. It can be
-   * reached now, so the piece a move starts from is asked the same question.
-   */
+  /** A bookcase another run begins on cannot be taken half of, even the piece a move starts from. */
   it('refuses to take half of the bookcase it starts on', () => {
-    // Fiction on bookcase 1, and "say what belongs here" pressed on `1C`. The
-    // move would rehang `1A` and `1B` and leave `1C` on a bookcase with nothing
-    // else on its face, which is the state `refuseAHalfStrippedPiece` throws on.
+    // Moving from 1C would rehang 1A and 1B, stripping 1C down to a plank alone on its bookcase.
     const shared = slotsInOrder(
       [fixture(1, 1), fixture(4, 4)],
       [area(10, 1, 0), area(11, 1, 1, 'M'), area(12, 1, 2, 'S'), area(40, 4, 0)],
@@ -164,9 +140,7 @@ describe('moving a run to another bookcase', () => {
   })
 
   it('refuses the same when the other run is a plank that orders itself', () => {
-    // Not a rule at all: an area given an ordering of its own is self-contained,
-    // takes no overflow and heads its own run, which is what `startsARun` says
-    // and what the dialog on that setting tells somebody before they press it.
+    // An area with its own sort strategy heads its own run; see `startsARun`.
     const ordered = slotsInOrder(
       [fixture(1, 1), fixture(4, 4)],
       [
@@ -180,9 +154,7 @@ describe('moving a run to another bookcase', () => {
   })
 
   it('still moves the whole bookcase when the only run on it is its own', () => {
-    // The control. One run, one piece, nothing shared: the refusal above is
-    // about a second run standing on this one's bookcase and not about a run
-    // that happens to have three planks.
+    // Control: nothing else stands on this bookcase, so the refusal above does not apply here.
     const alone = slotsInOrder(
       [fixture(1, 1), fixture(4, 4)],
       [area(10, 1, 0), area(11, 1, 1, 'M'), area(12, 1, 2, 'S'), area(40, 4, 0)],
@@ -212,15 +184,8 @@ describe('moving a run to another bookcase', () => {
 })
 
 /**
- * #486: everything a move refuses about the run itself, asked before anybody
- * has chosen where to send it.
- *
- * Not one of these refusals is about the destination, and every one of them was
- * reachable only through `relocateRun`, which cannot be called without a
- * bookcase. So the only way to find out that a run could not be moved was to
- * choose somewhere to move it to. The refusals are unchanged; what this holds
- * to is that they can be had without a destination and that they are the same
- * words either way.
+ * The same refusals `relocateRun` makes about a run itself, but reachable
+ * without first choosing a destination bookcase.
  */
 describe('whether there is a run here to move at all', () => {
   it('says where a run lives without being told where it might go', () => {
@@ -231,11 +196,7 @@ describe('whether there is a run here to move at all', () => {
     expect(asked.move.planks.map(labelFor)).toEqual(['4A', '4B', '4C'])
   })
 
-  /*
-   * The run is the furniture the rule points at, and it holds no books here at
-   * all. That is the point: where a run lives is answered by the rules and the
-   * furniture, and a book never comes into it.
-   */
+  // Where a run lives is answered by rules and furniture; no book data involved.
   it('refuses a rule naming one plank, and still says where that plank stands', () => {
     const pinned = [FICTION, { ...NON_FICTION, fixtureId: null, areaId: 41 }]
 
@@ -272,16 +233,8 @@ describe('whether there is a run here to move at all', () => {
 })
 
 /**
- * #391: the pieces a move walks off, which is the half of it that is not about
- * books and which nothing said out loud.
- *
- * The usability baseline put up a bookcase called Hall after bookcase 4 and hung
- * four shelves on it. Nothing pointed a rule at it, so it was the tail of the
- * non-fiction run: moving that run one bookcase along took all four planks and
- * left the Hall bare, and every word on every screen was about books.
- *
- * Nothing is deleted, here or in the write. What this answers is what a person
- * reads before pressing anything, which is #307's shape applied to furniture.
+ * What furniture a move leaves with nothing on it, so a person sees that
+ * before pressing anything. Nothing is deleted.
  */
 describe('the pieces a move would leave with nothing on them', () => {
   /** Bookcase 4, and a bookcase somebody put up after it with four empty planks. */
@@ -298,15 +251,13 @@ describe('the pieces a move would leave with nothing on them', () => {
     const moved = relocateRun(WITH_A_HALL, RULES, 2, 3)
     if (!moved.ok) throw new Error(moved.error)
 
-    // Seven planks across two pieces, shifted one along onto bookcases 3 and 4.
-    // Nothing of the run lands back on 5, so the Hall is left bare.
+    // Nothing of the run lands back on bookcase 5, so the Hall stays empty.
     expect(moved.move.emptied).toEqual([{ name: 'Hall', position: 5, planks: 4 }])
     expect(moved.move.planks).toContainEqual({ from: 'Hall · A', to: '4A' })
   })
 
   it('is quiet where the run only shuffles along furniture it covers again', () => {
-    // 4A, 4B and 4C to 3A, 3B and 3C. Bookcase 4 is left bare and is named; the
-    // point of the field is that the piece is said rather than that it is rare.
+    // The point is that the emptied piece is named, not that emptying is rare.
     const moved = relocateRun(ORDER, RULES, 2, 3)
     if (!moved.ok) throw new Error(moved.error)
 

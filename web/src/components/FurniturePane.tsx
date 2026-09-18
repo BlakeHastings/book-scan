@@ -1,24 +1,8 @@
 /**
- * Your fixtures: the room, as boxes inside boxes.
- *
- * The screen the owner asked for first. He is going to sit down with his own
- * bookcases and type them in, so what this has to survive is his room rather
- * than a tidy one: a piece with no name, a piece nothing files onto, a desk
- * with two areas on it, and **two pieces both standing at 4**, which the
- * catalogue records rather than refuses.
- *
- * ## It draws no carpentry
- *
- * A piece, the areas under it, and a way to add another. Not an elevation: the
- * model does not know which two areas share a board or how tall anything is,
- * and a drawing that implied it would be promising a fact nobody has entered.
- *
- * ## Every word on it is worked out, none of it is stored
- *
- * The label on a box, what a piece is called, what an area holds: all of it
- * comes off the answer to `GET /api/fixtures`, and none of it is kept between
- * renders. Rename a piece and every area on it reads differently, which is why
- * this component holds no state at all: it takes the room and draws it.
+ * Draws no carpentry: the model does not know which two areas share a board
+ * or how tall anything is, so implying either would promise a fact nobody
+ * entered. Holds no state; every label is worked out fresh from the room on
+ * each render.
  */
 
 import { Card, Instruction } from '../design/Card'
@@ -31,10 +15,7 @@ import { RoomFrame, Trouble } from './RoomFrame'
 
 interface Props {
   room: FurnitureDto | null
-  /**
-   * The room as somebody is dragging it, as positions into `room.fixtures`, or
-   * null when nobody is. Nothing is written until it is saved.
-   */
+  /** Positions into `room.fixtures`, or null when nobody is dragging. Nothing is written until it is saved. */
   ordering: number[] | null
   busy: boolean
   error: string
@@ -63,8 +44,8 @@ export function FurniturePane({
     />
   )
 
-  // Nothing has come back yet. Drawing an empty room would be saying something
-  // false about somebody's house for as long as the first request takes.
+  // Distinct from an empty room: drawing one would falsely claim somebody's
+  // house is empty for as long as the request takes.
   if (!room) {
     return (
       <RoomFrame top={top} tabs={tabs}>
@@ -73,26 +54,14 @@ export function FurniturePane({
     )
   }
 
-  /*
-   * The one thing this screen does that is not about a single piece.
-   *
-   * It is the same column a piece's own screen carries, working from the other
-   * end: there you move the piece you are looking at, here you put the whole
-   * room in order without opening five screens to do it. Nothing is written
-   * until Save, so a finger that slips costs nothing.
-   */
+  // The same drag-order column a piece's own page carries, worked from the
+  // other end: nothing is written until Save.
   if (ordering) {
     const order = ordering.map((at) => room.fixtures[at]!)
     const renamed = renamings(order)
-    /*
-     * Whether anything has been dragged at all.
-     *
-     * Found by opening this on a room of four unnamed bookcases: with nothing
-     * moved there is nothing to rename, and a card saying so because "every
-     * piece you have named keeps its name" was giving a true answer with a
-     * false reason attached. Every piece there is called after where it stands
-     * and every one of them would read differently the moment it was dragged.
-     */
+    // Distinguishes "nothing renamed because nothing moved" from "nothing
+    // renamed because everything already has a name": for an all-unnamed
+    // room, the first reason would otherwise show a true answer with a false explanation.
     const moved = order.some((piece, at) => piece.id !== room.fixtures[at]!.id)
     return (
       <RoomFrame top={top} tabs={tabs}>
@@ -102,20 +71,7 @@ export function FurniturePane({
           slots={order.map((piece) => ({ name: pieceSaid(piece) }))}
           onReorder={(moved) => onReorder(moved.map((at) => ordering[at]!))}
         />
-        {/*
-          What saving actually does, said in what somebody reads rather than in
-          the numbers underneath it.
-
-          This card promised "what they will be numbered" and listed
-          `fixture.position` for each piece, which is the number the owner could
-          not make sense of beside his own four bookshelves (#367). The numbers
-          are not the change: they stay exactly where they are, gap and
-          duplicate and all, and the pieces move through them. What changes is
-          what an unnamed piece and its areas are called, because those are
-          worked out from where it stands, and on a room where every piece has
-          a name nothing changes at all. That last case is worth saying out
-          loud: it is the reassurance the numbers were failing to give.
-        */}
+        {/* Room position numbers stay fixed, gaps and duplicates included; only what an unnamed piece and its areas are called changes, since those are worked out from where a piece stands. */}
         <Card
           weight="sunk"
           kind="What they will be called"
@@ -126,13 +82,7 @@ export function FurniturePane({
                 + 'does every area on it.'
               : 'Nothing has moved yet.'}
         >
-          {/*
-            The areas as a count rather than as a list. Written out in full this
-            was eleven clauses for a room of four, and every one of them the
-            same fact as the line above it: an area is called after the piece it
-            is on. The count is worked out from the labels rather than from the
-            number of areas, so it is the real one.
-          */}
+          {/* Counted from the labels that actually changed, not from the number of areas, so an area already correctly named is not counted. */}
           {renamed.areas.length > 0 && (
             <p>
               Every area is called after the piece it is on. That changes{' '}
@@ -176,13 +126,7 @@ export function FurniturePane({
               onPress={() => onArea(piece.id, area.id)}
             />
           ))}
-          {/*
-            The planks that have been taken out and still have books on them,
-            after the ones that are there and before the way to add another
-            (#401). A bookcase a stretch of books was moved off has none of the
-            first and all of the second, and drew as nothing at all while
-            forty-six books stood on it and the carry list said so.
-          */}
+          {/* Areas taken out but still holding books; a bookcase a stretch was moved off has none of the areas above but does have these, and previously drew as nothing at all. */}
           {piece.gone.map((area) => (
             <AreaBox
               key={area.id}
@@ -196,9 +140,7 @@ export function FurniturePane({
         </Nest>
       ))}
 
-      {/* Not "add a bookcase". They are fixtures, not bookcases: the next one
-          somebody adds is a crate, so the category word goes neutral even
-          though every piece above it is named for what it is. */}
+      {/* Not "add a bookcase": fixtures include things like crates, so the neutral word is used here even though pieces above are named for what they are. */}
       <Button tone="primary" block onPress={busy ? undefined : onAddFixture}>
         Add a fixture
       </Button>

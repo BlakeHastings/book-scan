@@ -1,28 +1,19 @@
 /**
- * Four catalogues, one lookup, and what the two new ones are and are not
- * allowed to change (#305).
- *
  * Four real HTTP servers stand in for Open Library, Google Books, Library of
- * Congress and K10plus, pointed at through the four `BOOKSCAN_*_URL` variables
- * `lookup.ts` and `catalogue-sru.ts` already read. Real servers rather than a
- * stubbed `fetch`, for the reason `lookup-sources.test.ts` gives: what is under
- * test includes what this process makes of a slow catalogue and a wrong record,
- * and a stub would be this file asserting against its own idea of those.
+ * Congress and K10plus, pointed at through the four `BOOKSCAN_*_URL`
+ * variables `lookup.ts` and `catalogue-sru.ts` already read. Real servers
+ * rather than a stubbed `fetch`, for the reason `lookup-sources.test.ts`
+ * gives: what is under test includes what this process makes of a slow
+ * catalogue and a wrong record, and a stub would be this file asserting
+ * against its own idea of those.
  *
- * The things that have to hold at once, each of which has a test below:
- *
- * 1. **A book the first two catalogues answered fully costs exactly what it
- *    cost before.** The extra two are not asked, so a scan is not made slower
- *    for four books in five and neither catalogue's rate limit is spent on a
- *    book with nothing to gain.
- * 2. **A gap is filled, and where it was filled from is recorded**, in `source`
- *    and in `provenance`, which is what #305 asked for when it said to extend
- *    what exists rather than to invent a parallel notion of provenance.
- * 3. **Nothing already known is overridden**, and nothing at all is taken from a
- *    record that turns out to be a different book.
- * 4. **No author, ever.**
- * 5. **A supplementary catalogue that hangs cannot hold a lookup open past its
- *    bound**, and cannot stop the lookup answering.
+ * What has to hold at once: a book the first two catalogues answered fully
+ * costs exactly what it cost before, since the extra two are not asked; a
+ * gap is filled with where it was filled from recorded in `source` and
+ * `provenance`; nothing already known is overridden and nothing is taken
+ * from a record that turns out to be a different book; no author is ever
+ * taken; and a supplementary catalogue that hangs cannot hold a lookup open
+ * past its bound or stop it answering.
  */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
@@ -106,9 +97,8 @@ beforeAll(async () => {
           publish_date: '1990',
           ...(openLibrarySays === 'no pages' ? {} : { number_of_pages: 535 }),
           identifiers: { isbn_13: [ISBN], isbn_10: ['0441013597'] },
-          // "Paperback" and "In library" are real Open Library subjects that say
-          // nothing at all about whether a book is fiction, which is the state
-          // #304 made visible and the state these two catalogues exist to fill.
+          // "Paperback" and "In library" are real Open Library subjects that
+          // say nothing at all about whether a book is fiction.
           subjects: (openLibrarySays === 'no genre'
             ? ['Paperback', 'In library']
             : ['Science fiction']).map((name) => ({ name })),
@@ -125,10 +115,9 @@ beforeAll(async () => {
     res.writeHead(404).end('{}')
   })
 
-  // Google Books answers 429 throughout, which is what it has done for every
-  // request in the life of the real catalogue. The gap under test is therefore
-  // a real gap rather than one arranged around a source that would have filled
-  // it (see docs/catalogue-sources.md).
+  // Google Books answers 429 throughout, reflecting the real catalogue, so
+  // the gap under test is a real gap rather than one arranged around a
+  // source that would have filled it.
   google = createServer((_req, res) => {
     res.writeHead(429, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ error: { code: 429, message: 'Quota exceeded' } }))
@@ -198,11 +187,10 @@ const warnings = () => vi.mocked(console.warn).mock.calls.flat().join('\n')
 describe('a book the first two catalogues answered fully', () => {
   it('costs exactly what it cost before, and asks nobody else', async () => {
     /*
-     * The rule that makes this affordable at all. `docs/catalogue-sources.md`
-     * measured 183 of 238 books with a page count and 219 with a stated genre,
-     * so on the real collection this is roughly four books in five: same
-     * requests, same deadline, same answer, nothing spent of two free national
-     * catalogues' rate limits on a book with nothing to gain.
+     * Most books already have what they need from the first two catalogues,
+     * so this keeps the same requests, the same deadline and the same
+     * answer for them: nothing spent of two free national catalogues' rate
+     * limits on a book with nothing to gain.
      */
     const found = await lookupIsbn(ISBN)
 
@@ -254,8 +242,8 @@ describe('a book with no page count', () => {
     const found = await lookupIsbn(ISBN)
 
     expect(found.pages).toBe('535')
-    // `source` becomes `books.lookup_source`. Extending what exists rather than
-    // inventing a second notion of provenance is what #305 asked for.
+    // `source` becomes `books.lookup_source`, extending what exists rather
+    // than inventing a second notion of provenance.
     expect(found.source).toBe('Open Library + Library of Congress')
     expect(found.provenance).toMatchObject({
       pages: 'Library of Congress',
@@ -284,9 +272,9 @@ describe('a book with no page count', () => {
     expect(found.pages).toBe('604')
     expect(found.source).toBe('Open Library + K10plus')
     // Answering with nothing is the ordinary case, not a failure, so the
-    // standing says it answered and nothing about it reaches the log. The one
-    // line that is there is Google Books on 429, which is a source that did not
-    // reply and is exactly the distinction #348 drew.
+    // standing says it answered and nothing about it reaches the log. The
+    // one line that is there is Google Books on 429, a source that did not
+    // reply.
     expect(standingFor('Library of Congress')).toMatchObject({ asked: 1, answered: 1, silent: 0 })
     expect(warnings()).not.toContain('Library of Congress')
     expect(warnings()).toContain('Google Books')
@@ -294,11 +282,10 @@ describe('a book with no page count', () => {
 
   it('takes nothing from a record that is a different book', async () => {
     /*
-     * The step `docs/catalogue-sources.md` kept and #305 does not mention, and
-     * the one that turned "34 authors gained" into one. Library of Congress
-     * answers about `Sandworms of Dune` and K10plus about a Russian translation;
-     * both are indexed under this ISBN and neither is this book, so this lookup
-     * ends where it started, with no page count.
+     * Library of Congress answers about `Sandworms of Dune` and K10plus
+     * about a Russian translation; both are indexed under this ISBN and
+     * neither is this book, so this lookup ends where it started, with no
+     * page count.
      */
     openLibrarySays = 'no pages'
     locDoes = 'a different book'
@@ -319,10 +306,9 @@ describe('a book with no page count', () => {
 describe('a book nobody has classified', () => {
   it('gains a genre, and the reason names who stated it', async () => {
     /*
-     * The 15 of 19 the measurement found. Since #304 a genre is written only
-     * when a source states one, and Open Library's "Paperback" and "In library"
-     * state nothing, so this is a book that would otherwise sit waiting for a
-     * person.
+     * A genre is written only when a source states one, and Open Library's
+     * "Paperback" and "In library" state nothing, so this is a book that
+     * would otherwise sit waiting for a person.
      */
     openLibrarySays = 'no genre'
 
@@ -338,10 +324,10 @@ describe('a book nobody has classified', () => {
 
   it('keeps the headings where the tag rules will see them', async () => {
     /*
-     * In front of Open Library's, not behind them. `claimsFrom` keeps the first
-     * SUBJECT_LIMIT headings because a book carrying two hundred tags is a book
-     * with no tags, and these are the controlled-vocabulary ones that were
-     * checked against our title before being believed.
+     * In front of Open Library's, not behind them: `claimsFrom` keeps only
+     * the first SUBJECT_LIMIT headings, since a book carrying hundreds of
+     * tags is a book with no tags, and these are the ones already checked
+     * against the title before being believed.
      */
     openLibrarySays = 'no genre'
 
@@ -352,8 +338,6 @@ describe('a book nobody has classified', () => {
   })
 
   it('still asks a person when no catalogue anywhere says anything', async () => {
-    // Four of the nineteen. A reconciliation does not make that number zero and
-    // must not be sold as though it will.
     openLibrarySays = 'no genre'
     locDoes = 'no records'
     k10Does = 'no records'
@@ -368,14 +352,10 @@ describe('a book nobody has classified', () => {
 describe('what is never taken', () => {
   it('credits nobody the extra catalogues named, however many names they sent', async () => {
     /*
-     * Both MARC records carry an author in 100 and an illustrator in 700, and
-     * neither reaches this application: `catalogue-sru.ts` does not read either
-     * field, so there is no name in this process to put on a book by mistake.
-     *
-     * The measurement is why. Of 34 apparent author gains read one at a time, 18
-     * were the same person spelled differently, which `author_alias` exists to
-     * hold against one author rather than to multiply, 5 were a translator or an
-     * illustrator, 10 were the wrong person, and 1 was real.
+     * Both MARC records carry an author in 100 and an illustrator in 700,
+     * and neither reaches this application: `catalogue-sru.ts` does not
+     * read either field, so there is no name in this process to put on a
+     * book by mistake.
      */
     openLibrarySays = 'no pages'
 
@@ -397,10 +377,9 @@ describe('what is never taken', () => {
 
   it('does not touch a page count that is already there', async () => {
     /*
-     * A supplement fills a gap and never overrides. Open Library holds 535 here
-     * and Library of Congress would say 535 anyway, so the proof is that neither
-     * catalogue is asked at all: a page count already on the book ends the
-     * matter before a request is made.
+     * A supplement fills a gap and never overrides: the proof is that
+     * neither catalogue is asked at all once a page count is already on the
+     * book.
      */
     openLibrarySays = 'no genre'
     k10Pages = '999 pages'
@@ -415,11 +394,9 @@ describe('what is never taken', () => {
 describe('a supplementary catalogue that hangs', () => {
   it('cannot hold the lookup open, and cannot stop it answering', async () => {
     /*
-     * #299 is open because the one reader this app had has no bound on it, and
-     * #305 adds two more things that can hang. This is the bound, proved by
-     * making a catalogue answer nothing at all: the lookup still returns, it
-     * still returns everything the other three said, and the wait is the
-     * supplement's own three seconds rather than a lookup that never finishes.
+     * Proved by making a catalogue answer nothing at all: the lookup still
+     * returns everything the other three said, and the wait is the
+     * supplement's own bound rather than a lookup that never finishes.
      */
     openLibrarySays = 'no pages'
     locDoes = 'hangs'

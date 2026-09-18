@@ -1,18 +1,6 @@
-// node scripts/npm-install.test.mjs
-//
-// Two things are pinned here, and they belong to two different issues.
-//
-// The classification `npm-install.mjs` uses to decide "try again" vs "fail
-// now", without spawning a real `npm ci`. Getting this wrong in either
-// direction breaks the point of #342: too broad and a real failure gets waved
-// through by three silent retries; too narrow and the one timeout it exists
-// for stops being retried at all.
-//
-// And the preflight that decides whether there is anything to install at all
-// (#561). The risk there runs one way: a wrong "install" is only slow, and a
+// The risk in the preflight runs one way: a wrong "install" is only slow, and a
 // wrong "nothing to do" is a start against dependencies that do not match the
-// lock file, which is a defect nobody notices for weeks. So most of what is
-// below asks for the *reason*, not for the skip.
+// lock file. So most of what is below asks for the reason, not for the skip.
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -82,19 +70,14 @@ test('backoff grows and then holds at the last step, bounded by MAX_ATTEMPTS - 1
   assert.equal(BACKOFF_MS.length, MAX_ATTEMPTS - 1)
   assert.equal(backoffFor(1), BACKOFF_MS[0])
   assert.equal(backoffFor(2), BACKOFF_MS[1])
-  // Past the table: holds at the last configured wait rather than throwing or
-  // going undefined, so a future MAX_ATTEMPTS bump does not need a matching
-  // BACKOFF_MS bump to avoid crashing.
+  // Past the table: holds at the last configured wait, so a future
+  // MAX_ATTEMPTS bump needs no matching BACKOFF_MS bump.
   assert.equal(backoffFor(3), BACKOFF_MS.at(-1))
 })
 
-// ---------------------------------------------------------------------------
-// The preflight (#561)
-// ---------------------------------------------------------------------------
-
-// One coherent world: a package.json, the lock file npm would write for it,
-// and the hidden lock file npm writes into node_modules after installing it.
-// Every test below is this with one thing moved.
+// A package.json, the lock file npm would write for it, and the hidden lock
+// file npm writes into node_modules after installing it. Every test below is
+// this with one thing moved.
 function world() {
   return {
     pkg: {
@@ -117,9 +100,9 @@ function world() {
         },
         'node_modules/react': { version: '18.3.1', resolved: 'r.tgz', integrity: 'sha512-r' },
         'node_modules/vite': { version: '6.4.3', resolved: 'v.tgz', integrity: 'sha512-v', dev: true },
-        // The platform builds. The lock file lists every one of them and this
-        // machine installs one, which is why "in the lock and not installed"
-        // cannot on its own mean "install".
+        // The lock file lists every platform's build and this machine installs
+        // one, which is why "in the lock and not installed" cannot on its own
+        // mean "install".
         'node_modules/@esbuild/linux-x64': {
           version: '0.25.12',
           resolved: 'l.tgz',
@@ -163,9 +146,6 @@ test('a tree that matches the lock file needs no install', () => {
 })
 
 test('an optional dependency for another platform is not a reason to install', () => {
-  // Stated separately from the test above because it is the one exception in
-  // the "everything in the lock file is installed" direction, and without it
-  // this preflight would answer "install" on every machine and buy nothing.
   const it = world()
   assert.equal(it.lock.packages['node_modules/@esbuild/win32-x64'].optional, true)
   assert.equal(it.hidden.packages['node_modules/@esbuild/win32-x64'], undefined)
@@ -173,9 +153,6 @@ test('an optional dependency for another platform is not a reason to install', (
 })
 
 test('package.json and the lock file disagreeing about a dependency is a reason to install', () => {
-  // The property `npm ci` was here for. The preflight must not skip past this:
-  // skipping is what would let a start run against stale dependencies. It hands
-  // the disagreement to `npm ci`, which refuses with npm's own message.
   const it = world()
   it.pkg.dependencies.react = '^19.0.0'
   assert.match(installReason(it), /disagree about "dependencies"/)
@@ -194,9 +171,6 @@ test('a dependency field package.json has and the lock file has never seen is a 
 })
 
 test('reordering a dependency map is not a reason to install', () => {
-  // A person edits package.json by hand and npm writes it sorted. If that read
-  // as a disagreement this would reinstall on every start again, which is the
-  // defect it exists to remove.
   const it = world()
   it.pkg.dependencies = { react: '^18.3.1' }
   it.lock.packages[''].dependencies = { react: '^18.3.1' }
@@ -232,9 +206,8 @@ test('a package installed that the lock file does not list at all is a reason to
 })
 
 test('a package npm recorded whose directory is gone is a reason to install', () => {
-  // The #561 observation, in one line: `node_modules/vite/package.json` was
-  // missing part way through a start. The hidden lock file cannot know that,
-  // so the directory is asked directly.
+  // The hidden lock file cannot know a directory has gone, so the directory is
+  // asked directly.
   const it = world()
   it.isPresent = (path) => path !== 'node_modules/vite'
   assert.match(installReason(it), /node_modules\/vite is recorded as installed and its directory is not there/)
@@ -261,9 +234,6 @@ test('a missing package.json or lock file is a reason to install rather than a c
   assert.match(installReason(b), /no package-lock\.json/)
 })
 
-// The same decision over real files, because everything above hands the
-// function objects it never had to read off a disk, and the reading is where
-// a missing file or a path built wrong would show up.
 test('preflight reads a real directory, and notices a package deleted out of it', () => {
   const dir = mkdtempSync(join(tmpdir(), 'npm-install-preflight-'))
   try {

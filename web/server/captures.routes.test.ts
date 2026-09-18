@@ -2,22 +2,16 @@
  * Saving a book writes its photographs down as rows, driven over real HTTP
  * against a real Postgres.
  *
- * Postgres, because `capture` is created by a migration and there are migrations
- * only for Postgres. The database is built by running them, which is also what
- * an ordinary start does: `applySchema` calls `migrateToLatest`.
+ * Postgres, because `capture` is created by a migration and there are
+ * migrations only for Postgres.
  *
- * The app is built with `createApp()` and started on an ephemeral port, the same
- * way `index.test.ts` and `tags.routes.test.ts` do it, and for the same reason:
- * there is no supertest in this project and this suite must not add one. Open
- * Library and Google Books are stubbed, so nothing here touches the network.
- *
- * **`capture` is the record since #228**, so there are no columns behind these
- * rows to compare them against and nothing here writes one. What the tests
- * drive is the four ways a photograph is written down: a save that carries
- * files, a cover the backfill downloads, what the detector made of a photograph,
- * and a hash. The two things that could still go wrong quietly are the same two:
- * a photograph that never became a row, and a row that says the detector looked
- * at a photograph it has never opened.
+ * There are no columns behind these rows to compare them against and
+ * nothing here writes one. What the tests drive is the four ways a
+ * photograph is written down: a save that carries files, a cover the
+ * backfill downloads, what the detector made of a photograph, and a hash.
+ * The two things that could still go wrong quietly are the same two: a
+ * photograph that never became a row, and a row that says the detector
+ * looked at a photograph it has never opened.
  */
 
 import type { AddressInfo } from 'node:net'
@@ -59,10 +53,9 @@ vi.mock('./covers', () => ({
 const answers = vi.mocked(lookupIsbn)
 const covers = vi.mocked(downloadCover)
 
-// One `Db` for the file, not one per test. Each `PgDb` registers an `error`
-// listener on the pool, and a dozen of them trips node's max-listeners warning.
-// `openTestDatabase` hands back the same one every call, which is what keeps
-// that true now the reset is its job rather than this file's.
+// One `Db` for the file, not one per test: each `PgDb` registers an `error`
+// listener on the pool, and a dozen of them trips node's max-listeners
+// warning. `openTestDatabase` hands back the same one every call.
 let db: Db
 /** This file's own scratch root, which no other test file can name. */
 let scratch: string
@@ -102,19 +95,16 @@ afterEach(async () => {
 
 afterAll(async () => {
   await closeTestDatabase()
-  // The per-test cover directories go in `afterEach`; this is the root they
-  // were made in, and it belongs to this file alone. Nothing above it is
-  // touched, because there is nothing above it that anything else shares. That
-  // used to be `web/data`, which index.test.ts removed while this file was
-  // still working in it (#297).
+  // This is the root the per-test cover directories were made in, and it
+  // belongs to this file alone; nothing above it is touched.
   removeScratchRoot(scratch)
 })
 
 async function call(path: string, init: RequestInit = {}) {
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,
-    // The suite arrives holding a session, because every route under /api is
-    // behind the gate since #521 and a request without one is refused 401.
+    // Every route under /api is behind the gate, so a request without a
+    // session cookie is refused 401.
     headers: {
       cookie,
       ...(init.body ? { 'content-type': 'application/json' } : {}),
@@ -226,12 +216,11 @@ describe('saving a photographed book', () => {
 describe('what the detector decided, carried onto the row', () => {
   it('separates looking and declining from never having looked', async () => {
     /*
-     * The distinction that decides what a caption may honestly say, asserted
-     * end to end. Two photographs on one book, neither with a crop: the front
-     * has been through the detector and the back has not, and the row says so
-     * per photograph rather than per book. `books.cropped` is one string
-     * describing three photographs, which is exactly what makes this easy to
-     * smear on the way across.
+     * Two photographs on one book, neither with a crop: the front has been
+     * through the detector and the back has not, and the row says so per
+     * photograph rather than per book. `books.cropped` is one string
+     * describing three photographs, which is what makes this easy to smear
+     * on the way across.
      */
     const id = await aBook({
       images: { front: notAPhotograph('front'), back: notAPhotograph('back') },
@@ -285,9 +274,8 @@ describe('what the detector decided, carried onto the row', () => {
   })
 
   it('does not let a later pass take a crop back off', async () => {
-    // The lost update stage G found, on the column this replaces. A crop pass
-    // that finds nothing, and a save that knows nothing about the crop, must
-    // neither of them be able to erase it.
+    // A crop pass that finds nothing, and a save that knows nothing about
+    // the crop, must neither of them be able to erase it.
     const id = await aBook({ images: { front: notAPhotograph('front') } })
     await cropped(id, 'front', 'front_crop.jpg')
 
@@ -303,10 +291,8 @@ describe('what the detector decided, carried onto the row', () => {
 describe('a book photographed twice', () => {
   it('keeps the first spine when a second one is taken', async () => {
     /*
-     * The feature the table exists for, and the reason `books.edge_image` had to
-     * go: it held one filename, so a re-shoot overwrote it and the blurred
-     * original was gone. Both are rows, and the wire still answers with one
-     * spine because that is the question it asks: the newest.
+     * Both are rows, and the wire still answers with one spine because that
+     * is the question it asks: the newest.
      */
     const id = await aBook({ images: { edge: notAPhotograph('blurred spine') } })
     const blurred = (await capturesOf(id))[0]!.file
@@ -325,11 +311,9 @@ describe('a book photographed twice', () => {
 
 describe('a column written long after the save that made the row', () => {
   /*
-   * The drift #200 is about. `capture` used to track saves rather than
-   * photographs: the cover backfill wrote `books.cover_image` and nothing wrote
-   * a row, so the artwork existed as a column and not as a photograph until
-   * somebody happened to save that book again. Nothing reads `capture` yet, so
-   * the only place this could be seen is here.
+   * Nothing reads `capture` yet, so this scenario, a cover written by the
+   * backfill with no accompanying save, is the only place a drift between
+   * the column and the row could be seen.
    */
   it('records the cover the backfill downloads, without waiting for a save', async () => {
     const id = await aBook({ isbn13: '9780441013593' })

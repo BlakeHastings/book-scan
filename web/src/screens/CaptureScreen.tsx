@@ -1,34 +1,12 @@
 /**
  * The cataloguing camera: three photographs of a book, handed to the queue.
  *
- * The stream, the lens, the torch and the diagnostics sheet are not in this
- * file. They live in `app/cameraSession.tsx`, which keeps the lifetime they
- * have always had, and this screen draws them. What is here is what belongs
- * to the screen: the shutter, the slot chips, the poll that watches what the
- * queue makes of a photograph, and the answer to "this book is already in the
- * queue".
+ * The stream, the lens, the torch and the diagnostics sheet live in
+ * `app/cameraSession.tsx`; this screen only draws them and owns the shutter,
+ * slot chips, and the poll that watches what the queue makes of a photograph.
  *
- * ## What #316 changed here, and what it did not
- *
- * The chrome, and only the chrome. This screen is drawn by `Viewfinder` now,
- * the same component the gallery draws `#/design/camera` with, so the picture
- * is the whole screen and every control floats on it.
- *
- * **Nothing about taking a photograph moved.** `shoot` is the same function
- * against the same burst, the poll that watches the capture is the same
- * effect, the guide rectangle is still measured off `SLOT_GUIDE` and the crop
- * off `SLOT_CROP`, and `app/cameraSession.tsx` was not edited at all. The
- * shutter is still one `onClick` straight to `shoot`, with nothing in front of
- * it: see #294 for what work put behind other work costs.
- *
- * What did change is what floats on the picture. The row of navigation chips
- * along the top is gone, because the drawn screen has one way out and it is
- * the round target in the corner; the lens list, the diagnostics and the
- * handedness switch are behind the one target in the far corner, which is
- * where `design/Camera.tsx` says a switch pressed once ever belongs;
- * and the slot chips are `Shots`, which draws the photograph rather than a
- * lettered box, because a blurred photograph is the thing somebody needs to
- * see.
+ * The shutter is one `onClick` straight to `shoot`, with nothing drawn in
+ * front of it.
  */
 
 import { useEffect, useState } from 'react'
@@ -58,13 +36,6 @@ function nextEmpty(shots: Partial<Record<Slot, string>>, from: Slot): Slot {
   const order = [...SLOTS.slice(SLOTS.indexOf(from) + 1), ...SLOTS]
   return order.find((slot) => !shots[slot]) ?? from
 }
-
-/*
- * Which edge the shutter is on used to be read and written here, because this
- * was the only screen that could ask. It is `lib/hand.ts` now (#350): the
- * settings screen asks the same question, and one answer read from two places
- * has to be spelled once or the two screens disagree about what somebody chose.
- */
 
 export function CaptureScreen() {
   const { setRoute } = useNavigation()
@@ -107,25 +78,20 @@ export function CaptureScreen() {
   }, [])
 
   /**
-   * Take the shot and hand it straight to the queue.
+   * Take the shot and hand it straight to the queue. The queue is the only
+   * thing that reads a photo; the feedback here is a view of its progress.
    *
-   * Nothing is identified inline any more. The camera used to call a
-   * synchronous identify endpoint for feedback and the queue then read the
-   * very same image again, so every book paid for the expensive pass twice.
-   * Now the queue is the only thing that reads a photo, and the feedback here
-   * is a view of its progress.
-   *
-   * The photo is kept whether or not an ISBN comes back: all three images are
-   * wanted regardless, and a failed read is no reason to throw a photo away.
+   * The photo is kept whether or not an ISBN comes back: all three images
+   * are wanted regardless.
    */
   const shoot = async () => {
     const video = videoRef.current
     if (!video) return
 
     const slot = activeSlot
-    // A short burst, sharpest frame kept, rather than whichever frame happened
-    // to be on screen at the tap. Costs about a fifth of a second and no extra
-    // tap; see web/src/lib/steady.ts for why that is the trade.
+    // A short burst, sharpest frame kept, rather than whichever frame was on
+    // screen at the tap; costs about a fifth of a second. See lib/steady.ts
+    // for the trade.
     const { image: full, scores, chosen, elapsedMs } = await captureSteadiest(video, {
       crop: SLOT_CROP[slot],
     })
@@ -136,8 +102,8 @@ export function CaptureScreen() {
     setBurstNote(describeBurst(scores, chosen, elapsedMs))
 
     setThumbs((current) => ({ ...current, [slot]: full }))
-    // A fresh photo makes any crop of the one it replaced meaningless, and a
-    // stale crop shown beside a new photo is worse than no crop.
+    // A fresh photo invalidates any existing crop, since a stale crop beside
+    // a new photo is worse than none.
     setCrops((current) => ({ ...current, [slot]: undefined }))
     setExamined((current) => current.filter((seen) => seen !== slot))
     void thumbnail(full).then((small) =>
@@ -160,9 +126,6 @@ export function CaptureScreen() {
   /**
    * Watch the capture the camera is filling, so the chips and the banner
    * reflect what the queue has actually read. Stops once it settles.
-   *
-   * Mounted with this screen, which is what the `mode !== 'capture'` guard on
-   * it used to say.
    */
   useEffect(() => {
     if (captureId === null) return
@@ -175,17 +138,12 @@ export function CaptureScreen() {
         } = await api.getCapture(captureId)
         if (cancelled) return
 
-        // Whether this book is already in the queue arrives with the reading,
-        // because it is decided from what the reading produced: the ISBN off
-        // the barcode, and failing that the hash of the front. Nothing is
-        // blocked or undone by it; it is drawn over the viewfinder and waits.
+        // Duplicates are decided by the reading (ISBN, or failing that the
+        // hash of the front) and only shown, never blocked.
         setDuplicates(found)
-        // And whether it is already on a shelf, which is the other half of the
-        // same worry and is a separate question (#435). It arrives on this
-        // same poll and it is the reason the warning is on this screen at all:
-        // somebody shooting book after book and pressing "Next book" never
-        // reaches the capture's own detail, which is where the only warning
-        // there was used to be.
+        // Whether it is already on a shelf is a separate question, decided
+        // by the same poll, so it reaches anyone shooting book after book
+        // and not just the capture's own detail screen.
         setCatalogued(onAShelf)
 
         const read = new Set(capture.analysed.split(',').filter(Boolean))
@@ -204,14 +162,10 @@ export function CaptureScreen() {
         } else if (capture.status === 'failed') {
           if (capture.note) setError(capture.note)
           /*
-           * And keep what the reading did get (#436).
-           *
-           * A barcode that decoded and a catalogue that has never heard of the
-           * book is `failed`, and the digits are on the row. Saying so in a
-           * banner and dropping them left the screen after this one headed
-           * "Barcode on the back reads 9780030000126" over a field reading
-           * "Not read yet", with nothing to do but type the number back in.
-           * Nothing a person has answered is touched; see `applyReading`.
+           * Keep what the reading did get: a barcode that decoded against a
+           * catalogue with no match is `failed`, but the digits still belong
+           * on the row. Nothing a person has answered is touched; see
+           * `applyReading`.
            */
           applyReading(capture)
         }
@@ -229,19 +183,12 @@ export function CaptureScreen() {
   ])
 
   /**
-   * The same answer, given at the cataloguing camera instead of the scanner
-   * (#146): this book is already in the queue, go and finish that one.
+   * This book is already in the queue: go and finish that one instead. The
+   * photographs just taken go with it, unless it turns out to be a
+   * different book.
    *
-   * The difference is that here the second capture already exists. It was
-   * created by the shutter, before anything had read the photograph, which is
-   * the only moment at which nothing can be known about the book. So the
-   * choice offered is a real one and it is offered after the fact: go to the
-   * capture somebody already made, and the photographs just taken go with it,
-   * or say this is a different book and keep them.
-   *
-   * Claimed before anything is deleted. If somebody else is holding the
-   * capture, the claim fails, and the person keeps what they photographed and
-   * decides again rather than losing it to a trip that went nowhere.
+   * Claimed before anything is deleted, so if somebody else is holding the
+   * capture, the claim fails and nothing here is lost.
    */
   const openQueuedInstead = async (match: QueueMatch) => {
     if (!canShelve(match.capture)) {
@@ -253,9 +200,8 @@ export function CaptureScreen() {
     try {
       const { capture: claimed } = await api.claimCapture(match.capture.id, book.me)
 
-      // Only now. These photographs are of a book that is already in the
-      // queue, and the person has just said so, so the row they would leave
-      // behind is the duplicate this whole answer exists to prevent.
+      // Deleted only after the claim succeeds, so a failed claim does not
+      // lose this capture too.
       if (mine !== null) {
         const { counts: queued } = await api.deleteCapture(mine)
         setQueueCounts(queued)
@@ -263,9 +209,8 @@ export function CaptureScreen() {
 
       stopCamera()
       clearBookInHand()
-      // The scanner's reasoning for the anchor holds here too: the camera never
-      // saw the queue listing, so the top of it is the honest answer to "near
-      // where this sat".
+      // The camera never saw the queue listing, so the top is the honest
+      // anchor for "near where this sat", as in the scanner.
       openCapture(claimed, { id: match.capture.id, index: 0 })
     } catch (caught) {
       setError((caught as Error).message)
@@ -273,12 +218,9 @@ export function CaptureScreen() {
   }
 
   /**
-   * "It is a different book." Two copies of one title genuinely turn up, and
-   * the cover comparison, tight as its bar is, is still a comparison.
-   *
-   * Turned down by id rather than by clearing the list, because the list is
-   * re-answered every poll: clearing it would put the panel back a second and
-   * a half later, which is an answer with no way past it.
+   * Turned down by id rather than by clearing the list: the list is
+   * re-answered every poll, so clearing it would only bring the panel back a
+   * second later.
    */
   const keepDespiteQueue = () => {
     setDuplicatesTurnedDown((seen) => [
@@ -287,22 +229,17 @@ export function CaptureScreen() {
     ])
   }
 
-  /**
-   * Move on. The photos are already with the queue, so this only clears the
-   * camera; whatever the queue makes of them shows up in the Queue tab.
-   */
+  /** Move on: the photos are already with the queue, so this only clears the camera. */
   const nextBook = () => {
     if (shotCount === 0 && !captureId) return
     returnToOrigin()
   }
 
   /**
-   * What the queue has made of each photograph, in words under its word.
-   *
-   * Only the two facts the photograph itself cannot show. That a photograph
-   * exists is visible in the thumbnail, so "kept" would be the screen reading
-   * itself back; that it is still being read, and that the ISBN came off it,
-   * are not.
+   * What the queue has made of each photograph. Only the two facts the
+   * photograph itself cannot show: that it is still being read, and that
+   * the ISBN came off it. Whether a photograph exists is already visible in
+   * the thumbnail.
    */
   const noteOn = (slot: Slot): string | undefined => {
     if (status[slot] === 'busy') return 'reading'
@@ -310,13 +247,7 @@ export function CaptureScreen() {
     return undefined
   }
 
-  /*
-   * The three photographs, in the order they are taken: the back first,
-   * because it carries the barcode and the lookup starts on shot one.
-   *
-   * Pressing one points the shutter at that slot, which is what "take it
-   * again" means on a camera: the next press of the shutter fills it.
-   */
+  // Back first, since it carries the barcode and the lookup starts on shot one.
   const slotShots: Shot[] = SLOTS.map((slot) => ({
     word: SLOT_SHORT[slot],
     sliver: slot === 'edge',
@@ -327,19 +258,13 @@ export function CaptureScreen() {
   }))
 
   /*
-   * Where to hold the book, measured rather than drawn.
+   * The guide rectangle is `SLOT_GUIDE`, which for the spine is the same
+   * rectangle `SLOT_CROP` keeps, so what somebody frames is what survives.
    *
-   * The gallery's guide is a book-shaped rectangle centred in the picture above
-   * the controls. This one is the rectangle in `SLOT_GUIDE`, which for the
-   * spine is the rectangle `SLOT_CROP` really keeps, so what somebody frames is
-   * what survives. A boundary you cannot see is a boundary you will get wrong.
-   *
-   * `--crop` is what says so to the stylesheet (#584). The frame the design
-   * system draws is centred and given a shape, because it is a drawing; four
-   * fractions of the picture that have been centred and reshaped are no longer
-   * the rectangle being kept, so this one takes that sizing off and the
-   * fractions below are the only thing placing it. It needs no `--slot`
-   * either: that modifier is a shape, and this element brings its own.
+   * `--crop` tells the stylesheet not to centre and reshape this frame the
+   * way the design system's default guide is drawn, since the fractions
+   * below already place it. No `--slot` either: that modifier is a shape,
+   * and this element brings its own.
    */
   const frame = SLOT_GUIDE[activeSlot]
   const guide = cameraOn && (
@@ -366,8 +291,6 @@ export function CaptureScreen() {
         guide={guide}
         onLeave={() => { stopCamera(); setRoute('home') }}
         top={
-          /* Only where there is a torch to offer, and only on the shot that
-             wants it, so it is never a control somebody has to think past. */
           cameraOn && torchReady && activeSlot === 'edge' ? (
             <button
               type="button"
@@ -385,15 +308,8 @@ export function CaptureScreen() {
           ) : undefined
         }
         far={
-          /* Lens choice, diagnostics and which hand holds the phone. All set
-             once and then never touched, so the far corner is exactly where
-             they belong and none of them earns permanent space.
-
-             **It said "Settings" until #350**, which built a screen of that
-             name. Two different things called Settings, one opening the app's
-             and one opening a sheet about this camera, is the fault the design
-             rules call two things sharing a name. It is called what its own
-             sheet has always been headed, which is what it opens. */
+          /* Lens choice, diagnostics and which hand holds the phone; set
+             once and not touched again. */
           <button
             type="button"
             className="wf-view__far wf-view__chip"
@@ -408,17 +324,13 @@ export function CaptureScreen() {
               <div className="cam__error" onClick={() => setError('')}>{error}</div>
             )}
 
-            {/* Transient, and above the bottom band rather than inside it, so
-                it costs nothing once it has faded. Where it sits is
-                `.cam__toast`'s and it is a gap above the controls now rather
-                than a number that guessed at them (#585). */}
+            {/* Positioned via `.cam__toast`, not floated, so it costs
+                nothing once it has faded. */}
             {toast && <div className="cam__toast">{toast}</div>}
 
-            {/* The book in your hands is already in the queue (#146). Drawn
-                over the viewfinder and nowhere near the shutter, because it is
-                a finding and not a gate: the photograph has already been taken
-                and accepted, and whether there are two copies of this book is
-                not something a camera can know. */}
+            {/* A finding, not a gate: the photograph is already taken and
+                accepted, and whether there are two copies is not something
+                a camera can decide. */}
             <QueuedAlready
               matches={queueDuplicates}
               className="queued--incam"
@@ -433,23 +345,9 @@ export function CaptureScreen() {
             />
 
             {/*
-              This book is already in the catalogue (#435).
-
-              The warning existed only on the capture's own detail, which is a
-              screen somebody working through a stack never opens: they shoot
-              three photographs, press "Next book" and start the next one. So
-              it is said here, where they are.
-
-              A line rather than a panel, and with no way past it, because it
-              asks for nothing. Two copies of one book genuinely turn up and
-              nothing here refuses the photograph or the save; it is the fact
-              somebody needs in order to decide, and the deciding happens at
-              the shelving step. `QueuedAlready` above offers a choice and so
-              it is a panel with a way out; this offers none and needs none.
-
-              Above the line saying what is in your hands, and as far from the
-              shutter as that one is. Nothing on this screen may sit in front
-              of the shutter, which is #294.
+              A line rather than a panel, with no way past it: two copies of
+              one book can genuinely happen, and the decision belongs at the
+              shelving step, not here.
             */}
             {catalogued && (
               <p className="cam__catalogued" role="status">
@@ -462,15 +360,10 @@ export function CaptureScreen() {
           </>
         }
         /*
-          The two things on this screen that have to cover the controls (#585).
-
-          Both were in `over` beside the toast and the panels, which worked only
-          because `over` was a list of siblings drawn across the whole screen.
-          It is the picture *above the bar* now, so anything in it stops where
-          the controls start, and these two must not: somebody who has not
-          granted a camera would be reading "Start camera" with a shutter under
-          it, and the sheet is a modal whose scrim would leave the shutter
-          outside itself and pressable.
+          These two must cover the controls, unlike everything in `over`
+          (which stops above the bar): an ungranted camera would show "Start
+          camera" with a live shutter under it otherwise, and the settings
+          sheet's scrim would leave the shutter pressable outside it.
         */
         across={
           <>
@@ -481,11 +374,9 @@ export function CaptureScreen() {
                   Back cover first, for the barcode. Then the front, then the spine.
                 </p>
                 <Button tone="primary" onPress={() => startCamera()}>Start camera</Button>
-                {/* Vite prints eight addresses at startup and only some reach
-                    a phone; the camera permission and the dev certificate
-                    exception are both scoped to whichever one is actually
-                    loaded, so a second device that once loaded a different
-                    address needs to know which one it is on now (#60). */}
+                {/* Camera permission and the dev certificate exception are
+                    scoped to whichever origin is loaded, so a second device
+                    needs to know which one it is on now. */}
                 <p className="wf-view__idle-origin">On {currentOrigin()}</p>
               </div>
             )}
@@ -517,18 +408,8 @@ export function CaptureScreen() {
                   )}
 
                   {/*
-                    Which hand holds the phone. A person doing this has a book
-                    in one hand, and the shutter has to be under the thumb of
-                    the other one.
-
-                    **The settings screen asks the same question since #350**,
-                    which is where `design/Camera.tsx` always said it belonged:
-                    "in the app it belongs beside the rest of the settings". It
-                    stays here as well, because this is the one place somebody
-                    discovers they need it, standing at a bookcase with the
-                    shutter under the wrong thumb. It is not a second copy: both
-                    read and write `lib/hand.ts`, so choosing here moves the
-                    switch there and choosing there moves the shutter here.
+                    Both this and the settings screen read and write
+                    `lib/hand.ts`, so choosing here moves the switch there too.
                   */}
                   <h4 className="cam__sheet-subhead">Which hand</h4>
                   <div className="cam__lenses">
@@ -553,11 +434,9 @@ export function CaptureScreen() {
                     distance, and the crop keeps the detail.
                   </p>
 
-                  {/* Written to be read out loud. Which lens, what it granted,
-                      and how many pixels a spine actually arrives with cannot
-                      be settled from here: nobody working on this owns the
-                      phone (#92). So the phone answers, in words rather than in
-                      a console. */}
+                  {/* Rendered as text meant to be read aloud over a call,
+                      not logged to a console, since nobody debugging this
+                      owns the phone. */}
                   <h4 className="cam__sheet-subhead">What this camera reports</h4>
                   <dl className="cam__facts">
                     {facts.map((fact) => (
@@ -593,15 +472,9 @@ export function CaptureScreen() {
           </>
         }
         /*
-          What is in your hands, said rather than inferred from nothing being
-          drawn (#62). One line, and it is either the book the queue has settled
-          on or the fact that there is not one yet.
-
-          **Handed to the bar rather than floated over the picture** (#554).
-          This is the camera whose near cluster is three controls tall, so the
-          one offset the design system had for this line put it under "Done with
-          this book" by 24px whatever it said. The bar is the thing that knows
-          how tall its own controls are, and this is how it is told.
+          Handed to the bar rather than floated over the picture: this
+          camera's near cluster is three controls tall, and only the bar
+          component knows how tall its own controls are.
         */
         said={identified ? (
           <p className="wf-view__found">
@@ -624,9 +497,8 @@ export function CaptureScreen() {
         onShutter={() => void shoot()}
         shutterOff={!cameraOn}
       />
-      {/* The label the shutter carries is the slot it is about to fill, which
-          is a fact only this screen knows. Said here rather than drawn: the
-          button is a circle and always will be. */}
+      {/* For screen readers: the shutter itself is a plain circle with no
+          label for which slot it will fill. */}
       <span className="wf-sr-only" aria-live="polite">
         Next photograph: {SLOT_LABEL[activeSlot]}
       </span>

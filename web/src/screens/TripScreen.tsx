@@ -1,12 +1,8 @@
 /**
- * One trip, read at the area the books come off.
- *
- * The area is asked for fresh, because the list that led here may have been
- * drawn a while ago and the answer is recomputed rather than remembered. **The
- * moment somebody says they have the books, it stops being asked**: the armful
- * and both ends of the walk are fixed from then until it is empty, so the screen
- * naming an area for the book in a person's hand is never re-answered underneath
- * them.
+ * The area is asked for fresh, since the list that led here may have been drawn a while ago.
+ * The moment somebody says they have the books it stops being asked: the armful and both ends
+ * of the walk are fixed from then until it is empty, so the screen is never re-answered
+ * underneath them.
  */
 
 import { useEffect, useState } from 'react'
@@ -35,11 +31,7 @@ export function TripScreen() {
       .then((answer) => { if (live) setAt(answer) })
       .catch((caught) => { if (live) setError((caught as Error).message) })
 
-    /*
-     * Whether this trip is the whole of the work, which decides what the bar
-     * says and where the way back goes. Asked separately because the trip that
-     * got here carries no opinion about the rest of the list.
-     */
+    // Asked separately because the trip that got here carries no opinion about the rest of the list.
     api.carry()
       .then((work) => { if (live) setOnly(work.trips.length === 1) })
       .catch(() => {})
@@ -47,13 +39,7 @@ export function TripScreen() {
     return () => { live = false }
   }, [trip, setError, setRoute])
 
-  /**
-   * Leave this trip where it stands, and go back to the list without it.
-   *
-   * Back to the list rather than staying here: the screen is about a walk that
-   * is now not happening, and redrawing the same area with nothing marked on it
-   * would be a screen about nothing.
-   */
+  /** Back to the list rather than staying here: redrawing the same area with nothing marked on it would be a screen about nothing. */
   const leave = () => {
     if (!trip) return
     setBusy(true)

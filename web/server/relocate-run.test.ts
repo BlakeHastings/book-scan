@@ -1,18 +1,9 @@
 /**
- * The owner's sentence, driven end to end against a real catalogue.
- *
- * "Non-fiction is on bookcase 4 and I want it on bookcase 3, and then show me
- * every book I have to carry." So this builds a world the shape his is in, 50
- * non-fiction books cut 8, 20 and 22 across `4A`, `4B` and `4C`, plans the move,
- * applies it, and then follows the books through the list that already exists
- * until one of them leaves it.
- *
- * **The last part is the part worth having.** Nothing here moves a book: the
- * apply records where the rules want each one, the needs-attention list is that
- * disagreeing with where the book was last seen, and `PATCH
- * /api/books/:id/location` is what a person carrying a book says. If applying
- * built a second list, or wrote a `placed` row, this file would still pass on
- * the counts and the app would be lying about where somebody's books are.
+ * Nothing here moves a book: applying a plan records where the rules want each
+ * one, and the needs-attention list is that disagreeing with where the book was
+ * last seen. `PATCH /api/books/:id/location` is what a person carrying a book
+ * says. If applying wrote a location itself, this file would still pass on the
+ * counts while the app lied about where somebody's books are.
  */
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
@@ -67,11 +58,8 @@ const draft = (at: number, genre = NON_FICTION_SLUG): DraftBook => ({
 })
 
 /**
- * The catalogue as it stands in the owner's house: one bookcase of non-fiction
- * cut into three planks holding 8, 20 and 22, and fiction elsewhere.
- *
- * The planks are cut after the books are in, because that is the order the room
- * happened in: somebody filled a shelf and then said it was full.
+ * Planks are cut after the books are in, mirroring how the room actually
+ * happened: somebody filled a shelf and then said it was full.
  */
 async function buildTheWorld(): Promise<number[]> {
   const ids: number[] = []
@@ -91,8 +79,8 @@ async function buildTheWorld(): Promise<number[]> {
     })
   }
 
-  // Everybody is where the new planks say, because in the room they never
-  // moved: the dividers went in around the books.
+  // Everybody is where the new planks say: the dividers went in around the
+  // books, which never physically moved.
   for (const placed of await shelves.layout('nonfiction')) {
     await store.setLocation(placed.book.id, placed.label)
   }
@@ -104,13 +92,11 @@ async function buildTheWorld(): Promise<number[]> {
 let world: number[] = []
 
 /**
- * One database for the file, and one world built in it, put back between tests.
- *
- * See the long version of this in `carry.test.ts`, the other file #343 names.
- * The short version: this file used to drop and rebuild its database and rebuild
- * its fifty-three book world in every one of its eight tests, a `DROP DATABASE`
- * forces an immediate checkpoint across the whole server, and the two heaviest
- * files in the suite were losing to the contention they were generating.
+ * Built once in `beforeAll` and restored per test with `openTestDatabase`,
+ * rather than dropped and rebuilt every time: `DROP DATABASE` forces a
+ * checkpoint across the whole server, and rebuilding this file's world in every
+ * test caused contention with other heavy files in the suite. See
+ * `carry.test.ts` for the long version.
  */
 beforeAll(async () => {
   db = await openTestDatabase()
@@ -226,8 +212,6 @@ describe('moving the non-fiction run from bookcase 4 to bookcase 3', () => {
     expect(after.misfiles.map((misfile) => misfile.book.id)).not.toContain(first.book.id)
     expect(after.misfiles).toHaveLength(49)
 
-    // And the ledger agrees, which is the same fact said as rows: the standing
-    // assignment is where the book now is.
     const standing = standingOf(await new DrizzlePlacementLedger(db).forBooks([first.book.id]))
     expect(standing.assigned).toBe(standing.area)
   })
@@ -239,11 +223,9 @@ describe('moving the non-fiction run from bookcase 4 to bookcase 3', () => {
     if (!again.ok) throw new Error(again.error)
 
     /*
-     * Nothing is written twice, and the plan still says 50 books have to be
-     * carried, because they do: the assignment is recorded and the books are
-     * still on the planks they were on. Those are different questions and it
-     * matters that they answer differently. What must not happen is a second
-     * identical `assigned` row per book, which is `assignmentFor`'s rule.
+     * The plan still says 50 books need carrying, because they do: the
+     * assignment is recorded but the books have not physically moved. Nothing
+     * must write a second identical `assigned` row per book (`assignmentFor`'s rule).
      */
     expect(again.wrote.assigned).toBe(0)
     expect(again.wrote.unchanged).toBe(50)
@@ -290,24 +272,13 @@ describe('moving the non-fiction run from bookcase 4 to bookcase 3', () => {
 })
 
 /**
- * #391: the move that deleted a bookcase somebody had just put up.
- *
- * The usability baseline (#388) built a bookcase called Hall with four shelves,
- * named one of them Comics, and then moved non-fiction from bookcase 4 to
- * bookcase 3. Afterwards the Hall was gone, its four areas with it, and nothing
- * anywhere had said so.
- *
+ * Applying a move deletes no furniture: a piece goes only through
+ * `DELETE /api/fixtures/:id`, which refuses while books or rules are on it.
  * Hall stands after bookcase 4 with no rule of its own, so the non-fiction run
- * flows onto it, and that is what put its planks inside an operation about
- * somewhere else. What this holds to is what happens next: **applying a move
- * deletes no furniture at all**. A piece of furniture is a thing standing in a
- * room and it goes when somebody takes it away, through
- * `DELETE /api/fixtures/:id`, which refuses while books or rules are on it. And
- * a piece the move would leave with nothing on it is named in the plan, before
- * anybody presses anything.
+ * flows onto it, and a piece the move would leave empty is only named in the plan.
  */
 describe('a bookcase somebody put up, standing after the run being moved', () => {
-  /** Hall, four shelves, the bottom one called Comics, exactly as #388 built it. */
+  /** Hall, four shelves, the bottom one called Comics. */
   async function putUpTheHall(): Promise<number> {
     const added = await addFixture(db, { name: 'Hall' })
     if (!added.ok) throw new Error(added.error)
@@ -361,25 +332,8 @@ describe('a bookcase somebody put up, standing after the run being moved', () =>
   })
 
   /**
-   * #420: the same bookcase, with the rule somebody wrote on it.
-   *
-   * The second pass of the usability loop (#419) ran the same three tasks
-   * against the same seed. Task 1 put the Hall up with four shelves; task 2 said
-   * the comics live on its bottom one, which is a rule pointing at that plank;
-   * task 3 moved non-fiction from bookcase 4 to bookcase 3. Afterwards the Hall
-   * stood with all four of its shelves at `area_position` -4 to -1, drawn by no
-   * screen, the piece answering "0 areas, 0 books", the comics rule still
-   * pointing at one of them, and a `4D` nobody had added standing on the
-   * bookcase the books had come off. **Task 3 silently undid task 2.**
-   *
-   * One defect and three symptoms. The plan cut the run where the comics rule
-   * did, because `runFrom` stops at any rule's entry area; the write cut it
-   * where the next *genre range* began, and there is no genre range past
-   * non-fiction, so `bandsOf` handed `relocateRunTo` every bookcase standing
-   * past bookcase 4. The plan moved six planks and the write moved seven.
-   *
-   * What this holds to is the sentence the fix is: **a bookcase somebody's rule
-   * stands on is that rule's furniture, and a move does not touch it.**
+   * A bookcase somebody's rule stands on is that rule's furniture: a move does
+   * not touch it. `runFrom` stops at any rule's entry area.
    */
   describe('and the rule somebody wrote on its bottom shelf', () => {
     const COMICS = TagSlug.of('subject/comics')
@@ -449,8 +403,8 @@ describe('a bookcase somebody put up, standing after the run being moved', () =>
       const four = (await describeFurniture(db)).fixtures.find((one) => one.position === 4)!
       expect(four.areas).toEqual([])
       expect(four.gone.map((area) => area.label)).toEqual(['4A', '4B', '4C'])
-      // The books are still standing on it, which is the whole of #403, and the
-      // piece accounts for them while none of its planks is on its face.
+      // The books are still standing on it: the piece accounts for them even
+      // with none of its planks on its face.
       expect(four.books).toBe(50)
     })
 
@@ -469,18 +423,9 @@ describe('a bookcase somebody put up, standing after the run being moved', () =>
     })
 
     /**
-     * #499: the same arrangement, asked what the *run* is rather than what the
-     * move may take.
-     *
-     * The three shelves above the comics rule are the tail of the non-fiction
-     * run — `runFrom` has always said so, because a run runs on until the next
-     * area a rule points at. The band answered with the move's bookcase bound,
-     * so every furniture read left them out while the domain went on giving
-     * them to non-fiction, and a book sorting onto one of them was drawn in one
-     * place by the shelf and put in another by the rules.
-     *
-     * Both bounds are true at once and they are different numbers. This holds
-     * them apart: the run reaches the hall and the move stops before it.
+     * A run and a move answer different questions with different, both-correct
+     * bounds: the non-fiction run extends onto the hall (a run continues until
+     * the next area a rule points at), but the move stops at bookcase 4.
      */
     it('reaches the hall as a run and stops before it as a move', async () => {
       const { hall } = await prepareTheComicsShelf()
@@ -495,7 +440,6 @@ describe('a bookcase somebody put up, standing after the run being moved', () =>
         `${hallPosition}:0`, `${hallPosition}:1`, `${hallPosition}:2`,
       ])
 
-      // And the move is still about bookcase 4 alone, which is #420 untouched.
       const planned = await planRunMove(db, 'nonfiction', 3)
       if (!planned.ok) throw new Error(planned.error)
       expect(planned.plan.planks).toEqual([
@@ -509,10 +453,9 @@ describe('a bookcase somebody put up, standing after the run being moved', () =>
       await applyRunMove(db, 'nonfiction', 3, new Date().toISOString())
 
       /*
-       * The one state #420 says must not exist: a plank off a face with nothing
-       * standing on it. A plank off a face with books on it is reachable, on the
-       * piece's own page and in the carry list, and is what a move leaves the
-       * bookcase it emptied.
+       * A plank off a face with nothing standing on it must not exist; a plank
+       * off a face with books on it is fine and reachable, which is what a move
+       * leaves behind on the bookcase it emptied.
        */
       const orphans = await db.all<{ id: number; label: string }>(
         `SELECT a.id, f.position || ':' || a.position AS label
@@ -524,11 +467,9 @@ describe('a bookcase somebody put up, standing after the run being moved', () =>
     })
 
     /*
-     * The other half of "a rule pointing at an unreachable area is its own
-     * defect": a move must not create one, and neither must anything else.
-     * Taking the plank out by hand is deliberate and stays (#307), so the rule
-     * comes to rest on the piece the plank was on rather than being refused or
-     * deleted. It keeps claiming the same books and opens its run one plank up.
+     * Taking a plank with a rule on it out by hand is allowed; the rule then
+     * falls back to the piece the plank was on rather than being refused or
+     * deleted, and keeps claiming the same books.
      */
     it('leaves a rule on the piece when somebody takes its plank out by hand', async () => {
       const { hall, bottom } = await prepareTheComicsShelf()
@@ -564,30 +505,10 @@ describe('a bookcase somebody put up, standing after the run being moved', () =>
 })
 
 /**
- * #401: the bookcase that read as empty while fifty books were standing on it.
- *
- * On the owner's own catalogue, in the same second:
- *
- *     GET /api/fixtures  ->  Bookshelf 4 (0 areas, 0 books)
- *     GET /api/carry     ->  46 books, "Bookshelf 4 · A" to "Bookshelf 2 · E"
- *
- * The state is legitimate and it is the one this file already builds: moving a
- * stretch of books off a bookcase retires every one of its areas, because the
- * ledger names them, and nobody has carried a book yet, so every book is still
- * recorded on the areas that were retired. **The carry list was right.** Its
- * read is `areaFaces`, which walks every area there has ever been. The fixture
- * read walked the face, `position >= 0`, and hung the per-area book count off
- * it, so fifty books were counted by nothing that draws furniture.
- *
- * What this holds to is that the two are now one answer rather than two that
- * agree today. Every count below comes from `areasStanding`, which is the only
- * statement left in the app that counts the books standing on an area, and it
- * does not know what a retired area is.
- *
- * **Retiring is untouched and must stay** (#307, #391). The areas are still off
- * the face, still not in `fixture.areas`, still not boundaries, and nothing here
- * deletes one. What changed is that a piece of furniture accounts for the books
- * standing on it whatever became of the area holding them.
+ * A piece of furniture accounts for the books standing on it whatever became
+ * of the area holding them, even a retired one off the face. Retiring itself
+ * is unchanged: retired areas stay off the face, out of `fixture.areas`, and
+ * are not boundaries; nothing here deletes one.
  */
 describe('the bookcase a stretch of books was moved off, before anybody carries one', () => {
   /** Bookcase 4 as `/api/fixtures` answers it, after the move and no carrying. */
@@ -603,18 +524,9 @@ describe('the bookcase a stretch of books was moved off, before anybody carries 
   })
 
   /**
-   * #447's second half: the trip that printed `4A -> 4A`.
-   *
-   * The room is legitimate and this is how it is reached without contriving it:
-   * the run has moved off the piece at 4 onto the piece at 3, so every book is
-   * still recorded on an area of the first and assigned to an area of the
-   * second, and then somebody renumbers the second piece to 4. **Two pieces
-   * standing on one number is an arrangement this catalogue has** (`places` in
-   * `lib/furniture.ts`), and neither is named, so `labelFor` renders both their
-   * top planks `4A`.
-   *
-   * The counts and the areas were always right and still are. What was wrong was
-   * that the list printed a walk nobody could walk and said nothing about it.
+   * Two pieces standing on one number is an arrangement this catalogue allows
+   * (see `places` in lib/furniture.ts); when neither is named, `labelFor`
+   * renders both their top planks `4A`, so a trip here can read `4A -> 4A`.
    */
   it('says so when a trip has two ends that read the same', async () => {
     const room = await describeFurniture(db)
@@ -651,13 +563,12 @@ describe('the bookcase a stretch of books was moved off, before anybody carries 
     const work = await outstandingWork(db)
     const carrying = work.trips.reduce((total, trip) => total + trip.books.length, 0)
 
-    // The list that was right, unchanged: fifty books, off bookcase 4's areas.
     expect(carrying).toBe(50)
     expect(work.trips.map((trip) => trip.from)).toEqual(['4A', '4B', '4C'])
     expect(work.trips.map((trip) => trip.to)).toEqual(['3A', '3B', '3C'])
 
-    // The answer that was wrong. Nought areas is still true: they were taken
-    // off the face and the face is what `areas` is. Nought books was not.
+    // Nought areas is correct: the areas were taken off the face, and the face
+    // is what `areas` is. Nought books would be the wrong half.
     expect(four.areas).toEqual([])
     expect(four.books).toBe(carrying)
   })
@@ -668,7 +579,6 @@ describe('the bookcase a stretch of books was moved off, before anybody carries 
     expect(four.gone.map((area) => [area.label, area.books]))
       .toEqual([['4A', 8], ['4B', 20], ['4C', 22]])
     expect(four.gone.every((area) => area.gone)).toBe(true)
-    // Off the face and staying off it: nothing here puts one back on the piece.
     expect(four.areas).toEqual([])
   })
 
@@ -696,9 +606,9 @@ describe('the bookcase a stretch of books was moved off, before anybody carries 
     })
 
   /*
-   * The area is off the face, so there is nothing on the piece to take it off.
-   * Removing it is refused exactly as it was, which is the half of #307 that
-   * this issue must not weaken: the row is pinned by the placements naming it.
+   * The area is off the face already, so there is nothing on the piece to take
+   * it off; removal is refused because the row is still pinned by the
+   * placements naming it.
    */
   it('still refuses to remove an area that is already off the piece', async () => {
     const four = await bookcaseFour()
@@ -718,9 +628,8 @@ describe('the bookcase a stretch of books was moved off, before anybody carries 
     expect(four.gone.map((area) => [area.label, area.books]))
       .toEqual([['4B', 20], ['4C', 22]])
 
-    // An area nothing is standing on any more is not drawn at all. The row is
-    // still there, pinned by the ledger; it is not furniture and not a leftover
-    // somebody has to dismiss.
+    // An area nothing is standing on any more is not drawn at all, though the
+    // row stays, pinned by the ledger; it is not a leftover somebody has to dismiss.
     expect(four.gone.map((area) => area.label)).not.toContain('4A')
   })
 
@@ -730,39 +639,20 @@ describe('the bookcase a stretch of books was moved off, before anybody carries 
 
     expect(three.areas.map((area) => area.label)).toEqual(['3A', '3B', '3C'])
     expect(three.gone).toEqual([])
-    // Nobody has carried anything, so nothing is standing on it yet, and that
-    // is the honest nought: these two zeros are different facts.
+    // Nobody has carried anything yet, so nothing is standing on 3 yet: an
+    // honest zero, unlike bookcase 4's.
     expect(three.books).toBe(0)
   })
 })
 
 /**
- * #463: two rules naming one genre, and where the run begins.
- *
- * **The arrangement is legal and stays legal.** #430 item 1 settled that two
- * fixtures claiming one tag is something somebody is entitled to build, so
- * nothing here may become an error, a warning, or a rule quietly ignored.
- *
- * What was not legal was the app answering "where does fiction begin" twice.
- * `bandsOf` took the range's rule with `rules.find`, first row back from a
- * `SELECT` with no `ORDER BY`, and `claim` took it by area-before-fixture, then
- * priority, then id. With one rule per genre the two agree and nothing shows.
- * With two they part company, and then the plank a book is filed onto and the
- * plank the app draws it on are decided by two different rules.
- *
- * Seen live before it was fixed, on `GET /api/books/1/claim` answering
- * `"wanted":{"areaId":3,"label":"2A"}` while `GET /api/shelves?range=fiction`
- * drew the same book in a group labelled `1A`, and `GET /api/misfiles` answered
- * an empty list, which reads as "everything is fine".
+ * Two fixtures claiming one tag is legal and stays legal; this must never
+ * become an error, a warning, or a rule quietly ignored. `bandsOf` and `claim`
+ * must resolve an ambiguous genre to the same rule, or the plank a book is
+ * filed onto and the plank it is drawn on can disagree.
  */
 describe('two rules naming one genre', () => {
-  /**
-   * Bookcase 2, one plank, and a second Fiction rule written on that plank.
-   *
-   * An **area** rule, because that is the half of the ladder `rules.find` could
-   * not see: it beats the fixture rule on bookcase 1 outright, whatever order
-   * the two come back in.
-   */
+  /** An area rule, since that beats the fixture rule on bookcase 1 outright, whatever order the two come back in. */
   async function writeASecondFictionRule(): Promise<{ fixture: number; area: number }> {
     const added = await addFixture(db, { position: 2 })
     if (!added.ok) throw new Error(added.error)
@@ -810,10 +700,9 @@ describe('two rules naming one genre', () => {
   it('draws every fiction book on the plank the rules file it onto', async () => {
     await writeASecondFictionRule()
 
-    // Three books, shelved on 1A while the fixture rule was the only Fiction
-    // rule. The area rule now claims all three, so 2A is where they belong and
-    // 1A is where they physically are: a misfile, which is the answer that
-    // sends somebody to carry them, and it was an empty list before #463.
+    // Three books shelved on 1A under the old fixture rule; the area rule now
+    // claims all three, so 2A is where they belong and 1A is where they
+    // physically are, a misfile.
     const drawn = await shelves.layout('fiction')
     expect(drawn).not.toEqual([])
     expect([...new Set(drawn.map((placed) => placed.label))]).toEqual(['2A'])
@@ -822,19 +711,15 @@ describe('two rules naming one genre', () => {
   it('still stops the run where the next one begins', async () => {
     await writeASecondFictionRule()
 
-    // Non-fiction is on bookcase 4 and nothing has changed about that. Moving
-    // fiction's start to bookcase 2 must not let its band reach across it.
+    // Non-fiction is on bookcase 4; moving fiction's start to bookcase 2 must
+    // not let its band reach across it.
     expect((await bandsOf(db)).get('fiction')?.limit).toBe(4)
   })
 
   /**
-   * The one place the two questions come apart, and it is on purpose.
-   *
-   * `claim` refuses a switched-off rule: it files no books, so it wins none.
-   * `bandsOf` cannot refuse one outright, because a rule being off does not merge
-   * its run into the one before it. So the range's rule is the enabled one where
-   * there is an enabled one, and the switched-off one only when there is nothing
-   * else — which is where the run still stands, empty.
+   * The one place `claim` and `bandsOf` legitimately diverge: `claim` refuses a
+   * switched-off rule outright, but `bandsOf` falls back to it only when there
+   * is no enabled rule, since being off does not merge the run into the one before it.
    */
   describe('and one of them switched off', () => {
     const switchOff = (id: number) =>
@@ -852,7 +737,6 @@ describe('two rules naming one genre', () => {
       const now = claim(rules, { tagSlugs: [FICTION_SLUG] })
       expect(now?.id).not.toBe(winner.id)
 
-      // Back on bookcase 1, with the fixture rule, which is where the books go.
       expect((await bandsOf(db)).get('fiction')?.start).toEqual({ shelf: 1, area: 0 })
     })
 
@@ -863,7 +747,7 @@ describe('two rules naming one genre', () => {
         await switchOff(rule.id)
       }
 
-      // Nothing claims a fiction book any more, and the run has not moved or
+      // Nothing claims a fiction book any more, but the run has not moved or
       // merged into anything: it is a shelf with nothing on it.
       expect(claim((await furnitureIn(db)).rules, { tagSlugs: [FICTION_SLUG] })).toBeNull()
       expect((await bandsOf(db)).get('fiction')?.start).toEqual({ shelf: 1, area: 0 })
@@ -872,33 +756,17 @@ describe('two rules naming one genre', () => {
 })
 
 /**
- * #500 and #486: what the arrange screen is told before it offers anything.
- *
- * One screen, and two ways of making a confident statement about a run from
- * something other than the answer to the question being asked.
- *
- * - **Where a run lives** was `groups[0].shelf`, the bookcase of the first group
- *   of books. A run lives where its rule points; the first group of books is
- *   wherever the first book happens to be standing, and those are two bookcases
- *   whenever the leading bookcase of a run holds nothing.
- * - **Whether a run can be moved at all** was not asked until somebody had
- *   chosen a destination, because the only thing that could answer it needed
- *   one. So the screen described a run, offered three bookcases, and refused
- *   whichever was picked.
- *
- * The refusals below are unchanged and they are right. What is held to here is
- * that they can be had before a destination exists, and that they are the same
- * words when they are.
+ * A run lives where its rule points, not wherever the first group of books
+ * happens to be standing (`groups[0].shelf`), since the two can be different
+ * bookcases if the run's leading bookcase holds nothing. Whether a run can be
+ * moved must be answerable before a destination is chosen, with the same
+ * refusal wording either way.
  */
 describe('what the arrange screen is told before it offers a bookcase', () => {
   /**
-   * "Say what belongs here" on a plank, which writes an area rule serving a
-   * range, and #430 item 1 keeps that arrangement legal.
-   *
-   * This is the state #486 was confirmed live in, reached by doing what the
-   * screens suggest: the rule editor's own guidance on a shelf writes exactly
-   * this rule, and `ruleForRange` answers with it because an area rule is the
-   * more specific statement.
+   * Writes exactly the rule the rule editor's own guidance produces for "say
+   * what belongs here" on a plank; `ruleForRange` answers with it since an area
+   * rule is the more specific statement.
    */
   async function sayFictionBelongsOnThisPlank(): Promise<number> {
     const added = await addFixture(db, { position: 2 })
@@ -934,15 +802,13 @@ describe('what the arrange screen is told before it offers a bookcase', () => {
     const offer = await runMoveOffer(db, 'fiction')
     expect(offer.why).toContain('names one plank rather than a bookcase')
 
-    // Word for word the sentence the move gives after a destination is chosen,
-    // because it is that sentence rather than a second one beside it.
+    // Word for word the sentence the move gives after a destination is chosen.
     expect(await planRunMove(db, 'fiction', 3)).toEqual({ ok: false, error: offer.why })
   })
 
   /*
-   * The description was never the wrong part. A run a move will not pick up
-   * still stands somewhere and the screen may say so; what it may not do is
-   * offer three bookcases to send it to.
+   * A run a move will not pick up still stands somewhere and the screen may
+   * say so; what it may not do is offer three bookcases to send it to.
    */
   it('still says where the run it will not move lives', async () => {
     await sayFictionBelongsOnThisPlank()
@@ -952,19 +818,10 @@ describe('what the arrange screen is told before it offers a bookcase', () => {
     expect(offer.planks).toEqual([])
   })
 
-  /**
-   * #500's own sentence: what you have the moment you say a stretch of books
-   * belongs somewhere and before you have carried anything there.
-   *
-   * The books answer nothing at all here, so the screen drew "Bookcase 0" and a
-   * picker starting at bookcase 1.
-   */
   it('says where a run lives when there is not a book standing on it', async () => {
     for (const id of world.slice(50)) await store.deleteBook(id)
 
-    // What the screen used to read it off. It answered nothing at all, because
-    // there were no books to group; since #457 it is the run's own plank,
-    // holding nothing, which is what the room has.
+    // A bare plank of the run is still drawn, holding nothing.
     expect((await shelves.groups('fiction')).map((g) => [g.label, g.books.length]))
       .toEqual([['1A', 0]])
 
@@ -975,34 +832,22 @@ describe('what the arrange screen is told before it offers a bookcase', () => {
   })
 
   /**
-   * The leading bookcase of a run holding nothing while the run carries on past
-   * it, which is where the two answers name two different bookcases.
-   *
-   * A bookcase put up after the non-fiction run is the tail of that run, and a
-   * plank on it anchored at the run's very first book takes every book in it.
-   * Non-fiction still lives on bookcase 4 and bookcase 4 holds none of it.
+   * A bookcase put up after the non-fiction run is the tail of that run; a
+   * plank anchored at the run's first book takes every book in it, so
+   * bookcase 4 still "lives" there but holds none of it.
    */
   it('says where a run lives when its leading bookcase is the empty one', async () => {
     await putUpAHallHoldingEverything()
 
-    /*
-     * **Both readings say bookcase 4 now**, and they used to say 4 and 5.
-     * `groups` skipped the run's leading plank because nothing was standing on
-     * it, so the first board it drew was the first one holding books; since
-     * #457 a bare plank of the run is drawn as a bare plank. The offer's answer
-     * is unchanged and is still the one the screen reads (#500).
-     */
     const groups = await shelves.groups('nonfiction')
     expect(groups.map((group) => [group.label, group.books.length])[0]).toEqual(['4A', 0])
     expect(groups[0]!.shelf).toBe(4)
     expect((await runMoveOffer(db, 'nonfiction')).from).toBe(4)
 
     /*
-     * And what the wrong answer cost, which is still worth having: 5 is what
-     * reading the location off the books answered. The picker calls the
-     * bookcase it starts on "Where it lives now" and the plan for that choice
-     * says nothing would change, so that option planned a move of the whole run
-     * onto the furniture one along.
+     * The picker would have called bookcase 5 "Where it lives now"; planning
+     * that choice actually moves the whole run, showing why it must not be
+     * offered as a no-op destination.
      */
     const planned = await planRunMove(db, 'nonfiction', 5)
     if (!planned.ok) throw new Error(planned.error)

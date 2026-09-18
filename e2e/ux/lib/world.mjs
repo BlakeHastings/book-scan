@@ -1,25 +1,16 @@
 /**
  * The seeded world, read directly rather than through the screens.
  *
- * Two jobs, and they are deliberately the same file because they ask the same
- * database the same way:
- *
- *  1. **The fingerprint.** One cheap query, taken before and after every press,
- *     that says whether that press changed anything at all. It is what makes
- *     "dead end" and "backtrack" measurements rather than opinions: a press that
- *     did not navigate, did not change the page and did not change the world is
- *     a press that did nothing, and nobody has to remember whether it did.
- *  2. **The completion checks.** Whether each task was actually done, decided
- *     from rows rather than from the driver's own account of itself. An agent
- *     that believes it finished is exactly the thing that must not be trusted
- *     here.
- *  3. **What the app draws**, which is the one question rows cannot answer and
- *     the one #420 found nobody was asking. See `drawnFurniture` at the bottom.
- *     It is a request to the app rather than a query, on purpose.
+ * The fingerprint (below) is one cheap query, taken before and after every
+ * press, that says whether that press changed anything at all. The completion
+ * checks decide whether a task was actually done from rows, not from the
+ * driver's own account of itself. `drawnFurniture` at the bottom asks the app
+ * what it draws, which rows alone cannot answer.
  *
  * The connection comes from the AppHost, via `aspire describe`, and from
- * nowhere else. This file never reads a connection string from the environment,
- * and it refuses port 5433 outright, which is the owner's live catalogue.
+ * nowhere else. This file never reads a connection string from the
+ * environment, and it refuses port 5433 outright: that is the owner's live
+ * catalogue.
  */
 
 import pg from 'pg'
@@ -90,18 +81,11 @@ export async function withClient(connection, fn) {
 /**
  * One string that changes whenever the arranging did.
  *
- * Counts alone would miss a book moving from one plank to another, so the
- * placements are digested by their content rather than counted, and so is the
- * furniture. Everything a press can plausibly change while somebody arranges
- * books is in here; nothing that changes on its own is, which matters because a
- * background worker draining the capture queue must not be able to make a
- * press that did nothing look like a press that did something.
- *
- * That is why the books half is restricted to the shelved and checked-out ones.
- * A capture the worker identifies while nobody is pressing anything changes a
- * row in `books`, and without the restriction that would land in the log as a
- * press that changed the world. A book leaving the queue for a shelf still
- * shows up, because it arrives in one of those two states.
+ * Digested by content, not counted, so a book moving between planks changes it
+ * even though counts do not. Restricted to shelved and checked-out books: a
+ * background worker draining the capture queue also writes rows in `books`,
+ * and without the restriction that would look like a press changed the world
+ * when nothing was pressed.
  */
 const FINGERPRINT_SQL = `
   SELECT
@@ -179,25 +163,15 @@ export async function outstandingMoves(client) {
 }
 
 /**
- * The furniture **the app draws**, asked of the app rather than of the rows.
+ * The furniture the app draws, asked of the app rather than of the rows.
  *
- * Everything else in this file reads the database, on purpose: completion has to
- * be decided from rows, because an agent that believes it finished is the
- * witness that must not be trusted. This is the one question rows cannot answer.
+ * Reachability is not computed here as a predicate over positions, which would
+ * be a second opinion about what the app shows: it asks `GET /api/fixtures`,
+ * the same endpoint the screens are drawn from.
  *
- * #420. The furniture check added after the first pass asked whether the rows
- * were still there, and they were, and four shelves somebody had built were on
- * no screen in the app with a rule filing comics onto one of them. **A guard
- * that measures the wrong thing is worse than no guard, because it is
- * believed.** So reachability is not defined here as a predicate over positions,
- * which would be this harness holding a second opinion about what the app shows:
- * it is `GET /api/fixtures`, which is what the screens are drawn from, and a
- * shelf missing from it is a shelf missing from the app.
- *
- * `areas` is a piece's face and `gone` is the planks it has had taken out that
- * still have books standing on them, which the app draws on the piece's own page
- * so somebody can reach those books (#403). Both are reachable. A plank in
- * neither is one nobody can get to.
+ * `areas` is a piece's face; `gone` is planks taken out of it that still carry
+ * books, which the app draws on the piece's own page. A plank in neither is
+ * one nobody can reach.
  */
 export async function drawnFurniture(api) {
   const response = await fetch(`${api}/api/fixtures`)
@@ -229,10 +203,9 @@ const describeShelf = (area) => ({
 /**
  * Everything the three completion checks read.
  *
- * The rows come from the connection and `drawn` comes from the app. `api` is
- * optional only so a caller that genuinely has no app to ask (nothing does
- * today) fails the reachability checks rather than passing them silently: see
- * `tasks.mjs`, where an absent drawing is a failed part and never a quiet ok.
+ * `api` is optional only so a caller with no app to ask fails the reachability
+ * checks rather than passing them silently: see `tasks.mjs`, where an absent
+ * drawing is a failed part, never a quiet ok.
  */
 export async function worldState(connection, api = null) {
   const drawn = api ? await drawnFurniture(api) : null

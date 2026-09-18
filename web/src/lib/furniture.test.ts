@@ -36,10 +36,9 @@ describe('moving a piece in the column', () => {
 
 describe('the numbers a room stands on', () => {
   /**
-   * The one that matters. This catalogue's furniture is numbered 1, 2 and 4,
-   * non-fiction lives on the piece called 4, and every non-fiction book in it
-   * is recorded on a plank whose label starts with that digit. Tidying the gap
-   * away would rewrite all of them because somebody dragged something else.
+   * This catalogue's furniture is numbered 1, 2 and 4, and every
+   * non-fiction book is recorded on a plank whose label starts with that
+   * digit. Tidying the gap away would rewrite all of them.
    */
   it('keeps the gap in them', () => {
     expect(places(room)).toEqual([1, 2, 4])
@@ -57,9 +56,8 @@ describe('what a reordering comes down to', () => {
   })
 
   /**
-   * The places stay where they are and the pieces move through them, so a piece
-   * dragged to the front takes the number that was at the front. Nothing lands
-   * on a number the room did not already have.
+   * The places stay where they are and the pieces move through them, so
+   * a piece dragged to the front takes the number that was at the front.
    */
   it('hands the room its own numbers back, in the new order', () => {
     const moved = moveWithin(room, 2, 0)
@@ -92,9 +90,8 @@ describe('what a piece is called', () => {
   })
 
   /**
-   * The two screens that draw a heading over a row of books ask this, and #447
-   * is what the second of them was doing instead: a regular expression over the
-   * row's label, which could only ever answer "Bookcase" whatever the piece is.
+   * The two screens that draw a heading over a row of books both ask
+   * this, rather than working a piece's name out of the row's own label.
    */
   it('says the same of a piece asked through a placement', () => {
     expect(pieceOn({ fixtureId: 9, fixture: 4, plank: 0, name: '', kind: 'crate' }))
@@ -167,9 +164,9 @@ describe('why a piece cannot be taken out of the room', () => {
   })
 
   /**
-   * The half #484 is about. A book the rules have sent here and nobody has
-   * carried is not on the piece, so "its 1 book" would be a count of something
-   * a person looking at the shelf cannot see.
+   * A book the rules have sent here and nobody has carried is not on
+   * the piece, so "its 1 book" would be a count of something a person
+   * looking at the shelf cannot see.
    */
   it('says the carry list is still sending books to a piece nothing stands on', () => {
     expect(stillHolds(holding(1, 1)))
@@ -185,9 +182,8 @@ describe('why a piece cannot be taken out of the room', () => {
 
 describe('what the areas of a piece will be called', () => {
   /**
-   * Worked out by the same function the server works the real one out with, so
-   * the preview cannot promise a name the answer disagrees with. Naming either
-   * side turns the label into a phrase, which is what the separator is for.
+   * Worked out by the same function the server works the real one out
+   * with, so the preview cannot promise a name the answer disagrees with.
    */
   const areas = [{ position: 0, name: '' }, { position: 1, name: 'Cookery' }]
 
@@ -217,10 +213,9 @@ describe('what the areas of a piece will be called', () => {
 })
 
 /**
- * What a person sees change when the room is put in order, which is what the
- * card promising "what they will be numbered" was trying and failing to say.
- * The numbers do not change: they are the room's and the pieces move through
- * them. What changes is what an unnamed piece and its areas are called.
+ * The numbers do not change: they are the room's and the pieces move
+ * through them. What changes is what an unnamed piece and its areas are
+ * called.
  */
 describe('what a reordering renames', () => {
   const piece = (id: number, position: number, name = ''): FixtureDto => ({
@@ -265,9 +260,8 @@ describe('what a reordering renames', () => {
   })
 
   /**
-   * The owner's four bookshelves, which he has named. This is the answer to
-   * the number that made no sense beside them: dragging them about renames
-   * nothing at all, and the screen can say so.
+   * Dragging named pieces about renames nothing at all, and the screen
+   * can say so.
    */
   it('renames nothing at all in a room where every piece has a name', () => {
     const named = [piece(1, 1, 'Bookshelf 1'), piece(2, 4, 'Bookshelf 2'), piece(3, 5, 'Bookshelf 3')]
@@ -279,9 +273,9 @@ describe('what a reordering renames', () => {
   })
 
   /**
-   * Two pieces both standing at 4 is this catalogue today. Swapping them lands
-   * each on the number the other held, which is the same number, so neither is
-   * renamed and neither is renumbered.
+   * Two pieces both standing at 4 is this catalogue today. Swapping them
+   * lands each on the number the other held, so neither is renamed or
+   * renumbered.
    */
   it('survives two pieces sharing a number, and renames neither of them', () => {
     const shared = [piece(1, 1), piece(2, 4), piece(3, 4)]
@@ -291,9 +285,9 @@ describe('what a reordering renames', () => {
 
 describe('how an area is ordered', () => {
   /**
-   * The vocabulary is a table in the database and its labels are written for
-   * the schema: `inherit` is stored as "Same as the shelf it is on", and shelf
-   * is a word this code says and this interface never does.
+   * The vocabulary is a table in the database and its labels are written
+   * for the schema: `inherit` is stored as "Same as the shelf it is on",
+   * and shelf is a word this code says and this interface never does.
    */
   it('says inheriting as the piece it inherits from', () => {
     expect(orderingSaid('inherit', 'Bookcase 2')).toBe('The way Bookcase 2 does')
@@ -301,24 +295,9 @@ describe('how an area is ordered', () => {
     expect(orderingSaid('published', 'Bookcase 2')).toBe('By the year it came out')
   })
 
-  /*
-   * `orderedSaid` was tested here and it is gone with the widget that drew it
-   * (#405). It answered "The way Bookcase 2 does" for an area that inherits,
-   * which is the string the owner read at the top of the card and could make
-   * nothing of. What replaced it is below: the ordering itself, the two ends of
-   * the books, and one sentence naming where it is set.
-   */
 })
 
-/**
- * The sort rule, said the way #405 says it.
- *
- * > The way that we are representing the sort rule in the widget is not very
- * > understandable at all, to the reader or to the user looking at it.
- *
- * Three answers to three questions, and none of them is the three-level chain
- * that failed twice.
- */
+/** The sort rule, said as three separate answers to three separate questions. */
 describe('what order the books in a place are in', () => {
   const shelved = (over: Partial<AreaBook> = {}): AreaBook => ({
     id: 1,
@@ -364,10 +343,9 @@ describe('what order the books in a place are in', () => {
   })
 
   /**
-   * One sentence naming the place the ordering is really set, which is the
-   * place somebody would go to change it. The middle of a chain is not
-   * somewhere anybody goes, so an area following a piece that follows the
-   * library is told about the library and not about the piece.
+   * Names the place the ordering is really set: the middle of a chain is
+   * not somewhere anybody goes, so an area following a piece that
+   * follows the library is told about the library.
    */
   it('names the library where nothing below it states an ordering', () => {
     expect(areaSettled(piece({ name: 'Bookcase 2' }), area()))
@@ -416,10 +394,8 @@ describe('what order the books in a place are in', () => {
   })
 
   /**
-   * The board an area draws is a picture of a row of books, so it is in the
-   * order that row reads. The read answers by filing key, which is the
-   * author's, and an area ordered by the year would otherwise draw a board
-   * contradicting the card directly above it.
+   * The board an area draws is a picture of a row of books, so it is in
+   * the order that row reads, not the order the read answered in.
    */
   it('puts every book in the order the place is ordered, not the order read', () => {
     const books = [
@@ -433,10 +409,9 @@ describe('what order the books in a place are in', () => {
 })
 
 /**
- * A plan that says "18 books join 2B" having quietly left three pinned ones out
- * of the eighteen is lying by omission at the one moment somebody is deciding
- * about their own books. Every reason gets a sentence, and pinned says why it
- * cannot be overridden.
+ * A plan that leaves books out silently is lying by omission at the
+ * moment somebody is deciding about their own books. Every reason gets a
+ * sentence.
  */
 describe('books a change leaves exactly where they are', () => {
   it('gives every reason a sentence with the count in it', () => {

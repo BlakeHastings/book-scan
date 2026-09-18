@@ -1,19 +1,8 @@
 /**
- * The one command that decides who is allowed in (#521).
- *
- * `gate.routes.test.ts` proves what `enabled` does to a request. What is tested
- * here is the part of this script that is a judgement rather than an update:
- *
- * - **Asking does not write.** The ordinary use lists and stops, which is
- *   `rebuild-projection.ts`'s shape and is here for the same reason.
- * - **An ambiguous email is refused rather than resolved.** #510 says two
- *   providers can assert one address about different people, and this is the one
- *   place in the codebase where somebody is allowed to type an address. Picking
- *   one of two would be this repository deciding the thing that document says it
- *   must not.
- * - **The target is never taken from the running app's connection.** That is the
- *   rule `seed-world.ts` and `rebuild-projection.ts` already follow, and it
- *   matters more here: this writes.
+ * `gate.routes.test.ts` proves what `enabled` does to a request. What is
+ * tested here is the part of this script that is a judgement rather than an
+ * update: asking does not write, an ambiguous email is refused rather than
+ * resolved, and the target is never taken from the running app's connection.
  */
 
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -46,8 +35,7 @@ async function knocked(subject: string, email: string) {
 describe('reading the command line', () => {
   it('refuses to take the target from anywhere but the command line or its own variable', () => {
     const read = readArgs([], {
-      // The name the running app reads. It must not be able to decide what this
-      // writes to, which is the whole rule.
+      // The name the running app reads; it must not decide what this writes to.
       ConnectionStrings__bookscan: 'postgres://somewhere/real',
     } as NodeJS.ProcessEnv)
 
@@ -93,10 +81,6 @@ describe('naming a person', () => {
     expect(findPerson(everyone, 'ONE@example.test')).toMatchObject({ person: { id: person.id } })
   })
 
-  /**
-   * The refusal #510 asks for, in the one place an address may be typed at all.
-   * Two subjects with one address is not one person, and this will not choose.
-   */
   it('refuses an address two people have signed in with, and prints both', async () => {
     const first = await knocked('sub-1', 'shared@example.test')
     const second = await knocked('sub-2', 'shared@example.test')
@@ -163,12 +147,7 @@ describe('the two decisions this makes, and that they are two', () => {
     expect(await store.setEnabled(person.id, true, new Date())).toBe(false)
   })
 
-  /**
-   * Disabling somebody is not signing them out, and the difference is the point.
-   * The gate reads `enabled` on every request, so a disabled person's live
-   * session answers `403` — the waiting-list screen — rather than vanishing and
-   * sending them round the sign-in loop.
-   */
+  /** The gate reads `enabled` on every request, so a disabled person's live session answers `403` rather than vanishing. */
   it('leaves a disabled person holding their session', async () => {
     const person = await knocked('sub-1', 'one@example.test')
     await store.setEnabled(person.id, true, new Date())

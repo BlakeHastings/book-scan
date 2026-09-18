@@ -1,11 +1,8 @@
 /**
- * Arranging a fixture's face, with no database anywhere near it.
- *
- * The three shapes of removing an area are the ones worth pinning, because they
- * are what a person is agreeing to in the dialog #281 settled, and the second
- * and third are the ones that get skipped. The rest is the arithmetic every
- * write here is built on: which ordinals move, and which labels read
- * differently afterwards.
+ * Arranging a fixture's face, with no database anywhere near it. The three
+ * shapes of removing an area are what a person is agreeing to in the removal
+ * dialog; the rest is the arithmetic every write here is built on: which
+ * ordinals move, and which labels read differently afterwards.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -109,9 +106,7 @@ describe('removing an area', () => {
 
     expect(removal.removal.joins).toBe('next')
     expect(removal.removal.into).toEqual({ id: 11, label: 'By the window · B' })
-    // It takes over the removed area's place in the sequence, so it opens where
-    // the removed one opened. Without this the books before its own anchor land
-    // in an area nobody asked about.
+    // It takes over the removed area's place in the sequence; otherwise the books before its own anchor would land in an area nobody asked about.
     expect(removal.removal.anchor).toBe('')
     expect(removal.removal.becomes).toEqual([
       { from: 'By the window · B', to: 'By the window · A' },

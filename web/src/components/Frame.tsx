@@ -1,18 +1,8 @@
 /**
- * The phone, for a screen drawn with the design system.
- *
- * `Phone` in `src/design` is the frame; this is the app's way of wearing one.
- * It carries the two things a real screen needs that a wireframe does not: the
- * token scope, and a tab bar wired to the route table rather than to a gallery.
- *
- * `.wf` is where every colour, size and radius in the design system is defined,
- * so a screen drawn with those components has to sit inside one. The app's own
- * stylesheet keeps `:root` and is untouched by it.
- *
- * The body class is the other half. `body.wf-page` paints the page the design
- * system's paper, which otherwise shows either side of the 480px column and
- * under an overscroll bounce. It goes on when a screen like this is on and comes
- * off when it is not, so an unconverted screen still looks like itself.
+ * `.wf` scopes the design system's tokens, same as `RoomFrame`. `body.wf-page`
+ * additionally paints the page the design system's paper, which otherwise
+ * shows on either side of the 480px column and under overscroll bounce; it
+ * toggles with mount so an unconverted screen still looks like itself.
  */
 
 import { useEffect, type ReactElement, type ReactNode } from 'react'
@@ -20,17 +10,7 @@ import { Phone } from '../design/Phone'
 import type { TabName } from '../design/Chrome'
 import { useNavigation, type Route } from '../app/navigation'
 
-/**
- * Where each tab goes.
- *
- * Four places, and finding is not one of them: it is a round target on the row
- * above the books, because looking for a book is not somewhere you go, it is
- * something you do to what you are already looking at. It was the library's
- * top right until #350 gave that corner to the profile icon, and it moved down
- * one row rather than away. The camera is `capture` rather than `scan`, which
- * is the other camera: `scan` finds a book you are already holding, and its
- * door is the corner of the screen about finding a book.
- */
+/** The `scan` tab maps to the `capture` route (photographing a new book); the other camera, for a book already in hand, is reached from a corner rather than a tab. */
 const TAB_ROUTES: Record<TabName, Route> = {
   home: 'home',
   library: 'library',

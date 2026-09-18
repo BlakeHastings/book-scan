@@ -1,93 +1,26 @@
 /**
- * What is allowed to be left in the app's own stylesheet, and whether it can be
- * read.
+ * What is allowed to be left in the app's own stylesheet, and whether it
+ * can be read.
  *
- * The conversion ended with this file at a third of its size (#387), and the
- * way it got that big was not one bad decision: it was rules outliving the
- * screens they painted, one merge at a time, for long enough that nobody could
- * tell by reading it which of them still drew anything. Two rounds of this
- * conversion each found hundreds of lines of that, by measuring rather than by
- * reading, and the measurement is cheaper as a test than as an afternoon.
+ * A class survives if its name appears anywhere in the app's source or in
+ * the browser journeys, matched as a whole name only (no letter, digit,
+ * dash or underscore on either side), so `classList.add('tab')` still
+ * saves `.tab` but a substring inside `setError` or `database` does not
+ * vouch for `.error` or `.tab` any more.
  *
- * So this is the measurement, kept. It is deliberately the weakest useful form
- * of it: a class survives if its name appears anywhere in the app's source or
- * in the browser journeys. That is enough to catch a whole block left standing
- * after the screen it painted went, which is the failure that actually
- * happened, and it does not go red over a name assembled at runtime or added
- * through `classList`.
+ * This still cannot tell a class that is reachable from one that merely
+ * shares a name with a directory, a caught exception, or a loop variable:
+ * no search of the source can, since the question is whether the class is
+ * on a screen somebody can reach, and only a rendered screen answers that.
  *
- * ## The name has to be a name, which is what #451 changed
- *
- * This was a substring search, and a short class name is a substring of
- * ordinary English. Counted over the tree the day #451 was worked, with the
- * app's own header still in it:
- *
- *     error   88 files    tab      136 files
- *     counts  76 files    app      207 files
- *
- * One of those files was the header component, and every other one was
- * `setError`, `onError`, `database`, `table`, `wf-tab`, `append`, a directory
- * called `app`, a variable called `counts`. So `.error`, `.tab`, `.counts` and
- * `.app` could not have been reported as orphans by any deletion: they were
- * vouched for by the word "database". #451 was raised believing the header kept
- * them alive by naming them, and that was true of exactly two, `.topbar` and
- * `.topbar__home`, which are the two nothing else in the tree spells.
- *
- * A name now counts only where it appears as a whole name, with no letter,
- * digit, dash or underscore either side of it. That is the same weakest useful
- * form and it keeps every property argued for above: `classList.add('tab')`
- * still saves `.tab`, a `.feature` file still saves what it names, and a name
- * assembled out of pieces at runtime was never findable by either version.
- * What it stops is a rule being kept by a word that has nothing to do with it.
- *
- * ## What it still cannot see, measured rather than hoped
- *
- * #451 expected that deleting the header would make this sweep "tell the truth
- * again by itself". It does not, and the number is worth writing down. With the
- * header deleted and its seven rules put back in the stylesheet, this sweep
- * reports three of them — `topbar`, `topbar__home` and `tab--on` — and passes
- * `app`, `error`, `tab` and `counts`, because those four are also the names of
- * a directory, a caught exception, a loop variable and a field on the summary.
- * The version before #451 reported two: `tab--on` hides inside `wf-tab--on`.
- *
- * So the honest description of this check is that it catches a rule whose name
- * is peculiar to it, which is most of this stylesheet — `cam__sheet-meta`,
- * `queued__shot`, `queue__row` — and cannot catch one named after an ordinary
- * word. **No search of the source can.** The question underneath is whether the
- * class is on a screen somebody can reach, and the text of a file does not
- * contain the answer; a rendered screen does. That is a different instrument
- * from this one and it would have to be added beside it rather than instead of
- * it, because this one deliberately sees names a rendered screen never shows.
- *
- * ## And the second measurement, which is about the paint rather than the rules
- *
- * Every rule left here predates the token conversion and carries its own paint.
- * Two of them painted a dark panel and set no colour at all, so the words on
- * them came from whatever the page around them was written in: `--ink`, which is
- * a warm off-white at night and a dark brown in daylight. One of the two is the
- * app's only signal that a photograph failed to read, and it was invisible in a
- * bright room, which is the room somebody photographs books in (#432).
- *
- * So the ratio is computed from the values in the files rather than read off
- * them, over the two extremes a camera can put behind a panel that is not quite
- * opaque. WCAG 2.1 AA for body text is 4.5 to 1, and every one of these is set
- * below 18.66px, so that is the threshold rather than the 3 to 1 large-text one.
- *
- * **The arithmetic itself is not here any more** (#530). It is
- * `design/contrast.ts`, because the design system needed the same sum: every
- * word `library.css` floats on the camera is bedded on `--picture-scrim`, and
- * that bed was 3.3 to 1 over a white page. Same measurement, same two ends of
- * what a photograph can be, different stylesheet. Two copies of a compositing
- * function agree until one of them is edited, and a drifted copy here is a
- * green test asserting the wrong number.
- *
- * **The third one is a different defect wearing the same number** (#451), and
- * it is the reason this is a list rather than a pair. `.cam__sheet-meta` did
- * not leave its ink to the page; it wrote in a hardcoded white at four tenths
- * opacity, which follows no theme, so it was 3.83 to 1 in daylight and 3.83 to
- * 1 at night. The first two were found by switching themes and looking. Nothing
- * about this one changes when the theme does, so nobody was ever going to
- * notice it that way, and only the arithmetic finds it.
+ * The second half measures contrast rather than reachability. Every rule
+ * here predates the token conversion and carries its own paint; two paint
+ * no background and rely on the page's `--ink` showing through, so the
+ * ratio is computed over the two extremes a camera can put behind a panel
+ * that is not quite opaque, against the AA body-text threshold (4.5:1),
+ * since every one of these is set below 18.66px. The same sum lives in
+ * `design/contrast.ts` for the design system's own use; a drifted copy
+ * here would be a green test asserting the wrong number.
  */
 
 import { readdirSync, readFileSync } from 'node:fs'
@@ -104,16 +37,7 @@ import {
 
 const HERE = new URL('.', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
 const SHEET = join(HERE, 'styles.css')
-/**
- * This file, which is scanned by the sweep below and must not be.
- *
- * It sits under `src`, so it was in its own corpus, and it names classes in its
- * own prose: the paragraph above naming `.topbar` was enough to keep `.topbar`
- * alive on its own, after the component that drew it had gone. Found by
- * tripping it while proving the sweep could see the frame #451 deleted, which
- * is the only way anybody was going to find it — a test that vouches for what
- * it is measuring reports nothing and looks fine.
- */
+/** Excluded from the sweep below: this file names classes in its own prose, so it would vouch for them. */
 const SELF = join(HERE, 'styles.test.ts')
 /** The browser journeys, which hold on to some of these by name. */
 const JOURNEYS = join(HERE, '..', '..', 'e2e')
@@ -142,12 +66,10 @@ function defined(): string[] {
 }
 
 /**
- * Whether the app spells this name, as a name rather than as a run of letters
- * inside a longer word.
- *
- * The extractor above only ever produces `[A-Za-z][A-Za-z0-9_-]*`, so there is
- * nothing here that needs escaping before it goes into a pattern, and a name
- * that stopped being of that shape would stop being extracted first.
+ * Whether the app spells this name, as a name rather than as a run of
+ * letters inside a longer word. Nothing here needs escaping before it
+ * goes into a pattern, since the extractor above only ever produces
+ * `[A-Za-z][A-Za-z0-9_-]*`.
  */
 function spelled(name: string, text: string): boolean {
   return new RegExp(`(?<![A-Za-z0-9_-])${name}(?![A-Za-z0-9_-])`).test(text)
@@ -169,14 +91,10 @@ describe('the app stylesheet paints nothing nobody draws', () => {
   })
 
   /*
-   * The other half of #451, and the reason the change above is worth having.
-   *
-   * A test that cannot fail proves nothing, and this one could not: `.error`
-   * and `.tab` were spelled inside `setError` and `database`, so no deletion
-   * anywhere in the app could have made them orphans. This asks the check
-   * itself, against a name that is a substring of a word the tree is full of
-   * and of nothing else, so it goes red the day somebody puts the substring
-   * search back.
+   * A test that cannot fail proves nothing: `.error` and `.tab` are
+   * spelled inside `setError` and `database`, so no deletion anywhere in
+   * the app could make them orphans under a substring search. This checks
+   * the check itself against exactly that case.
    */
   it('does not accept a name it only found inside a longer word', () => {
     const text = `import { useErrorBanner } from './errorBanner'\nawait database.query()`
@@ -185,10 +103,6 @@ describe('the app stylesheet paints nothing nobody draws', () => {
     expect(spelled('database', text), 'a whole name is still a name').toBe(true)
   })
 })
-
-// ---------------------------------------------------------------------------
-// What floats on the camera, measured
-// ---------------------------------------------------------------------------
 
 /** One rule's declarations, by property. */
 function rule(selector: string): Record<string, string> {
@@ -226,25 +140,20 @@ function inkOf(selector: string): Paint {
   const values = tokenValues(token![1]!)
   expect(values, `${token![1]} is not defined in tokens.css`).not.toHaveLength(0)
   /*
-   * One value and no second one under a dark block, which is the property being
-   * relied on rather than a coincidence. What is behind these panels is a
-   * photograph rather than a page, so a colour that followed the phone's theme
-   * would disappear on somebody's black paperback exactly as `--ink` disappeared
-   * on the panel itself.
+   * One value and no second one under a dark block: what is behind these
+   * panels is a photograph rather than a page, so a colour that followed
+   * the phone's theme would disappear on somebody's black paperback
+   * exactly as `--ink` disappeared on the panel itself.
    */
   expect(new Set(values).size, `${token![1]} changes with the theme`).toBe(1)
   return parse(values[0]!)
 }
 
 /*
- * What is measured, and what each one is written on.
- *
- * `on` is here because the two #432 found each painted their own panel, and the
- * one #451 found does not: `.cam__sheet-meta` is a line inside the sheet, so
- * what is behind it is the sheet's paint rather than its own. Reading the
- * background off the rule under test would have thrown rather than measured,
- * and a rule that only measures the rules that happen to paint themselves is a
- * rule that stops at the panels and never reaches the words on them.
+ * What is measured, and what each one is written on. `on` differs from
+ * `ink` when a rule is a line inside another element's paint rather than
+ * painting its own panel, so its background has to be read off that
+ * element instead.
  */
 const FLOATING = [
   {

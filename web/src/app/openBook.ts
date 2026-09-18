@@ -1,15 +1,14 @@
 /**
  * Picking a book up.
  *
- * Four screens hand a book to review, and they are the reason the book in hand
- * is shared at all: the library, the queue, the scanner and the camera. Each
- * of them says where the book came from and nothing else, because what can be
- * done to a book is decided by the book (#59).
+ * Four screens hand a book to review: the library, the queue, the scanner
+ * and the camera. Each says only where the book came from; what can be done
+ * to it is decided by the book.
  *
- * These live together rather than in the screens that call them so that the
- * two ways in stay one pair. A catalogued book and a queued capture are read
- * from different places and land on the same screen, and every field one of
- * them sets the other has to answer for.
+ * These live together rather than in the screens that call them, since a
+ * catalogued book and a queued capture are read from different places and
+ * land on the same screen, and every field one of them sets the other has
+ * to answer for.
  */
 
 import { api, draftFromBook, draftFromCapture, type Capture, type LookupResponse } from '../lib/api'
@@ -24,31 +23,20 @@ import { useBrowsing } from './browsing'
 
 export interface OpenBook {
   /**
-   * Look at a book, which is not the same as picking it up (#315).
+   * Look at a book, which is not the same as picking it up. `openBook`
+   * below hands a book to the review screen, where a record is corrected;
+   * this opens the book's own page, about the book itself.
    *
-   * `openBook` below hands a book to the review screen, which is where a record
-   * is corrected. This opens the book's own page, which is about the book: what
-   * it is, what can be done about it, and where it sits. Editing is one action
-   * on that page rather than the whole of it, and it goes through `openBook`.
-   *
-   * Nothing is fetched here. The page reads what it needs, because most of what
-   * it draws is not what a review needs and asking for it on the way in would
-   * make every library tap wait for a book's whole history.
+   * Nothing is fetched here: the page reads what it needs, since most of
+   * what it draws is not what a review needs.
    */
   readonly viewBook: (id: number) => void
   /** Resolves true once the book is in hand, false when it could not be read. */
   readonly openBook: (id: number, from?: Origin) => Promise<boolean>
   /**
-   * Pick a book up in order to say where it now stands (#433).
-   *
-   * "It moved" on a book's own page used to open the form that corrects a
-   * record, which offers check out, edit, back to library and delete and no way
-   * at all to say where the book went. Nothing happened and nothing said why.
-   *
-   * There is one screen that places a book and this is the way to it, the same
-   * way a newly scanned book, a book coming back off the table and the notice
-   * saying this one is supposed to be moved all reach it. `docs/shelving.md`:
-   * "There is one way to say where a book is, not two."
+   * Pick a book up in order to say where it now stands. There is one
+   * screen that places a book, and this is the way to it: the same way a
+   * newly scanned book and a book coming back off the table both reach it.
    */
   readonly moveBook: (id: number) => Promise<void>
   readonly openCapture: (capture: Capture, anchor: QueueReturnAnchor) => void
@@ -65,25 +53,19 @@ export function useOpenBook(): OpenBook {
   const viewBook = (id: number) => {
     setError('')
     setViewing(id)
-    // A different book is a different record and its actions are at the top of
-    // the page. Landing halfway down somebody else's page reads as the tap not
-    // having worked.
+    // A different book is a different record; landing halfway down the
+    // page would read as the tap not having worked.
     window.scrollTo({ top: 0 })
     setRoute('book')
   }
 
   /**
-   * Open a catalogued book. Same detail view as a queued capture, so there is
-   * one place a book is looked at and edited rather than two.
+   * Open a catalogued book. `from` changes only the way out: back to the
+   * library listing, or back to the scanner for the next book off the pile.
    *
-   * `from` changes the way out and nothing else: back to the library listing
-   * you were browsing, or back to the scanner for the next book off the pile.
-   * Everything the page offers to do comes from the book itself.
-   *
-   * It answers whether the book actually came in, which `moveBook` below reads:
-   * a failure leaves the error banner and the screen the caller was on, and
-   * routing onwards from a book that was never picked up would put the shelving
-   * step in front of somebody with nothing in their hands.
+   * Resolves false on failure, leaving the screen the caller was on:
+   * `moveBook` below reads this so it never routes onward from a book that
+   * was never picked up.
    */
   const openBook = async (id: number, from: Origin = 'library'): Promise<boolean> => {
     book.endReviewSession()
@@ -94,13 +76,10 @@ export function useOpenBook(): OpenBook {
       const { book: found, authors } = await api.getBook(id)
       const loaded = draftFromBook(found)
       /*
-       * A filing name the heuristic would not produce is an override, and must
-       * survive the round trip or the book moves on save.
-       *
-       * Read off the credit rather than off the row (#227). What the
-       * first-listed name files under is a fact about the alias, so this is the
-       * model rather than a copy of it, and it is the same value the shelf is
-       * ordered by.
+       * A filing name the heuristic would not produce is an override, and
+       * must survive the round trip or the book moves on save. Read off
+       * the credit rather than the row, since that is the same value the
+       * shelf is ordered by.
        */
       const derived = filingName(loaded.authors.split(',')[0]?.trim() ?? '')
       const files = authors[0]?.filingName ?? ''
@@ -128,9 +107,8 @@ export function useOpenBook(): OpenBook {
       })
       book.setExamined((found.cropped ?? '').split(',').filter(Boolean) as Slot[])
       book.setShots({})
-      // Reached from the shelves, not the queue: the anchor a previous book
-      // left behind is not where this one goes back to. `from` above already
-      // says where that is.
+      // Reached from the shelves, not the queue: any anchor a previous book
+      // left behind does not apply here.
       setQueueReturn(null)
       setRoute('review')
       return true
@@ -146,13 +124,11 @@ export function useOpenBook(): OpenBook {
   }
 
   /**
-   * Open a queue item in the review pane, pre-filled from its lookup and from
-   * whatever anybody has already worked out about it.
-   *
-   * This is the receiving half of the handoff: `draftFromCapture` lays what a
-   * person stated over what the worker read, so somebody picking a book up
-   * after somebody else put it down starts from their work rather than from
-   * the photographs again.
+   * Open a queue item in the review pane, pre-filled from its lookup and
+   * from whatever anybody has already worked out about it. `draftFromCapture`
+   * lays what a person stated over what the worker read, so somebody
+   * picking a book up after somebody else put it down starts from their
+   * work rather than the photographs again.
    */
   const openCapture = (capture: Capture, anchor: QueueReturnAnchor) => {
     book.endReviewSession()
@@ -167,9 +143,8 @@ export function useOpenBook(): OpenBook {
     book.setIdentified(Boolean(loaded.title))
     book.setDraft(loaded)
     book.captureOnServerRef.current = loaded
-    // What the photographs produced, carried through to the screen where
-    // somebody has to work the book out. It is not laid over the draft: see
-    // the state's own comment, and #147.
+    // What the photographs produced, carried through for reference. Not
+    // laid over the draft; see the state's own comment.
     book.setEvidence({ coverText: capture.cover_text, note: capture.note })
     book.setThumbs({
       front: capture.front_image ? `/api/covers/${capture.front_image}` : undefined,
@@ -183,8 +158,7 @@ export function useOpenBook(): OpenBook {
     // The photos already live on the server; do not re-upload them on save.
     book.setShots({})
     // Came from the queue, so finishing or abandoning shelving lands back
-    // there, near where this capture sat. The scanner is not where this book
-    // came from, whatever the last book on this screen arrived through.
+    // there, regardless of where the previous book on this screen came from.
     book.setOrigin('queue')
     book.setNotice('')
     setQueueReturn(anchor)
@@ -192,11 +166,10 @@ export function useOpenBook(): OpenBook {
   }
 
   /**
-   * Open a book from the library, remembering where the library was.
-   *
-   * The anchor is kept in navigation rather than in ShelfView because ShelfView
-   * is unmounted the moment the book opens, which is exactly why it cannot
-   * remember anything itself. Same arrangement as the queue's (#47).
+   * Open a book from the library, remembering where the library was. The
+   * anchor is kept in navigation rather than in `ShelfView`, since
+   * `ShelfView` is unmounted the moment the book opens and could not
+   * remember anything itself.
    */
   const openFromLibrary = (id: number, anchor: LibraryReturnAnchor) => {
     setLibraryReturn(anchor)
@@ -204,20 +177,18 @@ export function useOpenBook(): OpenBook {
   }
 
   /**
-   * Jump from the book on screen to another one standing next to it.
+   * Jump from the book on screen to another one standing next to it. The
+   * row drawn on the detail view is the shelf, so tapping a spine in it is
+   * walking along the shelf rather than navigating away; where the way out
+   * leads is unchanged.
    *
-   * The row drawn on the detail view is the shelf, so tapping a spine in it
-   * is walking along the shelf rather than navigating away (#81). Where the
-   * way out leads is unchanged: you are still in whatever you came from.
-   *
-   * The library's memory of your place moves along with you, so leaving lands
-   * on the book you ended on rather than the one you first opened.
+   * The library's memory of your place moves along with you, so leaving
+   * lands on the book you ended on rather than the one you first opened.
    */
   const openNeighbour = (id: number) => {
     setLibraryReturn((current) => (current ? { ...current, bookId: id } : current))
-    // A different book is a different record, and its actions are at the top
-    // of the page. Landing halfway down someone else's page reads as the tap
-    // not having worked.
+    // A different book is a different record; landing halfway down the
+    // page would read as the tap not having worked.
     window.scrollTo({ top: 0 })
     void openBook(id, book.origin)
   }

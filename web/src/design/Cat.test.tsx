@@ -1,25 +1,7 @@
 /**
- * The cat, as a component with two axes rather than as a picture (#410).
- *
- * Three things are checked and they are different in kind.
- *
- * **Nothing that was already drawn changed.** He is in the corner, in the
- * empty slot, on the confirmation and at the end of a run, and a component
- * gaining behaviour that quietly altered any of those would be found by
- * somebody opening a screen rather than by a red test. So the class attribute
- * of a cat nobody asked anything of is pinned exactly.
- *
- * **The tables are complete.** A fifth pose is one entry in `BOX` and one in
- * `DRAW`, which is the whole of what "we want to be able to expand it" asks
- * for, and the failure mode of that shape is a pose added to one table and not
- * the other. That is a typecheck today and a runtime hole the moment either
- * table stops being a `Record`, so it is checked here as well.
- *
- * **A behaviour is a class and a repeat, and nothing else.** What it does is a
- * fact about frames, and frames are watched in a browser:
- * `e2e/features/the-cat-is-alive.feature` is where "the tail moves" and "it
- * stops for somebody who asked for less motion" are answered. Rendering markup
- * cannot answer either, and a test that claimed to would be worse than none.
+ * Checks structure only: the class, the tables, and the repeat variable. What
+ * the animation actually does is answered in
+ * `e2e/features/the-cat-is-alive.feature`, since rendered markup can't show it.
  */
 
 import { readFileSync } from 'node:fs'
@@ -51,9 +33,8 @@ describe('a cat nobody asked anything of', () => {
   })
 
   it('draws each of the four it drew before at exactly the size it drew them', () => {
-    // The proportions per pose, which is the one thing a caller relies on: it
-    // picks a height and the width follows. A pose whose box moved would move
-    // the cat in a shelf slot, on a confirmation and in the corner at once.
+    // A caller picks a height and the width follows; a pose whose box moved
+    // would shift the cat everywhere it's already placed.
     const drawn = (pose: CatPose, size: number) =>
       tag(renderToStaticMarkup(<Cat pose={pose} size={size} />))
 
@@ -89,9 +70,9 @@ describe('a pose is a drawing', () => {
     expect(markup, 'the lying cat has no tail to put behind anything')
       .toContain('wf-cat__sweep')
     expect(markup, 'nothing can ask where the lying cat ends').toContain('wf-cat__rest')
-    // Twice as tall as he is, and that is the pose (#427): the top half is cat
-    // and the bottom half is tail, so a screen puts the middle of this box on
-    // the top edge of whatever he is lying on and the rest goes behind it.
+    // Twice as tall as he is: the top half is cat, the bottom half is tail, so
+    // a screen positions the middle of this box on the shelf edge and lets
+    // the rest hang behind it.
     expect(tag(markup)).toContain('width="102" height="92"')
   })
 
@@ -120,9 +101,6 @@ describe('a behaviour is what he is doing', () => {
   })
 
   it('says how often to repeat once, for every behaviour there will ever be', () => {
-    // `--cat-repeat` is the whole of loop-or-once, so a behaviour written next
-    // year gets both answers without this file or `Cat` being touched. Checked
-    // against the stylesheet because that is where the promise is kept.
     const css = library()
 
     expect(css).toMatch(/\.wf-cat--loop\s*\{[^}]*--cat-repeat:\s*infinite/)
@@ -142,10 +120,6 @@ describe('a behaviour is what he is doing', () => {
   })
 
   it('stops entirely for somebody who has asked for less motion', () => {
-    // The claim that this actually stops the drawing is answered by watching
-    // frames in a browser. What is answered here is that the rule exists and
-    // reaches every part of him, because it is the kind of rule that gets lost
-    // in a stylesheet nobody re-reads.
     const reduced = library().match(
       /@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{[\s\S]*?\n\}/,
     )?.[0] ?? ''
@@ -158,8 +132,8 @@ describe('a behaviour is what he is doing', () => {
 })
 
 function library(): string {
-  // Read rather than imported: this is a plain stylesheet, and the check is
-  // about what is written in it.
+  // Read rather than imported, since the check is about what is literally
+  // written in the stylesheet.
   const here = new URL('.', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
   return readFileSync(join(here, 'library.css'), 'utf8')
 }

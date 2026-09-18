@@ -1,17 +1,8 @@
 /**
- * Reading a range's boundaries, stated without a database.
- *
- * Every case here is about `position`, because that is the order a reader meets
- * the boundaries in and therefore what decides which run of books each shelf
- * label names. `web/infrastructure/shelving/separator-repository.test.ts`
- * asserts the same rule from the other end, on real rows; these run in
- * microseconds and say what the rule *is*.
- *
- * **The renumbering cases are gone (#232), deliberately.** A boundary is the
- * `area` it opens and its position is where that area sits in the run, so the
- * ordinals are contiguous by construction and `without` no longer computes a
- * renumbering to keep them that way. What is left is the part that was ever a
- * decision: which boundary goes, and whether this range has one at all.
+ * Reading a range's boundaries, stated without a database. Every case here is
+ * about `position`, since that decides which run of books each shelf label
+ * names. `web/infrastructure/shelving/separator-repository.test.ts` asserts
+ * the same rule against real rows.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -55,9 +46,7 @@ describe('removing a boundary', () => {
   })
 
   it('finds it by id, so a range whose positions had collided still answers', () => {
-    // Two removals racing each other used to leave two boundaries sharing a
-    // position. Identity is the id rather than the ordinal, so which boundary
-    // is going does not depend on the numbering being in good order.
+    // Identity is the id, not the ordinal, so which boundary goes does not depend on the numbering being in good order.
     const boundaries = RangeSeparators.of('fiction', [at(1, 0), at(2, 1), at(3, 1), at(4, 2)])
     expect(boundaries.without(3)).toEqual(at(3, 1))
   })

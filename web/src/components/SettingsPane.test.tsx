@@ -1,30 +1,4 @@
-/**
- * Settings, which had to be a screen that changes real things and not a page of
- * switches.
- *
- * Three kinds of check, and each is a different way this screen goes wrong.
- *
- * **It offers what a collection can actually be ordered by, and no more.** The
- * area's ordering screen offers five; two of those cannot apply to a whole
- * collection and the server refuses both. A screen offering a choice the server
- * refuses is a control that fails when it is used, which is worse than one that
- * is not there.
- *
- * **It draws what is stored rather than what was last pressed.** A settings
- * screen showing the wrong current value is the one defect that makes every
- * other thing on it untrustworthy, and it is the one that arrives the day
- * somebody optimises the re-read away.
- *
- * **It promises no account.** The corner above it is a profile icon now, and
- * the owner's instruction was explicit: no sign-in, no sign-out, no account
- * name, and nothing greyed out and labelled coming soon. That is the kind of
- * thing a helpful edit adds in six months, so it is checked as words rather
- * than described in a comment.
- *
- * Rendered as markup rather than driven in a browser, the way
- * `HomePane.test.tsx` does it: this project has no DOM in its test setup and
- * this pane holds no state.
- */
+/** Rendered as markup rather than driven in a browser: this project has no DOM in its test setup, and this pane holds no state. */
 
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
@@ -64,7 +38,7 @@ function catalogue(over: Partial<SourceStanding> & { source: string }): SourceSt
   }
 }
 
-/** The four catalogues, in the state a test puts them in (#348). */
+/** The four catalogues, in the state a test puts them in. */
 function catalogues(
   over: Partial<Record<string, Partial<SourceStanding>>> = {},
   googleBooksKeyConfigured = true,
@@ -104,15 +78,7 @@ function drawn(over: {
 /** The words on the screen, with the markup and therefore the class names gone. */
 const words = (markup: string): string => markup.replace(/<[^>]*>/g, ' ')
 
-/**
- * One segmented control, by the name it carries.
- *
- * There are two of them on this screen now, one per answer the phone
- * remembers, so "exactly one option is marked" has to be asked of a control
- * rather than of the page. Asking it of the page passed while there was one
- * and would pass again on a screen where one control had both options lit and
- * the other had none.
- */
+/** Needed because there are two segmented controls on this screen: asking "exactly one option is marked" of the whole page would pass even if one control had two marked and the other had none. */
 function segmented(markup: string, label: string): string {
   const found = markup.match(
     new RegExp(`<div class="wf-seg" role="group" aria-label="${label}">.*?</div>`, 's'),
@@ -130,14 +96,9 @@ describe('how your books are ordered', () => {
     expect(said).toMatch(/By the year it came out/)
   })
 
-  /*
-   * The two that are refused, and each for its own reason. `inherit` has
-   * nothing above a collection to ask, which is a check constraint on the
-   * column. `tag` files a whole house by an accident of the vocabulary and its
-   * own seed row has said "Never the collection default" since the table was
-   * written. Both come off `COLLECTION_STRATEGIES`, and offering either would
-   * be a button the server answers 400 to.
-   */
+  // `inherit` is refused by a check constraint on the column; `tag` is
+  // refused by its own seed row, since filing a whole house by tag is an
+  // accident of vocabulary rather than a deliberate ordering.
   it('offers neither of the two the server refuses', () => {
     const markup = drawn()
 
@@ -147,9 +108,6 @@ describe('how your books are ordered', () => {
   })
 
   it('draws no option that is present and unpressable', () => {
-    // The drawing had "By tag" greyed out under "Not ready to be offered yet".
-    // It is not unfinished, it is not for this question, and a permanently
-    // greyed row is a promise nobody will keep.
     expect(drawn()).not.toMatch(/wf-choice__opt--off/)
   })
 
@@ -173,8 +131,6 @@ describe('how your books are ordered', () => {
   })
 
   it('says nothing about the order until the room has answered', () => {
-    // Drawing "By the author" over a collection ordered by title is a setting
-    // showing somebody the wrong answer, which is worse than showing none.
     const markup = drawn({ room: null })
 
     expect(markup).not.toMatch(/wf-choice/)
@@ -204,17 +160,6 @@ describe('which hand you hold the phone in', () => {
   })
 })
 
-/**
- * Which picture of a book comes first, which is the one setting on this screen
- * that arrived because a screen elsewhere wanted it (#365).
- *
- * The same two checks the hand gets, because they are the two ways a setting
- * lies: drawing something other than what is stored, and not saying what
- * choosing it does. The third is this one's own, and it is the sentence about
- * a book with no downloaded cover. Most books in a young collection have none,
- * so somebody who chooses the downloaded one and then opens four books that
- * ignore the choice needs that said on the screen where they chose.
- */
 describe('which picture of a book comes first', () => {
   it('draws the answer that is stored as the one that is on', () => {
     const said: Record<FirstPicture, RegExp> = {
@@ -246,16 +191,9 @@ describe('which picture of a book comes first', () => {
   })
 
   it('never calls the downloaded picture the catalogue one', () => {
-    /*
-     * The word the model uses for that picture is "catalogue" and no screen
-     * says it to anybody; the book page calls it the downloaded one.
-     *
-     * **Asked of this section rather than of the page**, which it was until
-     * #348 put a card about the book catalogues on the same screen. That card
-     * uses the word in its ordinary sense, the one the first screen's
-     * "Catalogued" count has always used, so a page-wide ban was banning two
-     * different words at once and would have made the wrong one the casualty.
-     */
+    // Scoped to this section rather than the whole page: the catalogues card
+    // elsewhere on this screen uses the word "catalogue" in its ordinary
+    // sense, so a page-wide check would ban that too.
     const markup = drawn()
     const from = markup.indexOf('Which picture of a book comes first')
     const to = markup.indexOf('either way.')
@@ -285,26 +223,8 @@ describe('the card at the foot', () => {
   })
 })
 
-/**
- * Where the catalogues are named, which is the second half of #348's reader.
- *
- * The first screen carries the news and this carries the names, which is #504's
- * split applied to a different pair of facts. There the names were books and
- * went where books live; here they are the catalogues themselves, so they go
- * where the app's own arrangements are.
- *
- * The sentences are `lib/catalogueWords.test.ts`'s. What is asked here is that
- * they reach this screen, that every catalogue is on it including the ones that
- * have done nothing, and that nothing about a key beyond its existence is.
- */
 describe('where your books are described from', () => {
   it('names every catalogue, including the ones nobody has asked', () => {
-    /*
-     * The rule the whole issue produced, at the last place it could still be
-     * lost. "Google Books was asked and described nothing" and "Google Books is
-     * not on this screen" read very differently, and the second is
-     * indistinguishable from a phone nobody has scanned a book on.
-     */
     const said = words(drawn())
 
     for (const source of ['Open Library', 'Google Books', 'Library of Congress', 'K10plus']) {
@@ -325,8 +245,7 @@ describe('where your books are described from', () => {
   })
 
   it('tells a catalogue that refused from one that failed, on one screen', () => {
-    // The pair that used to be one number. Both are "did not answer" and only
-    // one of them is answered by anything a person can do.
+    // Both are "did not answer", but only one is something a person can act on.
     const said = words(drawn({
       lookups: catalogues({
         'Google Books': { asked: 12, silent: 12, declined: 12 },
@@ -344,8 +263,7 @@ describe('where your books are described from', () => {
 
     const without = words(drawn({ lookups: catalogues({}, false) }))
     expect(without).toContain('without a key')
-    // And where one is set, which is not here: a field for a secret on a phone
-    // is what this card exists instead of.
+    // Deliberately not a field for a secret on a phone: a key is set where the server runs.
     expect(without).toContain('where the server runs, not here')
   })
 
@@ -358,8 +276,6 @@ describe('where your books are described from', () => {
   })
 
   it('draws no card at all when the read has not answered', () => {
-    // A card of noughts built from a failed request would claim every catalogue
-    // had been asked nothing, which is a claim and not a silence.
     expect(words(drawn({ lookups: null })))
       .not.toContain('Where your books are described from')
   })
