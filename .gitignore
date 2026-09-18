@@ -15,6 +15,9 @@ __pycache__/
 # `docs/process/working-an-issue.md` under merge discipline.
 .claude/*
 !.claude/settings.json
+# The `/watch-annotations` command travels with the checkout for the same
+# reason: a session started in a worktree only sees that worktree's skills.
+!.claude/skills/
 
 # Scan output: the catalogue, the cover photos, and local overrides.
 books.db

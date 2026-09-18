@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import App from './App'
 import { GateProvider } from './app/gate'
 import { galleryRoute } from './design/gallery/route'
+import { wantsAnnotating } from './annotating'
 import './styles.css'
 /*
  * The design system, which the app wears on the screens that have been
@@ -34,6 +35,25 @@ import './design/library.css'
  * part of that bargain: they are above, because the app draws with them.
  */
 const Gallery = lazy(() => import('./design/gallery/Gallery'))
+
+/**
+ * The Agentation toolbar, for reviewing screens with a listening Claude
+ * session. See `annotating.ts` for the switch and
+ * `docs/process/annotating.md` for the loop.
+ *
+ * `import.meta.env.DEV` is a literal Vite replaces at build time, so the
+ * production bundle drops this branch and never carries the package. The
+ * endpoint is the `agentation-mcp` HTTP server, which listens on 4747 unless
+ * told otherwise.
+ */
+const Annotating =
+  import.meta.env.DEV && wantsAnnotating(window.location.search, window.localStorage)
+    ? lazy(() =>
+        import('agentation').then(({ Agentation }) => ({
+          default: () => <Agentation endpoint={import.meta.env.VITE_AGENTATION_ENDPOINT ?? 'http://localhost:4747'} />,
+        })),
+      )
+    : null
 
 /**
  * Which of the two the address bar is asking for.
@@ -93,5 +113,10 @@ if (!container) throw new Error('#root is missing from index.html')
 createRoot(container).render(
   <StrictMode>
     <Root />
+    {Annotating && (
+      <Suspense fallback={null}>
+        <Annotating />
+      </Suspense>
+    )}
   </StrictMode>,
 )
