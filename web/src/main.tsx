@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import App from './App'
 import { GateProvider } from './app/gate'
 import { galleryRoute } from './design/gallery/route'
+import { wantsAnnotating } from './annotating'
 import './styles.css'
 /*
  * Every rule in the design system is `.wf` or `wf-` prefixed and no design system class name
@@ -15,6 +16,16 @@ import './design/library.css'
 
 /** Lazy so the working app does not carry the redesign's screens in its bundle. */
 const Gallery = lazy(() => import('./design/gallery/Gallery'))
+
+/** The Agentation toolbar. Vite replaces `import.meta.env.DEV` at build time, so the production bundle never carries the package. See `docs/process/annotating.md`. */
+const Annotating =
+  import.meta.env.DEV && wantsAnnotating(window.location.search, window.localStorage)
+    ? lazy(() =>
+        import('agentation').then(({ Agentation }) => ({
+          default: () => <Agentation endpoint={import.meta.env.VITE_AGENTATION_ENDPOINT ?? 'http://localhost:4747'} />,
+        })),
+      )
+    : null
 
 /** A hash is enough: the server never sees it, and the phone's back button walks the gallery for free because the browser keeps a history of hashes. */
 function Root() {
@@ -55,5 +66,10 @@ if (!container) throw new Error('#root is missing from index.html')
 createRoot(container).render(
   <StrictMode>
     <Root />
+    {Annotating && (
+      <Suspense fallback={null}>
+        <Annotating />
+      </Suspense>
+    )}
   </StrictMode>,
 )
