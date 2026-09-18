@@ -1,54 +1,12 @@
 /**
- * That no test file empties the catalogue by naming the tables it can think of.
+ * No test file empties the catalogue by naming its own tables in a
+ * `beforeEach` or `beforeAll`; see AGENTS.md for why `openTestDatabase()` is
+ * the required reset.
  *
- * ## Why this is a test rather than a paragraph
- *
- * `AGENTS.md` has said since #343 that `openTestDatabase()` in a `beforeEach` is
- * the whole reset and that a file should not write its own. Twelve files wrote
- * their own anyway, and #529 was filed about six of them; the sweep that fixed
- * those found the other six standing beside them. Every one of those lists was
- * correct on the day it was typed and wrong by the time somebody read it.
- *
- * That is not carelessness, it is arithmetic. There are 32 migrations under
- * `infrastructure/db/migrations` today and there were 6 tables when the first
- * of these lists was written. **A list of tables is stale from the moment it is
- * written**, because the thing it has to agree with is a folder anybody may add
- * to, and nothing connects the two. The failure is silent in the direction that
- * matters: a list that has fallen behind breaks nothing until a test writes into
- * a table nobody listed, and then it breaks a *different* test, usually one
- * added months later by somebody who has no reason to look at the `beforeEach`.
- * #452 spent a pull request on exactly that and worked around it.
- *
- * So the argument lives here, where it is checked, rather than only in a
- * document where it can be true and unread.
- *
- * ## What is actually being asked
- *
- * Not "do not write `TRUNCATE`". A `TRUNCATE` or a `DELETE` inside a test is
- * ordinary: `backup.pg.test.ts` empties `books` mid-test to insert the same rows
- * in the other order, and that emptying *is* the test. What is refused is a
- * *reset*: a hook that runs before every test and puts the database back by
- * naming what to remove. `openTestDatabase()` puts it back by copying what the
- * schema left, so a table added by a migration is covered by having been added.
- *
- * ## What this would not have caught, said plainly
- *
- * It reads text, so it sees the shapes this repository has actually written and
- * not the idea behind them.
- *
- * - A reset extracted into a helper the hook merely calls is invisible here.
- *   The hook would read `await emptyEverything(db)` and this sweep would pass
- *   it. That is the obvious next site, and the honest answer is that a search of
- *   the source cannot find it; what would is asking a database what a hook left
- *   behind, which is a different instrument and would have to be added beside
- *   this one.
- * - A reset spelled some other way — `db.run(sql)` where `sql` is a constant
- *   defined above, an `UPDATE` that puts a column back, dropping a schema — is
- *   not in the two words below.
- * - It says nothing about a file that has no reset at all and needs one.
- *
- * It catches the shape that has gone wrong twelve times, which is worth having
- * even though it is not the whole idea.
+ * This is a line-based text scan, not a semantic one: a reset extracted into
+ * a helper function, or spelled some other way than TRUNCATE or DELETE, is
+ * invisible to it. It catches the one shape that has gone wrong repeatedly,
+ * not the whole idea.
  */
 
 import { readdirSync, readFileSync, statSync } from 'node:fs'
@@ -76,12 +34,11 @@ function everyTestFile(from: string): string[] {
 /**
  * The body of every `beforeEach` or `beforeAll` in a file.
  *
- * Line-based on purpose. A hook here opens on a line of its own and closes on a
- * line at the same indentation beginning with `}`, which is how every file in
- * this project is written and what Vitest's own examples look like. Where that
- * guess is wrong it runs past the end of the hook, which reports too much rather
- * than too little; a reset that hid because the scanner stopped early is the one
- * outcome worth ruling out.
+ * Line-based on purpose: a hook opens on a line of its own and closes on a
+ * line at the same indentation beginning with `}`. Where that guess is
+ * wrong it runs past the end of the hook, reporting too much rather than too
+ * little, since a reset that hid because the scanner stopped early is the
+ * one outcome worth ruling out.
  */
 function everyResetHook(source: string): { line: number; body: string }[] {
   const lines = source.split('\n')

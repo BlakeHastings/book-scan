@@ -1,50 +1,9 @@
 /**
- * Every tag somebody keeps, and the way to narrow the library to one.
- *
- * ## Groups, because twenty-three flat chips do not fit and would be lying
- *
- * Fiction and non-fiction were a two-button control at the top of the library,
- * and the owner named what was wrong with that: they were "an opinionated
- * approach just due to what we were needing to do at the time", and they are now
- * two tags out of however many somebody keeps.
- *
- * The hierarchy is in the slug, Obsidian style, so the tags really are a tree
- * whether or not a screen draws one. Groups, shut, fit above the fold with room
- * to spare; one opens at a time. That is the whole answer to the count and it is
- * the same answer at forty.
- *
- * **The slug is never drawn.** It is the identity, the label is what anybody
- * reads, and the nesting is an indent and a line of words. A pinned test refuses
- * a screen that renders something shaped like a slug, and `lib/tagTree.ts` is
- * where a tag with no label of its own becomes words rather than its own key.
- *
- * ## Every count is the number choosing it produces
- *
- * The number beside a tag counts the books under it as well as the books
- * carrying it, because choosing Fantasy shows the book somebody tagged Urban
- * fantasy. A count that disagreed with the list one tap later would be the
- * screen contradicting itself.
- *
- * ## The third door, and why it is here rather than on a book (#452)
- *
- * Two doors onto naming a tag already existed and both of them start with a
- * book: #377 while cataloguing one, #433 on one already shelved. #400 let a
- * placement rule ask for a tag nothing carries yet, so the rules have accepted a
- * word that does not exist since then and there was no way to make one on
- * purpose. Somebody setting up a bookcase for a subject before they own anything
- * in it is doing exactly the thing the rules already support.
- *
- * So this screen makes one, with the same panel and the same rule behind it that
- * the other two use. Nothing about what a word means is decided here.
- *
- * ## A word with no books on it is drawn, and says which kind it is
- *
- * It has to be drawn, or the person who just made one has no evidence it worked.
- * The list already showed one — `/api/tags` has always counted from `tag` rather
- * than from `book_tag` — so the question this had to answer was the other one:
- * two empty tags look identical in the table and are not the same thing. A word
- * a rule asks for is somebody's setup and is kept; a word nothing asks for is
- * litter and can be swept. The row says which, and only the second offers to go.
+ * The slug is never drawn: `lib/tagTree.ts` turns a tag with no label of its
+ * own into words rather than its own key, and a pinned test refuses a screen
+ * that renders something shaped like a slug. Every count includes books
+ * filed under a tag as well as books carrying it directly, so choosing a tag
+ * shows the same set the count claims.
  */
 
 import { useEffect, useState } from 'react'
@@ -65,13 +24,7 @@ import { TagNaming, type NamingWords } from './TagNaming'
 /** The two the app asks about every book, which are nobody's to make or sweep. */
 const GENRE_ANSWERS: string[] = [FICTION_SLUG, NON_FICTION_SLUG]
 
-/**
- * The panel's two book-shaped sentences, said about a word instead.
- *
- * "Whatever you say here, a rule can ask for" is kept word for word from the
- * door on a book, because it is the reason this door exists at all and it is
- * true on both of them.
- */
+/** "Whatever you say here, a rule can ask for" must stay word-for-word the same as the book door's prompt: it is true on both. */
 const ABOUT_A_WORD: NamingWords = {
   title: 'Make a tag',
   asks: 'What are the books about?',
@@ -79,12 +32,6 @@ const ABOUT_A_WORD: NamingWords = {
   wrong: 'That tag could not be made.',
   doing: 'Making it...',
   genreReads: 'That is one the app asks about a book.',
-  /*
-   * The same refusal as on a book and a different reason, because the reason on
-   * a book is two buttons an inch above the box and there are none here. What is
-   * left is the true half: a genre is answered about a book, so it is answered
-   * where a book is.
-   */
   genreSaid: 'Fiction and non-fiction are the two this app asks about every book, '
     + 'and it already keeps both. They are answered on a book rather than made '
     + 'here.',
@@ -107,9 +54,8 @@ export function TagsPane() {
   const [namingError, setNamingError] = useState('')
   const [sweeping, setSweeping] = useState<TagRow | null>(null)
 
-  /* Read again after a write rather than patched in place, because what comes
-     back carries the two facts this screen draws that the write does not know:
-     the rolled-up count, and whether a rule asks for it. */
+  // Re-reads after a write rather than patching in place: the write's response
+  // carries neither the rolled-up count nor whether a rule asks for the tag.
   const read = () => api.tags()
     .then((answer) => { setTags(answer.tags); setError('') })
     .catch((caught) => setError((caught as Error).message))
@@ -123,16 +69,7 @@ export function TagsPane() {
     return () => { live = false }
   }, [])
 
-  /**
-   * Make the word, then read the list back.
-   *
-   * The panel offers tags this collection already keeps as well as a new one, so
-   * this is reached with a slug that already exists as readily as with one that
-   * does not. That is not a case to special-case: `POST /api/tags` is idempotent
-   * on the slug, an existing word answers the row already there, and the list
-   * comes back with it in. Anything cleverer here would be a second opinion
-   * about whether two words are one, which is `nameTag`'s and only `nameTag`'s.
-   */
+  /** `POST /api/tags` is idempotent on the slug; equality decisions belong to `nameTag` alone, not here. */
   const make = async (tag: { slug: string; label: string }) => {
     setBusy(true)
     setNamingError('')
@@ -143,15 +80,7 @@ export function TagsPane() {
       .finally(() => setBusy(false))
   }
 
-  /**
-   * Sweep a word away, once somebody has said so out loud.
-   *
-   * The server decides whether it may go and this draws what it says. Both
-   * refusals are reachable from here even though the row that offered the sweep
-   * said neither applied: the list is a moment old, and a rule written on
-   * another screen in between is exactly the case where quietly taking the word
-   * would be this undoing somebody's setup.
-   */
+  /** Both server refusals stay reachable even though the row already filtered them out: the list can be a moment stale, so a rule added elsewhere in between must still block the sweep. */
   const sweep = async (tag: TagRow) => {
     setBusy(true)
     await api.forgetTag(tag.slug)
@@ -169,38 +98,19 @@ export function TagsPane() {
   const groups = groupsOf(matching)
   const chosen = new Set(narrowing.map((tag) => tag.slug))
 
-  /**
-   * Choosing a tag adds it and choosing it again takes it off.
-   *
-   * Two tags mean both of them, which is what the library's row says by wearing
-   * them side by side, and it is what the listing does with two of them.
-   */
   const pick = (tag: TagRow) => {
     setNarrowing(chosen.has(tag.slug)
       ? narrowing.filter((one) => one.slug !== tag.slug)
       : [...narrowing, { slug: tag.slug, label: labelOf(tag) }])
   }
 
-  /* A group opens when it is searched into, so a match is never behind a shut
-     door. Otherwise one opens at a time, which is what makes them fit. */
+  // Deliberate: while searching, every group opens regardless of key, so a
+  // match is never hidden behind a closed group.
   const isOpen = (key: string) => Boolean(looking) || key === open
 
-  /*
-   * The words with nothing standing under them, in the order the issue asks
-   * about them: the ones a rule keeps first, then the ones nothing keeps.
-   *
-   * Searched-into as well, so a screen full of matches does not sprout a section
-   * about words that are not among them.
-   *
-   * **The two genre answers are not in it**, which is the same exclusion
-   * `TagNaming` makes and for the same reason: they are what the app asks about
-   * every book rather than words anybody chose to keep, a rule has named both
-   * since the migration that made the furniture, and neither can ever be swept.
-   * Found by looking at this on a collection with no books in it, which is the
-   * one where they have no books either: the card said Fiction and Non-fiction
-   * were being kept because somebody was setting a bookcase up, which is a
-   * sentence about a decision nobody made.
-   */
+  // Computed from `matching` rather than `tags`, so a search does not surface
+  // empty tags outside the current results. Excludes the two genre answers,
+  // which nothing can ever sweep.
   const empty = matching.filter(
     (tag) => tag.books === 0 && !GENRE_ANSWERS.includes(tag.slug),
   )
@@ -220,9 +130,6 @@ export function TagsPane() {
       over={naming ? (
         <TagNaming
           vocabulary={tags}
-          /* Nothing is carried, because nothing is holding anything: the panel
-             leaves out what a book is already under so it never draws a target
-             that does nothing, and with no book there is nothing to leave out. */
           carried={[]}
           busy={busy}
           error={namingError}
@@ -253,10 +160,6 @@ export function TagsPane() {
 
       {error && <Nothing said="Your tags could not be read.">{error}</Nothing>}
 
-      {/* The sentence changed with the third door (#452). "A tag arrives when a
-          catalogue says what a book is, or when you do" was true and was a
-          description of something happening elsewhere; there is a way to make
-          one from here now, and it is the button under this. */}
       {!error && !loading && tags.length === 0 && (
         <Nothing said="Nothing has been tagged yet.">
           <p>
@@ -283,8 +186,8 @@ export function TagsPane() {
               key={tag.slug}
               name={labelOf(tag)}
               books={tag.books}
-              /* One step in for a tag inside another tag. Two steps is as deep
-                 as this goes, and the indent is the only thing saying so. */
+              // `under` is a boolean, so depth beyond two levels still gets one
+              // indent: two levels is as deep as this goes.
               under={depthOf(tag) > 1}
               on={chosen.has(tag.slug)}
               onPress={() => pick(tag)}
@@ -293,30 +196,11 @@ export function TagsPane() {
         </TagGroup>
       ))}
 
-      {/*
-        "Make a tag", not "Add a tag", which is what the same panel is opened by
-        on both the other doors. They are different acts and the library's own
-        rule is that no two things in it share a name: adding one puts the book
-        in your hand under a word, and this makes the word with nothing under it.
-        Somebody who read "Add a tag" here would be looking for the book.
-
-        It is under the groups rather than in the corner because the corner takes
-        one action and this screen has not got one to give up, and because the
-        end of the list is where the same control sits on both other doors.
-      */}
+      {/* Deliberately "Make a tag" rather than "Add a tag", which opens the same panel elsewhere: adding files a book under a word, this makes a word with no book under it. */}
       {!loading && !error && (
         <AddTag onPress={() => { setNamingError(''); setNaming(true) }}>Make a tag</AddTag>
       )}
 
-      {/*
-        The two kinds of empty word, which are the same row until something says
-        otherwise (#452).
-
-        Drawn here rather than on the rows above, because choosing a tag and
-        unmaking one are different acts and the row is already the target of the
-        first. A sweep inside it would be a second thing to press in the one
-        place somebody presses without reading.
-      */}
       {!loading && !error && empty.length > 0 && (
         <Card
           title="Words with no books on them"

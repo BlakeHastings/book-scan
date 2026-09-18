@@ -2,56 +2,17 @@
  * Describing the furniture: adding a piece, naming it, cutting it into areas,
  * reordering them, and taking one away.
  *
- * The tables have been here since #184 and nothing could touch them. This is the
- * API the owner asked for first, in his words: getting the fixture system
- * working so he can model the furniture he actually owns and then move the
- * non-fiction out of the living room. **There is no screen here on purpose**;
- * the screens are drawn in the gallery and are somebody else's issue.
- *
- * ## Every answer carries the labels it changes
- *
  * A label is derived at read time from a fixture's number and name and an area's
- * ordinal and name, and is stored nowhere. So renaming a bookcase relabels every
- * plank on it and reordering its areas relabels the ones that shuffled, and
- * neither moves a book. Each write here answers with `becomes`, every label that
- * reads differently afterwards, old to new. That is what a rename owes: the
- * recorded location of a book is an area row rather than a string, so nothing is
- * stranded, and `becomes` is how somebody sees that for themselves rather than
- * being told.
+ * ordinal and name, and is stored nowhere, so renaming a bookcase relabels every
+ * plank on it and moves no book. Each write here answers with `becomes`, every
+ * label that reads differently afterwards, old to new.
  *
- * ## Removing an area is a merge, and it writes assignments
- *
- * `domain/placement/arrangement.ts` works out which area takes the books in.
- * What happens to those books is #185's rule and nothing else: an `assigned` row
- * naming the area that absorbed them, written only where that differs from where
- * the book already is. **No placement is deleted and no book is.** The removed
- * area is retired rather than dropped whenever anything names it, so a book
- * recorded on `2C` is still recorded on `2C`, and the difference between what
- * the rules now want and where somebody last saw it is exactly the
- * needs-attention list this app already keeps.
- *
- * **`pinned` beats every rule, forever.** A pinned book is left alone by all of
- * this, and every answer says how many it left alone rather than quietly
- * counting them among the ones that moved.
- *
- * ### Why an assignment and not a placement
- *
- * The tempting alternative is to write `placed` rows, on the reasoning that the
- * books physically did not move and the area they are standing in is now the one
- * next door, so the count on that area ought to go up straight away. It is not
- * this API's to write. **`PATCH /api/books/:id/location` is the only route that
- * changes where the catalogue thinks a book is**, which is the same rule
- * `Shelves.moveAcrossBoundary` keeps when it moves a boundary under a book, and
- * it is what stops the app claiming somebody said something they did not. So the
- * removal records where the books belong and a person confirms where they are,
- * exactly as a boundary move already does.
- *
- * ## `pinned` is why a placement would be wrong as well as unearned
- *
- * A `placed` row clears the pin, because a person putting a book somewhere is a
- * later decision than pinning it there. Writing one per book on a merge would
- * therefore silently unpin every pinned book in the area, which is the one thing
- * this model promises cannot happen.
+ * Removing an area is a merge, and it writes an `assigned` row naming the area
+ * that absorbed the books rather than a placement:
+ * `PATCH /api/books/:id/location` is the only route that changes where the
+ * catalogue thinks a book is. A `placed` row also clears the pin, so writing one
+ * per book on a merge would unpin every pinned book in the area. `pinned` beats
+ * every rule, and every answer says how many books it left alone.
  */
 
 import {
@@ -87,15 +48,6 @@ import { withPhotographs, type PhotographFields } from './photographs'
 import { tagCounts } from '../infrastructure/books/tag-counts'
 import { recordWhatMoved, whereTheRunPutsThem } from './what-moved'
 
-/*
- * The refusal, and how one is said, moved out to `server/refusal.ts` (#332).
- *
- * It was written here and it was the better of the API's two ways of refusing:
- * six routes went through it and answered a malformed id with a clean 404 while
- * nineteen elsewhere hand-rolled the answer and 500'd. Nothing about it was
- * about bookcases, and its living in a module about bookcases is most of why
- * nobody else copied it. Re-exported so every existing importer is unchanged.
- */
 import { refuse, type Refused } from './refusal'
 import {
   CLAIMS_NOTHING, holdsSaid as phraseFor, ruleSaid, type SaidLine,
@@ -105,10 +57,6 @@ export { refuse, type Refused }
 
 /** The lock every write here takes, so two people rearranging one room queue. */
 export const FURNITURE_LOCK = 'furniture'
-
-// ---------------------------------------------------------------------------
-// Reading the room
-// ---------------------------------------------------------------------------
 
 const asFixture = (row: FixtureRow): Fixture => ({
   id: row.id,
@@ -128,32 +76,9 @@ const asArea = (row: AreaRow): Area => ({
 })
 
 /**
- * What a rule asks for, in the words a person reads rather than the slugs it
- * stores.
- *
- * Added for the screens (#313), which draw "what belongs here" on every area and
- * on every piece. Without it the furniture screen can say how many books stand
- * somewhere and not one word about why they are there, which is the question
- * that whole screen exists to answer.
- *
- * **A tag is named by its label and never by its slug.** `genre/non-fiction` is
- * an identity, and putting one on a screen is the same mistake as showing
- * somebody a row id. Where the vocabulary has no label for a slug the phrase
- * falls back to the rule's own name rather than to the string, so there is no
- * path by which a slug reaches a screen.
- */
-/**
  * One line of a rule on its way to a screen: what it asks, and whether anything
- * answers it yet.
- *
- * `carried` is how many books carry that tag, counting the ones under it, which
- * is the same rollup `/api/tags` answers with and the same query. **Zero is the
- * state a prepared shelf is in** (#392): somebody who clears a shelf and says it
- * is for comics before carrying a comic to it has written a rule that is waiting
- * rather than broken, and without this number the two read identically on the
- * page. It travels beside the label rather than being fetched by the screen,
- * because a page somebody is only reading should not have to pull the whole
- * vocabulary down to find out whether the rule it is drawing does anything.
+ * answers it yet. Zero carried is the state a prepared shelf is in, which is a
+ * rule waiting rather than a rule broken.
  */
 export interface RuleLineOut {
   operator: RuleOperator
@@ -171,53 +96,35 @@ export interface DescribedRule {
   /** What the place it points at reads as today. Derived, like every label. */
   place: string
   /**
-   * Which area or piece that is.
-   *
-   * A screen naming a piece says "Bookcase 4" where this says "4", because the
-   * label of a piece is its number and a number is not something anybody says
-   * out loud about furniture. Rather than spell that sentence a second time
-   * here, the id says which piece it is and the screen already knows how it
-   * says a piece.
+   * Which area or piece that is. The label of a piece is its number, and how a
+   * screen says a piece out loud is the screen's business, so this is only the
+   * id.
    */
   placeId: number | null
   enabled: boolean
   /**
-   * What it asks of a book, in the words a person reads.
-   *
-   * **Labels, and no slugs.** A rule is editable on the page of the place it is
-   * about since #384, and the obvious thing was to put the identity beside the
-   * label here so the screen could hand the lines straight back. It is not
-   * allowed: no slug leaves this route, and `furniture.routes.test.ts` holds the
-   * whole answer to `/genre\//` on every read. Writing has a read of its own,
-   * `GET /api/placement/rule`, which speaks identities because that is what it
-   * is for.
+   * What it asks of a book, in the words a person reads. Labels and no slugs: no
+   * slug leaves this route. Writing has a read of its own,
+   * `GET /api/placement/rule`, which speaks identities.
    */
   conditions: RuleLineOut[]
   /** The whole of it as one phrase: "Anything tagged Cookery". */
   said: string
   /**
-   * Which of the two stretches of books this rule is the one for, or null.
-   *
-   * **This is what makes the rule changeable from a screen** (#323).
-   * `POST /api/placement/run` retargets a rule by naming the books it claims,
-   * and `ruleForRange` is how it decides which row that is. A screen that had to
-   * work the pairing out for itself would be a second answer to which rule is
-   * which, so the answer travels with the rule instead.
-   *
-   * Null on any other rule, and a null is not a gap: it says this app has no way
-   * to point that rule somewhere else yet, which is the honest thing for a
-   * screen to say rather than offering a button that would refuse.
+   * Which of the two stretches of books this rule is the one for, decided by
+   * `ruleForRange` so that a screen does not work the pairing out for itself.
+   * Null on any other rule, which says this app has no way to point that rule
+   * somewhere else yet.
    */
   range: ShelfRange | null
 }
 
 /**
- * A rule's lines with the tags named, which is the one direction that is safe.
- *
- * The label is what a person reads; the slug is the identity and never reaches
- * a screen. An empty string is what a slug the vocabulary has no label for
- * answers, and `ruleSaid` falls back to the rule's own name rather than printing
- * it, so there is no path by which a slug is drawn.
+ * A rule's lines with the tags named, which is the one direction that is safe:
+ * the label is what a person reads and the slug is the identity, which never
+ * reaches a screen. An empty string is what a slug the vocabulary has no label
+ * for answers, and `ruleSaid` falls back to the rule's own name rather than
+ * printing it.
  */
 const linesOf = (rule: PlacementRule, labels: Map<string, string>): SaidLine[] =>
   rule.conditions.map((condition) => ({
@@ -230,10 +137,8 @@ const ruleHolds = (rule: PlacementRule, labels: Map<string, string>): string =>
 
 /**
  * The same lines with the count beside each one, which is what a screen draws.
- *
- * Separate from `linesOf` on purpose: `SaidLine` is what the phrase is built
- * from and a phrase has no use for a count, so the domain's shape stays the
- * shape of a sentence.
+ * Separate from `linesOf` so that `SaidLine`, which a phrase is built from,
+ * stays the shape of a sentence.
  */
 const conditionsOf = (
   rule: PlacementRule,
@@ -246,17 +151,11 @@ const conditionsOf = (
 }))
 
 /**
- * What a place holds, given every rule written on it.
- *
- * **Two rules on one place is how this app says "or"** (#384). The owner asked
- * for it: "it should be possible for the user to say 'this tag or that tag', as
- * well as 'this and that'." `domain/placement/rules.ts` had already answered
- * where it goes, in the same breath as refusing the boolean tree: "two ways of
- * saying a thing are two rules, which a screen can build". So `and` adds a line
- * to a rule and `or` adds a rule to the place, and neither is a nested group.
- *
- * The wording itself lives in `domain/placement/phrasing.ts`, because a screen
- * writing a rule has to draw this sentence for a rule that is not a row yet.
+ * What a place holds, given every rule written on it. Two rules on one place is
+ * how this app says "or": `and` adds a line to a rule and `or` adds a rule to
+ * the place, and neither is a nested group. The wording itself lives in
+ * `domain/placement/phrasing.ts`, because a screen writing a rule has to draw
+ * this sentence for a rule that is not a row yet.
  */
 export const holdsSaid = (
   rules: readonly PlacementRule[],
@@ -264,36 +163,19 @@ export const holdsSaid = (
 ): string => phraseFor(rules.map((rule) => ({ lines: linesOf(rule, labels), name: rule.name })))
 
 /**
- * What a rule is called, worked out from its own lines.
- *
- * **A rule is named by what it asks for.** Before this the names came out of
- * the migration that wrote the first two, and nothing could change a rule, so
- * "Fiction" was a name that could not go stale. Now that the lines are somebody
- * else's to change, a rule still called Fiction while asking for comic books
- * would be the app lying in every sentence it appears in: "Fiction, carrying
- * on", and the reason written against every assignment it makes.
- *
- * The seeded rules keep their names by arithmetic rather than by exception: the
- * fiction rule asks for one tag whose label is "Fiction", so this answers
- * "Fiction". A rule that asks for nothing is called nothing, which is the
- * schema's own default and is the honest answer for a rule there is nothing to
- * say about yet.
+ * What a rule is called, worked out from its own lines: a rule is named by what
+ * it asks for, so one still called Fiction while asking for comic books is not
+ * possible. A rule that asks for nothing is called nothing, which is the
+ * schema's own default.
  */
 export const ruleName = (lines: readonly { operator: RuleOperator; tag: string }[]): string =>
   lines.map((line) => line.tag).filter(Boolean).join(' and ')
 
 /**
  * What the place a rule points at reads as: the plank for an area rule, the
- * piece for a fixture rule.
- *
- * Named because a second caller needs it, and the alternative is a second
- * spelling of "the label, or the piece's label" (#430 item 1). A plan telling
- * somebody that another place already asks for these books has to say which
- * place, and it has to say it in the words that place's own card says.
- *
- * Empty for a rule pointing at furniture that is not standing, which is a rule
- * whose plank left the face. That is its own defect and this does not invent a
- * name to paper over it.
+ * piece for a fixture rule. Empty for a rule pointing at furniture that is not
+ * standing, which is its own defect and does not get a name invented to paper
+ * over it.
  */
 export function placeSaid(rule: PlacementRule, order: readonly Slot[]): string {
   const slot = order.find((one) => one.area.id === entryAreaOf(rule, order as Slot[]))
@@ -322,14 +204,10 @@ function describeRule(
 }
 
 /**
- * Every rule, described, keyed on its id.
- *
- * One place rather than a call per rule, because `range` is a fact about the
- * whole list: it is answered by `ruleForRange`, which picks **one** row per
- * stretch of books, and a rule that asked the question about itself could not
- * tell whether it was the one that got picked.
- *
- * Shared with `server/claim.ts`, which describes the rules that wanted one book.
+ * Every rule, described, keyed on its id. One place rather than a call per rule,
+ * because `range` is a fact about the whole list: `ruleForRange` picks one row
+ * per stretch of books, and a rule that asked the question about itself could
+ * not tell whether it was the one that got picked.
  */
 export function describeRules(
   order: readonly Slot[],
@@ -355,10 +233,7 @@ export async function tagLabels(db: Db): Promise<Map<string, string>> {
 
 /**
  * The vocabulary as the rules are judged by it: slug to how many books carry it.
- *
- * The same rollup `/api/tags` answers with, from the same query, because a rule
- * saying "nothing carries this yet" beside a tag screen saying 40 would be the
- * app disagreeing with itself about one word.
+ * The same rollup `/api/tags` answers with, from the same query.
  */
 export async function tagCarried(db: Db): Promise<Map<string, number>> {
   return new Map((await tagCounts(db)).map((one) => [one.slug, one.books]))
@@ -366,11 +241,9 @@ export async function tagCarried(db: Db): Promise<Map<string, number>> {
 
 /**
  * Which rules' books reach an area, and whether the area opens that stretch.
- *
- * **Plural since #384**, because two rules can be written on one place and that
- * is how this app says "or". They all open the same stretch and they all point
- * at the same area, so the stretch is one stretch: what changes is that the
- * sentence about what belongs there has to name both.
+ * Plural because two rules can be written on one place, which is how this app
+ * says "or": they open the same stretch and point at the same area, so what
+ * changes is that the sentence about what belongs there has to name both.
  */
 interface RunOwner {
   /** Every rule reaching here, the one about the smaller place first. */
@@ -379,14 +252,11 @@ interface RunOwner {
 }
 
 /**
- * The rule whose books reach each area, walking the collection in order.
- *
- * The same two breaks `runFrom` makes and for the same reasons: an area a rule
- * points at opens a run, and an area that orders itself opens one too, because a
- * continuous run only works while every area in it orders the same way. An area
- * that opens a run nothing points at carries no rule, and neither does anything
- * after it, which is the honest answer rather than the previous rule leaking
- * across a cut.
+ * The rule whose books reach each area, walking the collection in order. The
+ * same two breaks `runFrom` makes: an area a rule points at opens a run, and so
+ * does an area that orders itself, because a continuous run only works while
+ * every area in it orders the same way. An area that opens a run nothing points
+ * at carries no rule, and neither does anything after it.
  */
 function runOwners(order: readonly Slot[], rules: readonly PlacementRule[]): Map<number, RunOwner> {
   const entries = entryAreas(rules as PlacementRule[], order as Slot[])
@@ -412,12 +282,10 @@ function runOwners(order: readonly Slot[], rules: readonly PlacementRule[]): Map
 
 /**
  * What an area holds, said the way somebody standing in front of it would say
- * it.
- *
- * Four answers and no fifth: the rule that opens the run here, the run carrying
- * on from the area before, a rule that is turned off, and nothing at all. The
- * last one is not a gap: a piece nothing files onto is a piece somebody fills by
- * hand, which is exactly what a crate by the door is.
+ * it. Four answers and no fifth: the rule that opens the run here, the run
+ * carrying on from the area before, a rule that is turned off, and nothing at
+ * all. The last is not a gap: a piece nothing files onto is a piece somebody
+ * fills by hand.
  */
 function areaHolds(owner: RunOwner | undefined, labels: Map<string, string>): string {
   const reaching = owner?.rules ?? []
@@ -425,11 +293,10 @@ function areaHolds(owner: RunOwner | undefined, labels: Map<string, string>): st
 
   /*
    * A rule asking for nothing claims nothing, whether it is the rule of this
-   * area or of the piece the area stands on, and whether it is on or off. It is
-   * the first of the answers rather than the last because it is the one a name
-   * cannot carry: "carrying on" said of a rule that claims no book would be the
-   * sentence somebody halfway through writing one reads on every area after the
-   * one they are looking at.
+   * area or of the piece the area stands on, and whether it is on or off. First
+   * of the answers rather than last, because "carrying on" said of a rule that
+   * claims no book is what somebody halfway through writing one would read on
+   * every area after the one they are looking at.
    */
   const claiming = reaching.filter((rule) => rule.enabled && rule.conditions.length > 0)
   if (!claiming.length) {
@@ -468,11 +335,9 @@ export interface DescribedArea {
   note: string
   books: number
   /**
-   * True when the plank has been taken out and its row kept.
-   *
-   * It is not on the piece any more and it is not in `DescribedFixture.areas`.
-   * What it still has is books standing on it, which is why it is described at
-   * all: see `DescribedFixture.gone`.
+   * True when the plank has been taken out and its row kept. It is not on the
+   * piece any more and not in `DescribedFixture.areas`; what it still has is
+   * books standing on it. See `DescribedFixture.gone`.
    */
   gone: boolean
   /** What files here, in words. Never empty: "Put here by hand" is an answer. */
@@ -482,13 +347,10 @@ export interface DescribedArea {
   /** The rule whose books reach here, or null where none does. */
   rule: DescribedRule | null
   /**
-   * Every rule written **on this area**, which is a different question.
-   *
-   * `rule` is about the stretch of books: it may be the piece's rule, carrying
-   * on through here, and it is one because the stretch is one. This is what the
-   * area itself allows, and there can be more than one of them, because two
-   * rules on a place is how this app says "or" (#384). Empty is a real answer:
-   * an area nothing is written on takes what the piece sends it.
+   * Every rule written on this area, which is a different question from `rule`:
+   * that is about the stretch of books and may be the piece's rule carrying on
+   * through here. Empty is a real answer: an area nothing is written on takes
+   * what the piece sends it.
    */
   own: DescribedRule[]
 }
@@ -502,30 +364,18 @@ export interface DescribedFixture {
   sortStrategy: SortStrategy
   note: string
   /**
-   * Every book standing on this piece, wherever on it they are standing.
-   *
-   * **Including the ones on planks that have been taken out**, which is #401. It
-   * was the sum over the face, so a bookcase a run had been moved off reported
-   * nought books while forty-six were standing on it and the carry list was
-   * naming its planks. A piece of furniture accounts for what is on it whatever
-   * has become of the plank holding it up; `areas` is what the piece has, and
-   * this is what is on the piece.
+   * Every book standing on this piece, including the ones on planks that have
+   * been taken out: `areas` is what the piece has, and this is what is on the
+   * piece.
    */
   books: number
   /** The areas the piece has, in the order they sit on its face. */
   areas: DescribedArea[]
   /**
    * The planks that have been taken out and still have books standing on them.
-   *
-   * Kept apart from `areas` because they are two different facts and a screen
-   * says them differently: `areas` is what is on the piece, and this is what is
-   * left over from what used to be. Merging them would put a plank that is not
+   * Kept apart from `areas` because merging them would put a plank that is not
    * there into every count of the face, every reorder and every derived
-   * boundary, which is the whole of what retiring one is for.
-   *
-   * **A retired plank with nothing standing on it is not in here.** The row
-   * exists because the ledger names it, not because it is furniture, and drawing
-   * every plank anybody has ever taken out would bury the one that matters.
+   * boundary. A retired plank with nothing standing on it is not in here.
    */
   gone: DescribedArea[]
   /** The other pieces standing on this piece's number, if any. See below. */
@@ -534,7 +384,7 @@ export interface DescribedFixture {
   holds: string
   /** The first of those rules, or null when nothing points at the piece. */
   rule: DescribedRule | null
-  /** Every rule written on the piece itself. Two of them is "or" (#384). */
+  /** Every rule written on the piece itself. Two of them is "or". */
   own: DescribedRule[]
 }
 
@@ -545,12 +395,9 @@ export interface DescribedFurniture {
 }
 
 /**
- * The whole room, in the order a book meets it.
- *
- * `sharing` is the honest half of `fixture.position` not being unique. Two
- * pieces on one number is an arrangement this catalogue already has and must
- * keep being able to record, and it is also two pieces drawing planks with the
- * same label, so a screen that did not know would show one twice with no
+ * The whole room, in the order a book meets it. `sharing` is the honest half of
+ * `fixture.position` not being unique: two pieces on one number draw planks with
+ * the same label, so a screen that did not know would show one twice with no
  * explanation.
  */
 export async function describeFurniture(db: Db): Promise<DescribedFurniture> {
@@ -565,10 +412,9 @@ export async function describeFurniture(db: Db): Promise<DescribedFurniture> {
   const owners = runOwners(arrangement.order, arrangement.rules)
   const described = describeRules(arrangement.order, arrangement.rules, labels, carried)
   /*
-   * Every rule written on one place, in the order a tie is settled. Plural
-   * since #384: two rules on a place is how "this tag or that tag" is said, and
-   * both of them point at the same area, so which one `claim` picks makes no
-   * difference to where a book lands. See `domain/placement/rules.test.ts`.
+   * Every rule written on one place, in the order a tie is settled. Two rules on
+   * a place is how "this tag or that tag" is said, and both point at the same
+   * area, so which one `claim` picks makes no difference to where a book lands.
    */
   const writtenOn = (about: 'area' | 'fixture', id: number): PlacementRule[] =>
     [...arrangement.rules]
@@ -630,7 +476,6 @@ export async function describeFurniture(db: Db): Promise<DescribedFurniture> {
   }
 }
 
-/** One piece, or nothing. */
 export async function describeFixture(
   db: Db,
   id: number,
@@ -638,36 +483,12 @@ export async function describeFixture(
   return (await describeFurniture(db)).fixtures.find((one) => one.id === id) ?? null
 }
 
-// ---------------------------------------------------------------------------
-// What is standing in an area
-// ---------------------------------------------------------------------------
-
 /**
- * One book standing somewhere, as the screens about that place need it.
- *
- * The four ordering components travel with it on purpose. A screen that names a
- * sort rule and stops has not said why the books read in the order they do, and
- * the owner said that is the part that is hard to see; the answer is the books
- * themselves, in that order, which needs whatever `orderBy` orders by.
- *
- * ## It carries a photograph and a thickness now (#405)
- *
- * > At the bottom where we say "standing on Bookshelf X" and we show all the
- * > books that are in the area: let's switch that to a shelf view instead of a
- * > list.
- *
- * A board with the books standing on it is drawn from two things a list never
- * needed: which photograph stands in for the spine, and how thick the book is.
- * Without them every book on somebody's own bookcase would come out as a
- * uniform block of dyed cloth, which is what the app draws a book **nobody has
- * photographed** as, so the one page about an area would be the one page
- * claiming the whole collection is unphotographed.
- *
- * This is the same defect `server/carry.ts` was fixed for and the comment there
- * says so: that read was once the only read of a book that never asked for its
- * photographs. Which photograph stands in for a spine is `shelfImage`'s answer
- * and not this file's, so the board here and the board in the library cannot
- * disagree about a book.
+ * One book standing somewhere, as the screens about that place need it. The four
+ * ordering components travel with it so a screen can show what an ordering does
+ * to these books rather than only naming it. Which photograph stands in for a
+ * spine is `shelfImage`'s answer and not this file's, so the board here and the
+ * board in the library cannot disagree about a book.
  */
 export interface AreaBook {
   id: number
@@ -681,11 +502,9 @@ export interface AreaBook {
   /** Which face `spine` really is, so a cover cannot pass for a spine. */
   spineSlot: ShelfSlot
   /**
-   * How thick it is, as the catalogue holds it, which is text.
-   *
-   * The one measurement a drawing of a book may take from the book: pages are
-   * thickness and thickness is width seen end on. Empty for about one book in
-   * four, which `spineWidth` draws at the median rather than as a gap.
+   * How thick it is, as the catalogue holds it, which is text. Empty for about
+   * one book in four, which `spineWidth` draws at the median rather than as a
+   * gap.
    */
   pages: string
   /** How it files by title, which is what the title ordering reads. */
@@ -697,12 +516,9 @@ export interface AreaBook {
   /** Every slug it carries, in slug order, which is what a rule matches on. */
   tagSlugs: string[]
   /**
-   * The same tags as a person reads them, in the same order.
-   *
-   * A slug is an identity and never reaches a screen, so a screen showing what
-   * the tag ordering files a book under has to be given the label. Ordering and
-   * drawing then agree by construction rather than by two reads happening to
-   * come back the same way.
+   * The same tags as a person reads them, in the same order. A slug is an
+   * identity and never reaches a screen, so ordering and drawing agree by
+   * construction rather than by two reads happening to come back the same way.
    */
   tags: string[]
   /** The rule that claims it, by name, or null when nothing claims it. */
@@ -710,7 +526,7 @@ export interface AreaBook {
 }
 
 export interface AreaBooks {
-  /** `gone` is a plank taken out with books still standing on it. See #401. */
+  /** `gone` is a plank taken out with books still standing on it. */
   area: { id: number; label: string; books: number; gone: boolean }
   books: AreaBook[]
 }
@@ -735,32 +551,19 @@ interface StandingRow {
 }
 
 /**
- * The same row with its photographs joined on, which is what a board needs.
- *
- * They come off `capture` rather than off a column, because `books.front_image`
- * and the nine beside it were dropped in #228 and `withPhotographs` is the one
- * place a row gets them back. In one read for the whole area rather than one
- * per book, for the reason the carry read gives.
+ * The same row with its photographs joined on, which is what a board needs. They
+ * come off `capture` rather than off a column, and `withPhotographs` is the one
+ * place a row gets them back, in one read for the whole area rather than one per
+ * book.
  */
 type StandingPhotographedRow = StandingRow & PhotographFields
 
 /**
  * The columns every "what is standing here" read takes, and the one place they
- * are written.
- *
- * They are not only the columns a list needs. **Every one of them is a
- * component of some ordering** (`domain/placement/strategies.ts`), because the
- * screens now show what an ordering does to these books rather than only naming
- * it: a person picking "by the title" watches the books in front of them
- * reorder, which is the whole of the answer to "why do they sort like that".
- * Ordering them on the client from four columns keeps that one function, the
- * one the shelf itself is built by, rather than growing a second one that
- * agrees until somebody adds a strategy.
- *
- * **`pages` is here for the picture** (#405). An area's books are drawn standing
- * on a board now rather than listed, and how thick a book is decides how wide
- * its spine is drawn. The photographs come from `capture` rather than from a
- * column, which is `withPhotographs`' job since #228.
+ * are written. Every one of them is a component of some ordering
+ * (`domain/placement/strategies.ts`), because the screens show what an ordering
+ * does to these books rather than only naming it, and `pages` is there because
+ * how thick a book is decides how wide its spine is drawn.
  */
 const STANDING_COLUMNS =
   `b.id, b.title, b.author_filing, b.title_filing, b.published, b.sort_key, b.pages,
@@ -776,9 +579,7 @@ const asStandingBook = (row: StandingPhotographedRow, rules: PlacementRule[]): A
     back: row.back_image ?? '',
     edge: row.edge_image ?? '',
     /* The crop of whichever face was picked, so a spine two centimetres wide
-       is not drawn with the room it was photographed in around it. The same
-       decision the carry read and the library make, taken in the one place the
-       precedence is written down. */
+       is not drawn with the room it was photographed in around it. */
     crops: {
       front: row.front_crop ?? '',
       back: row.back_crop ?? '',
@@ -803,31 +604,14 @@ const asStandingBook = (row: StandingPhotographedRow, rules: PlacementRule[]): A
 }
 
 /**
- * The books standing in one area, in the order they stand, **by identity**.
- *
- * This is the route #318 said was missing and #313 worked around. Splitting an
- * area needs to know which books are in it, because the boundary is a book: the
- * first one of the new area. Nothing answered that, so the screen asked for both
- * stretches of shelving and **matched an area up by its label**, which is a
- * string derived at read time from a piece's number and name and an area's
- * ordinal and name. A rename, a reorder, or the owner's two pieces both standing
- * at 4 would each have picked the wrong books, silently.
- *
+ * The books standing in one area, in the order they stand, by identity.
  * `current_area_id` is the answer, and it is the same number the count on the
  * area is taken from (`areasOnFaces`), so the list and the count are one fact
  * rather than two readings that agree today. An assignment nobody has acted on
- * does not move a book and does not appear here: what is being cut is the row of
- * books somebody is standing in front of.
- *
- * `claimedBy` comes along because the same read answers it: it is what lets a
- * screen say how many books here no rule claims at all, which is a real state
- * since #304 and is invisible from the counts.
- *
- * **A plank that has been taken out still answers here** (#401), and says so.
- * The books standing on it are recorded on it until somebody carries them, so a
- * page that 404'd was the one place a person could have been shown them. What
- * it must not do is offer to remove it again: `planAreaRemoval` still reads the
- * face, because an area that is not on the piece cannot be taken off it.
+ * does not move a book and does not appear here. A plank that has been taken out
+ * still answers here and says so, because the books standing on it are recorded
+ * on it until somebody carries them; `planAreaRemoval` still reads the face,
+ * because an area that is not on the piece cannot be taken off it.
  */
 export async function booksInArea(db: Db, id: number): Promise<ReadArea> {
   const area = await anyArea(db, id)
@@ -852,20 +636,10 @@ export async function booksInArea(db: Db, id: number): Promise<ReadArea> {
 }
 
 /**
- * The books standing on one piece of furniture, in the order they stand.
- *
- * The same read one area up, and it exists for the same reason that one does:
- * a piece's own page now shows how it is ordered and what that ordering does to
- * these books, and asking area by area would be one request per plank and a
- * screen stitching them back into an order.
- *
- * A piece nothing has been filed onto answers an empty list, which is correct
- * and is not a 404: the piece is there and holds nothing.
- *
- * **Every area of the piece and not only its face** (#401), for the reason
- * `DescribedFixture.books` counts them all: a book standing on a plank somebody
- * took out is standing on this piece, and a page about the piece that leaves it
- * out is the page that said nought over forty-six.
+ * The books standing on one piece of furniture, in the order they stand. A piece
+ * nothing has been filed onto answers an empty list, which is not a 404: the
+ * piece is there and holds nothing. Every area of the piece and not only its
+ * face, for the reason `DescribedFixture.books` counts them all.
  */
 export async function booksOnFixture(db: Db, id: number): Promise<ReadFixtureBooks> {
   const fixture = await fixtureOnTheFloor(db, id)
@@ -905,7 +679,7 @@ async function standingIn(
   )
 
   // One read for the whole area rather than one per book, which is why
-  // `withPhotographs` takes the rows: an area is a plank and a piece is three.
+  // `withPhotographs` takes the rows.
   return withPhotographs(db, rows)
 }
 
@@ -920,12 +694,9 @@ async function faceOf(db: Db, fixture: FixtureRow): Promise<Slot[]> {
 
 /**
  * Every label that reads differently once the face is `after` and the areas sit
- * in `order`.
- *
- * One function for all four ways a label can change, because to a person they
- * are one thing: renaming the piece, renumbering it, renaming an area and moving
- * an area along the piece all end in somebody looking for a book under a
- * different name. An area that is being added has no old label and is left out.
+ * in `order`. One function for all four ways a label can change, because to a
+ * person they are one thing. An area that is being added has no old label and is
+ * left out.
  */
 function relabelling(
   before: readonly Slot[],
@@ -945,17 +716,11 @@ function relabelling(
 }
 
 /**
- * Every label that reads differently once these areas come off their pieces.
- *
- * The half of an area removal that is about names rather than about books, and
- * it exists because there is a second act that removes an area: a boundary move
- * whose book was the only one on its plank (#433). That is not a merge, so
- * `planAreaRemoval`'s answer is the wrong story to tell about it, and the books
- * it would count have already been carried away by the person doing the moving.
- *
- * What the two share is the part #281 settled: removing one area renumbers every
- * area after it, and a sentence claiming that is worth less than the rows
- * showing it. So the rows are read from the same face the writer renumbers.
+ * Every label that reads differently once these areas come off their pieces. The
+ * half of an area removal that is about names rather than about books, which a
+ * boundary move whose book was the only one on its plank also needs. Removing
+ * one area renumbers every area after it, so the rows are read from the same
+ * face the writer renumbers.
  */
 export async function relabellingWithout(
   db: Db,
@@ -979,11 +744,6 @@ export async function relabellingWithout(
   return changes
 }
 
-// ---------------------------------------------------------------------------
-// Fixtures
-// ---------------------------------------------------------------------------
-
-/** What a caller may say about a piece of furniture. */
 export interface FixtureInput {
   kind?: unknown
   name?: unknown
@@ -1012,31 +772,13 @@ export type EditedCollection =
   | Refused
 
 /**
- * Change what the whole collection falls back on.
- *
- * The one settable thing about the collection, and the reason it now has a
- * route: `default_sort_strategy` has been a real column since #184 and two
- * screens already read it out loud, an area saying it is ordered "the way
- * bookcase 2 does" and the ordering screen saying that is "by the author's
- * surname, which is what the whole library uses". Nothing anywhere could
- * change it. #350's settings screen is where it is asked for.
- *
- * ## Two answers are refused and neither is a validation formality
- *
- * `inherit` has nothing above it to ask, which is a check constraint on the
- * column rather than an opinion here. `tag` is refused because the seed row for
- * it says "Never the collection default": ordering a whole house by the first
- * tag slug on each book files a library by an accident of the vocabulary. Both
- * come off `COLLECTION_STRATEGIES` in the domain, so the list is stated once
- * and the screen offering the choice reads the same one.
- *
- * ## It writes one column and moves nothing
- *
- * Exactly the bargain `editFixture` strikes with a piece's own strategy. Where
- * a book belongs is worked out from these values whenever anybody asks; where a
- * book *is* only changes when a person carries it. So the effect of this is
- * that the furniture screens start saying something different about the order,
- * and the carry list is what the difference becomes.
+ * Change what the whole collection falls back on. `inherit` has nothing above it
+ * to ask, which is a check constraint on the column, and `tag` is refused
+ * because ordering a whole house by the first tag slug on each book files a
+ * library by an accident of the vocabulary; both come off
+ * `COLLECTION_STRATEGIES` in the domain, so the list is stated once. It writes
+ * one column and moves nothing: where a book belongs is worked out whenever
+ * anybody asks, and where a book is only changes when a person carries it.
  */
 export async function editCollection(
   db: Db,
@@ -1062,15 +804,10 @@ export async function editCollection(
 export type AddedFixture = { ok: true; fixture: DescribedFixture } | Refused
 
 /**
- * Put a piece of furniture in the room.
- *
- * It arrives with no areas, because an area is a decision about where one run of
- * books stops and the next begins, and a piece somebody has only just named has
- * no books on it to cut. `POST /api/fixtures/:id/areas` is the next thing they
- * do, as many times as the piece has planks.
- *
- * The number defaults to one past the last piece, which is where somebody
- * describing their furniture in the order they walk past it wants it.
+ * Put a piece of furniture in the room. It arrives with no areas, because an
+ * area is a decision about where one run of books stops and the next begins, and
+ * a piece somebody has only just named has no books on it to cut. The number
+ * defaults to one past the last piece.
  */
 export async function addFixture(db: Db, input: FixtureInput): Promise<AddedFixture> {
   const strategy = asStrategy(input.sortStrategy)
@@ -1107,42 +844,18 @@ export type EditedFixture =
  * Rename a piece, renumber it, say what kind of thing it is, or change how it
  * orders what it holds.
  *
- * **Renaming a piece moves nothing. Renumbering it moves books, and this writes
- * down which** (#491). The two halves used to be one sentence here, and the
- * sentence was false: it said "renumbering a piece is renaming it, and it moves
- * nothing", which is true of `book_placement` and of `books.current_area_id`
- * and is not true of the derivation. `runAreasOf` orders the run by
- * `f.position, f.id, a.position`, so the number is not decoration on a plank —
- * it is the order the run walks the room in. Setting it puts a piece's planks
- * somewhere else in that walk, and where a second piece already stands at the
- * number, it takes the loser's planks out of the run altogether, since the run
- * keeps one fixture per position (`runAreasOf`, and `fixture.position` is
- * deliberately not unique: see `schema.ts`). Either way, books past the moved
- * piece derive onto different planks.
+ * Renaming a piece moves nothing. Renumbering it moves books, and this writes
+ * down which: `runAreasOf` orders the run by `f.position, f.id, a.position`, so
+ * the number is the order the run walks the room in, and where a second piece
+ * already stands at the number the loser's planks leave the run altogether,
+ * since the run keeps one fixture per position and `fixture.position` is
+ * deliberately not unique. Only a renumber records, because only a renumber
+ * moves the run: a name, a kind and a note are read by no derivation, and a
+ * `sortStrategy` orders books inside a run without changing which plank a sort
+ * key lands on.
  *
- * Driven on a clean seed, three pieces at 1, 2 and 4 with fiction running over
- * the first two, one `PATCH /api/fixtures/:id {"position":1}` took the app from
- * `review 0 carry 0` to **`review 6 carry 0`**: six books the shelves said were
- * misfiled and a first screen saying there was nothing to carry, which is #458's
- * shape. `recordWhatMoved` is the answer, the same one #492 gave the boundary
- * writes, and for the same reason: `docs/data-model.md` says an `assigned` row
- * is what the rules want and a `placed` row is what somebody did, and these two
- * disagreeing is exactly what a book needing attention is.
- *
- * **What it is still not.** Pointing a run at a different piece is the other
- * request: it makes the destination planks different rows, and it lives in
- * `relocate-run.ts`. See `domain/placement/relocate.ts` for why the two are not
- * the same request. What has changed is only that renumbering is no longer free.
- *
- * **Only a renumber records**, because only a renumber moves the run. A name, a
- * kind and a note are not read by any derivation; a `sortStrategy` orders books
- * inside a run without changing which plank a sort key lands on, which #492
- * checked at the running app for the area-level strategy and could not make
- * disagree. The snapshot is skipped for those, so renaming a bookcase costs the
- * two reads it always did.
- *
- * `becomes` is still every label on the piece that reads differently now. It is
- * no longer the whole answer.
+ * Pointing a run at a different piece is the other request and lives in
+ * `relocate-run.ts`.
  */
 export async function editFixture(
   db: Db,
@@ -1176,14 +889,12 @@ export async function editFixture(
     )
 
     /*
-     * **Every range, not the one this piece is on.** A piece has no range of its
+     * Every range, not the one this piece is on. A piece has no range of its
      * own: which run owns its planks is decided by where the rules' entries
-     * stand and where the next run begins, both of which are read off the very
-     * numbers this write changes. Moving a piece past non-fiction's entry hands
-     * its planks to non-fiction, so asking "which range was it in" before the
-     * write answers about a room that is about to stop existing. Two ranges is
-     * the whole list (`GENRE_RANGES`), and the comparison writes nothing for a
-     * range whose run did not move.
+     * stand and where the next run begins, both read off the very numbers this
+     * write changes, so asking which range it was in before the write answers
+     * about a room that is about to stop existing. The comparison writes nothing
+     * for a range whose run did not move.
      */
     const renumbering = position !== undefined && position !== before.position
     const was = new Map<ShelfRange, Awaited<ReturnType<typeof whereTheRunPutsThem>>>()
@@ -1204,9 +915,8 @@ export async function editFixture(
     /*
      * After the write and inside the same transaction, so a renumber that fails
      * to write leaves no assignment behind either. The lock is `FURNITURE_LOCK`
-     * rather than the range's, which is what every write in this file takes and
-     * what `applyRuleChange` takes to write assignments of its own: a renumber
-     * is a statement about the room, and two people rearranging one room queue.
+     * rather than the range's, which is what every write in this file takes: a
+     * renumber is a statement about the room.
      */
     const now = new Date().toISOString()
     for (const [range, snapshot] of was) {
@@ -1228,10 +938,9 @@ export async function editFixture(
 
 export interface FixtureRemoval {
   /**
-   * How many books the piece is still about, which is what has to leave first.
-   *
-   * Standing on one of its planks, or assigned to one and not carried yet. See
-   * `whatHoldsFixture`, and #484 for what counting only the first half cost.
+   * How many books the piece is still about, which is what has to leave first:
+   * standing on one of its planks, or assigned to one and not carried yet. See
+   * `whatHoldsFixture`.
    */
   books: number
   /** How many of `books` are on their way to it rather than standing on it. */
@@ -1241,29 +950,20 @@ export interface FixtureRemoval {
   rules: number
   /**
    * Whether the row will stay behind, off the floor, rather than being deleted.
-   *
    * A piece whose areas a book was ever placed in cannot be deleted:
-   * `book_placement.area_id` is ON DELETE RESTRICT so the history pins the
-   * furniture it names, and a plank a book once sat on stays nameable. Such a
-   * piece is taken off the floor rather than out of the catalogue, which is the
-   * same answer an area gets, and saying so beats a delete that quietly did
-   * something else.
-   *
-   * **It is true of the rows now.** It used to be true only of the sentence:
-   * nothing wrote `fixture.position`, so the piece went on standing in the room
-   * with an empty face while this said it had gone (#484). `retireFixture` is
-   * what makes it so.
+   * `book_placement.area_id` is ON DELETE RESTRICT, so the history pins the
+   * furniture it names and a plank a book once sat on stays nameable. Such a
+   * piece is taken off the floor rather than out of the catalogue.
    */
   retires: boolean
 }
 
 /**
- * Why a piece cannot go yet, said as the two different jobs it would take.
- *
- * Books standing on it have to be carried off it; books the carry list is still
- * sending to it have to be carried or left where they are. One number covering
- * both would tell somebody looking at an empty bookcase that it has a book on
- * it, which is the confusion #484's refusal has to avoid rather than create.
+ * Why a piece cannot go yet, said as the two different jobs it would take:
+ * books standing on it have to be carried off it, and books the carry list is
+ * still sending to it have to be carried or left where they are. One number
+ * covering both would tell somebody looking at an empty bookcase that it has a
+ * book on it.
  */
 function stillHolds(holds: FixtureHolds): string {
   const standing = holds.books - holds.assigned
@@ -1293,17 +993,12 @@ export async function planFixtureRemoval(
 }
 
 /**
- * Take a piece of furniture away, once nothing is standing on it.
- *
- * **It refuses while it still holds books**, and says how many, which is the
- * sentence the furniture screen already says: its books move to other furniture
- * first, and that is a real carry with a plan in front of it. Emptying a piece
- * by deleting it would either lose the books or leave them recorded on planks
- * nobody can walk to, and neither is something to do behind a person's back.
- *
- * A piece a placement rule points at is refused for the same reason: the rule
- * files books there, and deleting the furniture out from under it would leave
- * the rule pointing nowhere and its books unplaceable.
+ * Take a piece of furniture away, once nothing is standing on it. It refuses
+ * while it still holds books, and says how many, because emptying a piece by
+ * deleting it would either lose the books or leave them recorded on planks
+ * nobody can walk to. A piece a placement rule points at is refused too:
+ * deleting the furniture out from under the rule would leave its books
+ * unplaceable.
  */
 export async function dropFixture(db: Db, id: number): Promise<RemovedFixture> {
   return db.tx(async (tx) => {
@@ -1323,8 +1018,7 @@ export async function dropFixture(db: Db, id: number): Promise<RemovedFixture> {
 
     // The areas go before the piece can, and one a book was ever placed in
     // cannot go at all. Such a piece is retired instead, which is `retires`: it
-    // comes off the floor either way, and the history it carries is the reason
-    // the row survives.
+    // comes off the floor either way.
     for (const slot of await faceOf(tx, fixture)) {
       await retireOrRemove(tx, slot.area.id, slot.area.position)
     }
@@ -1334,10 +1028,6 @@ export async function dropFixture(db: Db, id: number): Promise<RemovedFixture> {
     return { ok: true as const, removed: { ...holds, retires: !gone } }
   }, { serialiseOn: FURNITURE_LOCK })
 }
-
-// ---------------------------------------------------------------------------
-// Areas
-// ---------------------------------------------------------------------------
 
 export interface AreaInput {
   name?: unknown
@@ -1358,45 +1048,21 @@ const ANCHORS_OUT_OF_ORDER =
   + 'cannot start before the one in front of it. Move the boundary instead of the area.'
 
 /**
- * The character that sorts above anything a sort key can hold.
- *
- * Used to make an anchor that is past a known book and past nothing else. It is
- * only ever appended to the greatest key in a run, where nothing follows it, so
- * the only thing the choice decides is which of two areas a book added *later*
- * falls into: too low and the new area would quietly claim one, too high and it
- * stays empty until a boundary moves, which is the model this app already has
- * and what "an empty area at the end" means.
+ * The character that sorts above anything a sort key can hold, used to make an
+ * anchor that is past a known book and past nothing else. Only ever appended to
+ * the greatest key in a run, where the only thing it decides is which of two
+ * areas a book added later falls into.
  */
 const PAST_EVERYTHING = '￿'
 
 /**
- * Where an area opens when nobody said, which is now every time one is added.
- *
- * **Adding an area stopped being a screen** (#381): the owner asked for the
- * button on the fixtures screen to just add one, at the end, continuing the
- * lettering, with no question in between. The question it used to ask was which
- * book the new area starts at, and that is this function: without an answer the
- * area used to open at the empty string, which the anchor check refuses on any
- * piece that already holds books.
- *
- * There are two answers and the difference between them is whether anything
- * follows the new area **in its own run**:
- *
- * - **Something does.** The new area takes the stretch just before that
- *   boundary, so it opens exactly where the next area opens. Equal anchors are
- *   allowed and are already real in this catalogue. No book moves: a key below
- *   that anchor still lands before the new area and a key at or above it still
- *   lands in the area that already claimed it.
- * - **Nothing does**, because the next area starts a run of its own or there is
- *   no next area. Then the new area is the end of the run and opens past every
- *   book in it, which is the plank the boundary moves onto when the one before
- *   fills up. A run with nothing standing in it has no such book, so the area
- *   opens where the one it follows opens, which is #367's empty case.
- *
- * **It is never lower than the area it follows**, because the areas of a piece
- * are read in the order the books run along it and the write is refused when
- * they do not ascend. An empty area anchored past the end followed by another
- * empty one is exactly where the two answers meet.
+ * Where an area opens when nobody said, which is every time one is added. Two
+ * answers, and the difference is whether anything follows the new area in its
+ * own run: if something does, the new area opens exactly where the next one
+ * does, so no book moves; if nothing does, it is the end of the run and opens
+ * past every book in it. It is never lower than the area it follows, because the
+ * areas of a piece are read in the order the books run along it and the write is
+ * refused when they do not ascend.
  */
 async function anchorForNewArea(
   tx: Db,
@@ -1407,14 +1073,11 @@ async function anchorForNewArea(
   const entries = entryAreas(rules, order)
 
   /*
-   * The whole collection with the new area standing in it, worked out the way
-   * the collection is always worked out. Everything at or after the landing on
-   * this face shuffles down, which is what the write itself then does.
-   *
-   * The piece is put into the list itself rather than read off the areas,
-   * because a piece with no areas yet appears in none of them and its first
-   * area would otherwise be dropped on the floor and answered about somebody
-   * else's.
+   * The whole collection with the new area standing in it. Everything at or
+   * after the landing on this face shuffles down, which is what the write itself
+   * then does. The piece is put into the list rather than read off the areas,
+   * because a piece with no areas yet appears in none of them and its first area
+   * would be answered about somebody else's.
    */
   const fixtureId = piece.id
   const fixtures = [
@@ -1439,15 +1102,13 @@ async function anchorForNewArea(
   if (after && !startsARun(after, entries)) return after.area.startsAt
 
   /*
-   * The end of the run: past every book standing in it.
-   *
-   * **The one walk over a run this app makes backwards**, which is why it is
-   * spelled out here rather than asked of `runFrom`: that walks forward from a
-   * known entry and this walks back from a plank somebody has just added, whose
-   * entry is what it is looking for. The cut is `startsARun` either way, and
-   * that much is asked rather than restated — a second answer to where a run
-   * begins would anchor this plank past books standing in somebody else's run,
-   * which is a boundary in the wrong place and #485's shape.
+   * The end of the run: past every book standing in it. The one walk over a run
+   * this app makes backwards, which is why it is spelled out here rather than
+   * asked of `runFrom`: that walks forward from a known entry, and this walks
+   * back from a plank somebody has just added, whose entry is what it is looking
+   * for. The cut is `startsARun` either way, asked rather than restated, because
+   * a second answer to where a run begins would anchor this plank past books
+   * standing in somebody else's run.
    */
   const run: number[] = []
   for (let back = at - 1; back >= 0; back -= 1) {
@@ -1470,18 +1131,14 @@ async function anchorForNewArea(
 }
 
 /**
- * Cut another area into a piece of furniture.
- *
- * `startsAt` is the sort key the run of books in it begins at, which is what a
- * boundary is: everything from there to the next boundary is one area. **Left
- * out, the server works out where it opens**, which is `anchorForNewArea` and
- * is what makes adding an area a button rather than a screen (#381). Passing an
- * empty string is still saying "from the beginning" out loud, and is still
- * refused on a piece whose areas are already anchored.
- *
- * `position` puts it between two areas that already exist; left out it goes on
- * the end. Everything after it shuffles down, which relabels those areas and
- * moves no book, and `becomes` says which.
+ * Cut another area into a piece of furniture. `startsAt` is the sort key the run
+ * of books in it begins at: everything from there to the next boundary is one
+ * area. Left out, `anchorForNewArea` works out where it opens; passing an empty
+ * string is still saying "from the beginning" out loud, and is still refused on
+ * a piece whose areas are already anchored. `position` puts it between two areas
+ * that already exist and left out it goes on the end, and everything after it
+ * shuffles down, which relabels those areas, moves no book and comes back in
+ * `becomes`.
  */
 export async function addAreaTo(
   db: Db,
@@ -1525,9 +1182,8 @@ export async function addAreaTo(
 
     /*
      * Written on the end and then renumbered, rather than inserted at the
-     * ordinal it wants. The unique index would refuse the insert while the area
-     * already sitting there still holds the number, and the renumbering is
-     * needed anyway for everything after it. See `resequenceFace`.
+     * ordinal it wants: the unique index would refuse the insert while the area
+     * already sitting there still holds the number. See `resequenceFace`.
      */
     const id = await insertArea(tx, {
       fixtureId,
@@ -1556,22 +1212,14 @@ export type EditedArea =
  * Rename an area, move it along its piece, re-anchor it, or give it an order of
  * its own.
  *
- * ## The strategy is the one that is not just a label change
- *
- * **An area with a sort strategy of its own takes no overflow**, because a
+ * An area with a sort strategy of its own takes no overflow, because a
  * continuous run only works if every area in it orders the same way. Setting one
- * therefore cuts the run the area is in, and the areas from there on stop being
- * fed by the ones before them. That is not something to do quietly, so it is
- * refused with the effect attached until the caller says `acknowledge`, and the
- * effect is what a dialog shows somebody before they agree.
- *
- * ## Reordering
+ * therefore cuts the run the area is in, which is refused with the effect
+ * attached until the caller says `acknowledge`.
  *
  * Moving an area along its piece renumbers everything between where it was and
- * where it is going, which is `resequenceFace`'s two passes and the reason they
- * exist. It is refused when it would leave the anchors on the face out of order,
- * because the areas of a piece are read in the order the books run along it and
- * an area cannot begin before the one in front of it.
+ * where it is going, and is refused when it would leave the anchors on the face
+ * out of order, because an area cannot begin before the one in front of it.
  */
 export async function editArea(db: Db, id: number, input: AreaInput): Promise<EditedArea> {
   const strategy = asStrategy(input.sortStrategy)
@@ -1597,12 +1245,9 @@ export async function editArea(db: Db, id: number, input: AreaInput): Promise<Ed
         return refuse(
           409,
           /*
-           * This sentence is shown to somebody, so it says none of the words
-           * the code says to itself. It used to end "leave the run they are
-           * in", and "run" is on the list `src/design/design.test.tsx` pins:
-           * the owner named the rule himself, about this exact word, and it
-           * reached a screen the moment the ordering became something changed
-           * on the area's own page rather than on a screen of its own (#381).
+           * This sentence is shown to somebody, so it says none of the words the
+           * code says to itself: "run" is on the list
+           * `src/design/design.test.tsx` pins.
            */
           effect.selfContained
             ? `${effect.affected[0]} would order itself, so nothing overflows into it from `
@@ -1657,13 +1302,11 @@ export async function editArea(db: Db, id: number, input: AreaInput): Promise<Ed
   }, { serialiseOn: FURNITURE_LOCK })
 }
 
-/** What happens to the books of an area somebody is about to remove. */
 export interface AreaRemovalPlan {
   area: { id: number; label: string; books: number }
   /** The area they join, with the label it reads under today. */
   into: { id: number; label: string }
   joins: 'previous' | 'next'
-  /** How many books join it, which is the number the dialog leads on. */
   joining: number
   /** Everything left exactly where it is, and why. Never silently empty. */
   skipped: { reason: 'pinned' | 'checked-out' | 'withdrawn'; books: number }[]
@@ -1719,10 +1362,9 @@ const skippedList = (skipped: Map<SkipReason, number>) =>
     .map((reason) => ({ reason, books: skipped.get(reason)! }))
 
 /**
- * What removing this area would do, before anybody agrees to it. Writes nothing.
- *
- * This is what the dialog #281 settled is drawn from, and the same functions the
- * write path uses answer it, so what somebody approves is what happens.
+ * What removing this area would do, before anybody agrees to it. Writes nothing,
+ * and the same functions the write path uses answer it, so what somebody
+ * approves is what happens.
  */
 export async function planAreaRemoval(db: Db, id: number): Promise<PlannedAreaRemoval> {
   const area = await areaOnAFace(db, id)
@@ -1759,25 +1401,14 @@ export async function planAreaRemoval(db: Db, id: number): Promise<PlannedAreaRe
 export type RemovedArea = { ok: true; plan: AreaRemovalPlan } | Refused
 
 /**
- * Take an area off a piece of furniture and let its books fall into the next
- * one along.
- *
- * Four things happen, in this order, in one transaction:
- *
- * 1. When the area going is the first on its piece, the one coming forward takes
- *    over its anchor, because it is taking over its place in the sequence.
- * 2. The area is **retired** rather than deleted whenever anything names it, so
- *    every placement that points at it still points at it and a book recorded on
- *    that plank is still recorded on that plank. Nothing names it, it goes.
- * 3. The face is renumbered, which relabels the areas after it.
- * 4. An `assigned` row is written for every book the area was about, naming the
- *    area that took them in, and **only where that differs from where the book
- *    already is**. Pinned, checked out and withdrawn books get none, and the
- *    answer says how many there were.
- *
- * The books have not moved and nobody has carried anything. What has changed is
- * which area the rules say they are in, and the difference between that and
- * where somebody last saw them is the needs-attention list that already exists.
+ * Take an area off a piece of furniture and let its books fall into the next one
+ * along, in one transaction and in this order: the area coming forward takes
+ * over the anchor when the one going was first on its piece, the area is retired
+ * rather than deleted whenever anything names it, the face is renumbered, and an
+ * `assigned` row is written for every book the area was about, only where that
+ * differs from where the book already is. Pinned, checked out and withdrawn
+ * books get none, and nobody has carried anything: what has changed is which
+ * area the rules say the books are in.
  */
 export async function dropArea(db: Db, id: number, now: string): Promise<RemovedArea> {
   return db.tx(async (tx) => {

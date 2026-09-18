@@ -1,74 +1,22 @@
 // PreToolUse guard: an agent in a worktree cannot reach the live catalogue.
 //
-// WHAT THIS PREVENTS
-// `AGENTS.md` says it in one line — "Agents still have no permission here at
-// all" — and until now that sentence was the entire control. An implementation
-// agent runs unattended with the same shell the orchestrator has, and the only
-// thing between it and somebody's real collection was whether it read a 63,000
-// character file and remembered one section of it.
+// The checkout decides who is gated, not a flag anybody could pass: an agent is
+// a session whose working directory is inside `.claude/worktrees/`, and the
+// orchestrator, which deploys `stable` and takes the backups, is not gated here
+// at all.
 //
-// That is not a hypothetical worry about a careless agent. On 2026-08-24 an
-// agent working #430 stopped and asked the orchestrator for a database
-// connection string, having made zero tool calls first. It wanted a database
-// and went looking to be handed one. It did not find the live one. Nothing in
-// the machine would have stopped it if it had.
-//
-// The catalogue is the thing this project exists to protect. Re-scanning it
-// means physically handling every book again, one at a time, in front of a
-// camera. A backup makes that recoverable, not cheap.
-//
-// WHY THE CHECKOUT DECIDES, AND NOT A FLAG
-// The rule in `AGENTS.md` is not "nobody may touch the live catalogue". The
-// orchestrator may: it deploys to `stable`, it takes backups, and it answers
-// for both. The rule is that *agents* may not, and an agent is exactly a
-// session whose working directory is inside `.claude/worktrees/`.
-//
-// So this reads the directory the command runs in, which is a fact about who is
-// running it, rather than a flag anybody could pass. `guard-merge.mjs` already
-// established that shape for the branch question (#293).
-//
-// The orchestrator is not gated here at all. That is deliberate, and it is the
-// same division `AGENTS.md` draws.
-//
-// WHAT THIS DOES NOT COVER
-// Any session the harness did not load it into at startup, and everything that
-// process spawns while it lives. A human at a terminal. Anything reaching the
-// database by a route this cannot read: a connection assembled from a variable,
-// a script file the command merely names, a compiled binary, or a tool that is
-// not a shell at all. It reads one command line and no more.
-//
-// **And it believes an agent lives under `/.claude/worktrees/`.** That is where
-// this harness puts them, and it is the whole of how `inAgentWorktree` decides.
-// A worktree made anywhere else — by hand, by a different harness, or by a
-// future version of this one — is not recognised as an agent's and passes
-// straight through, silently. Silence is the exact state this file exists to
-// end, so it is named here rather than discovered later.
-//
-// **It is prevention with no detection behind it, which by this project's own
-// standard is half a layer.** Nothing here notices afterwards that a row
-// changed. `docs/backup-runbook.md` is what makes such a change survivable; it
-// is not what makes it visible. That gap is real and is written down rather
-// than papered over.
-//
-// A GUARD THAT DENIES TOO MUCH GETS SWITCHED OFF
-// `guard-merge.test.mjs` says it best, having shipped two false denials to earn
-// it: "A guard that denies too little has a gap; a guard that denies too much
-// gets switched off, which is every gap at once." A third arrived on 2026-08-24
-// when that guard refused a `gh pr create` because the pull request *body*
-// quoted the command it denies (#444).
-//
-// So every pattern below names something with no innocent meaning in this
+// Every pattern below names something with no innocent meaning in this
 // repository, and prose about the live system is deliberately allowed through.
-// An agent writing "do not touch book-scan-live-pg" in a comment is not
-// touching it. That is why comments and heredoc bodies are stripped before
-// matching, and why the test file has more allow cases than deny cases.
+//
+// What it does not cover. Any session the harness did not load it into at
+// startup, and everything that session spawns while it lives. A human at a
+// terminal. Anything reaching the database by a route one command line does not
+// name: a connection assembled from a variable, a script file the command merely
+// names, a compiled binary, a tool that is not a shell. A worktree made outside
+// `.claude/worktrees/` is not recognised as an agent's and passes through
+// silently. Nothing here notices afterwards that a row changed.
 import { isAbsolute, resolve } from 'node:path'
 
-/**
- * The live system, in the terms `AGENTS.md` uses for it: the container and its
- * volume, the address it is bound to, the checkout that serves `stable`, and
- * the scripts holding its credentials.
- */
 const LIVE = [
   { pattern: /book-scan-live-pgdata\b/, what: "the live catalogue's data volume" },
   { pattern: /book-scan-live-pg\b/, what: 'the container the live catalogue runs in' },
@@ -101,68 +49,15 @@ function deny(reason) {
  * orchestrator's or a person's. Normalised so separators and casing cannot
  * decide it.
  *
- * **An absent `cwd` is refused too, and that is #582.** It used to return
- * `false`, which is how this function says "the orchestrator at the main
- * checkout", so a payload carrying no working directory allowed every command
- * this file exists to deny, silently. That was the opposite answer to the one
- * #572 had just given the neighbouring case, to the same question: the guard
- * cannot place this command. Two answers to one question is this repository's
- * most expensive defect family, so there is now one.
+ * A missing or relative `cwd` throws rather than answering. `false` is how this
+ * function says "the orchestrator at the main checkout", so it cannot also mean
+ * "could not tell"; and `resolve` on a relative path prepends the directory this
+ * process happens to stand in, which from inside a worktree turns every relative
+ * path into "yes, an agent". `resolve` stays for an absolute path that is merely
+ * unnormalised, which it never completes from `process.cwd()`.
  *
- * **The deciding question was whether the harness ever sends such a payload,
- * and it was measured rather than argued.** Claude Code 2.1.263, the binary
- * this machine runs, declares one base hook input that every event extends,
- * and it is emphatic about which fields may be missing:
- *
- *   c({session_id:s(),transcript_path:s(),cwd:s(),prompt_id:s().optional(),
- *      permission_mode:s().optional(),agent_id:s().optional(), ...})
- *
- * `cwd` is required where four neighbours are explicitly optional, one
- * function builds that object for every hook event, and every call site hands
- * it the session's directory. Even the cloud-session path, the one place a
- * translated payload could have lost the field, substitutes a directory rather
- * than dropping it. Then the guard was asked directly, three times, in the one
- * place its answer depends on `cwd`: `--probe` from an agent worktree is
- * refused, which it can only be if the payload carried a `cwd` naming that
- * worktree. Refused from a foreground command, from a backgrounded one, and
- * from inside a subagent, whose payloads are a different shape again.
- *
- * So denying costs nothing that anybody sends, and it closes a gap that would
- * otherwise have opened without a sound. **It is not free if that ever stops
- * being true**: `verdict` asks this before it looks at the command, so a
- * payload with no `cwd` denies every command rather than only the ones naming
- * the live catalogue, and this file's header is emphatic about where denying
- * too much leads. The alternative considered was to match the patterns first
- * and ask about the checkout only for a command that names the live system,
- * which would refuse exactly what needs refusing and never ordinary work. It
- * was rejected because it also loosens what #572 landed the day before, on an
- * input neither of us has ever seen, and because a payload this guard cannot
- * read at all is a broken harness rather than a busy one: stopping loudly is
- * the right thing to do in that state, and it says which field is missing.
- *
- * **A path that is not absolute on this machine is refused rather than
- * completed**, and #572 is why. `resolve` on a relative path silently prepends
- * the directory this process happens to stand in, so the answer stops being a
- * fact about the caller's path and becomes a fact about the guard's own
- * location. From inside a worktree that turns every relative path into "yes,
- * an agent", including the path naming the main checkout.
- *
- * It cost nobody a row. The hook payload has always carried a real absolute
- * path, so `resolve` is a normalisation here and never a completion. What it
- * cost was the guard's own test, which read the opposite answer wherever an
- * agent ran it, and a test that is red where agents work teaches them that red
- * on this file is normal.
- *
- * So the completion is removed by refusing its input. `resolve` stays, because
- * an absolute path can still be unnormalised (`/repo/x/../.claude/worktrees/a`)
- * and never consults `process.cwd()` once it has a root to start from.
- *
- * Throwing rather than returning is deliberate, and it is safe only because the
- * hook boundary below turns a throw into a denial. There is no third answer
- * this could return: `false` would be the guard waving through a command it
- * cannot place, and `true` would be it denying the orchestrator over a caller's
- * bug. Refusing to answer is the honest one, and the caller decides what a
- * refusal means.
+ * Throwing is only safe because the hook boundary below turns a throw into a
+ * denial.
  */
 export function inAgentWorktree(cwd) {
   if (!cwd) {
@@ -183,9 +78,7 @@ export function inAgentWorktree(cwd) {
  * The command with its own prose removed and its quotes flattened.
  *
  * Everything after a `#` is a shell comment and cannot reach a database, and a
- * heredoc body is a document rather than a command. #444 is what both of those
- * clauses are for: that guard denied the writing of a document because of what
- * the document said.
+ * heredoc body is a document rather than a command.
  */
 export function argumentsOf(command) {
   const withoutHeredoc = command.replace(/<<-?\s*['"]?(\w+)['"]?[\s\S]*?^\s*\1/gm, ' ')
@@ -195,17 +88,12 @@ export function argumentsOf(command) {
 }
 
 /**
- * The flags whose value is a document rather than an instruction.
- *
- * A commit message, a pull request body, an issue title. Writing one of these
- * about the live catalogue is the ordinary way to explain the rule, and denying
- * it is #444 exactly: that guard blocked `gh pr create` because the body it was
- * carrying quoted the command the guard denies. The value is dropped before
+ * The flags whose value is a document rather than an instruction: a commit
+ * message, a pull request body, an issue title. The value is dropped before
  * matching; the flag itself stays, so nothing about the command's shape is lost.
  */
 const PROSE_FLAG = /(?:^|\s)(?:-m|--message|-b|--body|--body-file|--title|-F)(?:=|\s+)(?:"[^"]*"|'[^']*'|\S+)/g
 
-/** The refusal, given the thing the command named. */
 export function refusal(what) {
   return `Blocked: this command names ${what}, and you are working in an agent\n`
     + 'worktree.\n\n'
@@ -246,10 +134,8 @@ export function verdict(command, cwd) {
 if (import.meta.url === `file://${process.argv[1]?.replace(/\\/g, '/')}`
   || process.argv[1]?.endsWith('guard-live-data.mjs')) {
   if (process.argv.includes('--probe')) {
-    // Being refused is the answer. From a worktree the rule above denies this
-    // line by name, so an agent that sees this text printed knows the guard is
-    // not loaded in its process. From the main checkout it prints, because the
-    // orchestrator is not gated — which is also the answer.
+    // Being refused is the answer: from a worktree the rule above denies this
+    // line by name, so this text printing there means the guard is not loaded.
     console.log('guard-live-data: not refused here.')
     console.log('')
     console.log('From the main checkout that is correct: the orchestrator is not gated.')
@@ -268,17 +154,10 @@ if (import.meta.url === `file://${process.argv[1]?.replace(/\\/g, '/')}`
     process.exit(0) // An unparseable payload is not this guard's problem.
   }
 
-  // A hook that throws is a hook that allows. It exits non-zero with nothing on
-  // stdout, which the harness reports as an error beside the tool call and then
-  // runs the command anyway. So an uncaught exception on the way to a decision
-  // is the most permissive outcome this file has, and a silent one. That is the
-  // exact state the header says this guard exists to end.
-  //
-  // This is not defensive padding for something that cannot happen: it is the
-  // other half of `inAgentWorktree` refusing a path it cannot place. The
-  // refusal is only allowed to be a throw because the throw lands here, and a
-  // command whose checkout is unknown is precisely the command that must not
-  // reach the live catalogue.
+  // A hook that throws is a hook that allows: it exits non-zero with nothing on
+  // stdout, and the harness reports an error beside the tool call and then runs
+  // the command anyway. So the throw from `inAgentWorktree` has to be caught
+  // here and turned into a denial.
   let said
   try {
     said = verdict(parsed?.tool_input?.command ?? '', parsed?.cwd)

@@ -1,15 +1,11 @@
 /**
- * The check that notices a backup has stopped.
+ * Every case here is built out of files in a scratch directory this file
+ * made itself. Nothing in this file names the real backup directory, opens
+ * a catalogue, or reads anything outside the checkout: a failing case is a
+ * directory with the wrong files in it, which costs nothing to make.
  *
- * Every case here is built out of files in a scratch directory this file made
- * itself. **Nothing in this file names `E:\book-scan-backups`**, opens a
- * catalogue, or reads anything outside the checkout: the whole point of the
- * thing under test is that it answers a question about files, so a failing case
- * is a directory with the wrong files in it, which costs nothing to make and
- * takes no real backup anywhere near a test.
- *
- * The dates are the ones from the two incidents, because a fixture built to the
- * shape of what actually happened is worth more than a round number.
+ * The dates are the ones from two real incidents, because a fixture built
+ * to the shape of what actually happened is worth more than a round number.
  */
 
 import { mkdtempSync, readdirSync, statSync, writeFileSync } from 'node:fs'
@@ -90,10 +86,10 @@ describe('a verified dump newer than about a day', () => {
 })
 
 /*
- * This is the shape of both incidents. The dumps of the 9th and the 11th are
- * real ones and are perfectly good; what is wrong is that it is the 13th. A
- * check on whether the job started would have been satisfied by both of the
- * nights in between, because it started on both of them.
+ * The dumps of the 9th and the 11th are real ones and are perfectly good;
+ * what is wrong is that it is the 13th. A check on whether the job started
+ * would have been satisfied by both of the nights in between, since it
+ * started on both of them.
  */
 describe('a backup that has stopped', () => {
   it('is stale when the newest verified dump is days old', async () => {
@@ -163,9 +159,9 @@ describe('a dump nobody has restored', () => {
 })
 
 /*
- * The disk is a separate physical one, which is the right choice and is also a
- * thing with a cable. A check that reported "fine" because it could not look
- * would be the exact failure this whole issue is about, one layer further in.
+ * The disk is a separate physical one with a cable of its own. A check that
+ * reported "fine" because it could not look would be a failure one layer
+ * further in.
  */
 describe('a directory that cannot be read', () => {
   it('is never a pass', async () => {

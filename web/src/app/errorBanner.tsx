@@ -1,16 +1,4 @@
-/**
- * The one line of red, and everything that can put something on it.
- *
- * Many screens write to it and three of them draw it: the two cameras show it
- * over the viewfinder, and the where-it-goes screen shows it on the page. That
- * is the whole reason it is shared rather than owned by a screen, and it is the
- * smallest piece of shared state in the app.
- *
- * **A fourth drew it under the app's own header until #451**, which is the one
- * nothing reached: the header had not been rendered since the last screen was
- * converted, so its copy of this line was never on a screen anybody could get
- * to. It went with the header.
- */
+/** Many screens write to this and three of them draw it: the two cameras show it over the viewfinder, and the where-it-goes screen shows it on the page. */
 
 import {
   createContext, useContext, useState,

@@ -72,8 +72,6 @@ async function build(): Promise<Case[]> {
     }
   }
 
-  // The edge slot: a spine strip already cropped to the guide rectangle, with
-  // a sliver of room left at the sides.
   for (const background of backgrounds) {
     for (const fill of [0.6, 0.78, 0.9]) {
       const scene = await photographedBook(strip, {

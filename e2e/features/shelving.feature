@@ -32,14 +32,10 @@ Feature: Putting a book on a shelf that is already full
     Then the placement should read "1A: between Rendezvous with Rama (Clarke, Arthur C.) and The Dispossessed (Le Guin, Ursula K.)"
     And the shelf drawing should be labelled "1A"
 
-    # Dune files between the two books on 1A, so the gap is in the middle and a
-    # book genuinely has to come off the end to open it.
     And the first answer should read "No room, move one along"
 
     When I say there is no room on the shelf
     Then it should ask me to move "The Dispossessed" from "1A" to "1B"
-    # Offered, not done. Nothing on the bookcase changes until somebody says
-    # they carried the book, because a proposal is not an observation (#111).
     And the bookcase should still show "The Dispossessed" on "1A"
 
     When I say the moved book fitted
@@ -54,9 +50,6 @@ Feature: Putting a book on a shelf that is already full
     And the library should show "Dune" on shelf "1A"
     And the library should show "The Dispossessed" on shelf "1B"
 
-    # The book the shuffle displaced was carried to 1B on the app's own
-    # instruction and confirmed. If that is not written down, the library turns
-    # round and reports the move as still outstanding.
     And the catalogue should hold "The Dispossessed" recorded as:
       | location | 1B |
     And nothing should need attention
@@ -71,7 +64,7 @@ Feature: Putting a book on a shelf that is already full
     It also ends where it started. Somebody putting a book back is working
     through their shelves, so finishing drops them in the library rather than
     at the cataloguing camera, which is a room they would then have to navigate
-    out of (#89).
+    out of.
 
     Given "The Dispossessed" was last recorded at "2A"
     And "The Dispossessed" is off the bookcase

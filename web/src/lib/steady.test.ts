@@ -1,12 +1,7 @@
 /**
- * The sharpest-frame choice.
- *
- * This is the part of steadying a shot that can silently stop working. If the
- * scoring drifts, or the burst quietly keeps the last frame instead of the
- * best one, every photo still arrives and nothing anywhere reports an error;
- * the only symptom is that blurred spines come back a bit more often, months
- * later, in someone else's hands. So the choice is pinned here rather than
- * left to be noticed.
+ * If the scoring drifts, or the burst quietly keeps the last frame instead of the best one,
+ * every photo still arrives and nothing reports an error; the only symptom is blurred spines
+ * coming back more often, later, in someone else's hands.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -57,8 +52,6 @@ describe('laplacianVariance', () => {
   })
 
   it('falls monotonically as the same edge is smeared further', () => {
-    // The whole premise of picking a frame: more motion during the exposure
-    // has to read as a lower score, not merely a different one.
     const scores = [2, 4, 8, 16].map((spread) =>
       laplacianVariance(blurredEdgeImage(64, 64, spread), 64, 64),
     )
@@ -126,15 +119,11 @@ function burstOver(scores: (number | null)[], options: { budgetMs?: number; step
 
 describe('runBurst', () => {
   it('keeps the sharpest frame, not the last one', async () => {
-    // The sharp frame is in the middle, so "keep the last" and "keep the best"
-    // give different answers and the test can tell them apart.
     const burst = burstOver([10, 90, 20, 15, 30])
     const result = await burst.run()
 
     expect(result.chosen).toBe(1)
     expect(result.scores).toEqual([10, 90, 20, 15, 30])
-    // The winning frame was the last one handed to `keep`, so what gets
-    // encoded really is the frame that scored 90.
     expect(burst.kept.at(-1)).toBe(1)
   })
 
@@ -145,8 +134,7 @@ describe('runBurst', () => {
   })
 
   it('only holds on to a frame that actually beat the best so far', async () => {
-    // Every call to keep is a full-resolution buffer swap. Frames that lose
-    // must not trigger one, or the burst does needless work per frame.
+    // Every call to `keep` is a full-resolution buffer swap, so a losing frame must not trigger one.
     const burst = burstOver([10, 90, 20, 15, 30])
     await burst.run()
     expect(burst.kept).toEqual([0, 1])
@@ -175,8 +163,6 @@ describe('runBurst', () => {
   })
 
   it('stops once the budget is spent rather than waiting for the frame count', async () => {
-    // Somebody photographing forty books pays this per shot. A camera handing
-    // back frames slowly must shorten the burst, not lengthen the shutter.
     const burst = burstOver([1, 2, 3, 4, 5, 6, 7], { budgetMs: 100, step: 40 })
     const result = await burst.run()
     expect(result.scores.length).toBeLessThan(7)
@@ -184,27 +170,21 @@ describe('runBurst', () => {
   })
 
   it('does not wait after the final frame', async () => {
-    // The wait between frames is the whole cost of the burst, so a trailing
-    // one is a shutter delay bought for nothing.
     const burst = burstOver([1, 2, 3], { step: 33 })
     const result = await burst.run()
     expect(result.elapsedMs).toBe(66)
   })
 
   it('spans long enough at 30fps to contain a tremor turning point', async () => {
-    // The reason the burst is the length it is. Tremor starts around 4Hz and
-    // the hand reverses twice per cycle, so any window of at least half the
-    // slowest period, 125ms, has to contain a moment where it is turning round
-    // and briefly almost still. That moment is the sharp frame. A burst
-    // shortened below this stops being able to promise it caught one.
+    // Hand tremor starts around 4Hz and reverses twice per cycle, so a window of at least half
+    // the slowest period, 125ms, has to contain a moment where it is turning round and briefly
+    // almost still, which is the sharp frame.
     const burst = burstOver(Array.from({ length: BURST_FRAMES }, (_, i) => i), { step: 33 })
     const result = await burst.run()
     expect(result.elapsedMs).toBeGreaterThanOrEqual(125)
   })
 
   it('does not run so long that a shot costs a noticeable pause', async () => {
-    // The other side of the same trade: somebody photographing forty books
-    // pays this a hundred and twenty times.
     const burst = burstOver(Array.from({ length: BURST_FRAMES }, (_, i) => i), { step: 33 })
     expect((await burst.run()).elapsedMs).toBeLessThanOrEqual(200)
   })

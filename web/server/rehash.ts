@@ -1,20 +1,15 @@
 /**
  * Bringing stored cover hashes up to the current algorithm.
  *
- * imagehash.ts stopped comparing hashes it did not write. That was right: a
- * hash from the old difference algorithm compared against a new one produces
- * a plausible number rather than an error, and the number decides which book
- * the camera is pointed at. The cost is that every hash already in the
- * catalogue answers "no likeness at all" to everything, so holding a
- * catalogued book up to the camera matches nothing until its images are read
- * again and hashed again.
+ * `imagehash.ts` refuses to compare a hash it did not write, so every hash
+ * already in the catalogue answers "no likeness at all" until its image is
+ * read and hashed again.
  *
- * That is what this does, and only that. The images are the record; the hash
- * is derived from them, so recomputing it invents nothing and can be redone
- * as often as you like.
+ * The images are the record; the hash is derived from them, so recomputing it
+ * invents nothing and can be redone as often as needed.
  *
  * The image reader is injected rather than opened here, so the caller decides
- * which directory is being read and tests need no directory at all.
+ * which directory is read and tests need none at all.
  */
 
 import { coverHash, distance } from './imagehash'
@@ -75,12 +70,10 @@ export interface RehashReport {
 /**
  * Would the matcher still accept this hash?
  *
- * `distance` answers 64, no likeness at all, for anything it cannot compare,
- * including everything the old algorithm wrote. Asking it about one hash
- * twice is therefore exactly the question a scan asks, and it keeps this file
- * from carrying a second copy of the format tag that would then have to be
- * kept in step. The length check rejects a truncated string that is all tag
- * and no payload, which would otherwise look like a perfect self-match.
+ * Comparing a hash against itself reuses `distance`'s own format check rather
+ * than duplicating the format tag here. The length check rejects a truncated
+ * string that is all tag and no payload, which would otherwise look like a
+ * perfect self-match.
  */
 export function isCurrentFormat(hash: string): boolean {
   return hash.length >= 16 && distance(hash, hash) === 0
@@ -89,14 +82,12 @@ export function isCurrentFormat(hash: string): boolean {
 /**
  * Recompute the cover hashes of every catalogued image.
  *
- * Idempotent by construction: a row whose hash the matcher already accepts is
- * skipped, so a second run finds nothing to do, and an interrupted run leaves
- * the rows it finished done. Resumable for the same reason.
+ * Idempotent: a row whose hash the matcher already accepts is skipped, so a
+ * second run finds nothing to do.
  *
- * A hash is only ever replaced by one computed from the book's own image, and
- * an image that cannot be read leaves the existing hash exactly as it was. A
- * stale hash is useless, but so is a blank one, and blanking it would throw
- * away the evidence that the row was ever hashed.
+ * An image that cannot be read leaves the existing hash exactly as it was: a
+ * stale hash is useless, but blanking it would lose the evidence the row was
+ * ever hashed.
  */
 export async function rehashCovers(
   store: Store,

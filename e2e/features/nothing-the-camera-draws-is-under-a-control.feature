@@ -25,27 +25,19 @@ Feature: Nothing the camera draws is under a control
 
   The one frame not asked about here is the cataloguing camera's own, which is
   the crop the shutter is really going to keep rather than a drawing of where to
-  hold a book. It has the same defect and worse — 36px of it behind the caption
-  at 414 by 896 — and it cannot be moved without changing what gets saved, so it
-  is somebody's decision rather than this change's. That is #593.
+  hold a book. It has the same defect and worse: 36px of it behind the caption
+  at 414 by 896, and it cannot be moved without changing what gets saved, so it
+  is somebody's decision rather than this change's.
 
   Background:
     Given the catalogue is empty
     And the catalogue service knows about "Dune"
-    # One book, and deliberately not the one in front of the lens. The first
-    # screen offers the camera that finds a book you already own only once
-    # there is something to find, and the sentence the scenario below is about
-    # is the one that camera says when what you held up is not in the library.
+    # Deliberately not the book in front of the lens: this checks the message the camera gives when the held book is not in the library.
     And the catalogue already holds:
       | title                | author           |
       | Rendezvous with Rama | Arthur C. Clarke |
 
   Scenario: The frame you aim inside, on a short phone
-    # The camera that finds a book you already own draws the design system's
-    # frame and says the longest sentence the app puts on a camera. Both at
-    # once is the case the frame's bottom edge lost: the line is in the bar,
-    # the bar is 48px taller for it, and the frame was measured against the
-    # screen and knew nothing about either.
     Given the phone is 375 by 667
     And the camera is pointed at the back cover of "Dune"
     When I open the app
@@ -55,11 +47,6 @@ Feature: Nothing the camera draws is under a control
     And nothing the camera says should be under a control
 
   Scenario: The hint about what to photograph, on a short phone
-    # It is transient, which is why nobody reported it, and its own comment
-    # said pointer events were off so it could not swallow a tap. It still drew
-    # a hint over a control, which the stylesheet says twice elsewhere is the
-    # thing not to do. The rail is what brings it back, because the hint is
-    # said when the slot changes and leaves after a couple of seconds.
     Given the phone is 375 by 667
     And the camera is pointed at the back cover of "Dune"
     When I open the app

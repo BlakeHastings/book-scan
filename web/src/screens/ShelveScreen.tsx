@@ -1,43 +1,18 @@
 /**
  * Where to put the book, and the answer to whether it fitted.
  *
- * Two states of one screen, which is `where` and `done` in the drawings. The
- * question is `ShelveView`, unchanged in everything it does: the guided
- * shuffle, the cascade, what is written down and when. What is converted is
- * the frame around it and the shape of the answers.
+ * Two states of one screen: `where` and `done`. The question is
+ * `ShelveView`; `PlacementView` (`ShelfStrip`) draws the shelf itself,
+ * since the app's shelves carry photographs of real spines rather than the
+ * wireframe's dyed cloth.
  *
- * ## `Placing` was not touched
+ * A new book lands on "Shelved": the same run of books, with the book
+ * standing where the gap was. Checking a book back in or carrying one
+ * across a boundary both go back where they came from instead.
  *
- * The design system's `Placing` is called by the carry flow as well as by this
- * one and a test pins that, and somebody is building the carry screens right
- * now, so nothing about it moved. This screen draws the same four things in
- * the same order out of what the app already has: the sentence naming the two
- * neighbours, the area drawn with the gap in it, the book in the hand, and the
- * answers. The drawing is `ShelfStrip` rather than the wireframe's `Shelf`,
- * because the app's shelves carry photographs of real spines and the wireframe
- * stands dyed cloth in for them.
- *
- * ## The end of the journey
- *
- * A new book used to be saved straight back to the camera. It now lands on
- * "Shelved", which is the drawing: the same run of books, with the book
- * standing where the gap was. Nothing new was built for it, the same way
- * nothing was in the wireframe: the before is a gap and the after is the book
- * in it, so the strip is redrawn with `placedIndex` where `gapIndex` was.
- *
- * Only for a book that was not in the catalogue yet. Checking a book back in
- * and carrying one across a boundary both come through here too, and both
- * still go back where they came from: they are journeys that started
- * somewhere else and owe that screen a return.
- *
- * ## The book is not in your hands on that screen
- *
- * "Shelved" is drawn out of `Shelved` below and out of nothing else. The book
- * itself is put down by the save, because it is on a shelf, and a screen that
- * says so is not a reason to go on holding it: holding it is what sent the
- * next photograph on to the book somebody had just finished (#431). So what
- * this screen wants to keep saying is written down here first, one press
- * earlier than it used to be, and that includes where "Next book" leads.
+ * The book itself is put down by the save, not by this screen: still
+ * holding it while showing "Shelved" would let the next photograph land
+ * on the book that was just finished.
  */
 
 import { useState } from 'react'
@@ -64,21 +39,16 @@ interface Shelved {
   title: string
   area: string
   /**
-   * The placement as it now stands, with the book standing where the gap was.
-   *
-   * A placement rather than a bare strip because it is drawn by
-   * `PlacementView`, which is what draws every other shelf in the app. There is
-   * one component that draws a run of books with a book of yours in it and
-   * there must not be a second: `carrying.test.tsx` pins that, and this screen
-   * is the newest thing that would have been one.
+   * The placement as it now stands, with the book standing where the gap
+   * was. Drawn by `PlacementView`, the one component that draws a run of
+   * books with a book of yours in it; `carrying.test.tsx` pins that there
+   * must not be a second.
    */
   placement: PlacementResponse | null
   /**
-   * Where "Next book" leads, read off the book while it was still in hand.
-   *
-   * The origin is put down with the book, so this is taken before the save
-   * rather than asked for after it. It is still `RETURN_TO`'s answer and not a
-   * second one: `useLeaving().landing` is that table, read a moment earlier.
+   * Where "Next book" leads, read off the book while it was still in
+   * hand. Taken before the save rather than asked for after it, since the
+   * origin is put down with the book.
    */
   next: Route
 }
@@ -114,14 +84,11 @@ export function ShelveScreen() {
   }
 
   /**
-   * The area with the book in it, from the one that had a gap in it.
-   *
-   * The strip on screen a moment ago is the same shelf, drawn with the space
-   * the book was about to go in. So this is that strip with the book standing
-   * where the space was, which is what `placedIndex` means to `ShelfStrip`.
-   * Nothing is asked of the server for it: the answer is already in hand and a
-   * second read would be a round trip to redraw a picture that has not changed
-   * in any way this screen does not already know about.
+   * The area with the book in it, from the one that had a gap in it. The
+   * strip on screen a moment ago is the same shelf, so this is that strip
+   * with the book standing where the space was, which is what
+   * `placedIndex` means to `ShelfStrip`. Nothing is asked of the server
+   * for it: the answer is already in hand.
    */
   const withTheBookIn = (): PlacementResponse | null => {
     const strip = placement?.strip
@@ -144,9 +111,9 @@ export function ShelveScreen() {
   }
 
   const shelveIt = async (shelvedAt: number) => {
-    // Read before the save, which is what puts the book down on every path out
-    // of here. The plank was answered about by id and is named here for the
-    // sentence, which is the split #359 makes.
+    // Read before the save, which is what puts the book down on every path
+    // out of here. The plank was answered about by id and is named here
+    // for the sentence.
     const ending: Shelved = {
       title,
       area: placement?.derivedLocation ?? '',
@@ -154,10 +121,10 @@ export function ShelveScreen() {
       next: landing,
     }
     /*
-     * A book that was not in the catalogue a moment ago ends on "Shelved", and
-     * that ending is written down in the same update that puts the book down.
-     * Everything else came from somewhere and owes that screen a return, which
-     * the save makes itself.
+     * A book that was not in the catalogue a moment ago ends on "Shelved",
+     * written down in the same update that puts the book down. Everything
+     * else came from somewhere and owes that screen a return, which the
+     * save makes itself.
      */
     if (bookId === null) await save(shelvedAt, 'here', () => setShelved(ending))
     else await save(shelvedAt, 'origin')
@@ -185,10 +152,9 @@ export function ShelveScreen() {
             <Confirmation said={`${shelved.title} is on ${shelved.area}.`} />
           )}
 
-          {/* Both of these are a route and nothing else. There is no book to
-              put down by the time either can be pressed: the save did that,
-              standing at the bookcase, which is where finishing with a book
-              belongs (#431). */}
+          {/* Both of these are a route and nothing else. There is no book
+              to put down by the time either can be pressed: the save did
+              that, standing at the bookcase. */}
           <Button tone="primary" block onPress={() => setRoute(shelved.next)}>
             Next book
           </Button>

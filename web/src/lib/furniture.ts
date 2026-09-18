@@ -1,21 +1,11 @@
 /**
- * The arithmetic and the wording the furniture screens share.
- *
- * Pure functions, no fetching and no React, so the awkward cases are checked
- * here rather than driven through six screens: two pieces standing on one
- * number, a drag that renumbers four of five pieces, a count that excludes
- * pinned books, and the difference between what the rules want and where a book
- * actually is.
- *
- * ## The one import from `domain/`
+ * The arithmetic and the wording the furniture screens share: pure functions, no
+ * fetching and no React.
  *
  * `labelFor` is taken from `domain/placement/geography` rather than restated
- * here, and that is deliberate in a file that otherwise touches nothing below
- * `src/`. A label is worked out from a piece's number and name and an area's
- * ordinal and name, and `labelFor` says so it is "the only place a label comes
- * from". A second spelling of it in the client is exactly how a screen ends up
- * previewing `Hall shelf A` for something the server will call `Hall shelf · A`.
- * It is a pure function over two plain objects: nothing else comes with it.
+ * here, in a file that otherwise touches nothing below `src/`. A second spelling
+ * of it in the client is how a screen ends up previewing `Hall shelf A` for
+ * something the server will call `Hall shelf · A`.
  */
 
 import { labelFor } from '../../domain/placement/geography'
@@ -26,10 +16,8 @@ import type {
 } from './api'
 import type { AreaStanding } from '../../shared/shelving'
 
-/** A piece as the ordering column holds it while somebody drags it about. */
 export interface Standing {
   id: number
-  /** What it is called, or what it is called when it is called nothing. */
   name: string
   position: number
 }
@@ -37,27 +25,18 @@ export interface Standing {
 /**
  * The numbers the room already uses, in order: the places a piece can stand.
  *
- * **Not one to however many pieces there are.** This catalogue's own furniture
- * stands at 1, 2 and 4, and non-fiction lives on the one called 4, so every
- * non-fiction book in it is recorded on a plank whose label begins with that
- * digit. Closing the gap to make the numbers tidy would relabel all of them,
- * which is a hundred and eighty-seven recorded locations rewritten because
- * somebody dragged something else. The gap is somebody's room, not a mistake.
- *
- * The same argument keeps a duplicate: **two pieces both standing at 4** is an
- * arrangement this catalogue has, so 4 appears twice in this list and two
- * pieces can still land on it.
+ * Not one to however many pieces there are. A gap is somebody's room and not a
+ * mistake, and closing it to tidy the numbers would relabel every location
+ * recorded on the pieces after it. Two pieces standing on one number is a real
+ * arrangement too, so a duplicate stays in this list.
  */
 export const places = (order: readonly Standing[]): number[] =>
   order.map((piece) => piece.position).sort((a, b) => a - b)
 
 /**
- * The writes a reordering of the room comes down to, and no more of them.
- *
- * The places stay where they are and the pieces move through them, so the
- * writes are exactly the pieces that ended up on a different number. A drag
- * that ends where it started writes nothing at all, and neither does saving a
- * screen where only the name was typed into.
+ * The places stay where they are and the pieces move through them, so the writes
+ * are exactly the pieces that ended up on a different number. A drag that ends
+ * where it started writes nothing at all.
  */
 export function renumbering(order: readonly Standing[]): { id: number; position: number }[] {
   const numbers = places(order)
@@ -67,12 +46,8 @@ export function renumbering(order: readonly Standing[]): { id: number; position:
 
 /**
  * What the areas of a piece will read as, once it is called this and stands
- * there.
- *
- * The preview under the ordering column, and the reason the fixture screen can
- * be a form with a Save on it rather than a write per keystroke. It is worked
- * out the way the server works it out, by the same function, because a preview
- * that disagreed with the answer would be worse than no preview.
+ * there. Worked out by the same function the server uses, because a preview that
+ * disagreed with the answer would be worse than no preview.
  */
 export function labelsIfNamed(
   fixture: { position: number; kind: string; name: string },
@@ -98,14 +73,7 @@ export function labelsIfNamed(
   }))
 }
 
-/**
- * How this app says a number of things.
- *
- * Written out to twelve and then in digits, which is the line the rest of the
- * interface already draws: "Five pieces, sixteen areas" reads as a sentence and
- * "1,204 books" reads as a count, and somewhere around a dozen is where one
- * turns into the other.
- */
+/** Numbers written out to twelve, and in digits above that. */
 const WORDS = [
   'no', 'one', 'two', 'three', 'four', 'five', 'six',
   'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve',
@@ -116,21 +84,15 @@ export function counted(n: number, one: string, many = `${one}s`): string {
   return `${word} ${n === 1 ? one : many}`
 }
 
-/** The same, with digits, for the places a count is the point rather than prose. */
+/** The same, with digits, where a count is the point rather than prose. */
 export const plural = (n: number, one: string, many = `${one}s`): string =>
   `${n} ${n === 1 ? one : many}`
 
 /**
  * Why a piece cannot be taken out of the room yet, in the words the server
- * refuses in.
- *
- * Two clauses because they are two different jobs. A book standing on the piece
- * has to be carried off it; a book the carry list is still sending to it has to
- * be carried or left where it is, and it is not on the piece at all, so a single
- * number covering both would put a count on a screen that nothing on the shelf
- * in front of somebody matches (#484).
- *
- * Empty when nothing holds it, which is the card having nothing to say.
+ * refuses in. Two clauses, because a book standing on the piece and a book the
+ * carry list is still sending to it need different things done, and the second
+ * is not on the piece at all. Undefined when nothing holds it.
  */
 export function stillHolds(removal: FixtureRemoval | null): string | undefined {
   if (!removal || removal.books <= 0) return undefined
@@ -154,12 +116,8 @@ export function roomSaid(fixtures: readonly FixtureDto[]): string {
 }
 
 /**
- * The word for adding an area to this particular piece.
- *
- * "Add an area to this desk" is right because that piece is a desk, and "add an
- * area to this bookcase" would be wrong on the next one, which is a crate. The
- * piece's `kind` is the owner's own word and nothing branches on it, so it is
- * put in the sentence rather than looked up in a table.
+ * The piece's `kind` is the owner's own word and nothing branches on it, so it
+ * goes into the sentence rather than being looked up in a table.
  */
 export function addAreaSaid(kind: string): string {
   const thing = kind.trim().toLowerCase()
@@ -175,58 +133,37 @@ export function kindSaid(kind: string): string {
 }
 
 /**
- * What a piece is called when nobody has called it anything.
- *
- * `label` answers `2`, which is right on an area (`2A`) and is not something
- * anybody says out loud about a piece of furniture. So the kind and the
- * number, and the kind is the owner's own word: the fifth piece in his room is
- * a desk, and calling it a bookcase would be the app telling him what he owns.
+ * What a piece is called when nobody has called it anything. `label` answers `2`,
+ * which is right on an area (`2A`) and is not something anybody says out loud
+ * about a piece of furniture, so this is the kind and the number, and the kind is
+ * the owner's own word.
  */
 export const pieceSaid = (piece: Pick<FixtureDto, 'name' | 'kind' | 'position'>): string =>
   piece.name.trim() || `${kindSaid(piece.kind)} ${piece.position}`
 
 /**
- * The same answer, asked of the little of a piece that a placement carries.
- *
- * `AreaStanding` is the structural half of a placement (#446): the piece a plank
- * hangs on, said in the four fields a drawing needs. Two screens draw a heading
- * from one, the library's boards and the shelves screen's, and both used to
- * spell the conversion out for themselves. A third spelling of "what is this
- * piece called" is how one of them ends up saying something else, which is the
- * whole of #447.
+ * The same answer, asked of the little of a piece that an `AreaStanding` carries.
+ * A second spelling of "what is this piece called" is how one screen ends up
+ * saying something else.
  */
 export const pieceOn = (standing: AreaStanding): string =>
   pieceSaid({ name: standing.name, kind: standing.kind, position: standing.fixture })
 
-/** Something a person reads as it reads now, and as it will read. */
 export interface Renaming {
   from: string
   to: string
 }
 
 /**
- * Everything a person reads that reads differently once the pieces stand in
- * this order.
+ * Everything a person reads that reads differently once the pieces stand in this
+ * order, worked out before anything is written and in the same shape the server
+ * answers a write with.
  *
- * The screen's own `becomes`, worked out before anything is written and in the
- * same shape the server answers a write with. It replaced a card promising
- * "what they will be numbered", which listed the numbers this list deliberately
- * leaves alone and which was the number the owner could make no sense of
- * (#367). What changes when a room is put in order is not a number, it is what
- * things are called, and for most of a named room the answer is nothing at all.
- *
- * **A piece with a name is not renamed by moving it**, and neither are its
- * areas: a label is worked out from the name where there is one and from the
- * position where there is not. So a room somebody has named reads the same
- * wherever the pieces stand, and this says so rather than showing them numbers
- * to prove it.
- *
- * The pieces and the areas come back apart because a screen says them
- * differently. Four pieces changing name is four things somebody reads; the
- * nine area labels underneath them are the same fact again, and reading them
- * out in full turned the card into a paragraph nobody would finish. Seen by
- * opening it. The area labels are still worked out rather than assumed, because
- * a count of them is only worth printing if it is the real one.
+ * A piece with a name is not renamed by moving it, and neither are its areas: a
+ * label is worked out from the name where there is one and from the position
+ * where there is not, so a room somebody has named reads the same wherever the
+ * pieces stand. The pieces and the areas come back apart because a screen says
+ * them differently.
  */
 export function renamings(order: readonly FixtureDto[]): {
   pieces: Renaming[]
@@ -255,16 +192,10 @@ export function renamings(order: readonly FixtureDto[]): {
 }
 
 /**
- * Where a rule points, said the way this app says a place.
- *
- * A rule about a whole piece answers `4`, which is the *label* of the piece and
- * is not something anybody says out loud about furniture. The piece itself knows
- * how it is named, so it is asked. `docs/data-model.md` and `DescribedRule` both
- * say this is the screen's job rather than the server's, which is why the rule
- * carries `placeId`.
- *
- * Two screens draw rules now, so it lives here rather than in either of them: a
- * second spelling is how one of them ends up saying "4".
+ * Where a rule points, said the way this app says a place. A rule about a whole
+ * piece answers `4`, which is the label of the piece and not something anybody
+ * says out loud about furniture, so the piece itself is asked, which is why the
+ * rule carries `placeId`. See `docs/data-model.md`.
  */
 export function rulePlace(room: FurnitureDto | null, rule: RuleDto): string {
   if (rule.about === 'area') return rule.place
@@ -273,13 +204,9 @@ export function rulePlace(room: FurnitureDto | null, rule: RuleDto): string {
 }
 
 /**
- * The count line beside a piece's name, which says the awkward thing when
- * there is one.
- *
- * **Two pieces standing on one number is an arrangement this catalogue has**,
- * and it is also two pieces whose areas draw the same labels. A screen that did
- * not say so would show `4A` twice with no explanation, and somebody would go
- * looking for the mistake in the wrong place.
+ * The count line beside a piece's name. Two pieces standing on one number is a
+ * real arrangement, and also two pieces whose areas draw the same labels, so the
+ * line says so rather than showing `4A` twice with no explanation.
  */
 export function pieceNote(piece: Pick<FixtureDto, 'books' | 'sharing' | 'position'>): string {
   const books = plural(piece.books, 'book')
@@ -288,13 +215,10 @@ export function pieceNote(piece: Pick<FixtureDto, 'books' | 'sharing' | 'positio
 }
 
 /**
- * How an area is ordered, in the same voice the rest of these screens use.
- *
  * The vocabulary is a table in the database and its labels are written for the
  * schema: `inherit` is stored as "Same as the shelf it is on", and "shelf" is a
- * word this code says and this interface never does. So the codes are given
- * their words here, and an unknown code falls back to whatever the server
- * called it rather than being dropped.
+ * word this interface never says. So the codes are given their words here, and
+ * an unknown code falls back to whatever the server called it.
  */
 const ORDER_WORD: Record<Exclude<SortStrategyCode, 'inherit'>, string> = {
   author: 'By the author',
@@ -308,25 +232,7 @@ export function orderingSaid(code: SortStrategyCode, from: string, fallback = ''
   return ORDER_WORD[code] ?? fallback
 }
 
-/*
- * `orderedSaid` was here, and it answered "The way Bookcase 2 does" for an area
- * that inherits.
- *
- * It is gone (#405). That string was the loudest line on the sort rule card and
- * it is a pointer rather than an answer: an area following a piece is still
- * ordered some way, and the way is what somebody standing in front of the books
- * wants. `AreaDto.ordering` is that answer, folded through the piece and the
- * collection by the server, and `orderingSaid` says it. Nothing else called
- * this.
- */
-
-/**
- * Why a book is being left exactly where it is.
- *
- * A count with no reason beside it is worse than no count: the person cannot
- * tell whether it is expected. Pinned is the one that always is, and it is the
- * one the model promises can never be overridden.
- */
+/** Why a book is being left exactly where it is. */
 export const SKIP_SAID: Record<string, string> = {
   pinned: 'pinned where they are, which beats every rule',
   'checked-out': 'checked out, so they are not standing here to be refiled',
@@ -338,17 +244,9 @@ export const skippedSaid = (reason: string, books: number): string =>
   `${plural(books, 'book')} ${SKIP_SAID[reason] ?? 'left alone'}`
 
 /**
- * What one ordering files a book under, which is the thing that changes when
- * the ordering does.
- *
- * The left column of the sample the sort rule widget draws, and the whole
- * reason the sample answers "why do they read in this order": beside a surname
- * it reads as a surname, beside a year it reads as a year, and picking another
- * ordering visibly changes both the order and what is being read.
- *
- * **A tag is drawn by its label**, which is why the read carries labels beside
- * the slugs it orders by. A slug is an identity and putting one on a screen is
- * the same mistake as showing somebody a row id.
+ * What one ordering files a book under, which is the thing that changes when the
+ * ordering does. A tag is drawn by its label: a slug is an identity, and putting
+ * one on a screen is the same mistake as showing somebody a row id.
  */
 export function filedUnder(code: Exclude<SortStrategyCode, 'inherit'>, book: AreaBook): string {
   if (code === 'title') return book.titleFiling || book.title
@@ -358,12 +256,9 @@ export function filedUnder(code: Exclude<SortStrategyCode, 'inherit'>, book: Are
 }
 
 /**
- * The book beside what it is filed under, said by whatever that is not.
- *
- * Ordering by the title and printing the title beside it is the same string
- * twice, which is what the first drawing of the sample did and is what looking
- * at it showed. So the second column is the author there and the title
- * everywhere else, and neither column is ever the other one repeated.
+ * The book beside what it is filed under, said by whatever that is not. Ordering
+ * by the title and printing the title beside it would be the same string twice,
+ * so the second column is the author there and the title everywhere else.
  */
 export const saidBeside = (code: Exclude<SortStrategyCode, 'inherit'>, book: AreaBook): string =>
   (code === 'title' ? book.authorFiling || 'unknown author' : book.title)
@@ -372,12 +267,9 @@ export const saidBeside = (code: Exclude<SortStrategyCode, 'inherit'>, book: Are
 export const SAMPLE = 6
 
 /**
- * The books of a place, in the order an ordering would put them.
- *
- * The same function the shelf itself is built by, handed the same four
- * components, so what a screen previews and what the collection does are one
- * answer rather than two that agree today. Capped, because this is evidence
- * rather than a listing and the listing already exists.
+ * The books of a place, in the order an ordering would put them, by the same
+ * function the shelf itself is built by. Capped, because this is evidence rather
+ * than a listing.
  */
 export function sampleOrdered(
   code: Exclude<SortStrategyCode, 'inherit'>,
@@ -396,15 +288,9 @@ export function sampleOrdered(
 }
 
 /**
- * Every one of these books, in the order an ordering puts them.
- *
- * The board on an area's page (#405), which is a picture of a physical row and
- * therefore has to be in the order that row reads. The read answers by filing
- * key, which is the author's, so an area ordered by the year would have drawn a
- * board contradicting the card directly above it.
- *
- * The same `orderBy` the sample and the collection itself use, for the reason
- * `sampleOrdered` gives: two orderings that agree today.
+ * Every one of these books, in the order an ordering puts them. The read answers
+ * by filing key, which is the author's, so an area ordered by the year would
+ * otherwise draw a board contradicting the card directly above it.
  */
 export const inOrder = (
   code: Exclude<SortStrategyCode, 'inherit'>,
@@ -412,21 +298,12 @@ export const inOrder = (
 ): AreaBook[] => orderBy(code, [...books])
 
 /**
- * The two ends of these books, as one ordering files them.
+ * The two ends of these books, as one ordering files them. `filedUnder` at both
+ * ends rather than the title, so it reads as the ordering reads.
  *
- * The shortest true answer to "what order are these books in", and since #405
- * it is the answer the widget leads with once the name of the ordering has been
- * said. It is `filedUnder` at both ends rather than the title, because the
- * point of it is to read as the ordering reads: two surnames under the author,
- * two years under the year.
- *
- * **Nothing under two books**, because one book has no ends and no book has
- * nothing to say. A place with one book in it is not in any order.
- *
- * **Nothing where the two ends read the same either**, which is a real area:
- * eleven Frank Herberts filed by the author are "Herbert, Frank to Herbert,
- * Frank", which is a sentence that says nothing twice. Found by looking at what
- * a two-book area rendered.
+ * Undefined under two books, because a place with one book in it is not in any
+ * order, and undefined where the two ends read the same, which is a real area:
+ * eleven Frank Herberts filed by the author say nothing twice.
  */
 export function orderEnds(
   code: Exclude<SortStrategyCode, 'inherit'>,
@@ -441,16 +318,10 @@ export function orderEnds(
 }
 
 /**
- * Where an area's ordering is actually settled, in one sentence.
- *
- * **This is what replaced the numbered stack of three levels** (#405). The
- * three levels are a fact about the model and the owner read them twice and
- * could make nothing of them the second time either. What a person does with
- * the answer is go to the place that decides and change it there, so the
- * sentence names that place and stops. The middle of a chain is not somewhere
- * anybody goes: an area that follows a piece that follows the library is told
- * about the library, because changing the piece would be changing a level that
- * is currently deciding nothing.
+ * Where an area's ordering is actually settled, in one sentence. It names the
+ * place that decides and stops: an area that follows a piece that follows the
+ * library is told about the library, because changing the piece would be
+ * changing a level that is currently deciding nothing.
  */
 export function areaSettled(piece: FixtureDto, area: AreaDto): string {
   if (area.sortStrategy !== 'inherit') {
@@ -473,17 +344,10 @@ export function fixtureSettled(piece: FixtureDto): string {
 
 /**
  * What picking this ordering would do to the books flowing into an area, said
- * before anything is pressed.
- *
- * The one consequence of this setting that a person cannot see coming, and the
- * one the model insists on: an area with an ordering of its own is a place of
- * its own and takes no overflow from the area before it. It was only ever said
- * *after* the server refused a save, which is a strange moment to learn it.
- *
- * **Silent on an area the books already start in.** Nothing overflows into the
- * first area of a stretch whatever it is ordered by, so warning about it there
- * would be the screen inventing a consequence. Same branch the note under the
- * card already takes, for the same reason.
+ * before anything is pressed: an area with an ordering of its own is a place of
+ * its own and takes no overflow from the area before it. Silent on an area the
+ * books already start in, because nothing overflows into the first area of a
+ * stretch whatever it is ordered by.
  */
 export function orderingWarning(area: AreaDto, chosen: SortStrategyCode, from: string): string {
   if (area.entry) return ''
@@ -501,13 +365,10 @@ export function orderingWarning(area: AreaDto, chosen: SortStrategyCode, from: s
 }
 
 /**
- * The answers a place can give to how it is ordered, in its own words.
- *
- * **What inheriting means is not the same in the two places that ask**, which is
- * why the fallback is a parameter rather than a sentence written here. An area
- * with no ordering of its own takes the piece it stands on; a piece with none
- * takes the whole library. Both are real: every piece starts out inheriting, so
- * a page that did not offer it could not show a piece its own answer.
+ * What inheriting means is not the same in the two places that ask, which is why
+ * the fallback is a parameter rather than a sentence written here: an area with
+ * no ordering of its own takes the piece it stands on, and a piece with none
+ * takes the whole library.
  */
 export function sortOptions(
   room: FurnitureDto,
@@ -535,11 +396,8 @@ export function fixtureOrdering(
 }
 
 /**
- * Every rule that reaches a place, in the order that settles a tie.
- *
- * The one about the smaller place first, which is the rule the model applies
- * and the order somebody reads it in. A screen showing only the winner answers
- * half the question the screen was opened to ask.
+ * Every rule that reaches a place, smaller place first, which is the order that
+ * settles a tie.
  */
 export function reaching(
   room: FurnitureDto | null,

@@ -22,9 +22,7 @@ describe('resolveIsbnPair', () => {
   })
 
   it('rejects a plain EAN-13 product code that is not a book', () => {
-    // 4006381333931 has a perfectly valid EAN-13 check digit, so a bare
-    // "is this a valid ISBN-13" test says yes. It is not a book. Only the
-    // 978/979 Bookland prefix separates the two categories.
+    // Has a valid check digit, so a bare isValidIsbn13 check alone would accept it; only the Bookland prefix says it isn't a book.
     expect(isValidIsbn13('4006381333931')).toBe(true)
     expect(resolveIsbnPair('4006381333931')).toEqual({ isbn13: '', isbn10: '' })
   })
@@ -80,8 +78,7 @@ describe('ISBN validation', () => {
 
 describe('pickIsbn', () => {
   it('ignores the EAN-5 price add-on that sits beside the ISBN', () => {
-    // This is the failure that matters: scanning the price barcode and
-    // looking it up returns a confident, wrong book.
+    // Scanning the price barcode and looking it up would return a confident, wrong book.
     expect(pickIsbn(['51999'])).toBe('')
   })
 
@@ -103,10 +100,7 @@ describe('extractIsbnCandidates, from real OCR output', () => {
   const DARK_ANGEL = '9780671525439' // ISBN 0-671-52543-3
 
   it('rejects an unlabelled 10-digit run', () => {
-    // This is the bug that shipped a wrong book. Roughly one in eleven random
-    // 10-digit runs passes the ISBN-10 check digit, and a back cover is full
-    // of long numbers. 5176714485 is a real false positive taken from a photo
-    // of a UPC barcode; it validates, and it is not an ISBN.
+    // Roughly one in eleven random 10-digit runs passes the ISBN-10 check digit; 5176714485 is a real false positive from a UPC barcode.
     expect(isValidIsbn10('5176714485')).toBe(true)
     expect(extractIsbnsFromText('0 76714 00450 52543 5176714485')).toHaveLength(0)
   })
@@ -152,10 +146,7 @@ describe('extraction against verbatim OCR of a worn label', () => {
   const DARK_ANGEL = '9780671525439'
 
   it('does not force a reading when a letter is genuinely ambiguous', () => {
-    // Tesseract returned "0-L71-" for "0-671-": here L is a misread 6, but L
-    // resembles 1 far more often, so repair maps it to 1 and the check digit
-    // then fails. That is the correct outcome. Another rung of the OCR ladder
-    // reads the same label cleanly, which is why the real photo still works.
+    // L is a misread 6, but resembles 1 far more often, so repair maps it to 1 and the check digit correctly fails; another OCR pass reads the label cleanly.
     expect(extractIsbnsFromText('ISBN 0-L71-52543-3')).toHaveLength(0)
   })
 
@@ -170,9 +161,7 @@ describe('extraction against verbatim OCR of a worn label', () => {
   })
 
   it('does not slide its way into inventing an ISBN', () => {
-    // A label followed by digit soup. Ten-digit windows are skipped once the
-    // run is longer than a single ISBN could be, or one of them eventually
-    // satisfies its check digit and produces a confident, wrong book.
+    // Ten-digit windows are skipped once the run is longer than a single ISBN could be, or one would eventually satisfy its check digit.
     expect(extractIsbnsFromText('ISBN 999999 5176714485')).toHaveLength(0)
   })
 })

@@ -1,17 +1,4 @@
-/**
- * The end of one trip, which is the same shape as the end of shelving a book.
- *
- * The answer is drawn rather than said twice: the area is there with the books
- * on it, and the sentence over it is the one thing the drawing cannot say, which
- * is how many of them were just carried.
- *
- * ## The way on is the next trip, by name
- *
- * The person is holding nothing and standing next to the area they have just
- * filled, so the useful offer is the next armful and where it comes off. The way
- * out says what it means: there is no session to close, so stopping is stopping,
- * and everything carried is already on the shelves and written down.
- */
+/** Nothing here closes a session: everything carried is already on the shelves and written down, so stopping is just stopping. */
 
 import { Card, Confirmation } from '../design/Card'
 import { TopBar, type TabName } from '../design/Chrome'
@@ -37,15 +24,7 @@ interface Props {
   onScan: () => void
 }
 
-/**
- * The area as it now stands, drawn the way every other board in the app is:
- * each book's own photograph over the cloth it is bound in.
- *
- * This is the answer the screen is, so it has to be a picture of the shelf
- * somebody is looking at rather than a row of coloured blocks. A book with no
- * photograph keeps its cloth and its name down the spine, which is what it
- * looks like in the library too.
- */
+/** Each book is drawn by its own photograph over the cloth it is bound in, the same as every other board; one with no photograph keeps its cloth and name down the spine, as in the library. */
 function boardOf(books: readonly StandingBook[]): ShelfItem[] {
   return books.map((book) => ({
     kind: 'spine' as const,

@@ -1,39 +1,11 @@
 /**
- * The room, and the two things you can do to it as a whole: add a piece, and
- * put the pieces in order.
+ * Adding an area writes immediately with no screen in between: it is safe because it relabels
+ * nothing, since a label comes from a piece's number and name plus an area's ordinal and name,
+ * and an area added at the end takes an ordinal nothing else has. Where it opens is the server's
+ * answer, chosen so that no book changes the area it belongs to; see `anchorForNewArea`.
  *
- * ## Adding an area is a press, not a screen (#381)
- *
- * > Whenever we're on the fixture screen and we can click "add an area to this
- * > fixture", it should just add the area, and we should just continue the
- * > lettering. If the user wants to, they can then click the area to get to the
- * > area detail view, and they can change the rules there.
- *
- * So it writes, and nothing else happens: no screen in between, no question
- * about where a stretch of books splits, and no navigation afterwards. The new
- * area appears at the end of the piece it was pressed on, one letter further
- * along, and the room is where somebody already was.
- *
- * **It is safe without a screen because it relabels nothing.** A label comes
- * from a piece's number and name and an area's ordinal and name, and an area
- * added at the end takes an ordinal nothing else has: every existing label, on a
- * named piece and on an unnamed one, reads exactly as it did. Where it opens is
- * the server's answer rather than a question put to somebody, and it is chosen
- * so that no book changes the area it belongs to; see `anchorForNewArea`.
- *
- * ## A new piece arrives with no areas, and this screen opens it
- *
- * An area is a decision about where one run of books stops and the next
- * begins, and a piece somebody has only just named has no books on it to cut.
- * So adding one writes the piece and goes straight to its own screen, which is
- * where it gets a name and where the first area is cut into it.
- *
- * ## Saving an order is several writes, and only the ones that changed
- *
- * There is one route for a piece's number and this screen can move five of
- * them at once, so it writes each piece whose number is no longer where it
- * stands. **The owner has two pieces both standing at 4**, and nothing here
- * renumbers a piece for being beside one: see `renumbering`.
+ * Saving an order writes only the pieces whose number changed; see `renumbering` for why two
+ * pieces can validly stand at the same number and neither gets renumbered for being beside one.
  */
 
 import { useState } from 'react'
@@ -57,11 +29,6 @@ export function FurnitureScreen() {
     if (added) openFixture(added.fixture.id)
   }
 
-  /*
-   * On the end, continuing the lettering, and nowhere to go afterwards. Given
-   * no anchor the server puts the new area where it takes no book off anybody,
-   * which is the decision this used to stop and ask about.
-   */
   const addArea = (fixtureId: number) => write(() => api.addArea(fixtureId))
 
   const saveOrder = async () => {
@@ -81,13 +48,6 @@ export function FurnitureScreen() {
       busy={busy}
       error={error}
       tabs={tabs}
-      /*
-       * Back to wherever this was opened from (#350), which is the wrinkle
-       * #333 named and left: this went to the library and nowhere else, so
-       * walking in from the corner and straight back out landed you on your
-       * books rather than where you started. The corner is on two screens now,
-       * so a fixed target would be wrong more often than right.
-       */
       onBack={leaveRoom}
       onFixture={openFixture}
       onArea={openArea}

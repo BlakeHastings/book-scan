@@ -1,36 +1,19 @@
 /**
  * The camera, moved as one piece and given the lifetime it already had.
  *
- * ## Read this before shortening it
+ * This provider wraps the whole app rather than the camera screen: every
+ * value here outlives the camera screen, since leaving the viewfinder for
+ * review and coming back must not discard the lens list, the last
+ * burst's report, or the focus note.
  *
- * This is the part of the app that took real work to get right on real
- * phones: a live media stream, a lens pinned so the phone stops swapping
- * mid-shot, a torch that follows the spine, and a diagnostics sheet that
- * exists because nobody working on this owns the phone (#92). A silent
- * regression here is a book photographed badly by somebody standing at a
- * bookcase, found a week later.
+ * The stream itself is unaffected by that: every exit from the camera
+ * screen already calls `stopCamera` explicitly, the torch effect turns
+ * the light off in its cleanup, and the unmount teardown below fires at
+ * the app's unmount, not the screen's.
  *
- * So this provider wraps the whole app rather than the camera screen, and
- * that is deliberate. In the single component this came out of, every one of
- * these values outlived the camera screen: leaving the viewfinder for review
- * and coming back left the lens list, the last burst's report and the focus
- * note exactly where they were. Scoping them to the screen would have
- * discarded them on unmount, which is a change to what the settings sheet
- * shows, and this issue is not allowed to change what a screen shows.
- *
- * **The stream itself is unaffected either way**, and that is worth saying
- * plainly: every exit from the camera screen already calls `stopCamera`
- * explicitly, the torch effect turns the light off in its cleanup, and the
- * unmount teardown below fires exactly when it fired before, at the app's
- * unmount. Nothing about when a track is opened or stopped has moved.
- *
- * Whether the session *should* be screen-scoped is a fair question and it is
- * not this issue's to answer. It is one provider in one file now, so it is a
- * question somebody can answer on its own.
- *
- * Only `useBookInHand().activeSlot` is read from outside: the focus hints and
- * the torch both follow the slot, because the spine is shot closest and is the
- * one that wants light.
+ * Only `useBookInHand().activeSlot` is read from outside: the focus hints
+ * and the torch both follow the slot, since the spine is shot closest and
+ * is the one that wants light.
  */
 
 import {
@@ -57,10 +40,9 @@ export interface CameraSession {
   readonly settingsOpen: boolean
   readonly setSettingsOpen: Dispatch<SetStateAction<boolean>>
   /**
-   * The torch, offered only where the phone actually has one and only on the
-   * spine, which is the shot that needs it. More light means a shorter
-   * exposure means less blur, which is the one lever on steadiness that is
-   * physical rather than statistical.
+   * The torch, offered only where the phone actually has one and only on
+   * the spine, which is the shot that needs it: more light means a
+   * shorter exposure, which means less blur.
    */
   readonly torchReady: boolean
   readonly torchOn: boolean
@@ -107,8 +89,8 @@ export function CameraSessionProvider({ children }: { children: ReactNode }) {
     setResolution('')
   }, [])
 
-  // The last thing the page does. Same teardown as before this was its own
-  // file: it fires when the app goes away, not when the camera screen does.
+  // The last thing the page does: fires when the app goes away, not when
+  // the camera screen does.
   useEffect(() => stopCamera, [stopCamera])
 
   // getUserMedia needs a user gesture on iOS, so this only runs from a tap.
@@ -169,12 +151,10 @@ export function CameraSessionProvider({ children }: { children: ReactNode }) {
   }, [activeSlot, cameraOn])
 
   /**
-   * Light the spine, and only the spine.
-   *
-   * Following the slot rather than being a mode of its own means no extra tap:
-   * the person picks the spine as they already do, and the light is on when
-   * they get there. It goes out again on the covers, which are shot flat and
-   * do not need it, and where a torch would only bounce off the artwork.
+   * Light the spine, and only the spine. Following the slot rather than
+   * being a mode of its own means no extra tap: the light is on by the
+   * time the person gets to that shot, and off again on the covers, which
+   * are shot flat and do not need it.
    */
   useEffect(() => {
     if (!cameraOn || !torchReady) return

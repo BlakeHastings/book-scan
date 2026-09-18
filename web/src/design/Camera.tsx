@@ -1,122 +1,29 @@
 /**
- * The camera, and the photographs it has already taken.
+ * The camera, and the photographs it has already taken. The picture is the
+ * whole screen; every control floats on it, and the only opaque thing drawn
+ * over it is a gradient at the bottom for label legibility.
  *
- * ## The screen is the picture
+ * The near control cluster defaults to the right edge (`data-hand`), the
+ * reachable corner for a thumb while the other hand holds a book; the switch
+ * for it sits in the far top corner since it is pressed at most once.
  *
- * The first pass put a top bar, a sentence telling you what to photograph, a
- * viewfinder capped at 40dvh, a row of three selectors, a shutter, a second
- * row of three slots and a button under all of it. The owner's verdict was
- * that the view was completely broken, and the sentence that fixes it is his:
+ * The frame's shape follows the shot the shutter is about to take, by way of
+ * `sliver` on that shot rather than its word: a tall slot for a spine
+ * photograph, a rectangle for a cover, since the app crops to that shape. The
+ * book page reads the same `sliver` flag, so there is one fact about what a
+ * spine photograph is.
  *
- * > As much space on the screen as we can should be the actual pass through
- * > from the camera feed.
+ * `Shots` (in `Shots.tsx`, not owned by the camera) is the one component that
+ * draws photograph indicators, shared with the review screen and the book
+ * page (where `act` controls whether they are pressable).
  *
- * So there is no bar, no sentence, and no second set of anything. The picture
- * is the whole screen and every control floats on it. The only opaque thing
- * drawn over it is a gradient at the bottom, dark enough that a cream label
- * reads against a photograph of a white paperback.
- *
- * ## Which edge the button goes to, and why it is a setting
- *
- * A person doing this is standing in front of a bookcase with a book in one
- * hand and the phone in the other. The phone is held low, near the book, and
- * the only finger free to press anything is the thumb of the hand holding it.
- * A thumb sweeps an arc from the bottom corner on its own side; the centre of
- * the bottom edge is *further* away than the near corner, not nearer, and the
- * far corner is a two-handed reach. A control centred at the bottom is
- * therefore the one place it should not be, which is what the first pass did.
- *
- * The default is the **right**, because most people are right-handed and the
- * phone is usually in the dominant hand when the other one is doing the
- * awkward job of holding a book open on a shelf edge. That is a majority, not
- * a fact about the person using it, so it is a setting rather than a decision:
- * `data-hand` moves the whole near cluster to the other edge and the
- * photographs to the one it left. Nothing else about the screen changes,
- * which is the test of whether the layout was really about reach.
- *
- * The switch lives in the **far top corner**, deliberately: it is pressed once
- * ever, and the hardest place to reach is the right place for a control you
- * touch once. In the app it belongs beside the rest of the settings and this
- * is the wireframe standing in for one.
- *
- * ## The frame is the shape of the photograph, not always a rectangle
- *
- * There was one guide on this screen, the same rounded rectangle whatever was
- * being photographed, and the owner named what it should have been:
- *
- * > In our current world, that is a cropped shot where we crop to the spine
- * > shape. The person can easily take the photo and fit it in. [...] Whenever
- * > we're on the spine shot, it should be a cropped shot of the spine.
- *
- * The app crops a spine photograph to the spine. So the frame somebody lines a
- * book up inside is the shape that will be kept: a tall thin slot on the
- * spine, the cover's rectangle on a cover. Anything else asks a person to fill
- * a box and then throws most of what they filled it with away.
- *
- * Which shape it is comes off the shot the shutter is about to take, by way of
- * `sliver` on that shot, and not off its word. That is the same flag the book
- * page reads to stand the spine against the front, so there is one fact about
- * what a spine photograph is and three screens reading it.
- *
- * Nothing here is wired to a camera and the slot is not a crop: this is a
- * wireframe and the frame is drawn.
- *
- * ## One set of indicators
- *
- * `Shots` is that set, and it is the only one. It says which photographs
- * exist, which one the button will take next, and it is how a photograph is
- * taken again, because a thumbnail you can see and cannot act on is the half
- * of this the owner asked for twice. The same component is on the review
- * screen at a size somebody can judge a blurred photograph from.
- *
- * It lives in `Shots.tsx` and it is not the camera's. A book's page draws the
- * same photographs as a record nobody can press, which is what `act` is for;
- * for a while these were two components of one name emitting one set of class
- * names, and they broke each other in `library.css` without git or the suite
- * saying a word. See the note at the top of that file.
- *
- * ## The app drives this one, and that is why there are escape hatches
- *
- * The gallery draws a hatched rectangle where the photograph goes. The app puts
- * a live `<video>` there, a guide rectangle measured off the crop it is really
- * going to keep, a torch, a settings sheet and the answer to "this book is
- * already in the queue". None of that is the wireframe's business, and none of
- * it is a second camera screen either: it is this frame with things handed to
- * it. So `picture`, `guide`, `top`, `far`, `over`, `said` and `across` are
- * slots, each defaulting to what the gallery already drew.
- *
- * **Every one of them is a place**, and `said` was added because one of them was
- * not (#554). The line telling you what is in your hands was handed in through
- * `over`, which is "somewhere on the picture", and it then had to find the top
- * of the controls with arithmetic — `--s7 + --tap`, which clears one control,
- * on a screen whose near cluster is three. `said` is a row of the bar, so the
- * bar is as tall as what is in it and nothing counts anything.
- *
- * ## `over` is a box now, and `across` is what it is not (#584, #585)
- *
- * `said` fixed one line and left the shape of the fault standing: three more
- * things floated on this picture and found the bottom of it by counting the
- * controls they expected to be there. The frame you aim inside at 28% of the
- * screen, the hint at 150px, the two answer panels at 260px. On a 375 by 667
- * phone the frame ended 20px inside "Next book" and the hint was lying across
- * it on every phone.
- *
- * So `over` stopped being a list of siblings and became **the picture above the
- * bar**: `.wf-view` is two grid rows, the bar takes the height its own contents
- * ask for, and everything handed to `over` is inside the row above it. `bottom`
- * in there means "just above the controls", on every camera and every phone,
- * and no number anywhere counts a control.
- *
- * `across` is the slot for the two things that must **not** stop at the bar:
- * the camera you have not granted yet, and the sheet about the camera. A person
- * who has not given this app a camera must not be looking at a shutter, and a
- * sheet that stops above the controls is a sheet with the controls outside it.
- * It is the whole screen, controls included, and what goes in it positions
- * itself against that.
- *
- * A second component would be the mistake `Shots.tsx` was made to end: two
- * things emitting `.wf-view` and `.wf-shutter`, agreeing until one of them is
- * edited.
+ * `picture`, `guide`, `top`, `far`, `over`, `said` and `across` are slots the
+ * app fills in place of the gallery's drawings. `.wf-view` is a two-row grid:
+ * the bar takes the height its own contents ask for, and everything in `over`
+ * sits in the row above it, so nothing in there needs to know how many
+ * controls the bar holds or count pixels to clear them. `across` is the only
+ * slot that also covers the controls, for content that must not stop at the
+ * bar (an ungranted camera, a settings sheet).
  */
 
 import { useState, type ReactNode } from 'react'
@@ -127,16 +34,10 @@ import { Shots, type Shot } from './Shots'
 export type Hand = 'left' | 'right'
 
 /**
- * The whole camera screen: a picture, and four things floating on it.
- *
- * This is the one component in the library that holds state, and it holds one
- * bit of it. Which edge the button belongs on cannot be settled by looking at
- * a drawing of both, only by holding the phone and pressing it, so the switch
- * works here rather than being described in a caption.
- *
- * Given a `hand` it stops holding even that: the app remembers the answer
- * between sittings and keeps the switch with the rest of the camera's
- * settings, which is where the header above says it belongs.
+ * The whole camera screen: a picture, and four things floating on it. This is
+ * the one component in the library that holds state (which edge the button
+ * is on). Given a `hand`, it defers to the caller instead, since the app
+ * remembers the answer between sittings.
  */
 export function Viewfinder({
   shots,
@@ -164,21 +65,12 @@ export function Viewfinder({
   /** What fills the frame. The gallery draws one; the app plays one. */
   picture?: ReactNode
   /**
-   * Where to hold the book. The default is read off the shot the shutter is
-   * about to take and is a drawing; the app measures its own off the crop it
-   * is really going to keep, because a boundary you cannot see is one you will
-   * get wrong.
-   *
-   * **A frame handed in here is placed against the picture, and the one drawn
-   * by default is placed in the picture above the bar** (#584). That is not two
-   * ways of doing one thing, it is the difference between a drawing and a
-   * measurement. The default says roughly where to hold a book, so it belongs
-   * in the part of the screen a control can never be in front of. A frame a
-   * caller hands in is a fraction of the picture — the cataloguing camera's is
-   * the crop it is really going to keep — and a fraction of the picture drawn
-   * inside a shorter box is a rectangle that is not the one being kept, which
-   * is the one thing this frame must never be. So a caller that hands one in
-   * owns where it lands, and carries its own insets.
+   * Where to hold the book. The default is a rough drawing read off the shot
+   * about to be taken, placed inside the picture above the bar where a
+   * control can never cover it. A frame handed in here is a real crop
+   * fraction of the picture instead, so it is placed against the whole
+   * picture rather than the shrunk box above the bar, and it carries its own
+   * insets.
    */
   guide?: ReactNode
   /** Anything else floating along the top, beside the way out. */
@@ -187,46 +79,19 @@ export function Viewfinder({
   far?: ReactNode
   /**
    * Drawn on the picture above the bar, and under the controls: findings,
-   * hints, the answer to "this book is already in the queue".
-   *
-   * **It is a box rather than a place beside everything else** (#585). Anything
-   * in here that anchors itself to the bottom anchors to the top of the bar, so
-   * `bottom: var(--s3)` is "just above the controls" and no camera's stylesheet
-   * has to know how many controls this camera has. That is the same fix `said`
-   * is, one layer out: the thing that knows how tall the controls are is the
-   * box that holds them, and the way to use that is to stop asking anybody else.
+   * hints, the answer to "this book is already in the queue". Anything in
+   * here that anchors to the bottom anchors to the top of the bar, so
+   * `bottom: var(--s3)` means "just above the controls" without any
+   * stylesheet needing to know how many controls this camera has.
    */
   over?: ReactNode
   /**
-   * Drawn across the whole screen, the controls included.
-   *
-   * Two things need this and both of them would be wrong inside `over`: the
-   * camera you have not granted, because somebody who has not granted one must
-   * not be looking at a shutter, and the sheet about the camera, because a
-   * modal that stops above the controls leaves the controls outside it.
-   *
-   * What goes in here positions itself against the whole screen. It is drawn
-   * last, so it is in front of the bar without having to say so.
+   * Drawn across the whole screen, the controls included: an ungranted
+   * camera, or the sheet about the camera. Drawn last, so it is in front of
+   * the bar without needing a z-index.
    */
   across?: ReactNode
-  /**
-   * The one line this screen has to say, in the bar and above the controls.
-   *
-   * A slot rather than an offset, and that is the whole of #554. It was drawn
-   * through `over` with `bottom: calc(--s7 + --tap + safe-area)` under it, which
-   * is 92px, which clears a shutter — so on the cataloguing camera, whose near
-   * cluster is three controls tall, it lay under "Done with this book" by 24px
-   * whatever it said, and the button is painted after it. There was a second
-   * offset for the cameras whose cluster is two tall, and a third would have
-   * been needed for this one.
-   *
-   * **The stylesheet cannot count the controls and the caller never had to.**
-   * The caller is the thing that passed `also`, `done` and `shots`, so it is the
-   * thing that knows how tall the near cluster is, and the way to use that
-   * knowledge is not to tell it a number: it is to put the line in the same box
-   * as the controls and let the box be as tall as its contents. Both `bottom`
-   * calculations are gone and nothing replaced them.
-   */
+  /** The one line this screen has to say, in the bar and above the controls. */
   said?: ReactNode
   /** What the button beside the shutter says. */
   done?: ReactNode
@@ -235,13 +100,9 @@ export function Viewfinder({
   also?: { word: ReactNode; onPress?: () => void; off?: boolean }
   /**
    * What the shutter does, for anybody who cannot see the picture it is over.
-   *
-   * The button is a circle and always will be, so the only word it carries is
-   * this one, and this app has three cameras' worth of shutter with three
-   * different jobs behind it: one keeps a photograph, one works out which book
-   * you are holding, one reads thirteen digits off a barcode. Named rather than
-   * shared, because "Take the photograph" is true of exactly the first and the
-   * two cameras are not allowed to be confusable (#355).
+   * The button is always a circle, so this is its only word. This app's three
+   * cameras do different jobs and must not be confusable, so each names its
+   * own rather than sharing "Take the photograph".
    */
   shutterName?: string
   shutterOff?: boolean
@@ -260,13 +121,6 @@ export function Viewfinder({
     <div className="wf-view" data-hand={hand}>
       {picture ?? <div className="wf-view__picture" aria-hidden="true" />}
 
-      {/*
-        A frame handed in is a fraction of the picture, so it is drawn against
-        the picture and nothing here moves it. The frame this component draws
-        itself is a drawing rather than a crop, and it is further down, inside
-        the picture above the bar, where a control cannot be in front of it.
-        The prop above says why the two are not the same thing.
-      */}
       {guide}
 
       <button type="button" className="wf-view__leave" aria-label="Back" onClick={onLeave}>
@@ -286,21 +140,9 @@ export function Viewfinder({
         </button>
       )}
 
-      {/*
-        The bottom of the picture, darkened. Before `over` and not part of the
-        bar, and the order is the whole of why it is here (#530): as the bar's
-        own background it was painted on top of the line saying what is in your
-        hands, and a scrim over a word dims the word and the bed under it
-        together, which no strength of scrim can undo. Nothing may depend on it
-        for legibility; every word down here beds itself.
-      */}
+      {/* The darkened bottom of the picture. Nothing may depend on it for legibility; every word down here beds itself. */}
       <div className="wf-view__band" aria-hidden="true" />
 
-      {/*
-        The picture above the bar. Its bottom edge is the top of the controls,
-        because the bar is the row after it and takes its own height, so nothing
-        in here has to be told where the controls start (#584, #585).
-      */}
       <div className="wf-view__over">
         {guide === undefined && (
           <div
@@ -312,28 +154,10 @@ export function Viewfinder({
       </div>
 
       <div className="wf-view__bar">
-        {/*
-          What this screen has to say, above the controls and in the same box as
-          them (#554). Rendered only when there is something to say, so a camera
-          with nothing to say is exactly as tall as it was: the row is a row of
-          the bar's grid and an absent child takes no gap with it.
-
-          It is in the bar rather than above it because the bar is the one thing
-          on this screen that knows how tall the near cluster is, and it knows it
-          by holding it. Everything that tried to say so with a number got it
-          wrong for at least one of the three cameras.
-        */}
         {said}
 
         <div className="wf-view__controls">
-          {/*
-            A camera that keeps nothing draws no strip of what it kept, and one
-            of the two does keep nothing: the camera that reads a book already in
-            the collection takes a frame, answers with an identity and throws the
-            frame away. An empty rail there is a list announced as "Photographs"
-            with no photographs in it, and a gap where the bar expects a control.
-            The span holds the near cluster against its own edge.
-          */}
+          {/* A camera that keeps no photographs draws no strip; the span holds the near cluster against its own edge instead. */}
           {shots.length > 0 ? <Shots shots={shots} act on="picture" /> : <span />}
           <div className="wf-view__near">
             {also && (
@@ -354,12 +178,7 @@ export function Viewfinder({
             >
               {done}
             </button>
-            {/*
-              The shutter waits on nothing. Nothing is put in front of it, it is
-              never behind a confirmation, and the only thing that disables it is
-              there being no stream to take a photograph from. See #294 for what
-              work sitting behind other work costs.
-            */}
+            {/* The shutter is never behind a confirmation; the only thing that disables it is having no stream to take a photograph from. */}
             <button
               type="button"
               className="wf-shutter"
@@ -373,11 +192,6 @@ export function Viewfinder({
         </div>
       </div>
 
-      {/*
-        Last, and across everything, so a screen that has to cover the controls
-        does not have to say so with a z-index (#585). The camera nobody has
-        granted and the sheet about the camera are the two.
-      */}
       {across}
     </div>
   )

@@ -1,12 +1,6 @@
 /**
- * What a row of spines is made of.
- *
- * Every case here is a book that really is in the catalogue. Books added
- * before the spine slot existed have no spine photo and never will unless
- * somebody re-photographs them, so a row that only knows how to draw a spine
- * would be full of holes. And a book that is off the bookcase is not standing
- * in the run at all, which is the difference between a drawing of a shelf and
- * a list of what is filed there.
+ * Books added before the spine slot existed have no spine photo and never will unless
+ * re-photographed, so a row that only knows how to draw a spine would be full of holes.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -85,9 +79,7 @@ describe('spineOf', () => {
   })
 
   it('says which face it fell back to, rather than calling a cover a spine', () => {
-    // The whole point of carrying the slot around. Framing a cover like a
-    // spine crops the wrong part of it, and calling it a spine is a lie
-    // somebody standing at the shelf will catch immediately.
+    // Framing a cover like a spine crops the wrong part of it.
     expect(spineOf(book({ front_image: 'f.jpg' })).spineSlot).not.toBe('edge')
   })
 
@@ -139,8 +131,6 @@ describe('coverOf', () => {
   })
 
   it('leaves a book with no picture anywhere to be drawn as a name', () => {
-    // A publisher image can simply be missing, and plenty of books here were
-    // catalogued with photos of only one side. Neither is an error.
     const tile = coverOf(book())
     expect(tile.cover).toBe('')
     expect(tile.coverSlot).toBe('')
@@ -148,8 +138,6 @@ describe('coverOf', () => {
   })
 
   it('shows the crop, which is the whole point of the gallery', () => {
-    // The owner's complaint was this view: "in the background is, like, my
-    // feet, still in the photo".
     const tile = coverOf(book({
       front_image: 'f.jpg', front_crop: 'f_crop.jpg', cropped: 'front',
     }))
@@ -178,16 +166,12 @@ describe('coverNote', () => {
   })
 
   it('says a catalogue picture is the publisher\'s and not this copy', () => {
-    // The one a reader would otherwise get wrong. A stock cover sitting in a
-    // grid of photographs looks like another photograph.
+    // A stock cover sitting in a grid of photographs looks like another photograph.
     expect(coverNote(coverOf(book({ cover_image: 'c.jpg' }))))
       .toBe("The publisher's picture, not this copy")
   })
 
   it('says nothing about a book nobody has photographed', () => {
-    // The cloth under the tile is already the drawing of that, on every screen
-    // in the app, and a note repeating it would be one book in four shouting
-    // that a field is empty.
     expect(coverNote(coverOf(book()))).toBe('')
   })
 })
@@ -219,9 +203,6 @@ describe('listOf', () => {
   })
 
   it('gives an absent book no position, because you cannot count to it', () => {
-    // This is the whole difference between the list and the two drawings of
-    // the furniture. The list can show the gap without lying about where the
-    // books either side of it are, because it never claimed to be a picture.
     const rows = listOf(
       group([book({ id: 1, title: 'Amber', sort_key: 'a' })]),
       [off(11, book({ id: 2, title: 'Bounty', sort_key: 'b' }))],
@@ -238,12 +219,7 @@ describe('listOf', () => {
     expect(rows).toHaveLength(1)
   })
 
-  /**
-   * #447, and behind it #356: the two sides used to be two strings, and a plank
-   * has two renderers. The absent book carries the area now, so the ordinal walk
-   * and the furniture disagreeing about what to call a plank cannot take a book
-   * out of the gap it belongs in.
-   */
+  /** A plank has two renderers that can disagree about what to call it, so the absent book is matched by area rather than by that label. */
   it('files an absent book by its area, not by what the two sides call it', () => {
     const rows = listOf(
       group([book({ id: 1, title: 'Amber', sort_key: 'a' })], 11, 'Hall shelf · A'),
@@ -265,11 +241,7 @@ describe('missingFrom', () => {
     expect(missingFrom(group([], 11), [])).toBe(0)
   })
 
-  /**
-   * Two pieces standing on one number is an arrangement this catalogue has, and
-   * both their top planks read `4A`. Counting by the label would put one piece's
-   * absent books in the other piece's board (#447).
-   */
+  /** Two pieces can stand on the same number with both top planks reading `4A`; counting by the label would put one piece's absent books in the other's board. */
   it('does not count a book off the other piece standing on the same number', () => {
     expect(missingFrom(group([], 11, '4A'), [off(99, 1, '4A')])).toBe(0)
   })

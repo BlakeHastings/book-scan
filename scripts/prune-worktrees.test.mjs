@@ -1,23 +1,10 @@
 // What the worktree sweep must remove, and what it must refuse.
 //
-//   node scripts/prune-worktrees.test.mjs
-//
-// The refusals matter more than the removals, and by a wider margin than in any
-// other guard here: a wrongly kept worktree costs a gigabyte, and a wrongly
-// removed one is somebody's uncommitted afternoon. This file is built so that
-// the refusal cases fail loudly if the sweep ever gets keener.
-//
 // It works on a scratch repository rather than on fixtures, because the thing
-// under test is what git says about a squash merge, and no fixture can be
-// wrong about that in the same way git is. The repository it builds is the
-// shape #577 was filed about, which no unit test would have caught: a branch
-// squash-merged into master, and then master moved *on top of the same files*
-// by the next merge, so the worktree differs from master in the other
-// direction.
-//
-// The one thing it fakes is GitHub, which is injected. The sweep's own call
-// shells out to `gh`, and a test that needed the network, an account and a
-// merged pull request could only ever run on one machine.
+// under test is what git says about a squash merge, and no fixture can be wrong
+// about that in the same way git is. The one thing it fakes is GitHub, which is
+// injected: the sweep's own call shells out to `gh`, and a test needing the
+// network, an account and a merged pull request could only run on one machine.
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -34,33 +21,24 @@ const is = (actual, expected, name) => {
   if (actual !== expected) fail(`${name}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`)
 }
 
-// ---------------------------------------------------------------------------
-// The judgement, on its own. This is the half that can delete something.
-// ---------------------------------------------------------------------------
-
 const TIP = 'a'.repeat(40)
 const OTHER = 'b'.repeat(40)
 
 const judgements = [
   [judgeMergedPullRequests([{ number: 565, headRefOid: TIP }], TIP).landed, true, 'a merged PR at this tip has landed'],
   [judgeMergedPullRequests([{ number: 565, headRefOid: TIP }], TIP).number, 565, 'and it says which'],
-  // The 2026-08-14 failure, with the branch deleted for a good reason rather
-  // than never pushed: the merge happened, and then somebody committed again.
   [judgeMergedPullRequests([{ number: 565, headRefOid: OTHER }], TIP).landed, false, 'a tip past the merge has not landed'],
   [
     judgeMergedPullRequests([{ number: 565, headRefOid: OTHER }], TIP).note?.includes('#565'),
     true,
     'and the refusal names the pull request so somebody can look',
   ],
-  // Every way of not knowing, and all of them keep.
   [judgeMergedPullRequests([], TIP).landed, false, 'no merged pull request keeps'],
   [judgeMergedPullRequests(null, TIP).landed, false, 'gh failing keeps'],
   [judgeMergedPullRequests(undefined, TIP).landed, false, 'gh missing keeps'],
   [judgeMergedPullRequests('not json', TIP).landed, false, 'a nonsense answer keeps'],
   [judgeMergedPullRequests([{ number: 1 }], TIP).landed, false, 'a pull request with no head commit keeps'],
   [judgeMergedPullRequests([{ number: 565, headRefOid: TIP }], null).landed, false, 'an unreadable tip keeps'],
-  // A branch name reused after an older pull request merged must not inherit
-  // its answer: the tip has to match, not the name.
   [
     judgeMergedPullRequests([{ number: 100, headRefOid: OTHER }, { number: 200, headRefOid: TIP }], TIP).number,
     200,
@@ -69,10 +47,6 @@ const judgements = [
 ]
 
 for (const [actual, expected, name] of judgements) is(actual, expected, name)
-
-// ---------------------------------------------------------------------------
-// The sweep, over a real repository with a real squash merge in it.
-// ---------------------------------------------------------------------------
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'prune-worktrees-')))
 const origin = join(root, 'origin.git')
@@ -117,8 +91,8 @@ try {
   git(['remote', 'add', 'origin', origin])
   git(['push', '-q', '-u', 'origin', 'master'])
 
-  // 1. The worktree #577 is about. Two commits, both touching a file master
-  //    will touch again, squash-merged so neither commit is ever on master.
+  // 1. Two commits, both touching a file master will touch again, squash-merged
+  //    so neither commit is ever on master.
   const landed = worktreeAt('agent-landed', 'feature/landed')
   commitIn(landed, 'shared.txt', 'base\nlanded\n', 'first')
   landedTip = commitIn(landed, 'landed.txt', 'landed\n', 'second')
@@ -137,8 +111,7 @@ try {
   const unlanded = worktreeAt('agent-unlanded', 'feature/unlanded')
   commitIn(unlanded, 'unlanded.txt', 'an afternoon\n', 'work nobody has seen')
 
-  // 4. Merged, and then committed in again afterwards. This is the failure of
-  //    2026-08-14 and the case the header used to call a blind spot.
+  // 4. Merged, and then committed in again afterwards.
   const after = worktreeAt('agent-after', 'feature/after')
   afterMergeTip = commitIn(after, 'after.txt', 'merged\n', 'the merged commit')
   git(['merge', '--squash', 'feature/after'])
@@ -146,8 +119,7 @@ try {
   git(['push', '-q', 'origin', 'master'])
   commitIn(after, 'after.txt', 'merged\nand then more\n', 'committed after the merge')
 
-  // 5. Locked, which is how a running agent marks its worktree. Nothing should
-  //    ask GitHub about it: the local checks come first and cost nothing.
+  // 5. Locked, which is how a running agent marks its worktree.
   const locked = worktreeAt('agent-locked', 'feature/locked')
   commitIn(locked, 'locked.txt', 'in progress\n', 'still working')
   git(['worktree', 'lock', '--reason', 'claude agent agent-locked (pid 1)', locked])
@@ -168,14 +140,14 @@ try {
   originalCwd = process.cwd()
   process.chdir(clone)
 
-  // --- Run one: no `gh`, which is also the behaviour before #577. ---
+  // Run one: no answer from GitHub.
   const withoutGitHub = say()
   is(/agent-landed: \d+ file\(s\) differ from master/.test(withoutGitHub), true,
     'with no answer from GitHub the merged worktree is still refused')
   is(withoutGitHub.includes('Pruned'), false, 'and nothing at all is removed')
   is(existsSync(join(clone, '.claude', 'worktrees', 'agent-landed')), true, 'so it is still on disk')
 
-  // --- Run two: GitHub answers, which is the fix. ---
+  // Run two: GitHub answers.
   currentAnswer = (branch) => {
     asked.push(branch)
     if (branch === 'feature/landed') return [{ number: 565, headRefOid: landedTip }]
@@ -184,12 +156,10 @@ try {
   }
   const withGitHub = say()
 
-  // The removal.
   is(withGitHub.includes('Pruned 1 worktree(s): agent-landed (landed as #565)'), true,
     'the squash-merged worktree is released, and says what landed it')
   is(existsSync(join(clone, '.claude', 'worktrees', 'agent-landed')), false, 'and it is gone from disk')
 
-  // The refusals, which are the half that matters.
   is(/agent-unlanded: 1 file\(s\) differ from master.*so this is unlanded work/.test(withGitHub), true,
     'a worktree holding unlanded work is still refused, and named')
   is(existsSync(join(clone, '.claude', 'worktrees', 'agent-unlanded')), true, 'and is still on disk')

@@ -1,30 +1,18 @@
 /**
  * Route-level coverage for index.ts, prioritised the way the routes carry
- * risk: writes to the catalogue first, then the one property the camera
- * recognition route is not allowed to break (a cover-hash match must never
- * write), then the failure paths a defect would turn into a 500 instead of a
- * clean 4xx.
- *
- * Deliberately not exhaustive over the read-only listing routes: those are
- * thin wrappers over Store and Shelves, both of which already have direct
- * coverage in store.test.ts and shelves.test.ts.
+ * risk: writes to the catalogue first, then the property the camera
+ * recognition route must never break (a cover-hash match must never write),
+ * then the failure paths a defect would turn into a 500 instead of a clean 4xx.
  *
  * The app is built with createApp() against a real in-memory SQLite database
- * and a scratch cover directory inside this file's own scratch root (see
- * ./scratchdir), started on an ephemeral port and driven with real HTTP
- * requests.
- * There is no supertest in this project's dependencies and this suite must
- * not add one (web/package.json is off limits), so a listening server and
- * the platform fetch stand in for it.
+ * and a scratch cover directory inside this file's own scratch root, started
+ * on an ephemeral port and driven with real HTTP requests via fetch.
  *
- * Two things are stubbed rather than real: Open Library and Google Books.
- * Saving a book kicks off an un-awaited cover fetch, and a real network call
- * there would make this suite depend on the internet being up. `./identify`
- * is not stubbed: barcode decoding is real, and the fixtures below stay
- * clear of the multi-second OCR pipeline that identify.test.ts already pays
- * for. Most are read by the fast, non-OCR pass; one is deliberately shrunk
- * past what that pass can resolve, because the defect in #66 only shows on
- * the photos it misses.
+ * Open Library and Google Books are stubbed, since saving a book kicks off an
+ * un-awaited cover fetch that would otherwise depend on the internet being up.
+ * `./identify` is not stubbed: barcode decoding is real, and the fixtures stay
+ * clear of the OCR pipeline identify.test.ts already covers, except one image
+ * deliberately shrunk past what the fast pass can resolve.
  */
 
 import type { AddressInfo } from 'node:net'
@@ -51,11 +39,9 @@ import { CaptureQueue } from './queue'
 import { backCover, frontCover, photographedBook } from './fixtures'
 import { FICTION_SLUG, NON_FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
-// Both routes that would otherwise reach the real catalogues. Saving a book
-// starts an un-awaited `fetchCoverFor`, which calls both.
-// The factory is async so it can import the slug rather than spell it a second
-// time: `vi.mock` is hoisted above every import in this file, so the one at the
-// top is not in scope inside it.
+// vi.mock is hoisted above every import, so the top-level FICTION_SLUG import
+// is not in scope here; the factory does a dynamic import instead of spelling
+// the slug again.
 vi.mock('./lookup', async () => {
   const { FICTION_SLUG } = await import('../domain/tagging/catalogue-claims')
   const empty = {
@@ -80,13 +66,9 @@ vi.mock('./covers', () => ({
 const DUNE = '9780441013593'
 
 /**
- * A hash a stated number of bits away from another one.
- *
- * Seeding a decoy with a distance rather than with a second generated cover
- * is what makes the band under test the thing the test states: 12 bits is
- * inside the shortlist cutoff of 24 and well outside the close band of 8, so
- * it is precisely the weak guess the scan route used to answer with, and
- * precisely what a queue match has to refuse.
+ * Seeds a decoy at a controlled distance rather than a second generated
+ * cover, so the band under test is exactly what the test states: 12 bits is
+ * inside the shortlist cutoff (24) and outside the close band (8).
  */
 function nudgeHash(hash: string, bits: number): string {
   let out = ''
@@ -101,12 +83,9 @@ function nudgeHash(hash: string, bits: number): string {
 }
 
 /**
- * This file's own, and no other file's.
- *
- * It used to be `web/data`, shared with four other test files, and the
- * `afterAll` below removed the whole of it rather than what this file had made
- * inside it. That is #297: the four still running lost the directory they were
- * writing in, mid-run.
+ * This file's own scratch root, and no other file's: sharing one across test
+ * files means one file's `afterAll` can delete a directory another file is
+ * still writing into.
  */
 let scratch: string
 
@@ -122,20 +101,18 @@ interface Running {
   /** The session every request in this file carries. See server/testauth.ts. */
   cookie: string
   /**
-   * Wait for the work a save started and nobody awaited, then close the port.
-   *
-   * Both halves matter and the order does. A cover fetch, a hash and a crop
-   * outlive the request that started them, so closing the database or deleting
-   * the cover directory while they run is a rejection nobody is waiting for.
-   * See `BookScanApp.settled`, and #194, where exactly that reached CI.
+   * Waits for work a save started and nobody awaited before closing the port;
+   * a cover fetch, hash, or crop that outlives the request would otherwise
+   * reject after the database and cover directory are gone. See
+   * `BookScanApp.settled`.
    */
   close: () => Promise<void>
 }
 
 async function startApp(): Promise<Running> {
   const db = await openTestDatabase()
-  // Every request below arrives holding a session, because since #521 every
-  // route under /api is behind the gate. See server/testauth.ts.
+  // Every request below arrives holding a session: every route under /api is
+  // behind the auth gate. See server/testauth.ts.
   const { cookie } = await signedIn(db)
   const coverDir = mkdtempSync(join(scratch, 'index-test-'))
   const app = createApp({ db, coverDir, startBackgroundWork: false })
@@ -216,26 +193,9 @@ const fetchCover = (path: string, init: RequestInit = {}) =>
   })
 
 /**
- * Cut the fiction run into more planks, so a fixture has somewhere to put a book.
- *
- * A test database stands as migration `0013` leaves it: one area per run, so
- * `1A` and `4A` are the only planks the furniture has, and since #232 a label
- * naming any other one is refused rather than recorded. This is the boundary
- * `POST /api/shelves/overflow` writes, taken directly, because these fixtures
- * want the plank to exist rather than a book pushed off the end of one.
- *
- * Each `area` adds a plank to the bookcase the run is on and each `shelf` starts
- * the next bookcase. The anchors sort above every key these fixtures write, so
- * what this adds is furniture rather than a rearrangement of the books.
- */
-/**
- * The plank a positional label names, which is what a screen sends these routes.
- *
- * The overflow routes take the area and not its name (#359): a name is derived
- * from where the piece stands and what its owner called it, and on a named
- * bookcase it is not even the string the layout numbers the plank with. These
- * fixtures go on saying `1A` and this is the resolution a screen has already
- * done, having been handed the plank in the answer it is acting on.
+ * Routes take the plank's area id, not its label: on a named bookcase the
+ * label is not even the string the layout numbers the plank with. This
+ * resolves the `1A` style label fixtures use into that id.
  */
 async function plankId(label: string, range: ShelfRange = 'fiction'): Promise<number> {
   const planks = await new Shelves(running.db).planks(range)
@@ -244,6 +204,12 @@ async function plankId(label: string, range: ShelfRange = 'fiction'): Promise<nu
   return found.areaId
 }
 
+/**
+ * A test database only seeds `1A` and `4A`; a label naming any other plank is
+ * refused. Each `area` adds a plank to the current bookcase and each `shelf`
+ * starts a new one; the anchors sort above every key these fixtures write, so
+ * this adds furniture rather than rearranging books.
+ */
 async function splitFiction(...kinds: SeparatorKind[]): Promise<void> {
   const separators = new DrizzleSeparatorRepository(running.db)
   for (const [at, kind] of kinds.entries()) {
@@ -259,28 +225,19 @@ async function splitFiction(...kinds: SeparatorKind[]): Promise<void> {
 }
 
 /**
- * Put a queued book on a shelf, which is how a book leaves the queue (#183).
- *
- * This used to be `CaptureQueue.markDone(captureId, bookId)`, pairing a capture
- * with a book added separately. The capture and the book are one row now, so
- * there is nothing to pair: shelving it is `Store.updateBook`, which is what
- * `POST /api/books` calls.
+ * Shelving is `Store.updateBook`, the same method `POST /api/books` calls:
+ * the capture and the book are one row, so there is nothing left to pair.
  */
 const shelve = (id: number) => {
   const draft = { title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG }
-  // The range comes in beside the draft since #223, because it is settled
-  // against `book_tag` before the row is written. This shelves a book without
-  // going through the route, so it states the genre the draft states.
+  // This shelves a book without going through the route, so it states the
+  // genre the draft states rather than reading it back from book_tag.
   return running.store.updateBook(id, draft, genreStatedBy(draft).range)
 }
 
 /** The state a queued book is in, said in the queue's own vocabulary. */
 const stateFor = (status: string) =>
   ({ pending: 'scanned', ready: 'identified', failed: 'unidentified' }[status] ?? status)
-
-// ---------------------------------------------------------------------------
-// 1. Routes that write to the catalogue
-// ---------------------------------------------------------------------------
 
 describe('saving a book', () => {
   it('persists it and answers with where it landed', async () => {
@@ -309,16 +266,7 @@ describe('saving a book', () => {
   })
 
   it('writes no genre tag and files nowhere when nothing states a genre', async () => {
-    /*
-     * #304, at the route. Until then every save stated one of the two slugs
-     * whatever it had been given, so a book nobody classified and no catalogue
-     * described was written as non-fiction, filed into the non-fiction run, and
-     * reported as placed. The model could already say "nobody knows"; this is
-     * the write path reaching it.
-     *
-     * The book is saved, not refused. What it has no answer to is where on a
-     * shelf it goes, and there is nothing here that could invent one.
-     */
+    /* The book is saved, not refused: there is nothing here that could invent a shelf placement for an unstated genre. */
     const { status, body } = await post('/api/books', {
       title: 'Untitled Object', authors: ['Ann Author'], isbn13: DUNE,
     })
@@ -328,8 +276,7 @@ describe('saving a book', () => {
 
     const stored = await running.store.getBook(body.id)
     expect(stored?.title).toBe('Untitled Object')
-    // In neither run, which is what the empty range has always meant, rather
-    // than in the other one.
+    // Empty range means neither run, not a default one.
     expect(stored?.shelf_range).toBe('')
     // No derived label either: nowhere to derive it from, and claiming the
     // book is at 1A would be the same wrong answer somewhere else.
@@ -338,13 +285,11 @@ describe('saving a book', () => {
     const { body: tagged } = await call(`/api/books/${body.id}/tags`)
     expect(tagged.tags.map((tag: { slug: string }) => tag.slug)).toEqual([])
 
-    // And it is counted, rather than swelling one of the two runs.
     expect(body.counts).toEqual({ total: 1, fiction: 0, nonfiction: 0, checkedOut: 0 })
   })
 
   it('files it the moment a person says which it is, unchanged', async () => {
-    // The half of #304 that does not change: a person setting it by hand still
-    // wins, and everything downstream of that is exactly as it was.
+    // A person setting the genre by hand still wins over the empty-range default.
     const { body: unfiled } = await post('/api/books', {
       title: 'Untitled Object', authors: ['Ann Author'],
     })
@@ -365,12 +310,7 @@ describe('saving a book', () => {
   })
 
   it('leaves a genre tag a book already carries where it is', async () => {
-    /*
-     * The other thing #304 must not do. Every book saved before it carries a
-     * guessed genre tag, and taking those off is a separate decision and the
-     * owner's. A save that states nothing states nothing: it does not withdraw
-     * what somebody or some catalogue said earlier.
-     */
+    /* A save that states nothing states nothing: it does not withdraw a genre tag somebody or some catalogue stated earlier. */
     const { body: saved } = await post('/api/books', {
       title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG,
     })
@@ -404,14 +344,10 @@ describe('saving a book', () => {
 describe('previewing where a book would go', () => {
   it('refuses a draft nothing files, rather than answering a position anyway', async () => {
     /*
-     * A placement is a position in one of two ordered lists, and a draft that
-     * states no genre is in neither (#304). Refused on the same terms as a
-     * draft with no title, because it is the same kind of missing, and because
-     * the alternative is a screen telling somebody to put a book between two
-     * neighbours chosen by a default nobody set.
-     *
-     * The client does not ask when it knows the answer is this: `useShelfState`
-     * skips the request and `ShelveView` says why instead.
+     * A draft with no genre is in neither ordered list, so there is no
+     * position to answer with; refused on the same terms as a draft with no
+     * title. The client already knows this: `useShelfState` skips the request
+     * and `ShelveView` says why instead.
      */
     const { status, body } = await post('/api/placement/preview', {
       title: 'Untitled Object', authors: ['Ann Author'],
@@ -422,16 +358,13 @@ describe('previewing where a book would go', () => {
 })
 
 /**
- * A database that drops one statement, the way a connection going away under a
- * query does.
- *
- * Everything else is the real database, because the thing under test is what
- * the app does with one rejection and not how a store behaves against a fake.
+ * Drops one statement, the way a connection going away under a query does;
+ * everything else is the real database, since what's under test is the app's
+ * reaction to one rejection, not a fake store.
  */
 function hiccupsOn(db: Db, statement: string): Db {
   const check = async (sql: string) => {
-    // The message pg-pool actually raises when the server goes away mid-query,
-    // quoted so the log line this produces reads like the one in #203.
+    // The message pg-pool actually raises when the server goes away mid-query.
     if (sql.includes(statement)) throw new Error('Connection terminated unexpectedly')
   }
   return {
@@ -455,26 +388,14 @@ function hiccupsOn(db: Db, statement: string): Db {
 }
 
 /**
- * The defect in #203, reproduced against a running app by killing the Postgres
- * container in the second after a save and watching the api process end:
- *
- *   Error: Connection terminated unexpectedly
- *       at async PgDb.run (web/server/db.pg.ts:588:20)
- *       at async Store.setCoverImage (web/server/store.ts:721:5)
- *       at async fetchCoverFor (web/server/index.ts:1997:5)
- *   Node.js v22.14.0
- *
- * Nothing awaits the chain a save starts, so since Node 15 a rejection in it is
- * an uncaught exception and the process ends. What that costs is not a cover:
- * it is the app going away under somebody standing at a bookcase holding a
- * book, with nothing on screen saying why.
+ * Since Node 15, an unhandled rejection in an un-awaited chain is an uncaught
+ * exception that ends the process; nothing awaits the chain a save starts.
  */
 describe('a database hiccup in the work a save started', () => {
   it('says what failed and keeps serving, instead of taking the process down', async () => {
     const reported = vi.spyOn(console, 'error').mockImplementation(() => {})
     const coverDir = mkdtempSync(join(scratch, 'index-hiccup-'))
-    // `Store.setCoverImage`, the first write the un-awaited chain makes and one
-    // of the four calls #203 names.
+    // `Store.setCoverImage`, the first write the un-awaited chain makes.
     const app = createApp({
       db: hiccupsOn(running.db, 'UPDATE books SET cover_checked_at'),
       coverDir,
@@ -497,17 +418,13 @@ describe('a database hiccup in the work a save started', () => {
 
       await app.settled()
 
-      // Loud, and it names the book and the work rather than only the driver.
-      // A cover that failed in silence is indistinguishable from a cover
-      // nobody ever went looking for, which is the distinction #192 exists to
-      // keep.
+      // A cover that failed in silence would be indistinguishable from one
+      // nobody ever went looking for.
       const said = reported.mock.calls.map((call) => String(call[0])).join('\n')
       expect(said).toContain(
         `background work failed, filling in the cover, hashes and crops of book ${id}`,
       )
 
-      // Still answering, which is the whole point: the row is committed and the
-      // person can carry on scanning.
       const health = await fetch(`${base}/api/health`, { headers: { cookie: running.cookie } })
       expect(health.status).toBe(200)
 
@@ -591,14 +508,12 @@ describe('cropping a saved book to the book', () => {
     expect(book.front_image).toBeTruthy()
     expect(book.front_crop).toBe(`${book.front_image.replace(/\.jpg$/, '')}_crop.jpg`)
 
-    // Both files are on disk, and the photograph is exactly the bytes that
-    // were uploaded. Nothing in this path may ever rewrite that file.
+    // Nothing in this path may ever rewrite the uploaded photo file.
     const photo = readFileSync(join(running.coverDir, book.front_image))
     const crop = readFileSync(join(running.coverDir, book.front_crop))
     expect(photo.equals(scene.image)).toBe(true)
     expect(crop.equals(photo)).toBe(false)
 
-    // Served by the same route the photos are, with no extra wiring.
     const served = await fetch(`${running.baseUrl}/api/covers/${book.front_crop}`, {
       headers: { cookie: running.cookie },
     })
@@ -641,7 +556,7 @@ describe('cropping a saved book to the book', () => {
     await del(`/api/books/${body.id}`)
 
     expect(existsSync(join(running.coverDir, book.front_image))).toBe(false)
-    // Derived, but still a file, and nothing else will ever name it.
+    // The crop is derived, but still a file, and nothing else will ever name it.
     expect(existsSync(join(running.coverDir, book.front_crop))).toBe(false)
   }, 30_000)
 })
@@ -682,13 +597,9 @@ describe('updating a location', () => {
   })
 
   /**
-   * The route used to read an empty label as "take this book back to
-   * never-placed", and that claim cannot be made any more (#232).
-   *
-   * The ledger is append only, so there is nothing to unsay; and neither state a
-   * book off the shelves can be in says "nowhere", because `withdrawn` means
-   * given away and `checked_out` means it is in somebody's bag. So the route
-   * refuses and says which of the two the person probably meant.
+   * The ledger is append only, so there is nothing to unsay, and neither state
+   * a book off the shelves can be in means "nowhere": `withdrawn` means given
+   * away and `checked_out` means it is in somebody's bag.
    */
   it('refuses an empty label rather than taking the book back to never-placed', async () => {
     const { id } = await running.store.addBook({
@@ -699,18 +610,12 @@ describe('updating a location', () => {
 
     expect(status).toBe(400)
     expect(body.error).toContain('checked out or withdrawn')
-    // The book is still on the plank the last person to carry it named.
     expect((await running.store.getBook(id))?.location).toBe('1A')
   })
 
   /**
-   * A label that parses and names furniture nobody owns, which is the second
-   * thing this route used to accept (#232).
-   *
-   * `9Z` is a location as far as `parseLocation` is concerned, so it went into
-   * the column, no area row held it, and the app disagreed with itself about the
-   * same book from then on. There is nothing behind the ledger to hold such a
-   * label, so the write refuses and names the plank rather than half-happening.
+   * `9Z` parses as a valid location syntactically, but no furniture answers to
+   * it; the write refuses rather than half-happening.
    */
   it('refuses a plank the furniture does not have, and names it', async () => {
     const { id } = await running.store.addBook({
@@ -742,12 +647,8 @@ describe('updating a location', () => {
   })
 
   /**
-   * The form a screen sends, and the reason it exists (#356).
-   *
-   * A screen is acting on a plank the server drew for it, and the label it was
-   * drawn with is a rendering of where that piece stands and what it is called.
-   * Sending the id says which plank without asking the server to read its own
-   * writing back.
+   * A screen acts on the plank the server drew for it; sending the id says
+   * which plank without asking the server to read its own rendered label back.
    */
   it('takes the plank as an id, which is what a list the server drew sends', async () => {
     await splitFiction('shelf', 'area', 'area')
@@ -777,13 +678,6 @@ describe('updating a location', () => {
     expect((await running.store.getBook(id))?.location).toBe('1A')
   })
 
-  /**
-   * The write path #356 broke, from the outside.
-   *
-   * Naming a bookcase made every positional label name no plank, so the one
-   * route that records where somebody put a book refused the labels the app
-   * itself had drawn a second earlier.
-   */
   it('still takes a positional label once the bookcase has a name', async () => {
     await splitFiction('shelf', 'area', 'area')
     const { id } = await running.store.addBook({
@@ -850,18 +744,11 @@ describe('checking a book out and back in by id', () => {
   })
 })
 
-// ---------------------------------------------------------------------------
-// 1b. Shelving: a placement a person confirmed has to survive the flow
-// ---------------------------------------------------------------------------
-
 /**
- * Putting a book on a shelf, driven the way the client drives it.
- *
  * Each of these ends by asking /api/misfiles, because that is the thing the
- * recorded location exists to be reconciled against. A location that is
+ * recorded location exists to be reconciled against: a location that is
  * written but still reported as wrong is no better than one that was never
- * written, and reporting the move somebody has just been walked through
- * making is exactly what #61 was.
+ * written.
  */
 describe('shelving a book onto a bookcase', () => {
   const seed = async (title: string, author: string): Promise<number> => {
@@ -892,9 +779,8 @@ describe('shelving a book onto a bookcase', () => {
     expect(before.misfiles[0].book.id).toBe(dispossessed)
     expect(before.misfiles[0].to).toBe('1A')
 
-    // Off the bookcase, then back on through the shelving step: the PUT
-    // carries the draft the detail view holds, stale location and all, and
-    // the confirmed shelf goes through the location route.
+    // The PUT carries the draft the detail view holds, stale location and
+    // all; the confirmed shelf goes through the location route separately.
     await post(`/api/books/${dispossessed}/checkout`, { out: true })
     const { status } = await put(`/api/books/${dispossessed}`, {
       title: 'The Dispossessed', authors: ['Ursula K. Le Guin'], genre: FICTION_SLUG,
@@ -924,11 +810,9 @@ describe('shelving a book onto a bookcase', () => {
   })
 
   /**
-   * The book being placed belongs at the END of a full shelf.
-   *
-   * Then it is the one that moves, and nothing on a shelf is touched. The
-   * route needs the sort key of a book that does not exist yet to see this at
-   * all, which is what /api/placement/preview hands the client.
+   * The route needs the sort key of a book that does not exist yet to see
+   * that it belongs at the end of a full shelf, which is what
+   * /api/placement/preview hands the client.
    */
   const previewKey = async (title: string, author: string): Promise<string> => {
     const { status, body } = await post('/api/placement/preview', {
@@ -970,7 +854,6 @@ describe('shelving a book onto a bookcase', () => {
     expect((await running.store.getBook(dispossessed))?.location).toBe('1B')
     expect((await misfiles()).misfiles).toEqual([])
 
-    // And saving it puts it exactly where the answer said it would go.
     const saved = await post('/api/books', {
       title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG,
     })
@@ -979,7 +862,6 @@ describe('shelving a book onto a bookcase', () => {
   })
 
   it('still displaces a book when the gap is in the middle of the shelf', async () => {
-    // The cascade is not weakened: something really does have to move here.
     await seed('Rendezvous with Rama', 'Arthur C. Clarke')
     const gibson = await seed('Neuromancer', 'William Gibson')
     await seed('The Dispossessed', 'Ursula K. Le Guin')
@@ -1031,8 +913,8 @@ describe('shelving a book onto a bookcase', () => {
       range: 'fiction', areaId: await plankId('1A'), kind: 'area',
     })
 
-    // The boundary has moved and the book has not, which is the false misfile
-    // a shuffle used to manufacture every time.
+    // The boundary has moved and the book has not yet, so it reads as a
+    // misfile until confirmed.
     const during = await misfiles()
     expect(during.misfiles).toHaveLength(1)
     expect(during.misfiles[0].book.id).toBe(dispossessed)
@@ -1046,17 +928,10 @@ describe('shelving a book onto a bookcase', () => {
   })
 
   /**
-   * Which misfiles the app opened, which is what puts "Undo the move" on a row.
-   *
-   * The receipt names the two planks the move was between, and the row it is
-   * matched against names one too, so the comparison is four ids and no
-   * rendering (#481). Comparing the receipt's strings against a row's would take
-   * the button away the moment somebody named a bookcase, and the only way out
-   * of a mistapped move would be to claim a walk.
-   *
-   * It used to hold only the two labels the layout drew and parse them back on
-   * every read, which answered the same thing here and answered it out of the
-   * furniture as it stands rather than as it stood.
+   * The receipt names the two planks the move was between by id, and the row
+   * it is matched against names one too, so the comparison is ids and no
+   * rendering: comparing labels instead would break the moment somebody named
+   * a bookcase.
    */
   it('names the misfile it opened, so the row can offer to take it back', async () => {
     await seed('Rendezvous with Rama', 'Arthur C. Clarke')
@@ -1067,11 +942,10 @@ describe('shelving a book onto a bookcase', () => {
     expect((await misfiles()).misfiles).toEqual([])
 
     /*
-     * Moving the only book of the last area back takes that area's boundary out
-     * with it, so the plank the receipt is about is no longer on the face. It is
-     * still the plank the book is recorded on, and the receipt names it by its
-     * id, which a retirement does not touch. This used to be read back out of
-     * the receipt's `1B` by a lookup written to reach a retired plank on purpose.
+     * Moving the only book of the last area back takes that area's boundary
+     * out with it, so the plank the receipt is about is no longer on the face;
+     * it is still the plank the book is recorded on, named by an id that
+     * retirement does not touch.
      */
     await post('/api/shelves/move', {
       range: 'fiction', id: dispossessed, direction: 'previous', theAreaGoes: true,
@@ -1110,16 +984,9 @@ describe('shelving a book onto a bookcase', () => {
   })
 
   /**
-   * The same rule, about the other thing a save could once quietly restate
-   * (#87).
-   *
-   * A metadata edit is not a statement about where a book physically is, and
-   * whether it is on the bookcase at all is that same kind of statement. The
-   * take-down time is worth more than the location too: `setCheckedOut`
-   * protects it against being rewritten (#15) precisely because there is no
-   * second record of it, and an edit that quietly cleared it destroyed it
-   * outright. Only POST /api/books/:id/checkout may move a book between those
-   * two states.
+   * Whether a book is on the bookcase at all is the same kind of statement as
+   * its location: a metadata edit must not touch it. Only
+   * `POST /api/books/:id/checkout` may move a book between those two states.
    */
   it('leaves a book that is off the bookcase off it when an edit carries no observation', async () => {
     const id = await seed('The Dispossessed', 'Ursula K. Le Guin')
@@ -1131,20 +998,14 @@ describe('shelving a book onto a bookcase', () => {
       notes: 'signed by the author',
     })
 
-    // Still off the bookcase, and off it since the moment somebody actually
-    // took it down rather than the moment they corrected a note.
     expect((await running.store.getBook(id))?.checked_out_at).toBe(takenDown)
     expect((await running.store.getBook(id))?.notes).toBe('signed by the author')
   })
 
   /**
-   * The exact shape of #90. An edit that re-files a book moves it in the
-   * sequence without anybody having carried it to a shelf, so the Library's
-   * misfile list is right to keep reporting it once the edit is saved. The
-   * detail view previewing that same saved edit has to say the same thing:
-   * a gap still to carry the book to, not a row it is already sitting in.
-   * One answer checked against the other is worth more than either alone,
-   * since it is the two disagreeing that was the actual defect.
+   * An edit that re-files a book moves it in the sequence without anybody
+   * carrying it to a shelf; the Library's misfile list and the detail view's
+   * own preview of that edit must agree on what still needs to move.
    */
   it('previews a re-filed book as still needing to move, agreeing with the Library', async () => {
     await seed('Book', 'Ann Author')
@@ -1183,17 +1044,8 @@ describe('shelving a book onto a bookcase', () => {
   })
 
   /**
-   * #430 item 2. A run stops where the next run begins, so the new bookcase the
-   * cascade asks for cannot be a bookcase somebody else's rule stands on.
-   *
-   * It said it could and then did something else. The step read "take this book
-   * off 2B and put it on 3A" with `3A` naming the plank a rule had just been
-   * written on; the write reconciled the boundary list inside fiction's own
-   * band, which stops at that bookcase, so nothing went to `3A`, the last plank
-   * of fiction was retired with a book still on it, and that book was reported
-   * as moving backwards. `docs/shelving.md` settles it both ways: "A run runs
-   * from its rule's entry area until the next area any rule points at", and "a
-   * bookcase holds one run".
+   * A run stops where the next run begins, so the new bookcase a cascade asks
+   * for cannot be one another run's rule already claims.
    */
   const claimBookcaseTwo = async () => {
     const { body: added } = await post('/api/fixtures', { kind: 'bookshelf', position: 2 })
@@ -1220,8 +1072,8 @@ describe('shelving a book onto a bookcase', () => {
     expect(status).toBe(400)
     expect(body.error).toMatch(/Bookcase 2 is where Non-fiction begins/)
     expect(body.error).toMatch(/a bookcase holds one run/)
-    // Refused in ink and refused all the way down: no plank was retired and no
-    // book was reported as moving, which is what the old answer did instead.
+    // No plank was retired and no book was reported as moving: the refusal
+    // changed nothing.
     expect((await call('/api/shelves?range=fiction')).body).toEqual(before)
   })
 
@@ -1242,13 +1094,9 @@ describe('shelving a book onto a bookcase', () => {
 })
 
 /**
- * The row a catalogued book stands in, as the detail view draws it (#81).
- *
- * The detail view shows the whole area end on and every spine in it is a way
- * through to that book, so every one of them needs its photo. This used to
- * send three: the book and the two either side, which is all the placing
- * strip needs and would leave a library row as two photographs among twenty
- * blank blocks.
+ * Every spine in the row is a way through to that book, so every one of them
+ * needs its photo, not just the book and its two neighbours (which is all the
+ * placing strip needs).
  */
 describe('the row a shelved book stands in', () => {
   const seedWith = async (title: string, author: string, images: {
@@ -1283,9 +1131,7 @@ describe('the row a shelved book stands in', () => {
 
     const strip = await rowFor(dune, 'Dune', 'Frank Herbert')
 
-    // The book itself is in the row rather than a gap in it, and Asimov and
-    // Lem are two books away from it, so the old rule would have sent them
-    // blank.
+    // The book itself is in the row, not a gap; Asimov and Lem are two books away from it.
     expect(strip.placedIndex).toBe(2)
     expect(strip.books).toHaveLength(5)
     expect(strip.books.map((b) => b.spine)).toEqual([
@@ -1340,20 +1186,17 @@ describe('the row a shelved book stands in', () => {
 
     const strip = await rowFor(dune, 'Dune', 'Frank Herbert')
 
-    // The run has closed up behind it, exactly as the shelf has. Drawing it
-    // would put every position after it out by one, and the positions are
-    // what somebody counts along.
+    // The run has closed up behind it, exactly as the shelf has: drawing the
+    // checked-out book would put every position after it out by one.
     expect(strip.books.map((b) => b.id)).toEqual([dune])
   })
 })
 
 /**
- * Bouncing a book across an area boundary.
- *
  * Where a plank ends is the one arbitrary thing in the model, so it gets
- * adjusted by hand. These end at /api/misfiles for the same reason the ones
- * above do: a move made for a real reason, with the record updated to match,
- * must not come straight back as a book to go and move.
+ * adjusted by hand; each of these ends at /api/misfiles for the same reason: a
+ * move made for a real reason, with the record updated to match, must not come
+ * back as a book to carry.
  */
 describe('moving a book across an area boundary', () => {
   const seed = async (title: string, author: string): Promise<number> => {
@@ -1380,21 +1223,15 @@ describe('moving a book across an area boundary', () => {
     const { body } = await post('/api/shelves/overflow', {
       range: 'fiction', areaId: await plankId('1A'), kind: 'area',
     })
-    // The plank, which is what the screen sends: the answer it is acting on
-    // carries one, and a name would have to be read back into it (#359).
     await patch(`/api/books/${body.step.id}/location`, { areaId: body.step.toAreaId })
     expect((await misfiles()).misfiles).toEqual([])
     return ids
   }
 
   /**
-   * #359 at the routes, on the arrangement it was reported on.
-   *
-   * The button said `Move it on to 1B` while the book's own page said
-   * `Hall shelf · B`, and the string on the button was also the key the app sent
-   * when the person said they had carried the book. So the same plank is asked
-   * for both here: what it is called, which has to match what the catalogue
-   * calls it, and which plank it is, which is what the write is addressed to.
+   * Verifies both what the plank is called, which must match what the
+   * catalogue calls it, and which plank it is, which is what the write is
+   * addressed to.
    */
   it('says one thing and means one plank once the bookcase has a name', async () => {
     const { dune, dispossessed } = await threeOverTwoAreas()
@@ -1427,22 +1264,15 @@ describe('moving a book across an area boundary', () => {
     expect(body.move.toAreaId).toBe(recorded?.area_id)
     expect(body.move.from).toBe('Hall shelf · A')
 
-    // The person carries it and says so with the plank they were handed.
     await patch(`/api/books/${dune}/location`, { areaId: body.move.toAreaId })
     expect((await running.store.getBook(dune))?.location).toBe('Hall shelf · B')
     expect((await misfiles()).misfiles).toEqual([])
   })
 
   /**
-   * **The refusal path, which is the one that matters here.** This route writes:
-   * it moves a boundary and tells somebody to carry a real book. An area id is
-   * a claim about the furniture like any other, and the ways it can be wrong all
-   * end the same way, with the shelves exactly as they were.
-   *
-   * The other run's plank is the one worth naming. It is a real area, on real
-   * furniture, and the id is perfectly valid; it is simply not in this run, and
-   * a cascade that acted on it would move a fiction boundary against a
-   * non-fiction plank.
+   * The non-fiction plank is the interesting case: a real, valid area id, just
+   * not in this run. A cascade acting on it would move a fiction boundary
+   * against a non-fiction plank.
    */
   it('refuses a plank that is not in this run, and moves nothing', async () => {
     await threeOverTwoAreas()
@@ -1462,7 +1292,6 @@ describe('moving a book across an area boundary', () => {
       expect(planned.status, `plan accepted ${String(areaId)}`).toBe(400)
     }
 
-    // Not one boundary moved and not one book was told to go anywhere.
     expect((await call('/api/shelves?range=fiction')).body).toEqual(before)
     expect((await misfiles()).misfiles).toEqual([])
   })
@@ -1479,7 +1308,6 @@ describe('moving a book across an area boundary', () => {
       id: dune, title: 'Dune', from: '1A', to: '1B',
       fromAreaId: await plankId('1A'), toAreaId: await plankId('1B'),
     })
-    // Nothing else was disturbed, which is the whole point of the restriction.
     expect(body.moves).toEqual([])
   })
 
@@ -1498,9 +1326,8 @@ describe('moving a book across an area boundary', () => {
   it('sends a book back the other way, and stays clean', async () => {
     const { dispossessed } = await threeOverTwoAreas()
 
-    // He is the only book on 1B, so this is the move that takes the area with
-    // him and the route refuses it without being told (#433). Pinned on its
-    // own below; here it is said so the rest of the claim can be made.
+    // He is the only book on 1B, so this move takes the area with him and
+    // would be refused without theAreaGoes; that refusal is pinned on its own below.
     const { body } = await post('/api/shelves/move', {
       range: 'fiction', id: dispossessed, direction: 'previous', theAreaGoes: true,
     })
@@ -1512,15 +1339,8 @@ describe('moving a book across an area boundary', () => {
   })
 
   /**
-   * The route will not remove furniture for a caller that has not been asked
-   * (#433).
-   *
-   * A book alone in an area is both the first and the last book of it, so both
-   * directions are offered and either leaves the area with no books to name.
-   * That is an area being removed, and #281 settled that removing one says what
-   * it will do and asks first. The dialog is the screen's; being unable to do it
-   * silently is this route's, for the same reason the edge rule is here rather
-   * than in the screen that draws the button.
+   * The assent check lives on this route, not only in the screen's dialog, so
+   * a caller that bypasses the screen still cannot remove furniture silently.
    */
   it('refuses to take an area off the furniture unless the request says it knows', async () => {
     const { dispossessed } = await threeOverTwoAreas()
@@ -1531,26 +1351,15 @@ describe('moving a book across an area boundary', () => {
 
     expect(status).toBe(400)
     expect(body.error).toContain('1B would have no books left on it')
-    // And it hands back what it refused to do, so a caller that asked without
+    // It hands back what it refused to do, so a caller that asked without
     // knowing can put the question in front of somebody rather than reading it
     // back out of a sentence.
     expect(body.empties).toEqual({ areas: ['1B'], becomes: [] })
 
-    // The room is exactly as it was.
     expect((await running.store.getBook(dispossessed))?.location).toBe('1B')
     expect((await misfiles()).misfiles).toEqual([])
   })
 
-  /**
-   * The third door to the same act, and the one that never had a lock (#456).
-   *
-   * `DELETE /api/shelves/:id` is what the line between two areas offers Remove
-   * through, and it reached `RemoveSeparatorHandler` with no assent parameter
-   * at all while the boundary move above was refusing without one. So one tap
-   * took an area off the furniture and handed its books to the area in front,
-   * and the only thing anybody saw was the carry list drawn afterwards, which
-   * is a list of what has already happened rather than a question.
-   */
   it('refuses to remove a boundary unless the request says it knows', async () => {
     const { dispossessed } = await threeOverTwoAreas()
     const before = (await call('/api/shelves?range=fiction')).body
@@ -1568,7 +1377,6 @@ describe('moving a book across an area boundary', () => {
     // server's rows rather than with anything it worked out for itself.
     expect(body.effect).toEqual({ area: '1B', into: '1A', books: 1, becomes: [] })
 
-    // The read-back: the boundary is still there and the book is still on it.
     expect((await call('/api/shelves?range=fiction')).body).toEqual(before)
     expect((await running.store.getBook(dispossessed))?.location).toBe('1B')
     expect((await misfiles()).misfiles).toEqual([])
@@ -1585,12 +1393,8 @@ describe('moving a book across an area boundary', () => {
 
     expect(status).toBe(200)
     expect(body.groups.map((group: { label: string }) => group.label)).toEqual(['1A'])
-    // The carry list is still drawn, and it is still a list of what has already
-    // happened. What changed is that somebody agreed to it first.
-    // `fromAreaId` is null because 1B is the plank that just came off: the
-    // label is where the book was last drawn and there is no longer a row to
-    // name for it. Where it goes is a real plank, which is what gets sent back
-    // when the person says they have carried it.
+    // `fromAreaId` is null because 1B is the plank that just came off and
+    // there is no longer a row to name for it; `toAreaId` is a real plank.
     expect(body.moves).toEqual([
       { id: dispossessed, title: 'The Dispossessed', from: '1B', to: '1A',
         fromAreaId: null, toAreaId: expect.any(Number) },
@@ -1598,10 +1402,9 @@ describe('moving a book across an area boundary', () => {
   })
 
   /**
-   * A second press on a screen drawn before the first one landed is a retry,
-   * and the act is idempotent by design. The refusal must not turn that into an
-   * error, so the boundary that has already gone is answered rather than
-   * refused, even though this request carries no assent.
+   * A second press on a screen drawn before the first one landed is a retry;
+   * the act is idempotent, so a boundary already gone is answered rather than
+   * refused, even without assent.
    */
   it('answers a boundary that has already gone, instead of asking about it', async () => {
     await threeOverTwoAreas()
@@ -1633,19 +1436,12 @@ describe('moving a book across an area boundary', () => {
   })
 
   /**
-   * The detail view offers the boundary move button off this field (#96),
-   * read from the same placement preview the book's own page already fetches.
-   * It has to agree with the route above: a book the preview says cannot move
-   * must be the same one the route just refused.
+   * Must agree with the route above: a book the preview says cannot move must
+   * be the same one the route just refused.
    */
   it('previews which way a book can be carried, agreeing with the move route', async () => {
     const { rama, dune, dispossessed } = await threeOverTwoAreas()
 
-    /*
-     * The two labels, which is what the buttons say. A plank travels beside each
-     * one (#359) and the test below this one is the claim about those: here what
-     * matters is which directions are open at all.
-     */
     const boundaryFor = async (title: string, author: string, excludeId: number) => {
       const { status, body } = await post('/api/placement/preview', {
         title, authors: [author], genre: FICTION_SLUG, excludeId,
@@ -1805,19 +1601,10 @@ describe('moving a book across an area boundary', () => {
     expect(on.body.error).toContain('no area after 2A')
   })
 
-  /**
-   * The way back out of the shelving step (#196).
-   *
-   * The move is offered on a phone, one mistap from a book somebody was only
-   * looking at, and until this existed the only exit was to tap "Moved it" and
-   * then move the book again: two statements about the room, both false, to
-   * undo one tap.
-   */
   it('offers the move back on the same list, and takes it', async () => {
     const { dune } = await threeOverTwoAreas()
     await post('/api/shelves/move', { range: 'fiction', id: dune, direction: 'next' })
 
-    // Backing out of the shelving step leaves exactly this, which is the truth.
     const during = await misfiles()
     expect(during.misfiles.map((m: { from: string; to: string }) => [m.from, m.to]))
       .toEqual([['1A', '1B']])
@@ -1865,15 +1652,10 @@ describe('moving a book across an area boundary', () => {
 
     const { status } = await post('/api/shelves/retract', { range: 'fiction', id: dune })
     expect(status).toBe(400)
-    // And the shelves are where the person just said they are.
     expect((await running.store.getBook(dune))?.location).toBe('1B')
     expect((await misfiles()).misfiles).toEqual([])
   })
 })
-
-// ---------------------------------------------------------------------------
-// 2. Camera recognition: scanning identifies, and never writes
-// ---------------------------------------------------------------------------
 
 describe('scanning a book at the shelf', () => {
   /**
@@ -1887,9 +1669,8 @@ describe('scanning a book at the shelf', () => {
   async function seedRecognisable(): Promise<{ id: number; buffer: Buffer }> {
     const buffer = await frontCover('Dune', 'Frank Herbert')
     const hash = await coverHash(buffer)
-    // With a front photograph, because a hash is a fact about a photograph and
-    // lands on that photograph's row (#228). A book with no photographs has
-    // nowhere to put one and is not something a camera can recognise.
+    // A hash is a fact about a photograph and lands on that photograph's row;
+    // a book with no photographs has nowhere to put one.
     const { id } = await running.store.addBook({
       title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG,
       frontImage: 'dune_front.jpg',
@@ -1915,9 +1696,8 @@ describe('scanning a book at the shelf', () => {
   }, 20_000)
 
   it('still writes nothing when the book it recognises is already off the shelf', async () => {
-    // The case the automatic path would have acted on: a book that is out,
-    // held up again. Scanning must still only look. Deferred until the wrong
-    // first candidate rate is measurably better than one in ten (#49).
+    // The case an automatic path would act on: a book that is out, held up
+    // again. Scanning must still only look.
     const { id, buffer } = await seedRecognisable()
     await running.store.setCheckedOut(id, true)
     const before = await running.store.getBook(id)
@@ -1949,8 +1729,7 @@ describe('scanning a book at the shelf', () => {
   }, 20_000)
 
   it('takes no direction, so a body asking for one changes nothing', async () => {
-    // Belt and braces on the shape: the old route wrote when told to, and a
-    // client left on the old contract must not be able to reach that again.
+    // A client still sending the old `out` field must not be able to make this route write.
     const { id } = await running.store.addBook({
       title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, isbn13: DUNE,
     })
@@ -1963,23 +1742,17 @@ describe('scanning a book at the shelf', () => {
   }, 20_000)
 
   /**
-   * A barcode the first, fast look cannot read.
-   *
-   * The route opens with zxing alone, which is a fifth of a second and reads
-   * most covers. Shrinking the fixture to 420px puts the bars below what that
-   * single look resolves, exactly as standing back from a book does, while
-   * the thorough zbar ladder underneath still reads it from its upscaled
-   * rung. Nothing else in the photo carries the number: the printed ISBN is
-   * left off, so an answer here can only have come from the barcode.
+   * Shrinking to 420px puts the barcode below what the fast zxing-only pass
+   * resolves, while the thorough zbar ladder still reads it after upscaling.
+   * The printed ISBN is left off so an answer here can only have come from
+   * the barcode.
    */
   const distantBackCover = (isbn: string) =>
     backCover(isbn, { printedIsbn: false })
       .then((cover) => sharp(cover).resize({ width: 420 }).png().toBuffer())
 
   it('reads the barcode the fast pass missed instead of offering a lookalike', async () => {
-    // The defect in #66: the owner photographs a visible barcode, the fast
-    // pass misses it, and a weak cover match returns before the thorough read
-    // ever runs. A barcode validates; a hash distance is a guess.
+    // A barcode validates; a hash distance is a guess.
     const buffer = await distantBackCover(DUNE)
     const { id } = await running.store.addBook({
       title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, isbn13: DUNE,
@@ -2025,17 +1798,9 @@ describe('scanning a book at the shelf', () => {
 })
 
 /**
- * The book somebody else already scanned (#122).
- *
- * Three people share this queue: one photographs, one resolves details, one
- * shelves. A book photographed an hour ago and not yet shelved used to match
- * nothing at all when the next person held it up, so it went round again.
- *
- * The bar here is `QUEUE_LIMIT`, and it is much tighter than the shortlist's,
- * for reasons measured on real photographs and written down against that
- * constant. These tests assert the two halves of that: it answers when the
- * photographs really are of one book, and it refuses at distances the
- * shortlist would happily have offered.
+ * `QUEUE_LIMIT` is much tighter than the shortlist's `MATCH_CUTOFF`; these
+ * tests assert both halves: it answers when the photographs really are of one
+ * book, and refuses at distances the shortlist would happily offer.
  */
 describe('a book already waiting in the queue', () => {
   const queueOf = () => new CaptureQueue(running.db, () => null)
@@ -2086,11 +1851,9 @@ describe('a book already waiting in the queue', () => {
   }, 30_000)
 
   it('refuses a capture the shortlist cutoff would have offered', async () => {
-    // The load-bearing one. 12 bits is comfortably inside MATCH_CUTOFF, which
-    // is what the books shortlist offers on, and on real photographs a pair of
-    // different books lands there often. A wrong answer here tells somebody
-    // two different books are the same book, and the way that ends is a book
-    // nobody ever catalogues. So it fails closed.
+    // 12 bits is comfortably inside MATCH_CUTOFF, which is what the shortlist
+    // offers on; a wrong answer here would tell somebody two different books
+    // are one, so this fails closed at the tighter QUEUE_LIMIT.
     const buffer = await frontCover('Dune', 'Frank Herbert')
     await waitingCapture(buffer, { bits: 12 })
 
@@ -2159,18 +1922,10 @@ describe('a book already waiting in the queue', () => {
 })
 
 /**
- * The same book photographed twice through the Add flow (#146).
- *
- * #138 put the queue comparison in the scan route and only where no barcode
- * read, which left the door people actually use when working through a stack
- * of new books without a check at all: photographing a back cover whose ISBN
- * was already queued made a second capture and said nothing.
- *
- * Two things are asserted here that the scan route's tests do not cover. The
- * first is precedence: where a barcode read there is an exact identifier, and
- * it is used instead of, not alongside, a comparison of photographs. The
- * second is that the hash half still fails closed at `QUEUE_LIMIT` and has not
- * quietly been widened to `MATCH_CUTOFF` on the way through.
+ * Two things this describe block asserts that the scan route's tests above do
+ * not: precedence (a barcode read is used instead of, not alongside, a
+ * photograph comparison), and that the hash half still fails closed at
+ * `QUEUE_LIMIT` rather than being quietly widened to `MATCH_CUTOFF`.
  */
 describe('a capture of a book already in the queue', () => {
   const queueOf = () => new CaptureQueue(running.db, () => null)
@@ -2198,7 +1953,6 @@ describe('a capture of a book already in the queue', () => {
     }[]
 
   it('says a barcode already in the queue is already in the queue', async () => {
-    // The reported defect, in one test: two captures of one back cover.
     const first = await queuedWith(DUNE)
     const second = await queuedWith(DUNE)
 
@@ -2230,8 +1984,7 @@ describe('a capture of a book already in the queue', () => {
   }, 30_000)
 
   it('falls back to the cover when nothing could be read', async () => {
-    // No barcode, no OCR, nothing typed: the photographs are all there is,
-    // which is the case #138 measured and the bar it set.
+    // No barcode, no OCR, nothing typed: the photographs are all there is.
     const buffer = await frontCover('Dune', 'Frank Herbert')
     const hash = await coverHash(buffer)
     const other = await queuedWith('', { hash })
@@ -2246,12 +1999,9 @@ describe('a capture of a book already in the queue', () => {
   }, 30_000)
 
   it('refuses a cover match the shortlist cutoff would have offered', async () => {
-    // The load-bearing one, and the reason this could not simply reuse the
-    // books comparison. 12 bits is comfortably inside MATCH_CUTOFF, and on the
-    // owner's real photographs a pair of DIFFERENT books lands there often,
-    // because the shared table and carpet pull them together (#122). Saying
-    // two different books are one book ends with a book nobody catalogues, so
-    // it fails closed and the threshold is untouched.
+    // 12 bits is comfortably inside MATCH_CUTOFF; on real photographs,
+    // different books can land there because a shared table and carpet pull
+    // the hashes together. This fails closed regardless.
     const buffer = await frontCover('Dune', 'Frank Herbert')
     const hash = await coverHash(buffer)
     await queuedWith('', { hash: nudgeHash(hash, 12) })
@@ -2300,9 +2050,6 @@ describe('a capture of a book already in the queue', () => {
   })
 
   it('tells the scanner too, when the barcode names nothing on a shelf', async () => {
-    // The other half of "whichever entry point was used". A barcode that no
-    // catalogued book answers for used to be told "not in the library yet, add
-    // it first", which is an instruction to photograph it a second time.
     const buffer = await backCover(DUNE)
     const waiting = await queuedWith(DUNE)
 
@@ -2333,23 +2080,11 @@ describe('a capture of a book already in the queue', () => {
 })
 
 /**
- * A capture of a book the catalogue already holds (#435).
- *
- * The sibling of the describe above and a different question: that one is
- * "somebody has already photographed this and not shelved it", this one is
- * "this book is on a shelf". Both are findings about the book in somebody's
- * hands and neither is a refusal.
- *
- * **The defect was that the second question was only ever asked as part of a
- * lookup.** `CaptureQueue.process` wrote the answer into `draft_json` beside a
- * lookup that found something, so an ISBN no source answers for produced no
- * draft, and therefore no warning, anywhere. That is the worst case to fail
- * in: a book no catalogue can identify has nothing on screen to recognise it
- * by, so it is precisely the book somebody photographs a second time.
- *
- * Nothing here is stubbed away. `lookupIsbn` is the file's stub and it answers
- * `found: false` for everything, which is the failing case stated as a
- * fixture: no source answers for this ISBN, and the catalogue is asked anyway.
+ * A different question from the describe above: that one is "already
+ * photographed, not shelved", this one is "this book is on a shelf".
+ * `lookupIsbn`'s stub answers `found: false` for everything, which is exactly
+ * the fixture this needs: no source answers for the ISBN, so the catalogue
+ * must be asked anyway.
  */
 describe('a capture of a book already on a shelf', () => {
   const queueOf = async (id: number) =>
@@ -2377,9 +2112,8 @@ describe('a capture of a book already on a shelf', () => {
       { id: number; title: string; location: string } | null
 
   it('names the shelved book when no source answered for the ISBN', async () => {
-    // The reported defect, in one test. The capture has a barcode reading and
-    // no draft at all, because nothing could be looked up, and the book is on
-    // a shelf under the same digits.
+    // The capture has a barcode reading and no draft at all, since nothing
+    // could be looked up; the book is on a shelf under the same digits.
     const { id: shelved } = await shelvedDune()
     const mine = await queuedWith(DUNE)
 
@@ -2401,12 +2135,9 @@ describe('a capture of a book already on a shelf', () => {
   })
 
   it('never reports a book as its own duplicate', async () => {
-    // A capture becomes a book rather than being copied into one (#183), so
-    // the moment it is shelved its ISBN is genuinely in the catalogue. Polling
-    // it once more must not answer with the row that was just saved. Shelved
-    // with its ISBN rather than through the file's `shelve`, whose draft
-    // carries none: an answer of null because the digits went is not the
-    // answer this is about.
+    // Shelved with its ISBN directly rather than through the file's `shelve`
+    // helper, whose draft carries none: this is testing self-duplication, not
+    // a missing-ISBN null answer.
     const mine = await queuedWith(DUNE)
     const draft = {
       title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, isbn13: DUNE,
@@ -2418,9 +2149,8 @@ describe('a capture of a book already on a shelf', () => {
   })
 
   it('answers the same when the lookup did work, and writes nothing either way', async () => {
-    // The two questions are separate and this is the one that already worked,
-    // kept here so a fix to the failing case cannot be a swap. And asking is
-    // still a read: neither row moves.
+    // Kept here so a fix to the failing case cannot be a swap of one working
+    // case for another. Asking is still a read: neither row moves.
     const { id: shelved } = await shelvedDune()
     const mine = await queuedWith(DUNE)
     await patch(`/api/captures/${mine}`, { who: 'alice', title: 'Dune' })
@@ -2435,10 +2165,8 @@ describe('a capture of a book already on a shelf', () => {
 })
 
 /**
- * The route the queue was missing, and the workflow it exists for: one person
- * photographs, another resolves details, a third shelves. Asserted through
- * HTTP and read back out of SQLite, because "it stayed on screen" is exactly
- * the thing that was already true before this route existed.
+ * Asserted through HTTP and read back out of the database, since "it stayed
+ * on screen" alone would not prove persistence.
  */
 describe('editing a capture that is still in the queue', () => {
   /**
@@ -2482,8 +2210,7 @@ describe('editing a capture that is still in the queue', () => {
 
     expect(body.lookup.title).toBe('Dune')
     expect(body.capture.isbn13).toBe(DUNE)
-    // Not 'barcode' and not 'ocr': a person reading digits off a book is a
-    // third kind of fact and says so (#29).
+    // Not 'barcode' and not 'ocr': a person reading digits off a book is a third kind of fact.
     expect(body.capture.isbn_source).toBe('manual')
   })
 
@@ -2532,13 +2259,8 @@ describe('editing a capture that is still in the queue', () => {
 })
 
 /**
- * Sending a stuck capture back through the reader (#299).
- *
- * The half of that issue that is not the bound. A reading that is given up on
- * leaves a capture `failed` saying so, which is a state somebody can see, and
- * this route is what makes it a state somebody can do something about: without
- * it the only way back was to find the book and photograph it again, for a
- * fault that was never about the book.
+ * This route lets a stuck capture be read again without finding the book and
+ * photographing it a second time, for a fault that was never about the book.
  */
 describe('reading a capture again', () => {
   const queued = async () =>
@@ -2561,8 +2283,7 @@ describe('reading a capture again', () => {
 
   it('404s on an id nothing has, and on one that is not an id at all', async () => {
     expect((await post('/api/captures/999999/read', {})).status).toBe(404)
-    // The `idIn` rule: a client typo is the same clean 404 as a missing row,
-    // never a 500 with a Postgres stack trace behind it (#332).
+    // The `idIn` rule: a non-numeric id is the same clean 404 as a missing row, never a 500.
     expect((await post('/api/captures/notanumber/read', {})).status).toBe(404)
   })
 
@@ -2578,13 +2299,9 @@ describe('reading a capture again', () => {
 })
 
 /**
- * Walking away from a claimed capture (#150).
- *
- * The claim is a five minute lease, so a person who leaves without handing
- * the book back stalls whoever comes to it next: the queue tells them it is
- * "being worked on by alice" when nobody is. The browser's side of this is in
- * src/lib/leaveCapture.ts; asserted here is the contract it depends on, which
- * is that one request both writes what was typed and lets the book go.
+ * The claim is a five minute lease. The browser's side of this is in
+ * src/lib/leaveCapture.ts; asserted here is the contract it depends on: one
+ * request both writes what was typed and lets the book go.
  */
 describe('putting a claimed capture down', () => {
   const queued = async () =>
@@ -2606,11 +2323,6 @@ describe('putting a claimed capture down', () => {
     expect((await rowOf(capture.id))!.claimed_by).toBe('')
   })
 
-  /*
-   * The next person can pick it up at once, which is the whole point: before
-   * this they were told the book was with somebody who had gone, and had to
-   * wait out the lease.
-   */
   it('lets the next person claim it straight away', async () => {
     const capture = await queued()
     await post(`/api/captures/${capture.id}/claim`, { who: 'alice' })
@@ -2676,18 +2388,11 @@ describe('putting a claimed capture down', () => {
 })
 
 /**
- * What a queued capture tells the client about its crops.
- *
- * The queue draws the cropped front (#135), and it can only do that if the crop
- * columns reach the browser. They do because the capture routes hand the row
- * back whole, which is easy to narrow to a column list later without noticing
- * what was lost: the crops would go quietly and the queue would go back to
- * showing the room, with nothing failing.
- *
- * `cropped` travels with them for the reason the column exists. An empty crop
- * on a slot named there was looked at and declined, which is a different fact
- * from a photograph nothing has examined, and only the client holding both can
- * tell them apart.
+ * The capture routes hand the row back whole; narrowing that to a column list
+ * later would silently drop the crop fields with nothing failing. An empty
+ * crop on an examined slot is a different fact from a photograph nothing has
+ * examined yet, and only the client holding both `cropped` and the crop field
+ * can tell them apart.
  */
 describe('the crops a queued capture carries to the client', () => {
   it('sends the crop columns and the record of what was examined', async () => {
@@ -2770,10 +2475,6 @@ describe('discarding a capture', () => {
     expect(existsSync(join(running.coverDir, 'r_back.jpg'))).toBe(false)
   })
 })
-
-// ---------------------------------------------------------------------------
-// 3. Failure paths
-// ---------------------------------------------------------------------------
 
 describe('failure paths', () => {
   it('scan: 400s on a body with no image', async () => {
@@ -2897,9 +2598,9 @@ describe('failure paths', () => {
   })
 
   it('a rejected async handler answers 500 instead of taking the server down', async () => {
-    // lookupIsbn had no try/catch of its own before asyncRoute existed: a
-    // rejection here would have been an unhandled promise rejection and
-    // crashed the process rather than answered the request.
+    // Without asyncRoute wrapping this, a rejection here would be an
+    // unhandled promise rejection that crashes the process instead of
+    // answering the request.
     vi.mocked(lookupIsbn).mockRejectedValueOnce(new Error('lookup service exploded'))
 
     const { status, body } = await call('/api/lookup/isbn/9780000000002')
@@ -2908,41 +2609,23 @@ describe('failure paths', () => {
     expect(body.error).toBe('Something went wrong.')
     expect(body.error).not.toContain('exploded') // no internals in the response
 
-    // The process, and the app inside it, are still alive.
     const health = await call('/api/health')
     expect(health.status).toBe(200)
   })
 })
 
 /**
- * What a photograph's answer says may be done with it afterwards (#556).
- *
- * The gate decides who may ask; `gate.routes.test.ts` proves that and this is
- * not about it. This is the sentence the answer carries out of the door, and
- * until #556 it was `public, max-age=2592000, immutable` at both doors. That
- * was written when nothing in this app was locked, where it was harmless, and
- * it was still being said after #521 locked everything: `public` invites the
- * caching proxy `docs/running-from-a-build.md` decision 1 sanctions to keep
- * somebody's book photographs and hand them to a request carrying no session,
- * and thirty non-revalidating days is exactly the client-side memory of
- * admission that `app/gate.tsx` refuses to keep for anything else.
- *
- * **This asserts the string rather than describing it.** A comment is what was
- * there: the header outlived the assumption it was written under, said so in
- * plain text on every response for months, and nothing was watching it.
- *
- * **Both doors in the same test, compared to each other as well as to the
- * string.** They serve the same photograph, so how long somebody may hold it
- * is one question, and a fix applied to one of them is this repository's most
- * common defect: two answers that part company.
+ * The gate decides who may ask; `gate.routes.test.ts` proves that. This is
+ * what the answer says may be done with it afterwards: `public` would invite
+ * a caching proxy to keep somebody's book photographs and hand them to a
+ * request carrying no session, which is exactly the admission `app/gate.tsx`
+ * refuses to keep for anything else.
  */
 describe('what a photograph says may be done with it', () => {
   /**
-   * Written out rather than imported from the server.
-   *
-   * Importing `COVER_CACHE` would make this test agree with the code by
-   * construction and go green on any change to it, which is the thing that
-   * already happened once here.
+   * Written out rather than imported from the server: importing
+   * `COVER_CACHE` would make this test agree with the code by construction
+   * and pass on any change to it.
    */
   const POLICY = 'private, max-age=300, must-revalidate'
 
@@ -2966,14 +2649,10 @@ describe('what a photograph says may be done with it', () => {
   })
 
   /**
-   * No `Vary` naming the cookie, and this is a decision rather than an
-   * oversight: under `private` it buys nothing against a shared cache, and it
-   * would make the browser's own cache throw away every cover on every fresh
-   * sign-in, since `admit()` mints a new session token each time.
-   *
-   * This one passed before #556 as well, because nothing was setting a `Vary`
-   * then either. It is here to hold a rejected option rejected, not because it
-   * would have caught the defect.
+   * No `Vary` naming the cookie is deliberate: under `private` it buys
+   * nothing against a shared cache, and it would make the browser's own cache
+   * throw away every cover on every fresh sign-in, since `admit()` mints a
+   * new session token each time.
    */
   it('does not key the photograph on the cookie', async () => {
     await storeCover('policy.jpg')
@@ -2984,22 +2663,12 @@ describe('what a photograph says may be done with it', () => {
   })
 
   /**
-   * The whole of what the shortened window buys.
-   *
-   * A revalidation is a request, a request meets the gate, and the gate is
-   * where a revoked reader stops being a reader. Under the old header the
-   * browser was told not to make it for thirty days, so a person who signed
-   * out kept every photograph they had looked at and `coversAreBehindTheGate`
-   * never fired, because a cover served from cache does not fail to load.
+   * A revalidation is a request, and the gate is where a revoked reader stops
+   * being a reader; this is the mechanism the shortened cache window rests on.
    *
    * `cache: 'no-cache'` because undici's `fetch` silently drops a conditional
-   * header on a default request: with it omitted, both lines below answer 200
-   * and this test proves nothing. Verified by watching it do exactly that.
-   *
-   * This passed before #556 too — Express has always answered a conditional
-   * request, the browser was simply told never to make one. It is the
-   * mechanism the shortened window rests on, kept so that a later change
-   * cannot quietly let a validator past the gate.
+   * header on a default request: without it, both lines below would answer
+   * 200 and this test would prove nothing.
    */
   it('answers a revalidation with 304 for a reader, and 401 for a stranger', async () => {
     await storeCover('policy.jpg')
@@ -3026,19 +2695,10 @@ describe('what a photograph says may be done with it', () => {
   })
 
   /**
-   * The thumbnail door's validator comes from the file, not from the resize.
-   *
-   * Shortening the window is what makes this matter. `res.send` computes a tag
-   * from whatever it is handed, so a body-derived tag means every conditional
-   * request costs a full re-encode and saves only the bytes: measured at 15.8
-   * ms for the 200 and 16.0 ms for the 304 on a 1000x1500 cover at `?w=320`,
-   * which is a gallery of a hundred covers costing a hundred resizes to send a
-   * hundred empty responses.
-   *
-   * `Last-Modified` is what says where the validator came from. Before #556
-   * the thumbnail door sent none at all, because there is no modification time
-   * in a buffer; now it sends the source file's, which is the same one the
-   * static mount sends for the same photograph.
+   * `res.send` computes an ETag from whatever it is handed; a body-derived tag
+   * would mean every conditional request still costs a full re-encode, saving
+   * only the response bytes. `Last-Modified` here is the source file's, the
+   * same one the static mount sends for the full-size photograph.
    */
   it('validates a thumbnail against the file on disk, not against the resize', async () => {
     await storeCover('policy.jpg')
@@ -3090,35 +2750,17 @@ describe('what a photograph says may be done with it', () => {
 })
 
 /**
- * What a JSON answer says may be done with it afterwards (#566).
- *
- * The same question #556 answered for the photographs, asked of the surface
- * that carries the collection itself. Until this, every gated route said
- * nothing at all: no `Cache-Control`, no `Expires`, no `Vary`, on
- * `/api/health`, on `/api/books`, on the `/api` catch-all 404 and on both of
- * the gate's refusals. Nothing is not the same as "do not cache": a response
- * with no freshness information is one a shared cache may store and reuse
- * under a heuristic of its own, and `404` is on the list of statuses that
- * applies to. So the safety came from what somebody else's product happens to
- * do by default, which is not a property of this application.
- *
- * **This asserts the string rather than describing it**, for #556's reason:
- * this class of defect is a header outliving the assumption it was written
- * under, saying so in plain text on every response, with nothing watching it.
- *
- * **And it asks the photographs in the same block.** A broad rule applied at
- * the gate sits upstream of the answer #556 argued out for the covers, and
- * "the fix for one surface broke the other" is this repository's most common
- * defect. Both strings are here, at all four doors, so neither can move
- * without the other being read.
+ * A response with no freshness information is one a shared cache may store
+ * and reuse under a heuristic of its own, including on a 404; "nothing set"
+ * is not the same as "do not cache". Asserts the photographs in the same
+ * block, since a broad rule applied at the gate sits upstream of their own
+ * headers, and a fix to one surface breaking the other is a common defect here.
  */
 describe('what a JSON answer says may be done with it', () => {
   /**
-   * Both written out rather than imported from the server.
-   *
-   * Importing `API_CACHE` and `COVER_CACHE` would make this file agree with
-   * `server/` by construction and go green on any change to either, which is
-   * the failure that already happened once here.
+   * Both written out rather than imported from the server: importing
+   * `API_CACHE` and `COVER_CACHE` would make this file agree with `server/`
+   * by construction and pass on any change to either.
    */
   const JSON_POLICY = 'private, no-cache'
   const COVER_POLICY = 'private, max-age=300, must-revalidate'
@@ -3178,23 +2820,10 @@ describe('what a JSON answer says may be done with it', () => {
   })
 
   /**
-   * The photographs keep their own answer, and this is the interaction rather
-   * than a repeat of the block above.
-   *
    * `mountCachePolicy` is mounted on `/api` above everything, so without the
-   * two doors setting `COVER_CACHE` on the way out it would be the last word
-   * for the covers as well, which would take away the five minute window #556
-   * measured on the one screen it was measured for, by putting a broad rule
-   * upstream of an argued one.
-   *
-   * This passes against the old code too, because nothing was setting a header
-   * upstream of the covers then. It is here as the guard against the fix for
-   * one surface breaking the other, which is the failure this repository keeps
-   * finding, not because it would have caught the defect being fixed.
-   *
-   * The `304` is asked as well as the `200` because they leave `send` by
-   * different paths, and a conditional request is most of what the covers now
-   * cost a phone.
+   * covers setting their own header on the way out, this broad rule would be
+   * the last word for them too. The `304` is asked as well as the `200`
+   * because they leave `send` by different paths.
    */
   it('does not overwrite what the photographs already say, at either door', async () => {
     await storeCover('policy.jpg')
@@ -3229,25 +2858,13 @@ describe('what a JSON answer says may be done with it', () => {
   })
 
   /**
-   * The whole of what `no-cache` buys, and the reason it was chosen over
-   * `no-store`.
+   * `no-cache` (not `no-store`) permits a stored copy but forbids reusing it
+   * without asking this server first, so every use of a stored answer meets
+   * the gate: `gate.ts`'s own model, said as a cache directive.
    *
-   * `no-cache` permits a stored copy and forbids reusing it without asking
-   * this server first. So every *use* of a stored answer is a request, a
-   * request meets the gate, and the gate is where a revoked reader stops being
-   * a reader. That is `gate.ts`'s own model ("disabling somebody takes effect
-   * on their very next request") said as a cache directive. It is also why the
-   * bytes are not paid twice: a reader's revalidation is a `304`.
-   *
-   * `cache: 'no-cache'` because undici's `fetch` silently drops a conditional
-   * header on a default request, and with it omitted both lines below answer
-   * `200` and this proves nothing.
-   *
-   * This one would pass against the old code too, because Express has always
-   * answered a conditional request and nothing was telling the browser either
-   * way. It is here because it is the mechanism the chosen directive rests on,
-   * and a later change letting a validator past the gate would be silent
-   * otherwise.
+   * `cache: 'no-cache'` here because undici's `fetch` silently drops a
+   * conditional header on a default request; without it both lines below
+   * would answer 200 and this would prove nothing.
    */
   it('answers a revalidation with 304 for a reader, and 401 for a stranger', async () => {
     const first = await ask('/api/books')
@@ -3272,14 +2889,9 @@ describe('what a JSON answer says may be done with it', () => {
   })
 
   /**
-   * No `Vary` naming the cookie, rejected for the same two reasons #556
-   * rejected it on the photographs: under `private` a shared cache may not
-   * store the response at all, so it buys nothing against the party it would
-   * be aimed at, and the browser's own cache honours it too, so a fresh
-   * sign-in would throw away every stored answer.
-   *
-   * Held here as a rejected option rather than as a guard. Nothing was setting
-   * a `Vary` on these routes before either.
+   * No `Vary` naming the cookie is rejected for the same reasons as the
+   * photographs: it buys nothing under `private`, and it would make the
+   * browser throw away every stored answer on a fresh sign-in.
    */
   it('does not key a JSON answer on the cookie', async () => {
     for (const path of ['/api/books', '/api/health', '/api/auth/session']) {
@@ -3289,17 +2901,8 @@ describe('what a JSON answer says may be done with it', () => {
 })
 
 /**
- * Which database a process opens.
- *
- * There were four tests here through stages G and H, and three of them were
- * about a choice: `BOOKSCAN_DB`, the SQLite file it selected, and the refusal
- * to start on an empty Postgres beside a `books.db` full of somebody's
- * afternoons. Stage I removed the choice, so what is left is the connection
- * being read from one name and from no other, and the refusal that is still
- * worth making: none at all.
- *
- * Nothing below reads a connection out of the ambient environment. The one
- * that opens a database opens the one this file already has.
+ * The connection is read from one name, `ConnectionStrings__bookscan`, and
+ * from no other; nothing here reads one out of the ambient environment.
  */
 describe('choosing the database', () => {
   afterEach(() => {

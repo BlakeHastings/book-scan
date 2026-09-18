@@ -1,31 +1,4 @@
-/**
- * The screen that answers "which books does no rule claim", held to what it
- * says rather than only looked at.
- *
- * Rendered as markup the way `ClaimedPane.test.tsx` does it: this project has
- * no DOM in its test setup and this screen holds no state.
- *
- * Four things here are the ones that come back wrong.
- *
- * **The two states told apart.** A book with no tag at all and a book carrying
- * a tag no rule asks for are both unclaimed and their remedies are different,
- * which is why the read says which and why the screen draws two blocks. One
- * list of identical rows is the obvious tidy-up and it offers one remedy for
- * two problems.
- *
- * **Nothing writes a tag by itself.** #304 stopped this app stating a genre
- * nobody stated, on the owner's explicit instruction, and the way that comes
- * back is a helpful default: a preselected answer, or a button that files the
- * lot as non-fiction. There is no such thing on this screen and there must not
- * be one.
- *
- * **None of it, and one of it.** A drawing of twelve never sees either, and the
- * empty state is the one this whole flow is trying to reach.
- *
- * **The word about a book that did not help.** Saying a book is Crime in a room
- * with no rule about Crime leaves the book exactly where it was, and a screen
- * that said nothing would read as the press having failed.
- */
+/** Rendered as markup: this project has no DOM in its test setup, and this screen holds no state. */
 
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
@@ -86,14 +59,10 @@ describe('the books no rule claims', () => {
 
     expect(said).toContain('Nobody has said what they are')
     expect(said).toContain('Nothing asks for what they carry')
-    // A count on each, so neither block is only a paragraph about the other.
     expect(said.match(/Two books/g) ?? []).toHaveLength(2)
   })
 
   it('counts a block of one as one, which is what the last of them looks like', () => {
-    // "Nobody has said what they are" over "One book" is the screen not
-    // reading its own count, and it was drawn that way until it was looked at
-    // on a collection with one left.
     const said = words(drawn({
       books: [untagged(1, 'The Peregrine'), unmatched(3, 'The Big Sleep', 'Crime')],
       total: 2,
@@ -110,10 +79,6 @@ describe('the books no rule claims', () => {
   })
 
   it('says the tag rather than the place on a book carrying one', () => {
-    // The one difference between the two lists, and it is the decision rather
-    // than the drawing: what somebody is deciding in the second block is
-    // whether Crime should have a rule, and where the book happens to stand
-    // does not help them answer that.
     const html = drawn({ books: [unmatched(3, 'The Big Sleep', 'Crime')], total: 1 })
 
     expect(words(html)).toContain('Crime')
@@ -134,23 +99,17 @@ describe('the books no rule claims', () => {
     expect(said).toContain('it joins your carry list')
   })
 
-  /*
-   * #304, which is the thing this whole screen is not allowed to undo. There is
-   * no answer preselected anywhere, no button that files anything, and nothing
-   * that would write a tag without somebody choosing a word. Checked as the
-   * absence of a chosen answer rather than as a list of forbidden buttons,
-   * because the next helpful default is the one this is really for.
-   */
+  // Checked as the absence of any preselected answer, not as a list of
+  // forbidden buttons, since a future helpful default is exactly the
+  // regression this guards against.
   it('chooses nothing for anybody, and files nothing', () => {
     const html = drawn({
       books: [untagged(1, 'The Peregrine'), unmatched(3, 'The Big Sleep', 'Crime')],
       total: 2,
     })
 
-    /* Every way this system marks an answer as chosen: a choice, a segmented
-       control, a lit tag, and the state any of them announces. The tab bar's
-       own `--on` is not one of those, which is why this names the three rather
-       than looking for the suffix. */
+    // Excludes the tab bar's own `--on`, which is unrelated, by naming the
+    // three control kinds explicitly rather than matching the suffix alone.
     expect(html, 'an answer on this screen is preselected').not.toMatch(
       /wf-(choice__opt|seg__opt|tag)--on|aria-pressed="true"/,
     )
@@ -160,9 +119,6 @@ describe('the books no rule claims', () => {
   })
 
   it('writes nothing itself, and offers no box to write in', () => {
-    // Saying what a book is happens on its own screen, which is the drawing and
-    // is what keeps this one a list. A panel opened from here would be a second
-    // place a tag can be applied from.
     const html = drawn({
       books: [untagged(1, 'The Peregrine'), unmatched(3, 'The Big Sleep', 'Crime')],
       total: 2,
@@ -188,9 +144,6 @@ describe('the books no rule claims', () => {
 
 describe('the numbers a drawing of twelve never sees', () => {
   it('says nothing at all until the read has answered', () => {
-    // "Every book is claimed" is the one sentence this screen must never say
-    // wrongly, and an empty list drawn from a request in flight says it for as
-    // long as the read takes.
     const html = drawn({ books: null, total: 0 })
 
     expect(words(html)).not.toContain('Every book is claimed')
@@ -222,9 +175,6 @@ describe('the numbers a drawing of twelve never sees', () => {
   })
 
   it('says so when the page is short of the count above it', () => {
-    // A room whose rules have nearly all been switched off. A screen listing
-    // two under a heading that says five hundred is a screen lying about how
-    // much work is left.
     const said = words(drawn({
       books: [untagged(1, 'The Peregrine'), untagged(2, 'Wildwood')],
       total: 500,
@@ -252,9 +202,6 @@ describe('what saying a word did', () => {
   })
 
   it('says the word was written down and did not file it, when it did not', () => {
-    // The failure this line exists for: applying Crime in a room with no rule
-    // about Crime leaves the book exactly where it was and on this list, which
-    // without a sentence reads as the press having done nothing at all.
     const said = words(drawn({
       books: [unmatched(1, 'The Big Sleep', 'Crime')],
       total: 1,
@@ -266,8 +213,6 @@ describe('what saying a word did', () => {
   })
 
   it('says nothing at all about a book somebody looked at and left', () => {
-    // Walking in, looking and walking out is the ordinary thing to do here, and
-    // a line reporting it is the app narrating somebody's own inaction at them.
     const said = words(drawn({
       books: [untagged(1, 'The Peregrine')],
       total: 1,
@@ -279,8 +224,6 @@ describe('what saying a word did', () => {
   })
 
   it('keeps saying it on the screen the last one empties', () => {
-    // Somebody who has just settled the last book is standing here. A screen
-    // that went blank would throw away the answer they were working for.
     const said = words(drawn({
       books: [],
       total: 0,

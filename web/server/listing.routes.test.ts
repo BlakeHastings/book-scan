@@ -1,14 +1,13 @@
 /**
- * The listing, asked the questions a screen showing books actually asks.
+ * `GET /api/books` answers the questions a screen showing books actually
+ * asks: a whole run in order, plus four more the library and the find
+ * screen ask, all here over real HTTP against a real Postgres, because
+ * every one is SQL rather than arithmetic and a fold that works in
+ * TypeScript and not in the database is a search that silently answers
+ * nothing.
  *
- * `GET /api/books` answered one of them until #315: a whole run, in order. The
- * library and the find screen ask four more, and every one of them is here over
- * real HTTP against a real Postgres, because every one is SQL rather than
- * arithmetic and a fold that works in TypeScript and not in the database is a
- * search that silently answers nothing.
- *
- * The same harness as `tags.routes.test.ts`: `createApp()` on an ephemeral port,
- * the catalogues stubbed, no network.
+ * The same harness as `tags.routes.test.ts`: `createApp()` on an ephemeral
+ * port, the catalogues stubbed, no network.
  */
 
 import type { AddressInfo } from 'node:net'
@@ -90,8 +89,8 @@ afterAll(async () => {
 async function call(path: string, init: RequestInit = {}) {
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,
-    // The suite arrives holding a session, because every route under /api is
-    // behind the gate since #521 and a request without one is refused 401.
+    // Every route under /api is behind the gate, so a request without a
+    // session cookie is refused 401.
     headers: {
       cookie,
       ...(init.body ? { 'content-type': 'application/json' } : {}),
@@ -150,13 +149,8 @@ describe('the whole collection, which is what the library draws', () => {
 })
 
 /**
- * The narrowing the first screen's "checked out" count needed (#459).
- *
- * That count and the one beside it opened the same unfiltered library, so
- * pressing "2 checked out" produced twenty-seven books and nothing said what
- * had happened. A count is a promise about what you will see, which is the
- * sentence #436 made the queue keep; this is the same promise one screen along
- * and it is SQL, so it is asserted over HTTP against a real database.
+ * A count is a promise about what you will see. This is SQL, so it is
+ * asserted over HTTP against a real database.
  */
 describe('narrowing the listing to one state a book is in', () => {
   it('answers only the books that are out of the house', async () => {
@@ -193,10 +187,8 @@ describe('narrowing the listing to one state a book is in', () => {
   })
 
   /*
-   * Refused rather than ignored, because ignoring it answers the whole
-   * catalogue, which is the exact behaviour this field exists to stop. A
-   * narrowing that silently does nothing is a count that silently breaks its
-   * promise, and nothing on the screen would say so.
+   * Refused rather than ignored: ignoring it would answer the whole
+   * catalogue, a narrowing that silently does nothing.
    */
   it('refuses a state a catalogued book is never in', async () => {
     await aBook({ title: 'Dune', authors: ['Frank Herbert'] })
@@ -222,14 +214,9 @@ describe('narrowing the listing to one state a book is in', () => {
 })
 
 /*
- * The half of a placement a drawing of the room reads, and the half that used
- * not to be on the wire at all.
- *
- * The library's boards were cut where the location label changed and headed by
- * a regular expression over it, which is how a retagged book drew a second copy
- * of its bookcase in the middle of another one (#434). A label cannot be asked
- * which place it is or where that place stands without being taken apart, so
- * the placement says both.
+ * A label cannot be asked which place it is or where that place stands
+ * without being taken apart, so the placement carries both the area and
+ * the piece it hangs on, not only the label.
  */
 describe('where a book stands, beside what its place is called', () => {
   it('carries the area and the piece it hangs on, not only the label', async () => {
@@ -250,9 +237,8 @@ describe('where a book stands, beside what its place is called', () => {
   })
 
   /*
-   * #356's lesson, said about this field. Naming a bookcase changes every label
-   * on it and moves nothing, so what a drawing groups and orders by has to be
-   * the half that did not change.
+   * Naming a bookcase changes every label on it and moves nothing, so what
+   * a drawing groups and orders by has to be the half that did not change.
    */
   it('keeps saying the same place after somebody names the bookcase', async () => {
     await aBook({ title: 'Dune', authors: ['Frank Herbert'] })
@@ -392,14 +378,10 @@ describe('a page of a listing, which is what makes this screen survive growing',
   })
 
   /**
-   * #332's finding 4. An absent `limit` used to mean no `LIMIT` clause at all,
-   * so `GET /api/books?range=all` was 1204 KB at 1200 books, and an unbounded
-   * response was what you got for forgetting a parameter.
-   *
-   * Seeded through `Store` rather than through the route, because five hundred
-   * and one saves over HTTP is a minute this suite should not spend to prove one
-   * `LIMIT`. It is still the whole route being asked, over real HTTP, against
-   * rows a real save wrote.
+   * Seeded through `Store` rather than through the route, because five
+   * hundred and one saves over HTTP is a minute this suite should not
+   * spend to prove one `LIMIT`. It is still the whole route being asked,
+   * over real HTTP, against rows a real save wrote.
    */
   it('answers one page at most when nobody asked for a page', async () => {
     const store = new Store(db, new DrizzleAuthorRepository(db))

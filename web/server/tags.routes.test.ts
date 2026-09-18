@@ -1,17 +1,6 @@
 /**
- * The tag routes, driven over real HTTP against a real Postgres.
- *
- * Postgres, because `tag` and `book_tag` are created by a migration and there
- * are migrations only for Postgres. The database is built by running them, which
- * is also what an ordinary start does: `applySchema` calls `migrateToLatest`.
- *
- * The app is built with `createApp()` and started on an ephemeral port, the same
- * way `index.test.ts` does it, and for the same reason: there is no supertest in
- * this project and this suite must not add one. Open Library and Google Books are
- * stubbed, so nothing here touches the network.
- *
- * The test that matters most is the last one. Everything else here is wiring;
- * that one is the rule the epic settled and told nobody to relitigate.
+ * Driven over real HTTP against a real Postgres: `tag` and `book_tag` are
+ * created by a migration, and there are migrations only for Postgres.
  */
 
 import type { AddressInfo } from 'node:net'
@@ -58,10 +47,9 @@ const DUNE_10 = '0441013597'
 /** A different book, for the saves that correct which book a row is. */
 const MOCKINGBIRD = '9780061120084'
 
-// One `Db` for the file, not one per test. Each `PgDb` registers an `error`
-// listener on the pool, and a dozen of them trips node's max-listeners warning.
-// `openTestDatabase` hands back the same one every call, which is what keeps
-// that true now the reset is its job rather than this file's.
+// One `Db` for the file, not one per test: each `PgDb` registers an `error`
+// listener on the pool, and a dozen of them trips node's max-listeners
+// warning. `openTestDatabase` hands back the same one every call.
 let db: Db
 /** This file's own scratch root, which no other test file can name. */
 let scratch: string
@@ -91,18 +79,12 @@ beforeEach(async () => {
 
 afterEach(async () => {
   /*
-   * First, and before anything is taken away.
-   *
-   * A save answers while it is still fetching a cover, hashing it and cropping,
-   * so the app is still querying the database and still writing into `coverDir`
-   * after the last assertion has passed. Pulling either out from under it is an
-   * unhandled rejection in a run where every test passed, which is what this
-   * file did in CI on #194: "Cannot use a pool after calling end on the pool",
-   * beside 1122 passing tests.
-   *
-   * It only shows up under a parallel run, because a worker that goes on to
-   * another file is still alive when the late query lands. On its own the
-   * process exits first and the run looks clean.
+   * First, and before anything is taken away: a save answers while it is
+   * still fetching a cover, hashing it and cropping, so the app is still
+   * querying the database and writing into `coverDir` after the last
+   * assertion has passed. Pulling either out from under it is an unhandled
+   * rejection that only shows up under a parallel run, where another worker
+   * is still alive when the late query lands.
    */
   await app.settled()
   await new Promise<void>((resolve, reject) => {
@@ -113,19 +95,16 @@ afterEach(async () => {
 
 afterAll(async () => {
   await closeTestDatabase()
-  // The per-test cover directories go in `afterEach`; this is the root they
-  // were made in, and it belongs to this file alone. Nothing above it is
-  // touched, because there is nothing above it that anything else shares. That
-  // used to be `web/data`, which index.test.ts removed while this file was
-  // still working in it (#297).
+  // This is the root the per-test cover directories were made in, and it
+  // belongs to this file alone; nothing above it is touched.
   removeScratchRoot(scratch)
 })
 
 async function call(path: string, init: RequestInit = {}) {
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,
-    // The suite arrives holding a session, because every route under /api is
-    // behind the gate since #521 and a request without one is refused 401.
+    // Every route under /api is behind the gate, so a request without a
+    // session cookie is refused 401.
     headers: {
       cookie,
       ...(init.body ? { 'content-type': 'application/json' } : {}),
@@ -177,20 +156,15 @@ describe('saving a book', () => {
 })
 
 /**
- * The cut-over, over real HTTP: the tag is what files the book.
- *
- * `infrastructure/db/genre-cutover.test.ts` compares the two derivations book by
- * book over a whole catalogue. This is the other half of the same claim, asked
- * of the running app: what a save writes into `books.shelf_range`, which is what
- * every shelf query reads.
+ * `infrastructure/db/genre-cutover.test.ts` compares the two derivations
+ * book by book over a whole catalogue; this is the other half of the same
+ * claim, asked of the running app: what a save writes into
+ * `books.shelf_range`, which is what every shelf query reads.
  */
 describe('the genre tag deciding which range a book files into', () => {
   /**
-   * The column the shelf is drawn from, as the row holds it.
-   *
-   * One column, where this used to read two. `books.is_fiction` was the second
-   * and it is gone (#227): a book's genre is `book_tag` and `shelf_range` is the
-   * run the genre settled on.
+   * The column the shelf is drawn from, as the row holds it: a book's genre
+   * lives in `book_tag`, and `shelf_range` is the run the genre settled on.
    */
   async function filedAs(bookId: number): Promise<string> {
     const { body } = await call(`/api/books/${bookId}`)
@@ -220,16 +194,9 @@ describe('the genre tag deciding which range a book files into', () => {
 
   it('leaves a book where a person filed it when a lookup says otherwise', async () => {
     /*
-     * **This is the behaviour that changes**, and it is the reason the shelf
-     * reads the tags rather than the column.
-     *
-     * A person files a book as fiction. A catalogue is asked and claims
-     * non-fiction, which it is entitled to do and which no rule may retract. The
-     * book is then saved again by something that is not a person, carrying the
-     * catalogue's answer. Before the cut-over the column took that answer and
-     * the book moved to non-fiction while still carrying the person's fiction
-     * tag, and nothing anywhere said which was current. Now the person's tag
-     * decides and the book stays where they put it.
+     * A catalogue may claim a genre a person disagrees with, and it is
+     * entitled to; the shelf follows the person's tag rather than the
+     * catalogue's, so the book stays where they put it.
      */
     const id = await aBook({ genre: FICTION_SLUG, classificationSource: 'manual' })
     expect(await tagsOf(id)).toEqual(['genre/fiction:person'])
@@ -246,9 +213,9 @@ describe('the genre tag deciding which range a book files into', () => {
       genre: NON_FICTION_SLUG, classificationSource: 'auto', classificationConfidence: 'high',
     })
 
-    // The guess is on record and is not what files it. The column shadows the
-    // answer the tags gave rather than the one the request stated, so the two
-    // things the client reads cannot disagree with the shelf.
+    // The guess is on record but is not what files it: the column follows the
+    // tags rather than the request, so the two things the client reads cannot
+    // disagree with the shelf.
     expect(await tagsOf(id)).toEqual([
       'genre/fiction:person', 'genre/non-fiction:catalogue', 'genre/non-fiction:guess',
     ])
@@ -257,9 +224,9 @@ describe('the genre tag deciding which range a book files into', () => {
 
   it("files a corrected book under the new book's genre and not the old one's", async () => {
     /*
-     * The ordering #201 established is load bearing now rather than tidy: the
-     * old book's genre has to be off the row before the new one is read back,
-     * or a corrected book files under what it used to be.
+     * Load bearing, not tidy: the old book's genre has to be off the row
+     * before the new one is read back, or a corrected book files under what
+     * it used to be.
      */
     const id = await aBook({ genre: FICTION_SLUG, classificationSource: 'manual' })
     expect(await filedAs(id)).toBe('fiction')
@@ -288,12 +255,9 @@ describe('correcting which book a row is', () => {
 
   it('leaves the book under one genre and not two', async () => {
     /*
-     * The defect #194 exists for.
-     *
-     * A relookup arrives as `auto`, so the save restates the guess and nothing
-     * restates the person's row. Left behind, it is a book filed under fiction
-     * and carrying a person's non-fiction tag, with no screen able to clear it
-     * and nothing to say which is current.
+     * A relookup arrives as `auto`, so the save restates the guess but
+     * nothing restates the person's row; left behind, that is a book
+     * carrying two genres with nothing to say which is current.
      */
     const id = await answeredByHand()
 
@@ -399,25 +363,10 @@ describe('a person tagging a book', () => {
   })
 
   /**
-   * The one that loses work, and it loses it without saying anything.
-   *
-   * A save states a genre, and when a person answered it the source of that
-   * statement is `person`. Restating a source takes back everything that source
-   * no longer claims, so the claim "this book is non-fiction" was the whole of
-   * what that person had ever said about the book: tag it Comic book, tap an
-   * answer, save, and the Comic book tag was deleted. Nothing failed, nothing
-   * was logged, and the row was simply not there afterwards.
-   *
-   * `within` on the restatement is the fix and `domain/tagging/tags.test.ts`
-   * pins the arithmetic, but the defect was never in the arithmetic. It was in
-   * what `settleGenre` asked for, which is a seam neither that test nor the two
-   * genre tests above reach: both of those assert on a book carrying nothing but
-   * a genre, so a save that swept the rest away read as correct.
-   *
-   * A genre stated by a catalogue or a guess could never have done this, because
-   * a source may only ever retract its own rows. The one that bites is a person
-   * being overwritten by the same person, which is why this book gets its tag by
-   * hand and its genre by hand.
+   * A source may only ever retract its own rows, so a genre stated by a
+   * catalogue or a guess could never take back a tag a person added by hand.
+   * `domain/tagging/tags.test.ts` pins the arithmetic for restating a source;
+   * this asserts the same rule through a save that also touches the genre.
    */
   it('keeps what somebody said about a book when a genre is settled afterwards', async () => {
     const id = await aBook({ classificationSource: 'auto' })
@@ -431,8 +380,6 @@ describe('a person tagging a book', () => {
     const carried = await tagsOf(id)
     expect(carried, 'a save that never mentioned it deleted a tag somebody added by hand')
       .toContain('subject/comic-book:person')
-    // And the genre it did state is settled the way it always was: the answer
-    // written, the guess retired, and not both genres at once.
     expect(carried).toContain('genre/non-fiction:person')
     expect(carried).not.toContain('genre/fiction:guess')
   })
@@ -440,16 +387,9 @@ describe('a person tagging a book', () => {
 
 describe('the vocabulary', () => {
   /**
-   * `genre/non-fiction` is in this list because every catalogue has it, and it
-   * was missing until #529 for a reason worth keeping.
-   *
-   * `0002` seeds `genre/fiction` and `genre/non-fiction` as vocabulary rows, so
-   * a real catalogue holds both from its first migration. This file's old reset
-   * truncated `tag`, which deleted them; `genre/fiction` came back only because
-   * `aBook()` files as fiction and saving re-made it. So the answer this test
-   * asserted was the answer to a catalogue that cannot exist. The hand-written
-   * list was wrong in both directions at once — short of the tables a test
-   * writes, and past the rows a migration seeded.
+   * `0002` seeds `genre/fiction` and `genre/non-fiction` as vocabulary rows,
+   * so a real catalogue holds both from its first migration; this test's
+   * assertion depends on that seed, not just on what it writes itself.
    */
   it('answers under with the tags beneath one slug', async () => {
     const id = await aBook()
@@ -479,17 +419,9 @@ describe('the vocabulary', () => {
 })
 
 /**
- * The third door: a word made with nothing standing under it (#452).
- *
- * The other two doors are `POST /api/books/:id/tags`, tested above, and both of
- * them start with a book. #400 let a placement rule ask for a tag nothing
- * carries, so the rules have accepted a word that does not exist ever since and
- * there was no way to make one deliberately.
- *
- * The rules in these tests are the ones the migration wrote, reached the way
- * `place-rule.routes.test.ts` reaches them, because a rule naming a tag is half
- * of what this door has to answer and a hand-built one would be this file
- * deciding what a rule looks like.
+ * Rules here are reached the way `place-rule.routes.test.ts` reaches them,
+ * not hand-built, since a rule naming a tag is half of what this door has to
+ * answer.
  */
 describe('making a tag with no book in your hand', () => {
   /** Every row in `tag` with this slug, so "one and not two" is countable. */
@@ -527,8 +459,6 @@ describe('making a tag with no book in your hand', () => {
       ruled: false,
     })
 
-    // The evidence the person who made it has, which is the whole reason the
-    // count comes back: the list they are looking at now holds the word.
     const { body: listed } = await call('/api/tags')
     expect((listed.tags as { slug: string; books: number }[])
       .find((tag) => tag.slug === 'subject/japanese-literature'))
@@ -536,10 +466,9 @@ describe('making a tag with no book in your hand', () => {
   })
 
   /**
-   * The one an unwary implementation gets wrong, and #452 named it: a rule may
-   * already carry the slug as a string, and making that tag for real has to
-   * produce the row that string already meant. A second row would be a rule
-   * beginning to match something new without anybody asking for it.
+   * A rule may already carry the slug as a string; making that tag for real
+   * has to produce the row that string already meant, or a second row would
+   * be a rule beginning to match something new without anybody asking for it.
    */
   it('answers the row that is already there rather than making a second', async () => {
     const id = await aBook()
@@ -554,7 +483,6 @@ describe('making a tag with no book in your hand', () => {
     // route's: a label is changed by somebody deciding to, through PATCH.
     expect(body.tag.label).toBe('Comic book')
     expect(await rowsFor('subject/comic-book')).toHaveLength(1)
-    // And the book that carried it still does.
     expect(await tagsOf(id)).toContain('subject/comic-book:person')
   })
 
@@ -589,20 +517,10 @@ describe('sweeping a tag away', () => {
 
   it('takes a word nothing carries and no rule asks for', async () => {
     /*
-     * Its own word, which no longer has to be (#529).
-     *
-     * #452 wrote this comment the other way round. This file's reset was a
-     * hand-written `TRUNCATE` that stopped at `author_alias`, so
-     * `placement_rule` and `rule_condition` carried from one test into the next,
-     * and this test — written with the same slug as the one above it — asked to
-     * sweep a word a rule left over from two tests ago was still asking for, and
-     * was refused. The distinct slug was the workaround.
-     *
-     * The `beforeEach` is `openTestDatabase()` now, which puts **every** table
-     * back rather than the ones somebody remembered, so the leak is gone and the
-     * slug is only a slug. It is left distinct because nothing is gained by
-     * making two tests share one, and kept commented because the next person to
-     * find a test passing for a reason like this one should recognise it.
+     * The slug is kept distinct from the one used elsewhere in this file, not
+     * because `openTestDatabase()` leaves anything behind (it resets every
+     * table), but because nothing is gained by two tests sharing a slug and
+     * this file must not be made to share state between tests.
      */
     await post('/api/tags', { slug: 'subject/thatching', label: 'Thatching' })
 
@@ -613,13 +531,11 @@ describe('sweeping a tag away', () => {
   })
 
   /**
-   * The one this guard exists for, and it is not a refusal you can add later.
-   *
-   * `book_tag.tag_id` is `ON DELETE CASCADE`, so a delete that is merely checked
-   * before it runs does not fail against a tag somebody is using: it takes that
-   * tag off every book carrying it and answers as though it worked. The check is
-   * inside the statement, and this is what says so — the refusal and the book
-   * still wearing the word, asserted together.
+   * `book_tag.tag_id` is `ON DELETE CASCADE`, so a delete that is merely
+   * checked before it runs would not fail against a tag in use: it would
+   * take the tag off every book carrying it and answer as though it worked.
+   * The check has to be inside the statement, which is why the refusal and
+   * the book still wearing the word are asserted together.
    */
   it('refuses a word books are under, and leaves every one of them wearing it', async () => {
     const id = await aBook()
@@ -635,11 +551,6 @@ describe('sweeping a tag away', () => {
     expect(await tagsOf(id)).toContain('subject/comic-book:person')
   })
 
-  /**
-   * A word nothing carries that a rule does name is not litter, it is somebody
-   * setting up a bookcase for a subject before they own anything in it. That is
-   * their judgement and nothing here retracts one.
-   */
   it('refuses a word a rule asks for, and says that is why', async () => {
     await post('/api/tags', { slug: 'subject/geodesy', label: 'Geodesy' })
     await post('/api/placement/rule', {
@@ -708,16 +619,9 @@ describe('re-running the catalogue lookup', () => {
 
   it("takes back its own tags and leaves a person's exactly where they are", async () => {
     /*
-     * The one this whole issue exists for.
-     *
-     * A person says the book is lent out. A catalogue claims two subjects. The
-     * catalogue is asked again and has changed its mind about both of them, and
-     * says nothing at all about the person's tag.
-     *
-     * What must happen: the two it stopped claiming go, the new one arrives, and
-     * the person's is untouched. If this ever fails, somebody's decision is being
-     * thrown away by a background lookup, which is the kind of loss nobody
-     * reports because nobody sees it happen.
+     * If this ever fails, somebody's decision is being thrown away by a
+     * background lookup, which is the kind of loss nobody reports because
+     * nobody sees it happen.
      */
     const id = await aBook()
     await post(`/api/books/${id}/tags`, { slug: 'mine/lent-out', label: 'Lent out' })

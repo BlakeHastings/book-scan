@@ -1,26 +1,14 @@
 /**
- * A range no rule serves, which is #479.
+ * Taking the last rule off the place that serves a range is a thing the
+ * rule editor offers and warns about, and it is also where every collection
+ * starts: nothing has a rule before somebody writes one.
  *
- * **The state is one press away and the app names it.** Taking the last rule
- * off the place that serves a range is a thing the rule editor offers and warns
- * about in its own words, "the library would have no rule saying where it
- * begins", and it is also where every collection starts: nothing has a rule
- * before somebody writes one. What every test below drives is that press.
+ * There is no per-genre default and there is not supposed to be one,
+ * because the rule set is what says where a range begins. So the answer is
+ * that there is no start: nothing to lay books along, no plank to name, no
+ * gap to point at, and a sentence rather than a suggestion.
  *
- * What it used to produce was two answers to one question. `Shelves.startOf`
- * said the range began at `{ shelf: 1, area: 0 }` and `Store.rangeStart` said
- * bookcase 4 for non-fiction, so the shelves screen drew non-fiction standing on
- * fiction's own entry plank while the placing screen offered `4A` to put the
- * book on. Neither literal had anything behind it: `4` is where the collection
- * this app grew out of happens to stand non-fiction.
- *
- * The owner settled that there is no per-genre default and there is not supposed
- * to be one, because the rule set is what says where a range begins. So the
- * answer is that there is no start, and these are the shapes that takes:
- * nothing to lay books along, no plank to name, no gap to point at, and a
- * sentence rather than a suggestion.
- *
- * Read `docs/shelving.md`, "A range no rule serves has no start at all".
+ * See docs/shelving.md, "A range no rule serves has no start at all".
  */
 
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
@@ -49,12 +37,9 @@ const add = (author: string, genre = NON_FICTION_SLUG) =>
   store.addBook({ title: `${author}'s book`, authors: [author], genre })
 
 /**
- * Take every rule off the place that serves a range, which is one press of
- * "have no rule here" on the rule editor.
- *
- * Through `applyRuleChange` rather than by deleting rows, because the point of
- * the issue is that this is an ordinary edit somebody makes rather than a state
- * reached by contrivance. The door is the one the screen presses.
+ * Take every rule off the place that serves a range, through
+ * `applyRuleChange` rather than by deleting rows, so this is the ordinary
+ * edit somebody makes rather than a state reached by contrivance.
  */
 async function takeTheRuleOff(range: 'fiction' | 'nonfiction'): Promise<void> {
   const rule = await runRuleOf(db, range)
@@ -88,7 +73,6 @@ describe('a range no rule serves', () => {
     await takeTheRuleOff('nonfiction')
 
     // The two disagreeing answers, asked the way the two screens ask them.
-    // Before #479 these were `4A` and `1A`.
     expect(await shelves.beginsAt('nonfiction')).toBeNull()
     expect((await store.placementFor(drafting('Ackroyd'), 'nonfiction')).suggestedLocation)
       .toBe('')
@@ -147,9 +131,7 @@ describe('a range no rule serves', () => {
 
     await takeTheRuleOff('nonfiction')
 
-    // Both walks, and they agree. `areasForSortKeys` already answered null here
-    // and `shelvesForSortKeys` used to answer `1A`, which is a real plank of a
-    // real bookcase and is where fiction opens.
+    // Both walks, and they agree.
     expect(await shelves.shelvesForSortKeys('nonfiction', keys)).toEqual(['', ''])
     expect(await shelves.areasForSortKeys('nonfiction', keys)).toEqual([null, null])
     expect(ids).toHaveLength(2)
@@ -167,11 +149,9 @@ describe('a range no rule serves', () => {
     await takeTheRuleOff('nonfiction')
 
     /*
-     * `review` used to walk the layout, and the layout is empty here. Reading it
-     * would have taken every book of the range off the one list that says a book
-     * is not where it belongs, silently, on exactly the state that produces the
-     * most of them. It reads the books instead and `areasForSortKeys` answers
-     * null for each, which is what the review already calls unplaceable.
+     * `review` reads the books rather than the layout, which is empty here;
+     * `areasForSortKeys` answers null for each, which is what the review
+     * already calls unplaceable.
      */
     const review = await shelves.review('nonfiction')
     expect(review.misfiles).toEqual([])
@@ -191,12 +171,9 @@ describe('a range no rule serves', () => {
     expect(await shelves.layout('fiction')).toHaveLength(1)
 
     /*
-     * Fiction's run does grow, and that is the model's own answer rather than
-     * anything #479 does. Nothing begins a run on the piece non-fiction's rule
-     * used to point at, so that piece takes what overflows from the one before
-     * it, which is what the rule editor says out loud before the press: "this
-     * area goes back to taking what overflows from the area before it". Where
-     * fiction *begins* is untouched, which is the statement this issue is about.
+     * Nothing begins a run on the piece non-fiction's rule pointed at, so
+     * that piece takes what overflows from the one before it. Where fiction
+     * begins is untouched.
      */
     expect((await shelves.shelving('fiction')).groups).toHaveLength(2)
   })
@@ -205,12 +182,10 @@ describe('a range no rule serves', () => {
     await takeTheRuleOff('nonfiction')
 
     /*
-     * The write path, which is what raised this issue's priority: a disagreement
-     * that only affects what is drawn is a display bug, and one that reaches a
-     * write puts a book somewhere on the strength of an answer another part of
-     * the app does not share. The book is still catalogued, because a book
-     * somebody scanned is a book they own; what it does not come with is a plank
-     * nobody said anything about.
+     * A disagreement that only affects what is drawn is a display bug; one
+     * that reaches a write puts a book somewhere on the strength of an
+     * answer another part of the app does not share. The book is still
+     * catalogued, because a book somebody scanned is a book they own.
      */
     const saved = await store.addBook(drafting('Ackroyd'))
     expect(saved.placement?.kind).toBe('range-has-no-start')

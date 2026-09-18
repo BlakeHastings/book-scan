@@ -142,7 +142,8 @@ The safety here is structural, not just a request:
   committed. CI re-checks this on the result, because an ignore rule is silent
   when someone forces past it.
 - The OCR tests download and cache language data, but that cache is resolved
-  independently of `BOOKSCAN_DATA` (`web/server/identify.ts:392`, cached under
+  independently of `BOOKSCAN_DATA` (`TESSDATA_CACHE` in
+  `web/server/identify.ts`, cached under
   the user's home directory, not the data directory), so it cannot land
   anywhere near the catalogue either.
 
@@ -1556,6 +1557,27 @@ catalogue. Do not add one.
   nobody has executed is a guess with formatting, and an invariant that is not
   true is worse than an absent one, because the next person builds on it.
 - Do not use em dashes in code comments, commit messages, or documentation.
+- **A comment has to say something the code cannot, and the bar is higher than
+  it looks.** Anything recoverable from git history, a pull request, an issue or
+  a file under `docs/` is already written down somewhere that cannot go stale,
+  so it does not belong in a comment: not which issue changed this, not what the
+  code used to do, not the argument for the approach over the one that was
+  rejected, not a restatement of the declaration underneath it. What does belong
+  is a constraint the compiler cannot catch that a plausible edit would break, a
+  fact about the outside world such as a library's surprising default or a
+  platform's behaviour, a vocabulary boundary, what a `null` means, and the note
+  that says a thing which looks wrong is deliberate. One or two plain sentences,
+  no headings and no bold.
+
+  **Two comment blocks are exceptions and are named as such above**: the column
+  comments inside `SCHEMA` in `web/server/db.pg.ts`, which are the only place
+  each column is explained, and the header of `web/tsconfig.domain.json`, which
+  is the sequence that proves the layering.
+
+  This is a convention the tree now satisfies rather than an aspiration: the
+  comments were 38% of the source and half of them were a written record of how
+  the code got here. If you are about to explain a defect you just fixed, the
+  pull request is where that goes.
 
 ## History
 

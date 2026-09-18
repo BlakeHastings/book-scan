@@ -1,63 +1,10 @@
 /**
- * Every icon in the redesign, drawn inline.
- *
- * There are fifteen, and that is the whole set on purpose. An icon here exists
- * only where a word is already beside it (the tab bar), where the target is a
- * corner of the screen (back, and the one action in the top right), or where
- * the target sits inside a control that has no room for a word and is already
- * labelled by it. Anywhere else the answer in this app is the word itself.
- *
- * **The last two arrived with the first screen's actions** (#361), and they are
- * the first clause rather than a fourth: an action there is a full-width row
- * with its sentence written across it, which is a word already beside the
- * glyph, exactly as a tab is. The owner asked for one of them by name:
- *
- * > And then underneath those, we have the button for "find the book in your
- * > hand", and that should have an icon.
- *
- * `IconInHand` is that one and `IconCarry` is the other action beside it, drawn
- * at the same weight so the two read as one list rather than as one button and
- * one row that happens to look like it. `IconSaying` joined them in #341 and is
- * the third of that clause rather than a fourth kind of exception.
- *
- * The third of those is the camera at the end of the ISBN field, and it is the
- * owner's: "on the right side of it, we should show like a camera icon for
- * them to change the ISBN." The field's own label says what the value is, so
- * the icon only has to say how else you can give one. It still carries an
- * accessible name; see `Controls.tsx`.
- *
- * The top right used to be a word, and the owner asked for both of the words
- * that ever appeared there to become icons instead: "The find in the top right
- * corner there shouldn't just be a word. That should be like a search icon",
- * and the same for edit. That is what `IconEdit` is for and it is why the rule
- * above now names the corner rather than only the back arrow. A corner action
- * still carries an accessible name; see `Chrome.tsx`.
- *
- * **The twelfth is `IconPerson`, and it arrived by the owner overruling the
- * drawing** (#350). #329 drew the corner as the cat and added nothing here,
- * on the argument that a face in that ring is a portrait of an account nobody
- * has. The owner read that argument and chose the other way, saying in the
- * same breath that multi-user is coming and that we are not there yet: he is
- * taking the shape that will be right later over the one that is honest today,
- * and it is his call. So there is a person in the set now, and everything the
- * drawing put underneath it is kept, which is `Chrome.tsx`'s note.
- *
- * `IconFind` is drawn a row lower than it used to be, in the filter row rather
- * than the top bar, and it is the same glyph doing the same job. See `Filter`.
- *
- * ## The last three, and why they are drawings rather than words
- *
- * Covers, list and spines were three words in a segmented control taking a
- * whole row at the top of every library screen, and the owner took the row
- * off: "a little circle that when clicked changes between covers, list and
- * spines, and we should use icons to represent those [...] that way you don't
- * take up all this space for choosing between those different views."
- *
- * So each of the three is a glyph, and the button carrying it is named for
- * what pressing it does rather than for where you are. `IconSpines` is the one
- * with no convention behind it, and it is drawn as what the shelf underneath
- * it already looks like: books of different heights standing on a board. That
- * is the whole reason it reads without being taught.
+ * Every icon in the redesign, drawn inline. There are fifteen, and that is
+ * the whole set on purpose: an icon here exists only where a word is already
+ * beside it (the tab bar, a full-width action row), where the target is a
+ * corner of the screen (back, the one top-right action), or where the target
+ * sits inside a control that is already labelled by its own word. Anywhere
+ * else the answer in this app is the word itself.
  *
  * One stroke weight, one cap style, one 24 grid, and `currentColor` so an
  * icon is coloured by the thing it sits in rather than by a prop.
@@ -139,27 +86,11 @@ export function IconFind(p: Props) {
 }
 
 /**
- * The book in your hand: a closed book, and a lens looking at it.
- *
- * **It is deliberately not a camera**, and that is the whole reason it exists.
- * This app has two cameras, one that catalogues a book nobody has photographed
- * and one that identifies a book you already own, and #355 was the cost of the
- * two being confused. The first screen draws both: the cataloguing one is the
- * tab in the bar with `IconCamera` under the word "Scan", and this is the row
- * above it. Giving the row a camera would have put one glyph on the two doors
- * that must never be mistaken for each other, on the one screen that offers
- * both, which is how somebody photographs a book they already own into a second
- * record.
- *
- * **It is `IconFind` with a book in front of it, and the resemblance is the
- * point.** That one is the magnifier on the row above the books and means
- * finding a book by typing its name; this one means finding the book you are
- * holding. Both are finding, so both may look like finding; the pair that must
- * never look alike is this and the camera.
- *
- * Three drawings of it were rendered at 20px before this one was kept. A book
- * on an open palm is the obvious idea and it is a blob at this size: the arc of
- * the hand closes the bottom of the book and the whole thing reads as a bag.
+ * The book in your hand: a closed book, and a lens looking at it. Deliberately
+ * not a camera: this app has two cameras (cataloguing and identifying a book
+ * you already own) and they must never be mistaken for each other on the
+ * screen that offers both. It is `IconFind` with a book in front of it,
+ * deliberately, since both mean finding, just by typing versus by holding.
  */
 export function IconInHand(p: Props) {
   return (
@@ -173,16 +104,9 @@ export function IconInHand(p: Props) {
 }
 
 /**
- * Carrying: a book, and the way it has to go.
- *
- * The other action on the first screen, and the job is one book at a time
- * moving from where it stands to where it now belongs, so the drawing is a book
- * with an arrow beside it. Beside rather than over it, which was the first
- * attempt: an arc drawn across the top of a small rectangle reads as a padlock.
- *
- * Not an armful either. A stack of three rounded bars at this size is
- * `IconQueue` with different spacing, and that one is two inches below it in
- * the tab bar.
+ * Carrying: a book, and the way it has to go. The arrow sits beside the book
+ * rather than over it: an arc across the top of a small rectangle reads as a
+ * padlock. Not drawn as a stack either, since that is `IconQueue`.
  */
 export function IconCarry(p: Props) {
   return (
@@ -196,21 +120,9 @@ export function IconCarry(p: Props) {
 }
 
 /**
- * Saying what a book is: a book, and a label to put on it.
- *
- * The third action on the first screen (#341), drawn to the pattern the other
- * two already set: the book on the left at the same size and weight, and the
- * one thing this action does to it on the right. `IconCarry` puts an arrow
- * there because the job is a walk; this puts a tag there because the job is a
- * word, and a rule claims a book by its tags.
- *
- * **The pair it must not be mistaken for is `IconInHand`**, which is directly
- * above it on the screen that draws both. That was found by looking rather than
- * reasoned: the tag was first drawn as a small rotated square with a hole in it,
- * and at 20px beside a book it is a blob, which is what the lens on the other
- * glyph also is at that size. So the two doors read as the same picture. The tag
- * is now a label pointing at the book, wide and flat where the lens is round,
- * and its hole is far enough from the edge to survive being drawn at 20px.
+ * Saying what a book is: a book, and a label to put on it. Must not be
+ * mistaken for `IconInHand`, directly above it on the screen that draws both:
+ * the tag is wide and flat where that glyph's lens is round.
  */
 export function IconSaying(p: Props) {
   return (
@@ -224,13 +136,10 @@ export function IconSaying(p: Props) {
 }
 
 /**
- * A person: a head and the shoulders under it.
- *
- * The glyph in the ring in the top right, and the plainest drawing of one
- * there is, on purpose. It is a door to your own room rather than a claim
- * about who is holding the phone, so it is not initials, not a photograph and
- * not a silhouette with hair on it: anything that looks like a *particular*
- * person is the app asserting there is one, and there is not. See `Portrait`.
+ * A person: a head and the shoulders under it, deliberately the plainest
+ * drawing of one there is. It is a door to your own room rather than a claim
+ * about who is holding the phone, so nothing here may look like a particular
+ * person. See `Portrait`.
  */
 export function IconPerson(p: Props) {
   return (

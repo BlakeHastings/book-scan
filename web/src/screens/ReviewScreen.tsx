@@ -1,29 +1,15 @@
 /**
  * One book, looked at and edited.
  *
- * Two screens rather than one, since #316, and the drawings are why. `review`
- * is the step between a photograph and a shelf: the photographs at the top,
- * the fields somebody corrects, and two answers at the bottom. `book` is a
- * page about a book you already own, with everything you can do to it on it.
- * The app had one screen doing both, which is what made "the book page is
- * about the book, not about where it sits" and "the photographs lead" two
- * rules pulling on the same markup.
+ * Two screens rather than one: `review` is the step between a photograph
+ * and a shelf, with the photographs at the top and two answers at the
+ * bottom; `book` is a page about a book you already own, with everything
+ * you can do to it on it.
  *
- * So a capture is drawn by `CaptureReview` and a catalogued book by
- * `BookDetail`, and **both of them are the design system's now** (#387). This
- * file no longer decides whether the app's own header goes round one of them,
- * because neither wants one: each brings its own top bar and its own
- * four-place tab bar, and the route table says `chrome: false` for the whole
- * screen rather than for one path of it.
- *
- * Everything either of them offers to do still comes from the book itself
- * (#59); this file only wires the book in hand to whichever draws it.
- *
- * **Saying what a book is used to be a hook in this file and is now in
- * `app/tagging.ts`** (#341). Nothing about it changed except where it lives: the
- * screen about the books no rule claims needs the same act, and the way that
- * ends up as two ways of saying what a book is, disagreeing about what a busy
- * panel looks like, is somebody copying twenty lines rather than moving them.
+ * A capture is drawn by `CaptureReview` and a catalogued book by
+ * `BookDetail`. Everything either of them offers to do still comes from
+ * the book itself; this file only wires the book in hand to whichever
+ * draws it.
  */
 
 import { useEffect } from 'react'
@@ -65,30 +51,22 @@ export function ReviewScreen() {
   const derivedFiling = filingName(draft.authors.split(',')[0]?.trim() ?? '')
 
   /*
-   * The book being named, whichever kind it is (#433).
-   *
-   * It was the capture and nothing else, so the one screen that could say what a
-   * book is was the one a book passes through on the way to a shelf. A capture
-   * is a row in `books` from its first photograph, which is why the hook takes
-   * an id rather than a kind: the same call names a book that has been on a
+   * The book being named, whichever kind it is. A capture is a row in
+   * `books` from its first photograph, which is why the hook takes an id
+   * rather than a kind: the same call names a book that has been on a
    * shelf for a year.
    */
   const tagging = useTagging(bookId ?? captureId)
 
   /**
-   * Ask whether this capture's ISBN is already on a shelf (#435).
+   * Ask whether this capture's ISBN is already on a shelf.
    *
    * The camera fills this in from its own poll, so a book carried straight
-   * from the shutter to here arrives with the answer. A capture opened from
-   * the queue does not: it is handed the row the listing already had, and the
-   * row cannot carry this, because the catalogue moves underneath it. A book
-   * shelved this morning was not shelved when these photographs were read.
+   * from the shutter arrives with the answer. A capture opened from the
+   * queue does not, since the row it was handed cannot carry this: the
+   * catalogue moves underneath it.
    *
-   * So it is asked once, on the way in, of the route that answers it. Nothing
-   * waits for it: the screen is already drawn and the line appears when the
-   * answer lands, the same way the camera's does.
-   *
-   * Only for a capture. A book already in the catalogue is the book, and
+   * Only for a capture: a book already in the catalogue is the book, and
    * telling somebody their own book is already catalogued is nonsense.
    */
   useEffect(() => {
@@ -98,20 +76,13 @@ export function ReviewScreen() {
       .then(({ catalogued: onAShelf }) => {
         if (!cancelled) setCatalogued(onAShelf)
       })
-      // Swallowed on purpose. This is a finding beside a form somebody is
-      // filling in, and an error banner over it would cost more than the
-      // finding is worth. The camera's poll swallows its failures for the
-      // same reason.
+      // Swallowed on purpose: a finding beside a form somebody is filling
+      // in is not worth an error banner over it.
       .catch(() => {})
     return () => { cancelled = true }
   }, [bookId, captureId, setCatalogued])
 
-  /*
-   * Both screens take the design system's paper, the same way the first one
-   * does. It was only the capture until #387, because a catalogued book was
-   * still drawn on the app's own dark page and painting the body warm under it
-   * would have been half a conversion showing through.
-   */
+  /* Both screens take the design system's paper, not the app's own dark page. */
   useEffect(() => {
     document.body.classList.add('wf-page')
     return () => document.body.classList.remove('wf-page')
@@ -130,25 +101,20 @@ export function ReviewScreen() {
         draft={draft}
         lookup={lookup}
         /* Whether this book is already on a shelf, from either of the two
-           things that can know. The catalogue asked about the ISBN itself is
-           the answer that exists whether or not any source could name the
-           book (#435); the lookup's own is what a correction made a moment ago
-           came back with, before the effect above has been round again. They
-           are the same three fields and they cannot disagree about a book,
-           only about how recently they were asked. */
+           things that can know: the catalogue's own ISBN check, or the
+           lookup's own answer from a moment ago. They cannot disagree
+           about a book, only about how recently they were asked. */
         catalogued={catalogued ?? lookup?.duplicateOf ?? null}
         photos={thumbs}
         derivedFiling={derivedFiling}
         saving={saving}
         relookupBusy={relookupBusy}
         relookupError={relookupError}
-        /* The publisher's picture for the ISBN this matched, drawn beside the
-           photograph somebody took so the match can be confirmed by looking.
-           The same expression `BookDetail` is handed below, because it is the
-           same question asked on the other screen. */
+        /* The publisher's picture for the matched ISBN, drawn beside the
+           photograph so the match can be confirmed by looking. */
         catalogueCover={coverImage || lookup?.coverUrl || ''}
         /* What the photographs read, shown beside the form as evidence
-           and never poured into it (#147). */
+           and never poured into it. */
         coverText={evidence.coverText}
         captureNote={evidence.note}
         notice={notice}
@@ -158,11 +124,9 @@ export function ReviewScreen() {
         onRelookup={relookup}
         onClearRelookupError={() => setRelookupError('')}
         /*
-         * Back to the camera, pointed at the photograph somebody wants again.
-         * `leaveFor` decides whether the book survives the trip, which is
-         * `bookStillInHand`'s call and unchanged: a capture opened from the
-         * queue is put down first, because the next shot would otherwise
-         * overwrite its back cover (#62).
+         * Back to the camera, pointed at the photograph somebody wants
+         * again. A capture opened from the queue is put down first, since
+         * the next shot would otherwise overwrite its back cover.
          */
         onRetake={(slot) => { setActiveSlot(slot); leaveFor('capture') }}
         onShelve={() => setRoute('shelve')}
@@ -198,32 +162,22 @@ export function ReviewScreen() {
       error={error}
       onDismissError={() => setError('')}
       /*
-       * Where the book stands, drawn rather than said.
+       * Where the book stands, drawn rather than said. Built here with the
+       * same `standing` function the book's own page uses, so the same
+       * shelf is never drawn two different ways.
        *
-       * The run comes off the same placement preview the boundary moves above
-       * are read from, and it is drawn by `Shelf` with `standing`, which is the
-       * function the book's own page draws its run with. That is the whole
-       * reason it is built here rather than inside `BookDetail`: this screen
-       * has the placement and the book's id, and the drawing has to be the one
-       * the page behind it uses or the same shelf is drawn two ways one press
-       * apart.
-       *
-       * `.placement--stale` is the app saying a placement read is outstanding,
-       * and it stays: the drawing dims while the answer it is made of is being
-       * fetched again, which is what somebody who has just said "Moved it"
-       * needs to see.
+       * `.placement--stale` dims the drawing while the placement is being
+       * fetched again, for someone who has just said "Moved it".
        */
       placement={(
         <Where>
           <div className={placementStale ? 'placement--stale' : ''}>
             {checkedOutAt ? (
               /*
-               * A book in a pile stands in no run, and the run it used to
-               * stand in has closed up behind it. Drawing that run under a
-               * card which has just said the book is off the bookcase is a
-               * drawing contradicting the sentence above it, so the label is
-               * the answer here, exactly as it is on the book's own page.
-               * Found by checking a book out and looking at it.
+               * A book in a pile stands in no run: the run it stood in has
+               * closed up behind it. Drawing that run under a card saying
+               * the book is off the bookcase would contradict the sentence
+               * above it.
                */
               <div>
                 <Place quiet>Out of the house</Place>
@@ -261,21 +215,17 @@ export function ReviewScreen() {
       onBoundaryMove={startBoundaryMove}
       boundaryMoving={boundaryMoving}
       /*
-       * Whether this book is where it belongs, and nothing else about it (#409).
-       *
-       * The notice it draws is a door to the shelving step rather than a pair of
-       * answers, and the way to that step is `onShelve` above, which is the same
-       * route a new book and a checked-in book take. So nothing about a misfile
-       * is written from here any more: the write happens when somebody says the
-       * book fits, standing at the bookcase, on the screen that places books.
+       * Whether this book is where it belongs, and nothing else about it.
+       * The notice is a door to the shelving step rather than a write:
+       * nothing about a misfile is written from here, only from the screen
+       * that places books.
        */
       misfile={misfile}
       /*
-       * The third door onto saying what a book is (#433). Same hook, same panel
-       * and the same immediate write as the queue's check-the-details screen:
-       * a person's tag is the one kind nothing else in this system may
-       * reproduce, so it is written when it is said rather than carried in a
-       * draft that a closed browser loses.
+       * The third door onto saying what a book is. Same hook and same
+       * immediate write as the queue's check-the-details screen: a
+       * person's tag is written when it is said, not carried in a draft
+       * that a closed browser loses.
        */
       tags={tagging.tags}
       vocabulary={tagging.vocabulary}

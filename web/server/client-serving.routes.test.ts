@@ -1,23 +1,21 @@
 /**
- * The API serving the built client, on one origin, in one process (#512).
+ * The API serving the built client, on one origin, in one process.
  *
- * Until this existed nothing served the client at all. In development Vite
- * serves it and proxies `/api` here; in a deployment there is no Vite, and
- * `docs/deployment-survey.md` section 3 is where that gap was written down.
+ * In development Vite serves it and proxies `/api` here; in a deployment
+ * there is no Vite.
  *
- * These cases are here rather than in a browser suite because what they are
- * about is the *order* of four mounts in one file, which is invisible from a
- * screenshot and is the thing most likely to be got wrong by whoever adds the
- * fifth. In particular: a single-page fallback answers every path it is asked
- * for, so it must never be reachable from `/api`. If it is, a mistyped API path
- * comes back as `<!doctype html>` and `src/lib/api.ts`, which parses every body
- * as JSON to find the `error` field, reports a parse failure. That is #332
- * happening again through a different door.
+ * These cases are here rather than in a browser suite because what they
+ * are about is the order of four mounts in one file, which is invisible
+ * from a screenshot: a single-page fallback answers every path it is asked
+ * for, so it must never be reachable from `/api`. If it is, a mistyped API
+ * path comes back as `<!doctype html>`, and `src/lib/api.ts`, which parses
+ * every body as JSON to find the `error` field, reports a parse failure
+ * instead of the real one.
  *
  * Driven over real HTTP against a real Postgres, on the harness the other
- * `*.routes.test.ts` files use. None of these requests reaches the database;
- * the database is here because `createApp` opens one, and building the app the
- * way production builds it is the point.
+ * `*.routes.test.ts` files use. None of these requests reaches the
+ * database; the database is here because `createApp` opens one, and
+ * building the app the way production builds it is the point.
  */
 
 import type { AddressInfo } from 'node:net'
@@ -85,12 +83,10 @@ afterAll(async () => {
 })
 
 /**
- * Holding a session, because the `/api` cases below are behind the gate (#521).
- *
- * The cases about the client's own files would pass without one, and one of them
- * says so on purpose: see "what a stranger may still be handed" at the bottom of
- * this file. The shell and the bundle are open deliberately, because they are
- * the login screen.
+ * Holding a session, because the `/api` cases below are behind the gate.
+ * The cases about the client's own files would pass without one; the
+ * shell and the bundle are open deliberately, because they are the login
+ * screen.
  */
 async function get(path: string, init: RequestInit = {}) {
   const response = await fetch(`${baseUrl}${path}`, {
@@ -180,19 +176,15 @@ describe('what the fallback must never swallow', () => {
 })
 
 /**
- * The other half of #521's open set, and it is the half that is not under
- * `/api`.
- *
  * The gate is mounted on `/api`, so the client's own files are open by
- * construction, and that is the design rather than an oversight: they *are* the
- * login screen, and a person who cannot sign in yet has to be able to load it.
- * What they disclose is the shape of this app's code, not a row of it, which is
- * the trade `docs/running-from-a-build.md` decision 3 already weighed for the
- * source maps beside them.
+ * construction, and that is the design rather than an oversight: they are
+ * the login screen, and a person who cannot sign in yet has to be able to
+ * load it. What they disclose is the shape of this app's code, not a row
+ * of it.
  *
- * Pinned here rather than described, because "the shell is open" and "the shell
- * is open and so is everything else" look identical from a browser that is
- * already signed in.
+ * Pinned here rather than described, because "the shell is open" and "the
+ * shell is open and so is everything else" look identical from a browser
+ * that is already signed in.
  */
 describe('what a stranger may still be handed, and what they may not', () => {
   const asStranger = (path: string) => fetch(`${baseUrl}${path}`)
@@ -220,10 +212,8 @@ describe('what a stranger may still be handed, and what they may not', () => {
 
 describe('a client directory that is not there', () => {
   /*
-   * At construction, while somebody is still watching the process start, rather
-   * than as a 500 to the first person who opens the app. This is the same shape
-   * as the refusal to start with no connection string: a process that exits
-   * saying what is missing is recoverable in one command.
+   * At construction, while somebody is still watching the process start,
+   * rather than as a 500 to the first person who opens the app.
    */
   it('refuses to build the app rather than 404ing every page', () => {
     const empty = mkdtempSync(join(scratch, 'no-client-'))

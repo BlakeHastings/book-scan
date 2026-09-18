@@ -1,17 +1,18 @@
 /**
  * The walk from boundaries to areas, and the walk back, on their own.
  *
- * `placement-cutover.test.ts` proves the whole thing against a database, book
- * by book, which is the claim that matters. This is the arithmetic underneath
- * it, asserted where a failure says which step was wrong rather than which book
- * ended up in the wrong place, and it needs no database to say so.
+ * `placement-cutover.test.ts` proves the whole thing against a database,
+ * book by book, which is the claim that matters. This is the arithmetic
+ * underneath it, asserted where a failure says which step was wrong rather
+ * than which book ended up in the wrong place, and it needs no database to
+ * say so.
  *
- * Every case in the first half is one `0013` had to get right, because that is
- * the same walk said in TypeScript and the two have to agree. The second half is
- * `boundariesFrom`, which is the same walk read backwards: since #232 the areas
- * are what is stored and the boundary list is derived from them, so the two
- * being inverses is what makes a boundary come back out as the boundary that
- * was put in.
+ * Every case in the first half is one `0013` had to get right, because
+ * that is the same walk said in TypeScript and the two have to agree. The
+ * second half is `boundariesFrom`, the same walk read backwards: the areas
+ * are what is stored and the boundary list is derived from them, so the
+ * two being inverses is what makes a boundary come back out as the
+ * boundary that was put in.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -74,13 +75,9 @@ describe('the areas a run is cut into', () => {
   })
 
   it('steps over both of two boundaries sharing one anchor, in recorded order', () => {
-    /*
-     * What a boundary move that empties an area leaves behind, and the case a
-     * walk gets wrong by stepping once: the area between them holds no books and
-     * still has to exist, or a whole plank's worth of books draws one place to
-     * the left. `2C` being present and empty is the same thing
-     * `placement-backfill.test.ts` asserts by `2B` being absent from the labels.
-     */
+    // What a boundary move that empties an area leaves behind: the area
+    // between them holds no books and still has to exist, or a whole
+    // plank's worth of books draws one place to the left.
     expect(said(FICTION, boundaries(['area', 'b'], ['shelf', 'k'], ['area', 'k'])))
       .toEqual(['1:0@', '1:1@b', '2:0@k', '2:1@k'])
   })

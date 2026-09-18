@@ -1,41 +1,25 @@
 /**
  * Fixtures and areas: the furniture, and the runs of books laid across it.
  *
- * ## An area is not a plank
+ * A fixture is the thing that groups areas: a bookshelf, a crate, a windowsill.
+ * Its `kind` is the owner's word and nothing here branches on it. An area is a
+ * run of books somebody treats as one place, chosen by a person rather than by
+ * the carpentry, so one plank can hold two of them and a plank is deliberately
+ * not modelled at all. `docs/shelving.md` has the fuller note.
  *
- * A **fixture** is the thing that groups areas: a bookshelf, a crate, a
- * windowsill. Its `kind` is the owner's word and nothing here branches on it.
- * An **area** is a run of books somebody treats as one place, chosen by a person
- * rather than by the carpentry, so one plank can hold two of them and a plank is
- * deliberately not modelled at all. `docs/shelving.md` has the fuller note.
- *
- * This is `separators` grown a parent. A separator said "a new plank starts
- * here" or "a new bookcase starts here" and the bookcase and the plank existed
- * only as numbers counted while walking that list. An area is the row that was
- * being counted, and `area.starts_at` is `separators.starts_at` under a name
- * that says what it anchors.
- *
- * ## Labels are derived here and stored nowhere
- *
- * A stored label goes stale the moment somebody renames a fixture, so there is
- * no label column and `labelFor` is the only place a label comes from.
- *
- * ## What a run is, and why it stops where it does
+ * Labels are derived here and stored nowhere: a stored label goes stale the
+ * moment somebody renames a fixture, so `labelFor` is the only place one comes
+ * from.
  *
  * Every area in a collection lies in one sequence: fixture position, then area
- * position within it. A **run** is a stretch of that sequence ordered one way
- * and filled from one end, and it breaks in exactly two places:
+ * position within it. A run is a stretch of that sequence ordered one way and
+ * filled from one end, and it breaks in exactly two places:
  *
  * - where a placement rule points, because that is a different set of books
  *   arriving from a different rule;
  * - at an area with a strategy of its own, because such an area is
  *   self-contained and takes no overflow. A continuous run only works if every
- *   area in it orders the same way, so an area that orders differently is the
- *   start of its own run rather than the middle of somebody else's.
- *
- * That is the same shape the app has today, said in rows: `shelf_range` picks a
- * run, `start_shelf` and `start_area` say where it begins, and the separators
- * cut it up.
+ *   area in it orders the same way.
  */
 
 import { areaLabel as letterFor } from '../../shared/layout'
@@ -68,12 +52,10 @@ export interface Area {
   name: string
   /**
    * The sort key the first book in this area has, byte-ordered and compared
-   * against `books.sort_key`.
-   *
-   * Anchored to a position in the order rather than to a book id, so removing
-   * the book it names leaves the area describing the right *place*. Empty on the
-   * first area of a run, which is how "everything from the beginning" is said
-   * without a null.
+   * against `books.sort_key`. Anchored to a position in the order rather than to
+   * a book id, so removing the book it names leaves the area describing the
+   * right place. Empty on the first area of a run, which is how "everything from
+   * the beginning" is said without a null.
    */
   startsAt: string
   sortStrategy: SortStrategy
@@ -88,11 +70,9 @@ export interface Slot {
 const NAME_JOIN = ' · '
 
 /**
- * What a fixture on its own reads as: its name, or its number.
- *
- * The left half of `labelFor`, named because a screen listing the furniture asks
- * for the piece rather than for a plank on it, and two spellings of "the name,
- * or the number" is how one of them ends up saying `Bookcase 4` and the other
+ * What a fixture on its own reads as: its name, or its number. The left half of
+ * `labelFor`, and the one place that answers it, because two spellings of "the
+ * name, or the number" is how one screen ends up saying `Bookcase 4` and another
  * `4`.
  */
 export function fixtureLabel(fixture: Fixture): string {
@@ -100,19 +80,12 @@ export function fixtureLabel(fixture: Fixture): string {
 }
 
 /**
- * What a person reads, built from the positions and the two names.
+ * What a person reads, built from the positions and the two names: `1A` when
+ * neither is named, `Hall shelf · A` or `1 · Cookery` when either is.
  *
- * | fixture name | area name | label |
- * | --- | --- | --- |
- * | `''` | `''` | `1A` |
- * | `Hall shelf` | `''` | `Hall shelf · A` |
- * | `Hall shelf` | `Cookery` | `Hall shelf · Cookery` |
- * | `''` | `Cookery` | `1 · Cookery` |
- *
- * The unnamed case runs the two parts together because `1A` is the label this
- * catalogue has always used and is what is written on the recorded locations of
- * every book in it. Naming either side makes the label a phrase, which needs a
- * separator to read as one.
+ * The unnamed case runs the two parts together because `1A` is what is written
+ * on the recorded locations of every book in this catalogue. Naming either side
+ * makes the label a phrase, which needs a separator to read as one.
  */
 export function labelFor(slot: Slot): string {
   const left = fixtureLabel(slot.fixture)
@@ -125,12 +98,10 @@ export function labelFor(slot: Slot): string {
  * Every area in the collection, in the order a book meets them.
  *
  * Fixture position first, then fixture id, then area position. The id in the
- * middle is not decoration: `shelf_ranges.start_shelf` puts non-fiction on
- * bookcase 4 today, so two fixtures can carry the same position, and without a
- * total order the areas of two runs would interleave differently between reads.
- * Ordering by id keeps each run's fixtures together in the order they were
- * created, which is the order they were walked in. The backfill refuses an
- * arrangement where that is not enough; see `0013`.
+ * middle is not decoration: two fixtures can carry the same position, and
+ * without a total order the areas of two runs would interleave differently
+ * between reads. Ordering by id keeps each run's fixtures together in the order
+ * they were created, which is the order they were walked in.
  *
  * An area whose fixture is not in `fixtures` is dropped rather than guessed at;
  * the foreign key means that cannot happen against a database, and this function
@@ -156,30 +127,21 @@ export function slotsInOrder(fixtures: Fixture[], areas: Area[]): Slot[] {
  * itself. `entries` holds the area ids the placement rules name, worked out by
  * `rules.ts`, which is the only thing that knows what a rule points at.
  *
- * **Exported because it is the one answer, and it was asked in five places**
- * (#499). `runFrom` cuts a run here; `nextRunStartAfter` and `bandsOf` cut it at
- * `entries` alone, so a plank somebody had given its own ordering to headed a
- * run for the domain and headed nothing for the furniture reads; and
- * `strategyChange`, `runOwners` and `anchorForNewArea` each wrote this line out
- * again. All five ask it now, which is what this family costs when they do not:
- * one question with more than one answer.
+ * Exported because it is the one answer: `runFrom`, `nextRunStartAfter`,
+ * `bandsOf`, `strategyChange`, `runOwners` and `anchorForNewArea` all ask it.
  *
  * The second condition is not an implementation detail of this file. An area
  * that orders itself takes no overflow, which is what the dialog on "Change how
- * this shelf is ordered" tells somebody it will do before they press it
- * (`strategyChange`), and what the plank card says afterwards (`runOwners`).
+ * this shelf is ordered" tells somebody it will do before they press it.
  */
 export function startsARun(slot: Slot, entries: ReadonlySet<number>): boolean {
   return entries.has(slot.area.id) || slot.area.sortStrategy !== INHERIT
 }
 
 /**
- * The run a given area opens, up to but not including the next run's first
- * area.
- *
+ * The run a given area opens, up to but not including the next run's first area.
  * Returns an empty list when the area named does not open a run, which is a
- * caller asking about the middle of somebody else's run and is worth an empty
- * answer rather than a plausible one.
+ * caller asking about the middle of somebody else's run.
  */
 export function runFrom(
   order: Slot[],
@@ -206,7 +168,7 @@ export function runFrom(
  * sorts before the first boundary is on the first plank: the boundaries say
  * where the run is cut, not where it starts.
  *
- * `<=` rather than `<` is what makes the anchor the **first** book of its area
+ * `<=` rather than `<` is what makes the anchor the first book of its area
  * rather than the last of the one before, and it keeps an anchor meaningful once
  * the book it names has been deleted.
  */

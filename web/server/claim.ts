@@ -2,47 +2,12 @@
  * Why a book is where it is: which rule claimed it, which ones lost, and what
  * would happen if the winner changed.
  *
- * ## The losers are the point
+ * Every rule whose conditions the book meets is listed, in the order `claim`
+ * tries them, each carrying the reason it won or did not.
  *
- * A book that lands somewhere surprising is the moment the whole idea either
- * explains itself or turns into magic, and the explanation is always the same
- * two sentences: which rules asked for this book, and why that one beat this
- * one. So every rule whose conditions the book meets is here, in the order
- * `claim` tries them, each carrying the reason it won or did not.
- *
- * That order is `claim`'s and not a second opinion about it: area beats fixture,
- * then lower priority, then lower id. A screen sorting them itself would be a
- * second precedence rule, drawn beside the real one, agreeing until somebody
- * changed one of them. Until #463 it was written out again here, which is a copy
- * of the ladder rather than an opinion of its own but is the same thing one edit
- * later; it is `byPrecedence` from `domain/placement/rules.ts` now.
- *
- * ## A book no rule claims is a real answer
- *
- * Since #304 a book can carry no genre tag at all: nothing states one, no tag is
- * written, and no rule matches it. `claim` answers null for such a book and this
- * answers an empty list, which is what lets a screen say so out loud. Guessing a
- * place for it would file it somewhere nobody asked for and report nothing,
- * which is the failure the null exists to prevent.
- *
- * ## Two questions, one decision
- *
- * `claimOfBook` explains one book and `booksNoRuleClaims` finds every book in
- * that state, and they are in one file because they are one question asked from
- * two ends. Both put it to `claim` rather than to SQL, so a room with a third
- * rule in it, a rule somebody switched off, or a condition using `under` cannot
- * be answered one way by the list and another way by the explanation.
- *
- * ## Nothing here writes anything
- *
- * It reads the rules, the ledger and the vocabulary and folds them. Where the
- * rules want the book and where somebody last put it are two separate fields on
- * purpose: they disagree exactly when the book needs carrying, and that
- * disagreement is the carry list rather than something to reconcile here.
- *
- * **`pinned` beats every rule, forever**, so a pinned book says which rule would
- * otherwise have claimed it and that the pin wins anyway. Hiding the rule would
- * leave somebody unable to see what the pin is overruling.
+ * Where the rules want the book and where somebody last put it are separate
+ * fields on purpose: they disagree exactly when the book needs carrying, and
+ * that disagreement is the carry list rather than something reconciled here.
  */
 
 import { WITHDRAWN } from '../domain/books/state'
@@ -66,7 +31,6 @@ export interface RuleClaim {
   why: string
 }
 
-/** A place, as a screen names one: the row, and the label it reads under today. */
 export interface AtAPlace {
   areaId: number
   label: string
@@ -82,7 +46,7 @@ export interface BookClaim {
   claims: RuleClaim[]
   /** The tags it carries, by the label a person reads and never by the slug. */
   tags: string[]
-  /** A person put it here for good, which beats every rule below. */
+  /** A person put it here for good; pinning beats every rule. */
   pinned: boolean
   checkedOut: boolean
   withdrawn: boolean
@@ -98,13 +62,9 @@ interface BookRow {
 }
 
 /**
- * Whether a rule's conditions hold, **ignoring whether it is switched on**.
- *
- * A rule somebody has turned off still asks for a tag this book has, and a
- * screen that left it out would be answering "no rule wants this book" when the
- * truth is "one does and you turned it off". `matches` refuses a disabled rule,
- * which is right for placing a book and wrong for explaining one, so the
- * question is put to it with the switch flipped rather than reimplemented here.
+ * Whether a rule's conditions hold, ignoring whether it is switched on. A
+ * disabled rule that still matches this book needs to say so, so the switch is
+ * forced on rather than reimplementing `matches` here.
  */
 const wants = (rule: PlacementRule, tagSlugs: readonly string[]): boolean =>
   matches({ ...rule, enabled: true }, { tagSlugs })
@@ -129,20 +89,12 @@ const placeOf = (
 ): AtAPlace | null =>
   (areaId === null ? null : { areaId, label: labels.get(areaId) ?? '' })
 
-/**
- * Why this book is here. Writes nothing.
- *
- * Reached from the furniture screens and from the book page, which is why it is
- * one read rather than two: both want the same four facts, and a second one
- * written for the second screen is how the two start disagreeing about
- * precedence.
- */
+/** Why this book is here. Writes nothing. */
 export async function claimOfBook(db: Db, id: number): Promise<Claimed> {
   /*
-   * `catalogued_books` rather than `books`, and it is the view that carries the
-   * filing name: `books.author_filing` was dropped by #227 and the three views
-   * join the first credit's alias back on. It is also the right set: a book
-   * nobody has catalogued has no place for the rules to have an opinion about.
+   * Reads `catalogued_books`, the view with the filing name joined on, not
+   * `books`. A book that has not been catalogued has no place for the rules to
+   * have an opinion about.
    */
   const book = await db.get<BookRow>(
     'SELECT id, title, author_filing, sort_key FROM catalogued_books WHERE id = ?',
@@ -197,34 +149,19 @@ export async function claimOfBook(db: Db, id: number): Promise<Claimed> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Every book no rule claims, which is the question nothing could answer
-// ---------------------------------------------------------------------------
-
 /**
- * Why no rule claims this book, which is two different states and not one.
+ * Why no rule claims this book: two different states.
  *
- * - `untagged`: it carries no tag at all. This is the state #304 made real. No
- *   catalogue stated a genre, so no genre tag was written, so every rule fails
- *   at its first condition.
- * - `unmatched`: it carries tags and no rule asks for them. A book tagged
- *   Poetry in a room with no rule about Poetry is here, and so is a book whose
- *   only tag is one somebody applied for their own reasons.
+ * `untagged`: it carries no tag at all, so every rule fails at its first
+ * condition. `unmatched`: it carries tags and no rule asks for them.
  *
- * Both are unclaimed, both have the same consequence, and the sentence a screen
- * writes about them is not the same sentence, which is why the read says which
- * rather than leaving each caller to work it out from an empty list of tags.
- *
- * **A rule that is switched off does not put a book in here by itself.** It
- * would if the switch were ignored, and `claimOfBook` deliberately ignores it
- * when explaining one book, because "one does and you turned it off" is worth
- * saying. Here the question is which books nothing files today, and a rule that
- * is off files nothing today. The screen for one book is where the switch gets
- * named.
+ * A rule that is switched off does not put a book here by itself: unlike
+ * `claimOfBook`, which deliberately ignores the switch when explaining one
+ * book, this asks which books nothing files today, and an off rule files
+ * nothing today.
  */
 export type Unclaimed = 'untagged' | 'unmatched'
 
-/** One book no rule claims, as a list of them needs it. */
 export interface UnclaimedBook {
   id: number
   title: string
@@ -248,34 +185,15 @@ interface UnclaimedRow {
 /**
  * Every book in the collection that no rule claims, in the order they stand.
  *
- * **This is the question nothing could answer.** The listing's tag filter has no
- * negation and could not express it anyway: "no rule claims it" is not "has no
- * genre tag", and the only SQL that ever asked anything like it was inlined in
- * the driver behind a `console.error`, hard-coded to two slugs, so it missed
- * every book carrying a tag no rule wants and would have gone quietly wrong the
- * first time somebody wrote a third rule.
+ * There is no SQL negation for "no rule claims it", so the tags come back
+ * beside each book in one pass and the fold is put to `claim`, the same
+ * function the placement itself uses, rather than a second precedence rule
+ * drifting in SQL.
  *
- * So the question is put to `claim`, which is the thing that decides, exactly
- * the way `booksInArea` puts it for one row of books. The tags come back beside
- * each book in one pass and the fold happens here. **There is no second
- * precedence rule written in SQL**, and there cannot be one to drift: a rule
- * with three conditions, `under` against `is`, a rule somebody switched off, and
- * whatever `RULE_FIELDS` grows next are all answered by the same function the
- * placement itself uses.
+ * Reads `catalogued_books`, so a book still in the queue (no name or place yet)
+ * is excluded, along with withdrawn books, which no rule places by design.
  *
- * ## Which books it is asked of
- *
- * Shelved and checked out, and not withdrawn. A withdrawn book has left the
- * collection and no rule places it by design, which is what the claim screen
- * already says out loud; putting books nobody owns any more at the top of a list
- * of work would be the count that trains somebody to ignore the list. A book
- * still in the queue is not here either, for `listRange`'s reason: it has no
- * name and no place yet, and the queue is the screen built to act on it.
- *
- * ## Unbounded, like `areaDisagreements`
- *
- * The caller decides how many to say out loud. The total is the number that
- * matters and it is what the first screen shows; the names are what explain it.
+ * Unbounded, like `areaDisagreements`: the caller decides how many to show.
  */
 export async function booksNoRuleClaims(db: Db): Promise<UnclaimedBook[]> {
   const rows = await db.all<UnclaimedRow>(

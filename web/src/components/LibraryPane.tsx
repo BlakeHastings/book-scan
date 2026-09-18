@@ -1,60 +1,3 @@
-/**
- * The library: every book somebody owns, drawn three ways.
- *
- * ## One screen with a switcher, not three screens
- *
- * Covers, a list and the books standing up are three drawings of one set of
- * books in one order, and which of them you like is a preference somebody sets
- * about as often as they rearrange the furniture. So there is one request, one
- * filter row, one scroll position and one small round button at the end of that
- * row, which is where the owner asked for it:
- *
- * > Instead of showing covers, list and spines as this very big thing that we
- * > can select one of three options for, can we put it to the right of the
- * > "every book" filter [...] That way you don't take up all this space for
- * > choosing between those different views.
- *
- * ## Fiction and non-fiction are not a control here any more
- *
- * They were two tabs at the top of this screen, and they are now two tags out of
- * however many somebody keeps. The owner named what was wrong with the pair:
- * they were "an opinionated approach just due to what we were needing to do at
- * the time". So this screen opens on the whole collection, and the one row above
- * the books says what is being shown and opens the tags.
- *
- * ## This screen holds the most books in the product
- *
- * 288 today, growing most days, and it has to stay usable at ten times that on a
- * phone. Three things answer that, and none of them is a promise:
- *
- * - **It asks for a page.** `useListing` fetches sixty books and asks for the
- *   next sixty when the end of what has loaded arrives on screen, so what
- *   arrives and what is drawn are both bounded however large the catalogue
- *   gets. The route grew `limit`, `offset` and `total` for this.
- * - **The boards are cut from the same page.** The books standing up are the
- *   listing grouped into the areas it is already in order for, so the third view
- *   costs no second request and no second scroll.
- * - **A picture is asked for at the size it is drawn.** 320 pixels wide for a
- *   tile about 120 across, which the server resizes; the full files are tens of
- *   megabytes across a screen of them.
- *
- * **The second of those undid the first, and #364 is the repair.** A page of
- * sixty books adds a screenful of height to the covers and to the list, and
- * adds almost none to the boards, where one area is one row of spines that
- * scrolls sideways rather than a column that grows. The bottom of the listing
- * was therefore permanently on screen there, "reached the bottom" was
- * permanently true, and this screen quietly fetched the whole catalogue on
- * arrival, sixty at a time, in half a second, with nobody scrolling.
- * `src/components/More.tsx` and `src/lib/reachingTheEnd.ts` carry the rule that
- * ends it, and what it costs the boards is said there: where the drawing does
- * not get taller, there is no downward scroll to fetch on, and the button is
- * what advances the page, which is what that button has always been for.
- *
- * What is left is said in the pull request rather than hidden: a count beside an
- * area is only drawn once that area has finished loading, because the last row
- * of a page is usually half a plank.
- */
-
 import { Button } from '../design/Controls'
 import { Covers, type CoverItem } from '../design/Covers'
 import { Filter } from '../design/Finding'
@@ -77,18 +20,10 @@ import { useRoomMenu } from './RoomMenu'
 import type { FiledBookRow } from '../lib/api'
 
 /**
- * What each state of a catalogued book is called, on the row that says what the
- * library is showing.
- *
- * Three, because `catalogued_books` holds three and the other four states are
- * the queue, which is a different screen. The words are the ones the app
- * already says: the book's own page has read "Out of the house" since #282, and
- * saying "checked out" here and that there would be two vocabularies for one
- * fact, which is what #459 is about in the first place.
- *
- * `shelved` is here for completeness rather than because a count opens it. It
- * is a narrowing somebody can be handed and the row must be able to name every
- * one of those.
+ * Three states, since `catalogued_books` holds three; the other four are the
+ * queue's, a different screen. `shelved` is included for completeness even
+ * though no count opens it directly: the row must still be able to name any
+ * narrowing it is handed.
  */
 const SAID_OF: Record<'shelved' | 'checked_out' | 'withdrawn', string> = {
   shelved: 'On a bookcase',
@@ -100,14 +35,9 @@ const SAID_OF: Record<'shelved' | 'checked_out' | 'withdrawn', string> = {
 const nameable = (state: BookState): state is keyof typeof SAID_OF => state in SAID_OF
 
 /**
- * The books off a bookcase that lending does not account for, said in words.
- *
- * Two clauses at most, and only where there is something to say: a book given
- * away and a book nobody has filed yet are both absent from the drawing and are
- * absent for reasons that have nothing to do with each other. Nothing here is a
- * door, because neither has a screen to be a door to — the never-placed are the
- * queue's, which is one press in the tab bar, and "gone from the collection" is
- * a record rather than a job.
+ * Nothing here is a door, since neither has a screen to be a door to: the
+ * never-placed are the queue's, and "gone from the collection" is a record
+ * rather than a job.
  */
 function restSaid(off: OffTheBookcase): string {
   const parts: string[] = []
@@ -129,8 +59,8 @@ export function LibraryPane() {
   const { setRoute } = useNavigation()
   const { look, setLook, narrowing, showing, setShowing } = useBrowsing()
   const { viewBook } = useOpenBook()
-  /* The corner, and the sheet it opens (#350). The same one the first screen
-     draws, from the same place, so the two cannot drift. */
+  // The same corner and sheet the first screen draws, from the same place,
+  // so the two cannot drift.
   const room = useRoomMenu()
 
   const listing = useListing({
@@ -142,35 +72,16 @@ export function LibraryPane() {
   const { books, total, counts, complete, loading, error } = listing
   const narrowed = narrowing.length > 0 || showing !== null
 
-  /*
-   * **A picture of a bookcase cannot draw a book that is not on one.**
-   *
-   * The boards are cut from the areas the books stand in, so a library narrowed
-   * to the books that are out of the house draws no board at all: found by
-   * looking at it, on the very press this change is for, and the screen was a
-   * count of two over an empty page. The list is the one view that can say
-   * where a book that is not on a bookcase belongs, and `ShelfView` has said so
-   * since #405 in the same words: a spine row and a wall of covers are pictures
-   * of a bookcase, and a line of text is not a picture.
-   *
-   * The covers survive the narrowing, because a lent book still has a front. So
-   * the switcher offers two rather than three, which is the `looks` prop's own
-   * reason for existing (the queue offers two of these three), and a view
-   * somebody chose earlier that this narrowing cannot draw falls back to the
-   * list rather than to nothing.
-   */
+  // The boards are cut from the areas books stand in, so a narrowing to
+  // books off the shelf would draw no board at all. Covers still work,
+  // since a lent book still has a cover; a view this narrowing cannot draw
+  // falls back to the list rather than to nothing.
   const standing = showing === null || showing === SHELVED
   const looks = standing ? undefined : (['covers', 'list'] as const)
   const drawn = standing || look !== 'spines' ? look : 'list'
 
-  /*
-   * Nothing has come back yet.
-   *
-   * Every number on this screen is about somebody's collection, so until one
-   * arrives there are no numbers: drawing "0 books" over an empty page says
-   * their library is empty, which is false for as long as the first request
-   * takes and is the one thing this screen must never say by accident.
-   */
+  // Undefined until counts arrive: drawing "0 books" over an empty page
+  // would misrepresent the collection for as long as the request takes.
   const counted = counts
     ? narrowed
       ? `${grouped(total)} of ${plural(counts.total, 'book')}`
@@ -185,19 +96,8 @@ export function LibraryPane() {
       over={room.sheet}
       top={<TopBar title="Library" sub={counted} action={room.action} />}
     >
-      {/*
-        Finding left the corner with #350 and came down one row, which is the
-        trade #329 named the risk in: "losing a corner action and gaining a
-        harder-to-find one is a downgrade dressed as a tidy-up." It is still one
-        press, from the first row of the page, and at 414 by 896 it is 56px
-        lower and 20px further in from the edge than it was, which on a phone
-        held in one hand is nearer the thumb rather than further from it. It
-        costs no height: this row was already here.
-      */}
       <Filter
         tags={narrowing.map((tag) => tag.label)}
-        /* What the count on the first screen opened this on (#459). Without it
-           the row said "Every book" over two of twenty-seven. */
         showing={showing && nameable(showing) ? SAID_OF[showing] : undefined}
         note={counts ? plural(total, 'book') : ''}
         onTags={() => setRoute('tags')}
@@ -207,15 +107,8 @@ export function LibraryPane() {
         onLook={setLook}
       />
 
-      {/*
-        The way back out of a narrowing that is not a tag.
-
-        A tag comes off on the tags screen, which is where the row above leads,
-        and this one is not on it. Without this, a library opened on the two
-        books that are out of the house is a library somebody is stuck in: every
-        other door into it (the tab, the count that means the whole collection)
-        does clear the narrowing, but none of them is on this screen.
-      */}
+      {/* The way back out of a narrowing that is not a tag: a tag comes off
+          on the tags screen, and this one is not a tag. */}
       {showing && (
         <div className="wf-under">
           <Button tone="quiet" onPress={() => setShowing(null)}>
@@ -226,9 +119,6 @@ export function LibraryPane() {
 
       {error && <Nothing said="The library could not be read." >{error}</Nothing>}
 
-      {/* Which empty this is, because "no book carries all of those" over a
-          library narrowed to the books that are out of the house is an answer
-          about tags to somebody who chose none (#459). */}
       {!error && !loading && total === 0 && (
         <Nothing
           said={
@@ -258,32 +148,8 @@ export function LibraryPane() {
         <More total={total} loading={loading} onMore={listing.more} />
       )}
 
-      {/*
-        The way through to the other half of what this screen used to be.
-
-        It said "Check the bookcases against the order" and the owner could not
-        say what that meant (#364): "I'm not sure what that means." Two words
-        were doing the damage. **The order** is this codebase talking to itself
-        about filing rules. **Bookcases** is the noun he has corrected twice,
-        most recently as #362 is sweeping the interface onto fixtures, and
-        naming any piece of furniture here is wrong anyway, because what is
-        behind this is not about the furniture.
-
-        He led with taking it off, and it was checked before it was kept. Two of
-        the three things behind it are reachable elsewhere now: the furniture is
-        one tap from the corner (#350), and pointing a stretch of books at
-        another piece is reached from the rule that files them (#323). **The
-        third is not.** The list of books whose recorded spot disagrees with
-        where the filing order puts them is drawn on that screen and on no
-        other, it is what somebody acts on, and #358 has just repaired it after
-        it had been silently dropping 181 books. Deleting the only door to it
-        would delete it.
-
-        So it stays and it is named for what a person gets. Not "books to
-        carry", which is #314's flow, one tap from the first screen, and a
-        different question: that one is work a rule change made, and this one is
-        a book that ended up somewhere the filing order does not put it.
-      */}
+      {/* The only door to the list of books whose recorded spot disagrees
+          with the filing order; deleting this button would delete that screen. */}
       <div className="wf-under">
         <Button tone="quiet" onPress={() => setRoute('shelves')}>
           Books that are not where they should be
@@ -297,44 +163,14 @@ export function LibraryPane() {
 function CoverView({ books, onOpen }: { books: FiledBookRow[]; onOpen: (book: FiledBookRow) => void }) {
   const byId = new Map(books.map((book) => [book.id, book]))
 
-  /*
-   * A cover and a name, and nothing about where the book stands (#407).
-   *
-   * > Whenever we're in the gallery view in the library, let's not put
-   * > underneath the books where they're currently located. We can just show
-   * > the book covers and the author name underneath the book.
-   *
-   * This is the pinned rule about a book screen turned on a wall of them:
-   * somebody looking at their covers is browsing what they own, not auditing
-   * where things are. The same instinct took the location sentence off the
-   * book page in #282 and off the confirmation in #290, both times because the
-   * drawing already said it. **The wireframe this screen was built from never
-   * drew a place under a cover at all**, so this is the app catching up with
-   * the design rather than a fresh opinion: `design/gallery/screens.tsx` builds
-   * its gallery out of `covers()`, which carries a title, a name and a cloth,
-   * and has never carried anywhere.
-   *
-   * **Both lines came off, not only the place.** "Checked out" was drawn in
-   * the same slot as the place, chosen by the same expression, and answers the
-   * same question: it is where a book is when the answer is not a shelf.
-   * `CoverItem` says as much itself, calling it "a word instead of a place".
-   * Keeping it would have left a third line on a handful of tiles and not on
-   * the rest, which is the ragged grid rather than the deliberate one.
-   *
-   * **Nothing is hidden, only moved off a browsing surface.** The list beside
-   * this one still says both, one press away on the same row; the book's own
-   * page draws where it stands and says "Out of the house" for a book that is
-   * lent; and the button at the foot of this screen opens the whole screen
-   * about books that are not where they should be.
-   */
+  // Deliberately no location or checked-out line: somebody browsing covers
+  // is browsing what they own, not auditing where things are. Both still
+  // appear one press away, on the list view and the book's own page.
   const items: CoverItem[] = books.map((book) => ({
     id: book.id,
     title: book.title,
-    /* Empty for a book nobody is credited on, which is a real state rather
-       than a gap to fill in: the fallback is what the book itself carries, and
-       never the words "Unknown author". Such a tile is its cover and a blank
-       line, and the line is still drawn so the covers beside it keep their
-       height. */
+    // Empty rather than "Unknown author": a blank line still keeps the
+    // tile's height, matching the covers beside it.
     author: filedAs(book),
     cloth: clothFor(book.id),
     photo: coverArt(book, 320),
@@ -373,19 +209,10 @@ function ListView({ books, onOpen }: { books: FiledBookRow[]; onOpen: (book: Fil
 }
 
 /**
- * The books as they physically stand, one board per area.
- *
- * The rows are cut from the listing rather than fetched, and a book that is not
- * on a bookcase is left out of them rather than drawn in one: the run has closed
- * up behind it, exactly as it has in the room. How many those are is said under
- * the boards, because something you cannot see belongs in words.
- *
- * **The listing decides which books, and the furniture decides the drawing.**
- * The page arrives in filing order, which is the order the list and the covers
- * are read in and is not where anything is standing; each book carries the area
- * it is on and where that area stands, and `areaRuns` is what turns the one into
- * the other. Cutting the boards where the listing's labels changed is what drew
- * one bookcase twice, in two places, after a tag change (#434).
+ * Rows are cut from the listing rather than fetched separately. The page
+ * arrives in filing order, which is not where anything is standing; each
+ * book carries the area it is on and where that area stands, and `areaRuns`
+ * turns the one into the other.
  */
 function SpineView({
   books, complete, onOpen, onOut,
@@ -398,14 +225,9 @@ function SpineView({
 }) {
   const { runs, off } = areaRuns(books, complete)
 
-  /*
-   * The piece the last board was on, so the heading is drawn where the
-   * furniture changes and not over every board.
-   *
-   * The piece itself rather than what it says, because two pieces standing on
-   * one number are both called "Bookcase 4" until somebody names one of them,
-   * and they are still two bookcases with a heading each.
-   */
+  // The piece itself rather than its label: two pieces standing on one
+  // number are both called "Bookcase 4" until somebody names one of them,
+  // and they are still two bookcases with a heading each.
   let piece = 0
 
   return (
@@ -424,17 +246,14 @@ function SpineView({
         }))
 
         return (
-          /* Keyed on the area, which is what the board is. It used to be the
-             label and the index, and both halves of that were the defect: a
-             label is a rendering two boards can share, and an index changes
-             under a board when the page before it grows. */
+          // Keyed on the area: a label can be shared by two boards, and an
+          // index changes under a board when the page before it grows.
           <div key={run.areaId} style={{ display: 'grid', gap: 20 }}>
             {heading && <p className="wf-heading">{heading}</p>}
             <Shelf
               label={run.label}
-              /* Only once the listing has finished. A board is a place rather
-                 than a stretch of the filing order, so any of them can still
-                 gain a book from a later page. */
+              // Only once the listing has finished: any board can still gain
+              // a book from a later page.
               note={run.closed ? plural(run.books.length, 'book') : undefined}
               items={items}
             />
@@ -442,22 +261,9 @@ function SpineView({
         )
       })}
 
-      {/*
-        Why they are not drawn, and a door for the half of them there is
-        something to do about (#459).
-
-        It was one sentence for three different situations: a book somebody lent
-        to a friend, a book they gave away, and a book they photographed and
-        never filed. "Not on a bookcase" is true of all three and useful about
-        none of them, and it was untappable, so the one screen that says when a
-        lent book went out was reachable only through a list of misfiled books.
-
-        The lending half is a button because it is the half with an answer: it
-        opens this same library on those books, where each one's page says when
-        it went and offers to check it in. The other two are said and not
-        offered, which is honest rather than lazy: there is no screen for "given
-        away" and the never-placed are already the queue's business.
-      */}
+      {/* The lending half is a button: it opens this same library on those
+          books, where each one's page offers to check it in. The other two
+          are said but not offered, since neither has a screen to open. */}
       {off.total > 0 && (
         <div style={{ display: 'grid', gap: 8, justifyItems: 'start' }}>
           {off.out > 0 && (

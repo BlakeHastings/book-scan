@@ -72,14 +72,13 @@ describe('the vocabulary', () => {
   })
 
   /**
-   * `genre/fiction` and `genre/non-fiction` are in the answer because `0002`
-   * seeds them, and every catalogue that has ever run a migration holds both.
-   * They were absent until #529 only because this file's reset truncated `tag`
-   * and deleted them, which is a state no migration can produce.
+   * `genre/fiction` and `genre/non-fiction` are in the answer because
+   * `0002` seeds them, and every catalogue that has ever run a migration
+   * holds both.
    *
-   * What the test is about is still the three that are *not* here: `genres/…`,
-   * `genre-adjacent` and `mine` are adjacent rather than beneath, and a prefix
-   * match on the string would have taken the first two.
+   * What the test is about is still the three that are not here:
+   * `genres/…`, `genre-adjacent` and `mine` are adjacent rather than
+   * beneath, and a prefix match on the string would have taken the first two.
    */
   it('answers under with the tag and its descendants and nothing adjacent', async () => {
     for (const slug of [

@@ -1,39 +1,17 @@
 /**
- * Command line front end for the Postgres backup. Run it from web/:
+ * Command line front end for the Postgres backup. Run it from web/; see
+ * --help for options.
  *
- *     npx tsx server/backup-catalogue.ts --source <connection> --dir <path>
- *     npx tsx server/backup-catalogue.ts --verify-only --dir <path> --scratch <connection>
+ * The source connection is never inherited by default: `ConnectionStrings__bookscan`,
+ * the variable the running app reads, is never read at all, so a connection
+ * string sitting in a shell cannot decide which catalogue a job touches.
+ * `--dir` may still fall back to `BOOKSCAN_BACKUP_DIR`, since a directory only
+ * decides where a dump is written, not which catalogue is opened.
  *
- * It follows the conventions migrate-sqlite-to-pg.ts and rehash-covers.ts set:
- * it prints what it is about to do, refuses rather than guesses, and says which
- * database it is talking to before it talks to it.
- *
- * **The source is named on the command line and is never inherited by default.**
- * This does not read `ConnectionStrings__bookscan`, the variable the running app
- * reads, for the reason AGENTS.md gives for every other tool here: a connection
- * string sitting in a shell must not be able to decide which catalogue a job
- * touches.
- *
- * `BOOKSCAN_BACKUP_SOURCE` and `BOOKSCAN_BACKUP_SCRATCH` are read **only when
- * `--source-from-env` or `--scratch-from-env` asks for them.** They used to be
- * read whenever `--source` was absent, and that was the same mistake in a
- * different coat: the variables were set at `Machine` scope so a scheduled task
- * could carry a password out of its command line, which handed the live
- * catalogue to every process on the box, and `npx tsx server/backup-catalogue.ts`
- * with no arguments then opened it. Inheriting is now a thing somebody asks for
- * by name, the way `scripts/seed-world.ts` refuses to inherit its target.
- * `scripts/backup-catalogue.ps1` is the only caller that asks, and it puts the
- * connections into its own child's environment from a DPAPI-encrypted file
- * rather than finding them lying around. See docs/backup-runbook.md.
- *
- * `--dir` still falls back to `BOOKSCAN_BACKUP_DIR` on purpose. A directory
- * decides where a dump is written, not which catalogue is opened, and an
- * inherited one cannot point this at somebody's collection.
- *
- * **Nothing here writes to the source.** The dump side opens one read-only
- * repeatable-read transaction, exports its snapshot, and runs `pg_dump` inside
- * it. The verification never connects to the source at all: it restores into a
- * scratch database on a different server and drops it afterwards.
+ * Nothing here writes to the source: the dump opens one read-only
+ * repeatable-read transaction and runs `pg_dump` inside it, and the
+ * verification never connects to the source at all, restoring into a scratch
+ * database elsewhere and dropping it afterwards. See docs/backup-runbook.md.
  */
 
 import { spawn } from 'node:child_process'
@@ -171,14 +149,8 @@ export function parseArgs(argv: readonly string[]): Options | { error: string } 
 
   /**
    * A connection comes from the command line, or from the environment because
-   * somebody asked for the environment by name. Never from the environment
-   * because the command line was quiet.
-   *
-   * That distinction is the whole of #215. The variables exist so a scheduled
-   * task can carry a password without putting it in a process listing, which is
-   * a good reason, and for a while the reading of them was unconditional, which
-   * meant a bare run in any shell that happened to have them opened whatever
-   * they named. An opt-in keeps the good half.
+   * somebody named it explicitly. Never from the environment because the
+   * command line was quiet.
    */
   const connection = (
     flag: string, option: string, variable: string,
@@ -223,22 +195,13 @@ function line(label: string, value: string | number): void {
   console.log(`  ${label.padEnd(20)}${value}`)
 }
 
-// ---------------------------------------------------------------------------
-// Running the client tools.
-// ---------------------------------------------------------------------------
-
 /**
- * How `pg_dump` and `pg_restore` get run.
+ * How `pg_dump` and `pg_restore` get run: as a local subprocess, or inside a
+ * container when the tools are not installed locally.
  *
- * `local` is preferred when the tools are installed, because a subprocess beats
- * a container. They are not installed on the owner's machine, where Postgres
- * itself only ever arrived as an image, so `docker` is the path this was built
- * and tested on.
- *
- * The live container is never used as the runner. `docker exec` into it would
- * work and would be one fewer moving part, and it is refused on purpose: it
- * puts a scheduled job inside the process namespace of the thing it is meant to
- * be protecting.
+ * The live Postgres container is never used as the runner. `docker exec` into
+ * it would work, but it would put a scheduled job inside the process
+ * namespace of the thing the job exists to protect.
  */
 type Runner = 'docker' | 'local'
 
@@ -258,7 +221,6 @@ interface ToolInvocation {
   env: NodeJS.ProcessEnv
 }
 
-/** Build the argv and environment for one client tool run. */
 function invoke(
   runner: Runner,
   image: string,
@@ -353,10 +315,6 @@ async function runTool(
   })
 }
 
-// ---------------------------------------------------------------------------
-// Reading the directory.
-// ---------------------------------------------------------------------------
-
 async function listDumps(dir: string): Promise<DumpFile[]> {
   let names: string[]
   try {
@@ -392,10 +350,6 @@ async function writeManifest(dir: string, manifest: Manifest): Promise<void> {
   )
 }
 
-// ---------------------------------------------------------------------------
-// The dump.
-// ---------------------------------------------------------------------------
-
 async function takeDump(options: Options, runner: Runner): Promise<string> {
   await mkdir(options.dir, { recursive: true })
 
@@ -410,12 +364,9 @@ async function takeDump(options: Options, runner: Runner): Promise<string> {
     )
   }
 
-  // Said before the connection is opened rather than after, because "says which
-  // database it is talking to before it talks to it" is what the header of this
-  // file claims and it was only true of the other tools here. It matters most
-  // when the connection fails: a run that cannot reach its source should still
-  // have named the source it was reaching for. describeSource drops the
-  // credentials, so this is safe in a log a scheduled task writes.
+  // Said before the connection is opened: a run that cannot reach its source
+  // should still have named the source it was reaching for. `describeSource`
+  // drops the credentials, so this is safe to log.
   line('source', describeSource(options.source))
 
   const client = new pg.Client(connectionConfig(options.source))
@@ -432,12 +383,9 @@ async function takeDump(options: Options, runner: Runner): Promise<string> {
     // none is sent.
     await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY')
 
-    // Asked of the catalogue, before anything below commits to a schema this
-    // one might not have. #240: master's own idea of the schema (area, since
-    // #232) had moved ahead of the live catalogue's (separators, before it),
-    // and the run got as far as printing the dump's filename before dying on
-    // a table that was not there. Refusing here, before "writing" is ever
-    // printed, is what that log line failing to mean anything was missing.
+    // Asked of the catalogue before anything below commits to a schema it
+    // might not have, so a mismatch is refused here rather than partway
+    // through the dump.
     const tables = await listCatalogueTables(client)
     const divider = chooseDividerTable(tables.map((table) => table.name))
     line('schema', divider === 'area' ? 'area (since #232)' : 'separators (before #232)')
@@ -465,9 +413,8 @@ async function takeDump(options: Options, runner: Runner): Promise<string> {
     line('writing', name)
 
     // --snapshot pins pg_dump to the transaction above, so the dump and the
-    // digest below describe one instant. Without it the digest would be read
-    // from a catalogue that a scan could have changed while the dump ran, and
-    // the verification would fail for a reason that is not a backup problem.
+    // digest below describe one instant, rather than a digest read from a
+    // catalogue a concurrent write had already changed.
     const dump = await runTool(
       invoke(runner, options.image, 'pg_dump', options.source, [
         '--format', 'custom',
@@ -530,10 +477,6 @@ function printDigest(digest: CatalogueDigest): void {
   console.log('')
 }
 
-// ---------------------------------------------------------------------------
-// Retention.
-// ---------------------------------------------------------------------------
-
 async function prune(options: Options): Promise<void> {
   const files = await listDumps(options.dir)
   const plan = planRetention(files, { keep: options.keep, maxBytes: options.maxBytes })
@@ -555,10 +498,6 @@ async function prune(options: Options): Promise<void> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// The verification: restore into a scratch database, compare, drop it.
-// ---------------------------------------------------------------------------
-
 function adminPool(connectionString: string): pg.Pool {
   const pool = new pg.Pool(connectionConfig(connectionString))
   // node-postgres throws on an `error` event with no listener, which surfaces
@@ -567,7 +506,6 @@ function adminPool(connectionString: string): pg.Pool {
   return pool
 }
 
-/** The scratch connection with its database replaced. */
 function withDatabase(connection: string, database: string): string {
   const config = connectionConfig(connection)
   if (config.connectionString) {
@@ -598,10 +536,8 @@ async function verify(options: Options, runner: Runner, dumpName: string): Promi
   line('scratch server', describeSource(options.scratch))
   line('scratch database', scratchName)
 
-  // Said out loud rather than inferred from a short comparison table. Such a
-  // manifest cannot prove anything about the tables it never described, and a
-  // partial proof that looks like a full one is the thing this whole tool
-  // exists to not be.
+  // A manifest cannot prove anything about tables it never described, so a
+  // partial comparison is announced rather than passed off as a full one.
   if (manifestPredatesDerivedTables(manifest.digest)) {
     const named = tablesIn(manifest.digest)
     console.log(
@@ -726,8 +662,6 @@ function printComparison(
   }
 }
 
-// ---------------------------------------------------------------------------
-
 async function main(): Promise<number> {
   const argv = process.argv.slice(2)
   if (argv.includes('--help') || argv.includes('-h')) {
@@ -778,9 +712,8 @@ async function main(): Promise<number> {
     target = newest.name
   }
 
-  // Said on every run, in the same place, because it is the half of the
-  // irreplaceable data this tool does not touch and a silent omission is how it
-  // gets forgotten.
+  // Printed on every run: covers are the half of the data this tool does not
+  // touch, and a silent omission is how that gets forgotten.
   console.log('')
   console.log('  The cover photographs are NOT in this dump. pg_dump moves rows, not files.')
   console.log('  See docs/backup-runbook.md for what covers them.')

@@ -1,46 +1,17 @@
 /**
  * Seed a realistic, throwaway world for an agent to catalogue books against:
- * a shelved library across several bookcases and areas, and a queue of
- * captures at various stages, some deliberately awkward. See
+ * a shelved library and a queue of captures at various stages. See
  * docs/process/agent-hunting-pass.md for how to run a pass against it.
  *
- * Everything here is synthetic. Titles and authors are real so the world
- * reads like a library rather than "Book 7", but every ISBN is generated
- * with a valid check digit and answers to no real catalogue entry, and
- * every cover, spine and back photo is rendered by server/fixtures.ts, the
- * same generator the test suite uses. Nothing here calls Open Library,
- * Google Books or any other network origin.
+ * Everything here is synthetic: ISBNs are generated and every cover, spine
+ * and back photo is rendered by server/fixtures.ts, never fetched from a
+ * network origin.
  *
- * The photographs go only to this checkout's own web/data, never to whatever
- * BOOKSCAN_DATA happens to be set to. AGENTS.md is explicit that agents
- * must never set that variable because it is the one thing standing between
- * a dev server and the real catalogue; this script goes a step further and
- * does not even read it, so a shell that has it set for some other reason
- * cannot redirect a seed run anywhere else.
- *
- * **The rows go to a Postgres named on the command line, and to nothing
- * else.** It deliberately does not read `ConnectionStrings__bookscan`, for
- * the same reason `backup-catalogue.ts` does not: this script writes, and a
- * connection string that happens to be in a shell should not be able to
- * decide what gets written to. `BOOKSCAN_SEED_TARGET` is accepted instead of
- * `--target` if you would rather not put a password in shell history.
- *
- * Usage (from web/):
- *
- *     aspire start --non-interactive      # from the repo root, once
- *     aspire describe                     # read the api's connection string
- *     npx tsx scripts/seed-world.ts --reset --target '<connection>'
- *
- * Stage I changed the order here. The catalogue used to be a file this could
- * create before anything was running; it is a database the AppHost
- * provisions, so the AppHost starts first and hands out the connection.
- *
- *   --reset   Empty the catalogue and delete web/data first, so a pass always
- *             starts from the same synthetic world rather than piling more of
- *             it onto whatever was already there. Without it, the script
- *             refuses to run against a target that already holds books.
- *             That is the queue as well as the shelves since #183, which
- *             dissolved the captures table into early states on `books`.
+ * The rows go only to the Postgres named on the command line.
+ * `ConnectionStrings__bookscan` is deliberately not read: a connection
+ * string already in the shell must not decide what this writes to.
+ * `BOOKSCAN_SEED_TARGET` is accepted instead of `--target` if you would
+ * rather not put a password in shell history.
  */
 
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
@@ -60,14 +31,9 @@ import { STATE_OF_QUEUE_STATUS } from '../domain/books/state'
 import {
   FICTION_SLUG, NON_FICTION_SLUG, type GenreSlug,
 } from '../domain/tagging/catalogue-claims'
-/*
- * The same two steps every real save takes beyond writing the row (#234): a
- * genre tag settled and author credits recorded. Reused from
- * `server/book-save.ts` rather than restated here, which is what kept a
- * seeded shelved book from carrying either until this existed, building a
- * world the current model, since #223 and #227, cannot place. See
- * `shelveBook` below.
- */
+// The same two steps every real save takes beyond writing the row: a genre
+// tag settled and author credits recorded. Reused from `server/book-save.ts`
+// rather than restated here. See `shelveBook` below.
 import { recordCredits, settleGenre } from '../server/book-save'
 import { RestateTagsHandler } from '../application/tagging/restate-tags'
 import { DrizzleTagRepository } from '../infrastructure/tagging/tag-repository'
@@ -78,20 +44,17 @@ import { FileAliasHandler } from '../application/authorship/curate-authors'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const WEB_DIR = resolve(HERE, '..')
 
-// Deliberately not process.env.BOOKSCAN_DATA. That variable exists so a test
-// run or an Aspire run can point the *server* somewhere other than its
-// default, and reading it here would make this script capable of the one
-// thing AGENTS.md says never to do: writing generated data over a path
-// somebody else chose, which could be the production catalogue. This always
-// writes to this checkout's own web/data, exactly what a plain
-// `aspire start` (outside an e2e run) uses.
+// Deliberately not process.env.BOOKSCAN_DATA: reading it would let this
+// script write generated data over a path somebody else chose, which could
+// be the production catalogue. This always writes to this checkout's own
+// web/data.
 const DATA_DIR = join(WEB_DIR, 'data')
 const COVER_DIR = join(DATA_DIR, 'covers')
 
 const USAGE = "Usage: npx tsx scripts/seed-world.ts [--reset] --target '<connection>'"
 
-// Belt and braces: refuse outright if the resolved path is anywhere near the
-// real catalogue's directory name, however that happened.
+// Refuse outright if the resolved path is anywhere near the real catalogue's
+// directory name, however that happened.
 if (/book-scan-production-data/i.test(DATA_DIR)) {
   throw new Error(`Refusing to seed "${DATA_DIR}": that looks like the production data path.`)
 }
@@ -117,9 +80,8 @@ if (!TARGET) {
   process.exit(2)
 }
 
-// The same belt and braces the data directory gets. AGENTS.md names the live
-// catalogue as 127.0.0.1:5433, and a synthetic world written over it is the
-// one mistake this script must not be able to make.
+// AGENTS.md names the live catalogue as 127.0.0.1:5433; a synthetic world
+// must never be written over it.
 if (/(?::|Port\s*=\s*)5433\b/i.test(TARGET)) {
   console.error(
     'Refusing that target: port 5433 is the live catalogue (see AGENTS.md). ' +
@@ -127,10 +89,6 @@ if (/(?::|Port\s*=\s*)5433\b/i.test(TARGET)) {
   )
   process.exit(1)
 }
-
-// ---------------------------------------------------------------------------
-// The book pool
-// ---------------------------------------------------------------------------
 
 interface BookSeed {
   title: string
@@ -142,18 +100,11 @@ interface BookSeed {
   pages: string
   seriesName?: string
   seriesIndex?: number
-  /** No spine photo, as if the scan was interrupted before the third shot. */
   noSpine?: boolean
-  /** No publisher cover, as if the backfill asked and came up empty. */
   noCover?: boolean
 }
 
-/**
- * How much of the fiction list is shelved. Everything past it is the queue.
- *
- * Named because the boundary is load-bearing: a seed added after it is a
- * capture, not a book on a shelf, so nothing that orders books ever sees it.
- */
+/** How much of the fiction list is shelved; entries after this index go to the queue instead. */
 const SHELVED_FICTION = 19
 
 const FICTION: BookSeed[] = [
@@ -171,15 +122,8 @@ const FICTION: BookSeed[] = [
   { title: 'Pride and Prejudice', authors: ['Jane Austen'], genre: FICTION_SLUG, publisher: 'T. Egerton', published: '1813', pages: '279' },
   { title: 'Persuasion', authors: ['Jane Austen'], genre: FICTION_SLUG, publisher: 'John Murray', published: '1818', pages: '264' },
   { title: 'One Hundred Years of Solitude', authors: ['Gabriel García Márquez'], genre: FICTION_SLUG, publisher: 'Harper & Row', published: '1967', pages: '417' },
-  // Translated classics, with the author written the way Open Library actually
-  // answers for these editions: in the script the book was written in. Three
-  // scripts and one half-transliterated name, because they behave differently
-  // and the mixed one is the surprising one. #195 was found by a pass over this
-  // world, and a world with none of these in it cannot find it again.
-  //
-  // They are here rather than at the end of the list because everything past
-  // SHELVED_FICTION goes to the queue, and a book in the queue has no sort key
-  // and no shelf to be filed wrongly on.
+  // Placed before SHELVED_FICTION rather than at the end: an entry past that
+  // index goes to the queue, which has no shelf to file these wrongly on.
   { title: 'Crime and Punishment', authors: ['Фёдор Достоевский'], genre: FICTION_SLUG, publisher: 'Penguin Classics', published: '1866', pages: '671' },
   { title: 'The Brothers Karamazov', authors: ['Фёдор Достоевский'], genre: FICTION_SLUG, publisher: 'Penguin Classics', published: '1880', pages: '985', noCover: true },
   { title: 'Norwegian Wood', authors: ['村上春樹'], genre: FICTION_SLUG, publisher: 'Vintage', published: '1987', pages: '389' },
@@ -222,10 +166,6 @@ const NONFICTION: BookSeed[] = [
   { title: 'The Elements of Style', authors: ['William Strunk Jr.', 'E. B. White'], genre: NON_FICTION_SLUG, publisher: 'Macmillan', published: '1959', pages: '105' },
 ]
 
-// ---------------------------------------------------------------------------
-// Synthetic ISBNs
-// ---------------------------------------------------------------------------
-
 function checkDigit13(twelve: string): string {
   let sum = 0
   for (let i = 0; i < 12; i += 1) sum += Number(twelve[i]) * (i % 2 === 0 ? 1 : 3)
@@ -239,10 +179,6 @@ function nextIsbn13(): string {
   const twelve = `978${middle}`
   return `${twelve}${checkDigit13(twelve)}`
 }
-
-// ---------------------------------------------------------------------------
-// Photos
-// ---------------------------------------------------------------------------
 
 let imageCounter = 0
 
@@ -264,12 +200,6 @@ interface Photos {
   cover: string
 }
 
-/**
- * Render and save the photos for one book: a front cover, a back with the
- * barcode, a spine unless `noSpine`, and a publisher-style cover unless
- * `noCover`. All from server/fixtures.ts, the same generator the unit tests
- * decode barcodes out of.
- */
 async function photograph(book: BookSeed, isbn13: string): Promise<Photos> {
   const authorLine = book.authors.join(', ')
 
@@ -284,10 +214,6 @@ async function photograph(book: BookSeed, isbn13: string): Promise<Photos> {
 
   return { front, back, edge, cover }
 }
-
-// ---------------------------------------------------------------------------
-// Shelving
-// ---------------------------------------------------------------------------
 
 function draftFor(book: BookSeed, isbn13: string, photos: Photos): DraftBook {
   return {
@@ -311,7 +237,6 @@ function draftFor(book: BookSeed, isbn13: string, photos: Photos): DraftBook {
   }
 }
 
-/** What `settleGenre` and `recordCredits` need, built once in `main` and passed through. */
 interface SaveDeps {
   restateTags: RestateTagsHandler
   tags: DrizzleTagRepository
@@ -324,12 +249,6 @@ interface SaveDeps {
  * Shelve one book: save it, settle its genre tag, record its author credits,
  * then record where it landed, in that order, exactly as `POST /api/books`
  * does when nobody sends an explicit location. Returns the new row's id.
- *
- * The middle two steps are what this function was missing until #234: without
- * them a seeded shelved book carried no genre tag and no author credit row,
- * which is a shape `POST /api/books` itself can never produce, since #223 and
- * #227 made those the facts a book's shelf range and filing name are derived
- * from.
  */
 async function shelveBook(
   store: Store, shelves: Shelves, deps: SaveDeps, draft: DraftBook,
@@ -337,7 +256,7 @@ async function shelveBook(
   const { id, placement } = await store.addBook(draft)
   await settleGenre(deps.restateTags, deps.tags, id, draft)
   await recordCredits(deps.creditBook, deps.authors, deps.fileAlias, id, draft)
-  // The plank, exactly as the save route records one (#359).
+  // The plank, exactly as the save route records one.
   const landed = placement && await shelves.areaOf(placement.range, id)
   if (landed !== null && landed !== undefined) await store.setLocationIn(id, landed)
   return id
@@ -345,14 +264,8 @@ async function shelveBook(
 
 /**
  * Simulate somebody at the shelf saying "this one's full": bounce the last
- * book of the current final area onto a fresh plank, or a fresh bookcase.
- * Confirms the displaced book's new location too, the way the shelving step
- * would once that book was actually carried over, so this never leaves a
- * misfile behind by accident.
- *
- * A no-op (and no error) when the last shelf holds fewer than two books:
- * either it is already the "alone in an area" case this is sometimes called
- * to create, or there simply is not enough there yet to split.
+ * book of the current final area onto a fresh plank or bookcase, and record
+ * the moved book's new location the way the real shelving step would.
  */
 async function progressShelf(store: Store, shelves: Shelves, range: ShelfRange, kind: 'area' | 'shelf'): Promise<void> {
   const groups = await shelves.groups(range)
@@ -360,38 +273,20 @@ async function progressShelf(store: Store, shelves: Shelves, range: ShelfRange, 
   if (!last) return
 
   const result = await shelves.overflow(range, { shelf: last.shelf, area: last.area }, kind)
-  // Recorded on the plank, not on what the plank is called. The step names its
-  // destination in ordinals and the run may stand on a piece somebody has named,
-  // in which case those two strings are different and only the id is the place.
+  // Recorded on the plank, not on what the plank is called: the id is the
+  // place, and it can differ from the ordinal name shown on screen.
   if (result.ok && result.step && result.planks?.to.areaId !== null) {
     await store.setLocationIn(result.step.moved.id, result.planks!.to.areaId!)
   }
 }
 
-/**
- * Guarantee the last area of a range holds exactly one book: the "alone in
- * an area" case the seeded world is asked to contain. Call this once, after
- * every other book in the range has already been shelved.
- */
+/** Leaves the last area of a range holding exactly one book. Call only after every other book in the range has been shelved. */
 async function isolateTail(store: Store, shelves: Shelves, range: ShelfRange): Promise<void> {
   await progressShelf(store, shelves, range, 'area')
 }
 
-// ---------------------------------------------------------------------------
-// Captures
-// ---------------------------------------------------------------------------
-
 interface CaptureFields {
-  /**
-   * The wire vocabulary, not the state, and the same three words every call
-   * site below already passes.
-   *
-   * `done` has gone from the union because a seeded row can never be one. It
-   * meant "this capture became a book", which since #183 is a book that has
-   * been shelved, and the shelved half of this world is seeded through `Store`
-   * where it belongs rather than by writing a row that claims to have been
-   * through a queue it never entered.
-   */
+  /** The wire vocabulary the queue API uses, not the internal book state. */
   status: keyof typeof STATE_OF_QUEUE_STATUS
   front_image?: string
   back_image?: string
@@ -412,18 +307,9 @@ interface CaptureFields {
 }
 
 /**
- * One book in the queue, which is a book in an early state (#183).
- *
- * Empty `title`, `shelf_range` and `sort_key`, exactly as `CaptureQueue.insert`
- * writes them and for the same reason: nobody has read this book yet, so it has
- * no title and belongs nowhere. The state keeps it out of `shelved_books` and
- * the empty shelf range keeps it out of every range there is, which is two
- * independent protections against a nameless row turning up on a seeded shelf.
- *
- * The fields this takes are still the queue's, because that is what a seeded
- * stage is described in and what the queue pane will show. The translation to
- * columns happens here, in one place, the way `queue.ts` does it at its own
- * edge.
+ * Inserts a queue row with empty `title`, `shelf_range` and `sort_key`,
+ * exactly as `CaptureQueue.insert` does: the empty state and shelf range
+ * both keep an unread row from turning up on a shelf.
  */
 async function insertCapture(
   db: Db,
@@ -462,9 +348,7 @@ async function insertCapture(
     },
   )
 
-  // The photographs are rows in `capture` (#228), written the same way the
-  // shutter writes them, so a seeded queue is a queue rather than a set of
-  // columns nothing reads.
+  // Photographs are rows in `capture`, written the same way the shutter writes them.
   await photographsTaken(db, Number(created!.id), {
     front: fields.front_image,
     back: fields.back_image,
@@ -497,16 +381,7 @@ function lookupJson(book: BookSeed, isbn13: string): string {
   })
 }
 
-// ---------------------------------------------------------------------------
-// Main
-// ---------------------------------------------------------------------------
-
-/**
- * The furniture back to what migration `0013` leaves on a fresh database: one
- * area at position 0 on each of the two fixtures a placement rule points at,
- * anchored at the empty string. Everything else standing on the floor was put
- * there by a run of this script.
- */
+/** Restores the furniture to what migration `0013` leaves on a fresh database: one area at position 0 on each of the two fixtures a placement rule points at. */
 const RESTORE_FURNITURE = [
   'DELETE FROM area WHERE position <> 0 OR fixture_id NOT IN ' +
   '(SELECT fixture_id FROM placement_rule WHERE fixture_id IS NOT NULL)',
@@ -516,24 +391,12 @@ const RESTORE_FURNITURE = [
 ]
 
 /**
- * The vocabulary back to what migration `0002` leaves: the two genre tags, and
- * nothing anybody has since made up.
- *
- * **A word outlives the books that carried it**, and until #392 nothing noticed
- * because nothing could make one without a book. `TRUNCATE books ... CASCADE`
- * empties `book_tag` and leaves `tag` exactly as it was, so a `--reset` over a
- * world somebody had already worked in starts the next one with their words
- * still in it, carried by nothing.
- *
- * That is a stale row on any pass and it is a wrong **number** on a measured
- * one: the usability harness (#388) compares two runs of the same task, and a
- * tag the first run invented is offered to the second, which then never has to
- * invent anything. Found exactly that way, by a pass that scored well because it
- * picked a word the previous pass had left lying about.
- *
- * Deliberately narrow. It removes only a tag that no book carries and no rule
- * names, so it can never take a word something still depends on, and the two
- * genre slugs are named because the seeded rules are written against them.
+ * Restores the vocabulary to what migration `0002` leaves: the two genre
+ * tags and nothing anybody has since made up. `TRUNCATE books ... CASCADE`
+ * empties `book_tag` but leaves `tag` as it was, so a word can outlive the
+ * books that carried it. Deliberately narrow: it removes only a tag that no
+ * book carries and no rule names, so it can never take a word something
+ * still depends on.
  */
 const RESTORE_VOCABULARY = [
   "DELETE FROM tag WHERE slug NOT IN ('genre/fiction', 'genre/non-fiction') " +
@@ -549,14 +412,8 @@ async function main(): Promise<void> {
 
   const db = await openPostgres(TARGET)
 
-  // The same refusal `--reset` used to get from a books.db already being
-  // there, moved to the thing it is now about. A world seeded on top of a
-  // world is two worlds, and neither of them is the one this script describes.
-  //
-  // One table asked once, where it used to be books plus captures. The queue is
-  // rows in `books` since #183, so the shelved half and the waiting half are
-  // counted by the same COUNT and adding a second one would count the queue
-  // twice.
+  // The queue is rows in `books` too, so this single COUNT already covers
+  // both the shelved half and the waiting half; a second count would double it.
   const existing = await db.get<{ count: string }>(
     'SELECT COUNT(*) AS count FROM books',
   )
@@ -571,40 +428,32 @@ async function main(): Promise<void> {
       process.exitCode = 1
       return
     }
-    // `captures` is no longer named. The table and its rows are still there and
-    // nothing reads or writes them, so a script that emptied it would be
-    // claiming an interest it does not have. It is emptied regardless: it holds
-    // a foreign key into `books`, which CASCADE follows.
+    // `captures` is not named here; it is emptied anyway because it holds a
+    // foreign key into `books`, which CASCADE follows.
     await db.run(
       'TRUNCATE books, book_authors, author_filing, ' +
       'author, author_alias RESTART IDENTITY CASCADE',
     )
-    // The furniture is not truncated and cannot be: the fixtures, the areas and
-    // the two rules that file into them are seeded by migration `0013`, and the
-    // seeding below expects to find the two runs standing, exactly as the app
-    // does. It is put back to what that migration leaves instead, because a
-    // boundary is an area since #232: without this, a `--reset` over a world
-    // that had already been seeded would start the next one on the bookcases
-    // and planks the last one grew. The truncate cascades to `book_placement`,
-    // so nothing names an area by now, including a retired one, which is an
-    // area at a negative position kept only because a placement named it.
+    // Fixtures, areas and their placement rules are seeded by migration
+    // `0013` and cannot be truncated: the code below expects to find them
+    // standing. They are restored to that migration's state instead, so a
+    // `--reset` does not leave old bookcases and planks in the new world.
     for (const statement of RESTORE_FURNITURE) await db.run(statement)
-    // After the furniture, because a rule somebody wrote goes with the area
-    // it pointed at, and a word is only free once nothing names it.
+    // Must run after the furniture restore: a word is only free once nothing
+    // names it any more.
     for (const statement of RESTORE_VOCABULARY) await db.run(statement)
   }
 
-  // Named rather than inlined into `Store`'s constructor, so the same instance
-  // is what `deps` below hands to `recordCredits`: one author repository per
-  // book, the way `createApp` builds one for the whole server (`server/index.ts`).
+  // Named rather than inlined so the same instance passed to `deps.creditBook`
+  // is the one `Store` uses, mirroring how `createApp` builds one repository
+  // for the whole server.
   const authorsRepo = new DrizzleAuthorRepository(db)
   const store = new Store(db, authorsRepo)
   const shelves = new Shelves(db)
 
-  // The composition `createApp` builds for `settleGenre` and `recordCredits`
-  // (server/index.ts), rebuilt here rather than imported from there: this
-  // script writes rows before any app exists to have built it for. See
-  // `shelveBook` and #234.
+  // Rebuilds the same composition `createApp` builds for `settleGenre` and
+  // `recordCredits`: this script writes rows before any app exists to build
+  // it for.
   const tagsRepo = new DrizzleTagRepository(db)
   const deps: SaveDeps = {
     restateTags: new RestateTagsHandler(tagsRepo, new DbBookTransactions(db)),
@@ -621,12 +470,6 @@ async function main(): Promise<void> {
   console.log(`  data directory  ${DATA_DIR}`)
   console.log('  ' + '-'.repeat(60))
   console.log('')
-
-  // -------------------------------------------------------------------------
-  // Shelved library: 19 fiction across two bookcases, 8 non-fiction on one,
-  // several areas each, one book left alone in the last area of each range,
-  // a couple checked out.
-  // -------------------------------------------------------------------------
 
   const shelvedFiction = FICTION.slice(0, SHELVED_FICTION)
   const shelvedNonfiction = NONFICTION.slice(0, 8)
@@ -662,16 +505,8 @@ async function main(): Promise<void> {
   }
   await isolateTail(store, shelves, 'nonfiction')
 
-  // A couple of books off the shelf entirely: catalogued, photographed, but
-  // not currently on a plank.
   const checkedOut = [fictionIds[2], nonfictionIds[1]].filter((id): id is number => id !== undefined)
   for (const id of checkedOut) await store.setCheckedOut(id, true)
-
-  // -------------------------------------------------------------------------
-  // Capture queue: 18 captures at various stages, drawn from the books not
-  // used on the shelves so the queue and the library never name the same
-  // copy twice.
-  // -------------------------------------------------------------------------
 
   const queueFiction = FICTION.slice(SHELVED_FICTION)
   const queueNonfiction = NONFICTION.slice(8)
@@ -685,8 +520,6 @@ async function main(): Promise<void> {
 
   let captureCount = 0
 
-  // Fully resolved, ready to shelve in one tap. This is the common case: the
-  // worker read the barcode, the catalogue answered, nobody has looked yet.
   for (let i = 0; i < 6; i += 1) {
     const book = nextBook()
     const isbn13 = nextIsbn13()
@@ -705,10 +538,6 @@ async function main(): Promise<void> {
     captureCount += 1
   }
 
-  // Resolved, and a person has already corrected one field and left a note,
-  // the way "resolving and shelving can be two people" is meant to work: the
-  // next person to open this capture should see the correction already
-  // applied, not the worker's original guess.
   {
     const book = nextBook()
     const isbn13 = nextIsbn13()
@@ -731,8 +560,6 @@ async function main(): Promise<void> {
     captureCount += 1
   }
 
-  // Currently claimed by somebody mid-review. Opening this in a second tab
-  // should be refused.
   {
     const book = nextBook()
     const isbn13 = nextIsbn13()
@@ -753,12 +580,9 @@ async function main(): Promise<void> {
     captureCount += 1
   }
 
-  // Genuinely pending: all three photos present, nothing read yet. Once the
-  // server starts, the background worker drains these for real: real
-  // barcode decoding, and a real (network) catalogue lookup that these
-  // synthetic ISBNs will not be found by, which is what turns most of them
-  // into a realistic 'failed' a few seconds after the app comes up rather
-  // than a book that was simply never looked at.
+  // All three photos present, nothing read yet. Once the server starts, its
+  // background worker looks these up for real, and these synthetic ISBNs
+  // will not be found, so most end up 'failed' rather than staying pending.
   for (let i = 0; i < 3; i += 1) {
     const book = nextBook()
     const isbn13 = nextIsbn13()
@@ -772,8 +596,6 @@ async function main(): Promise<void> {
     captureCount += 1
   }
 
-  // Pending with only the barcode shot so far, as if the scan was
-  // interrupted before the front and spine.
   for (let i = 0; i < 3; i += 1) {
     const isbn13 = nextIsbn13()
     const back = saveImage(await toJpeg(await backCover(isbn13)), isbn13, 'back')
@@ -781,8 +603,8 @@ async function main(): Promise<void> {
     captureCount += 1
   }
 
-  // Pending with only the front cover: no barcode at all yet, which is the
-  // shape that forces the OCR path rather than the fast barcode one.
+  // No barcode photo at all, which forces the OCR path rather than the fast
+  // barcode one.
   for (let i = 0; i < 2; i += 1) {
     const book = nextBook()
     const front = saveImage(await toJpeg(await frontCover(book.title, book.authors.join(', '))), '', 'front')
@@ -790,8 +612,6 @@ async function main(): Promise<void> {
     captureCount += 1
   }
 
-  // Already failed: read, but nothing usable came of it. The kind of row
-  // that needs "Change ISBN" or a manual entry, not a re-scan.
   for (let i = 0; i < 2; i += 1) {
     const book = nextBook()
     const isbn13 = nextIsbn13()
@@ -804,10 +624,9 @@ async function main(): Promise<void> {
       analysed: 'back,front,edge',
       note: 'No ISBN could be read from these photos.',
       cover_text: book.title,
-      // What the worker actually writes beside cover_text: its first line.
-      // Without it these rows seeded a capture that cannot happen, one the
-      // OCR read a cover for and drew no name from, and the queue drew them
-      // as "Book #12" when the real thing carries a guess (#156).
+      // The real worker always sets title_guess alongside cover_text;
+      // omitting it here would seed a capture shape the app can never
+      // actually produce.
       title_guess: book.title,
     })
     captureCount += 1

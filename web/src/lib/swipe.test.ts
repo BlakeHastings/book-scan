@@ -1,12 +1,4 @@
-/**
- * The gesture that destroys photographs.
- *
- * Everything asserted here is a way a thumb produces a swipe nobody meant. The
- * queue is a vertical list on a phone held in one hand while the other holds a
- * book, so the common accident is not a stray tap, it is a scroll that drifts
- * sideways. That case gets the most attention below because it is the one that
- * actually happens.
- */
+/** The common accident is not a stray tap, it is a scroll that drifts sideways, so that case gets the most attention below. */
 
 import { describe, expect, it } from 'vitest'
 import {
@@ -35,27 +27,18 @@ describe('deciding which way a finger is going', () => {
     expect(drag([[198, 400 - AXIS_SLOP - 5]]).axis).toBe('vertical')
   })
 
-  /*
-   * The accident this whole gesture is arranged around. Somebody scrolls the
-   * queue, their thumb arcs as it travels, and the drag ends up further
-   * sideways than the discard distance. It must still be a scroll.
-   */
   it('never lets a scroll become a discard, however far it later wanders', () => {
     const swipe = drag([
-      [200, 340], // straight up: this is a scroll
+      [200, 340],
       [180, 260],
-      [200 - DISCARD_DISTANCE * 3, 120], // and now a long way sideways
+      [200 - DISCARD_DISTANCE * 3, 120],
     ])
     expect(swipe.axis).toBe('vertical')
     expect(swipe.dx).toBe(0)
     expect(swipeArmed(swipe)).toBe(false)
   })
 
-  /*
-   * A diagonal that is exactly balanced is far more likely to be a scroll than
-   * a discard, and the costs are not symmetrical: a scroll read as a discard
-   * loses photographs, a discard read as a scroll loses a second.
-   */
+  /* The costs are not symmetrical: a scroll read as a discard loses photographs, a discard read as a scroll only loses a second. */
   it('gives an exactly diagonal drag to the scroll', () => {
     expect(drag([[200 - 30, 400 - 30]]).axis).toBe('vertical')
   })
@@ -67,14 +50,7 @@ describe('deciding whether a sideways drag meant to discard', () => {
     expect(swipeArmed(drag([[200 - DISCARD_DISTANCE, 400]]))).toBe(true)
   })
 
-  /*
-   * Distance and not speed, deliberately. A flick is the easiest gesture to
-   * produce by accident and the hardest to produce deliberately with one hand,
-   * so a fast short drag arms nothing: there is no velocity term to find.
-   */
   it('is not shortened by a fast drag, because there is no such thing here', () => {
-    // One enormous jump, which is what a flick looks like in events, but
-    // stopping short. Nothing about how quickly it got there is consulted.
     expect(swipeArmed(drag([[200 - DISCARD_DISTANCE + 4, 400]]))).toBe(false)
   })
 

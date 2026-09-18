@@ -1,31 +1,18 @@
 /**
  * Where one carried book goes, which is the screen a new book gets.
  *
- * **This is the owner's instruction taken literally.** He has said twice that he
- * likes the where-it-goes screen, and #291 asks for a displaced book to be
- * reshelved "the same way as whenever we're initially shelving them". So it is
- * not copied for the carry flow, it is called by it: `ShelveView` is rendered
- * here exactly as `ShelveScreen` renders it, with a different book in hand and a
- * different thing done when the person says it fits.
+ * `ShelveView` is rendered here exactly as `ShelveScreen` renders it, with
+ * a different book in hand and a different thing done when the person
+ * says it fits. `carrying.test` pins that there is only one implementation.
  *
- * A second implementation would be the place the two quietly came apart, and the
- * way that happens is somebody adding one thing to one of them. `carrying.test`
- * pins that there is one.
+ * Saying an area is full needs nothing new: the cascade already in that
+ * screen works here unchanged, including writing down each displaced book
+ * as it is confirmed.
  *
- * ## Saying an area is full needs nothing new
- *
- * The cascade in `docs/shelving.md` is already in that screen: a person says the
- * plank will not take the book, the last book on it is offered to the next
- * plank, and the question is asked again one at a time. That is what the drawn
- * design calls "the armful gets bigger", and it works here unchanged, including
- * writing down each displaced book as it is confirmed.
- *
- * ## What "It fits" does here
- *
- * `PATCH /api/books/:id/location`, the one route that changes where the
- * catalogue thinks a book is, and the same one the queue's save uses. Nothing
- * else is written and nothing was written when the book was picked up: a book in
- * transit gets no row, so an abandoned armful leaves nothing to unwind.
+ * "It fits" here calls `PATCH /api/books/:id/location`, the same route
+ * the queue's save uses. Nothing was written when the book was picked up:
+ * a book in transit gets no row, so an abandoned armful leaves nothing to
+ * unwind.
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -62,35 +49,25 @@ export function CarryingScreen() {
   const book = books[done]
   const [placement, setPlacement] = useState<PlacementResponse | null>(null)
   /**
-   * The run this book is in, or null when no genre tag claims it (#304).
-   *
-   * A book on a carry list was put there by a rule, so in practice it is one of
-   * the two. Null rather than a stand-in all the same, because a range is what
-   * every shuffle on this screen is addressed to and guessing one would address
-   * them to a run this book is not in.
+   * The run this book is in, or null when no genre tag claims it. A book
+   * on a carry list was put there by a rule, so in practice it is one of
+   * the two; null rather than a stand-in, since a range is what every
+   * shuffle on this screen is addressed to.
    */
   const [range, setRange] = useState<ShelfRange | null>('fiction')
   const [stale, setStale] = useState(true)
   const [saving, setSaving] = useState(false)
 
   /**
-   * Where this one goes: **on the plank this trip is taking it to** (#429).
+   * Where this one goes: on the plank this trip is taking it to.
    *
-   * The book's own row rather than the two fields the list carries, because the
-   * placing preview is answered from a draft and the answer has to be the one a
-   * save of that book would give.
+   * `trip.toAreaId` is passed explicitly rather than re-deriving where the
+   * book belongs now from the rules: with two pieces of furniture
+   * claiming the same tag, "where it belongs" can answer a different
+   * plank than the one this walk is for.
    *
-   * `trip.toAreaId` is the fix, and it is one argument because the screen it
-   * feeds is not forked: `ShelveView` is the same component a newly scanned book
-   * gets, and `carrying.test` pins that there is one of it. What was wrong was
-   * that this screen asked where the book belongs *now*, from the rules, rather
-   * than being told where this walk goes. With a second piece of furniture
-   * claiming the same tag, "where it belongs" answered that piece, the person
-   * put the book exactly where they were told, no assignment named that plank,
-   * and the trip came back forever.
-   *
-   * The trip is the one the armful was lifted on and is never re-answered
-   * underneath somebody (`app/armful.tsx`), so this cannot drift while they walk.
+   * The trip is never re-answered underneath somebody (`app/armful.tsx`),
+   * so this cannot drift while they walk.
    */
   const load = useCallback(async () => {
     if (!book || !trip) return
@@ -118,7 +95,7 @@ export function CarryingScreen() {
   const shelved = async (shelvedAt: number) => {
     setSaving(true)
     try {
-      // The plank, not its name. See `onShelved` on `ShelveView` (#359).
+      // The plank, not its name. See `onShelved` on `ShelveView`.
       await api.setLocationIn(book.id, shelvedAt)
       placed()
       if (left === 1) setRoute('carried')
@@ -130,19 +107,17 @@ export function CarryingScreen() {
   }
 
   /*
-   * Putting the armful back writes nothing, because nothing was written for the
-   * books still in the air. The ones already down stay down: they are on the
-   * shelves and recorded there, which is what lets somebody walk away mid-trip.
+   * Putting the armful back writes nothing, since nothing was written for
+   * the books still in the air. The ones already down stay down, since
+   * they are recorded on the shelves, which is what lets somebody walk
+   * away mid-trip.
    */
   const back = () => { putBack(); setRoute('carry') }
 
   /*
-   * The frame, which is the one the where-it-goes screen wears (#316).
-   *
-   * It wore the app's header until that screen was converted, and the rule has
-   * not changed: this screen wears whatever that one wears, because it is that
-   * one with a different book in hand. `screens.tsx` says the same thing from
-   * the other end.
+   * The frame, which is the one the where-it-goes screen wears: this
+   * screen wears whatever that one wears, since it is that one with a
+   * different book in hand.
    */
   return (
     <div className="wf">
@@ -157,11 +132,10 @@ export function CarryingScreen() {
           />
         }
       >
-        {/* The armful counted down, so somebody knows whether they are nearly
-            done without going back. It is the one thing this screen adds to the
-            one a newly scanned book gets, and it is added around that screen
-            rather than inside it: a heading or a count added *to* it is how the
-            two would quietly become two screens. */}
+        {/* The armful counted down, so somebody knows whether they are
+            nearly done without going back. Added around this screen
+            rather than inside it, so the two do not quietly become two
+            screens. */}
         <Said>
           {left === 1
             ? `Last of ${words(books.length)} in your hands.`

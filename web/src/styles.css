@@ -1,21 +1,10 @@
 /*
- * What is left of the app's own stylesheet.
+ * What is left of the app's own stylesheet. Everything a screen is drawn with
+ * lives in `src/design`, in `tokens.css` and `library.css`, and what stayed here
+ * is what that has no answer for: the sheet on the cataloguing camera, where a
+ * panel floating over a live picture sits, and the queue's swipe gesture.
  *
- * Everything a screen is drawn with lives in `src/design`, in `tokens.css` and
- * `library.css`, and has since the conversion finished (#387). What stayed here
- * is what that has no answer for, and each block below says which of the three
- * reasons it is:
- *
- * 1. **The chrome the redesign has not reached**, which since #451 is the sheet
- *    on the cataloguing camera and nothing else. The header and its tabs were
- *    the rest of it and had not been drawn for months.
- * 2. **A picture with something floating on it.** No drawing in the gallery has
- *    an answer over a live camera, so where a panel sits is the app's; what is
- *    inside every one of them is the design system's.
- * 3. **A gesture.** The queue's swipe and the undo it opens are a drag, a
- *    reveal and a countdown, none of which is a thing the gallery draws.
- *
- * Nothing here paints a card, a row, a button, a field or a shelf any more.
+ * Nothing here paints a card, a row, a button, a field or a shelf.
  */
 
 :root {
@@ -43,38 +32,18 @@ html, body {
 }
 
 /*
- * Reason 1 above was the header, its three tabs and the red line it carried,
- * and #451 took all of it out. Nothing had drawn any of it since the last
- * screen was converted (#387): the route table said `chrome: false` on every
- * one of its twenty-three lines, so the component holding these was compiled,
- * imported and never mounted. Every screen brings the design system's own top
- * bar and four-place tab bar, and says what went wrong on itself with
- * `Trouble`.
- *
- * The rules are gone from here and the component with them, which is what makes
- * the orphan test below tell the truth about them rather than about a file that
- * spelled their names.
- */
-
-/*
- * A placement on screen that is known to be out of date.
- *
- * About state rather than about drawing, which is why it stays: a placement
- * that has been superseded names a real plank and cannot be told from a current
- * one by reading it, so it dims while the answer it is made of is fetched
- * again. See `ReviewScreen.tsx`, which says the same.
+ * A placement on screen that is known to be out of date. About state rather than
+ * about drawing: a superseded placement names a real plank and cannot be told
+ * from a current one by reading it, so it dims while the answer it is made of is
+ * fetched again. See `ReviewScreen.tsx`.
  */
 .placement--stale { opacity: 0.55; transition: opacity 120ms; }
 
 /*
- * The fields, which are the design system's and are the last thing in the app
- * reaching back through this file.
- *
  * `.wf-field__input` and `.wf-search__input` set everything about how a field
- * looks and set no width, so the width comes from here. Taking this away
- * without giving those two a width of their own collapses every box in the app
- * to the size of whatever is typed in it, which is why it is still here and
- * why moving it is its own change rather than a line in this one.
+ * looks and set no width, so the width comes from here. Taking this away without
+ * giving those two a width of their own collapses every box in the app to the
+ * size of whatever is typed in it.
  */
 input {
   width: 100%;
@@ -89,11 +58,9 @@ input {
 }
 input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
-/* --- Buttons ---------------------------------------------------------- */
-
-/* Two left, both on the cataloguing camera's settings sheet, which is the
-   one surface in the app the redesign has not reached. Everything else in
-   the app presses `Button` out of the design system. */
+/* Both on the cataloguing camera's settings sheet, which is the one surface in
+   the app the redesign has not reached. Everything else presses `Button` out of
+   the design system. */
 .btn {
   min-height: 44px;
   padding: 0 16px;
@@ -105,8 +72,6 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 }
 .btn--ghost { background: transparent; }
 .btn:disabled { opacity: 0.45; }
-
-/* --- The camera, and what floats on it -------------------------------- */
 
 /* The camera is a fixed overlay rather than a block in the document. In normal
    flow on iOS the controls below the feed end up under the URL bar and off
@@ -121,27 +86,14 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 }
 
 /*
- * The frame, the aiming guide, the bottom bar and the two buttons on it were
- * all here and are `Viewfinder` in the design system now (#408, #411). Three
- * screens draw a camera and there is one drawing of one.
- */
-
-/*
- * The one thing that says a shot failed, and it has to be readable (#432).
- *
- * The dark panel stays: this is a refusal and it should read as one. What was
- * missing is the ink on it. The rule set a background and no colour, so the
- * word came from whatever the page was written in, which under a converted
- * screen is `--ink`: warm off-white at night and dark brown in daylight. On
- * this panel that is 13.2 to 1 in the dark theme and 1.18 to 1 in the light
- * one, so "No ISBN could be read from these photos" was invisible in a bright
- * room, which is the room somebody photographs books in.
+ * The one thing that says a shot failed, and it has to be readable. The dark
+ * panel stays: this is a refusal and it should read as one.
  *
  * `--picture-ink` and not `--ink`, for the reason `tokens.css` gives it: the
  * thing behind this panel is whatever the lens is pointed at, so a colour that
  * follows the phone's theme is a colour that disappears on somebody's black
- * paperback. It is the same cream in both themes, and it is what every other
- * word floating on this camera is written in.
+ * paperback. It is the same cream in both themes, and it is what every other word
+ * floating on this camera is written in.
  */
 .cam__error {
   position: absolute;
@@ -157,22 +109,14 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 }
 
 /*
- * This book is already in the catalogue (#435).
+ * This book is already in the catalogue: an answer floating on a picture, so
+ * where it sits is the app's business the way the error line and the toast are.
  *
- * Reason 2 above: an answer floating on a picture, so where it sits is the
- * app's business the way the error line and the toast are.
- *
- * **At the top, under the error line, and that was decided by looking.** It
- * was above the bottom band first, beside the line that says what is in your
- * hands, and at 414 by 896 it lay straight across "Next book": a warning
- * drawn over a control is worse than the warning is good. The bottom of this
- * screen is crowded, with a shutter, two buttons and a rail of photographs in
- * it, and the top has two round targets in the corners and nothing between
- * them.
- *
- * Pointer events off, and that is not a detail. Nothing on this screen may sit
- * in front of a control, and the way #294 was paid for is work put behind
- * other work. It can be looked at and it can never be pressed.
+ * At the top, under the error line, because the bottom of this screen is crowded
+ * with a shutter, two buttons and a rail of photographs, and a warning drawn over
+ * a control is worse than the warning is good. Pointer events off for the same
+ * reason: nothing on this screen may sit in front of a control, so this can be
+ * looked at and never pressed.
  */
 .cam__catalogued {
   position: absolute;
@@ -196,27 +140,7 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 /*
  * Shows what the slot wants for a couple of seconds, then leaves.
  *
- * ## It lay across "Next book", and 150px is why (#585)
- *
- * Pointer events are off, so it could never swallow a tap, and its own comment
- * said so and stopped there. It still drew a hint over a control, which this
- * file says twice elsewhere is the thing not to do, and it had since before any
- * of the work on this screen.
- *
- * Measured in the running app, on the cataloguing camera, with the hint that
- * comes up the moment the camera starts:
- *
- *   414 x 896   toast 103.5 to 310.5 across, "Next book" 310.9 to 402
- *               they miss each other by 0.4px
- *   375 x 667   toast 93.8 to 281.3, "Next book" 271.9 to 363
- *               9px of the button under the hint
- *
- * Two numbers decided that and neither of them is about the controls: the
- * toast's own `min(30ch, 100% - 32px)`, and 150px. It reads as a near miss at
- * one size because 30ch of a 13px font happens to stop 0.4px short of a pill
- * that is 92px wide on a 414 wide phone. Nothing there is a design.
- *
- * `var(--s3)` is a gap above the controls rather than a guess at them.
+ * `var(--s3)` is a gap above the controls rather than a guess at them:
  * `.wf-view__over` ends where the bar begins, so this cannot reach a control on
  * any phone, whatever the hint says and however many controls that camera has.
  */
@@ -242,9 +166,8 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   to { opacity: 1; transform: translate(-50%, 0); }
 }
 
-/* Camera settings. Reachable in one tap, invisible the rest of the time, and
-   the one screen in the app still drawn out of this file rather than out of
-   the design system. */
+/* Camera settings: reachable in one tap, and the one screen in the app still
+   drawn out of this file rather than out of the design system. */
 
 .cam__sheet {
   position: absolute;
@@ -254,11 +177,8 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   align-items: flex-end;
   background: rgba(0, 0, 0, 0.5);
 }
-/* The second rule in this file that painted a dark panel and left the ink to
-   the page (#432). Same defect as `.cam__error` above and the same answer: the
-   sheet slides up over the viewfinder, so it is written in the picture's ink
-   rather than the room's. Its heading and anything else inheriting from it came
-   out at 1.3 to 1 in the light theme. */
+/* The sheet slides up over the viewfinder, so it is written in the picture's ink
+   rather than the room's, for `.cam__error`'s reason above. */
 .cam__sheet-body {
   width: 100%;
   padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
@@ -272,18 +192,9 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .cam__sheet-body h3 { margin: 0; font-size: 16px; }
 .cam__sheet-note { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.45; }
 /*
- * The third rule on this sheet to be measured rather than read (#451), and the
- * one the theme trick could not have caught.
- *
- * `.cam__error` and `.cam__sheet-body` were faint in one theme and fine in the
- * other, so switching themes found them. This one wrote in
- * `rgba(255, 255, 255, 0.4)`, a literal that follows no theme, and came out at
- * 3.83 to 1 in daylight and 3.83 to 1 at night: equally unreadable both ways
- * round, and therefore invisible to the way the other two were found.
- *
- * It is still the quiet line on this sheet, which is what it is for. It is
- * quiet in the picture's own second ink now instead of in an arbitrary white,
- * and that is 5.79 to 1.
+ * The quiet line on this sheet, which is what it is for. Quiet in the picture's
+ * own second ink rather than in an arbitrary white literal, which followed no
+ * theme and was equally unreadable in both.
  */
 .cam__sheet-meta {
   margin: 0;
@@ -305,8 +216,7 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 }
 .cam__lens--on { background: var(--accent); border-color: var(--accent); color: #0b0b12; font-weight: 600; }
 
-/* What the camera reports, laid out so a label and its value stay on one line
-   and can be read off a phone straight down a telephone. */
+/* What the camera reports, laid out so a label and its value stay on one line. */
 .cam__sheet-subhead {
   margin: 4px 0 0;
   font-size: 13px;
@@ -332,40 +242,22 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   overflow-wrap: anywhere;
 }
 
-/* --- An answer over a picture ----------------------------------------- */
-
 /*
  * Two panels float over a live camera: "this is already in the queue", and the
  * shortlist a cover match produces. They are the same question asked from
  * opposite ends, so they sit in the same place and are drawn the same way, and
  * both of them are a `Card` with the design system's rows inside it.
  *
- * **Position and nothing else.** No screen in the gallery has an answer over a
+ * Position and nothing else. No screen in the gallery has an answer over a
  * picture, so where these sit is the app's business the way the camera's own
  * error line and toast are, and `Viewfinder`'s `over` slot exists to be handed
- * exactly this.
+ * exactly this. Two names for one rule because the browser journeys tell the two
+ * answers apart by them.
  *
- * Two names for one rule because the browser journeys tell the two answers
- * apart by them, and telling them apart is the point: a finding about work
- * somebody has already done is not a list of books to choose between.
- *
- * **It was 200px, then 260px, and now it is a gap** (#554, #585). Both of those
- * numbers were arithmetic somebody did once and both were right on the day.
- * 200 cleared a shutter with a button above it; then #554 put the line saying
- * what is in your hands inside the bar, the bar grew 48px, and at 200 this
- * panel's lowest 44px lay across that line — it carries `z-index: 3` where the
- * bar carries none, so it would have covered the very sentence that issue was
- * about. 260 was the line's own top edge plus the gap the bar puts between its
- * rows, and it was correct until the next thing the bar has to hold.
- *
- * There is nothing left to keep in step. `over` is `.wf-view__over` now, a box
- * that ends where the bar begins, so `bottom` in here is measured from the top
- * of the controls and `var(--s3)` is a gap above them.
- *
- * `max-height` moved from 44 to 60 for one reason and it is not a taste: it is
- * a percentage of the same box, and that box is now the picture above the bar
- * rather than the whole screen. 60% of what is left is about the height 44% of
- * the screen used to be, so the panel is the size it always was.
+ * `over` is `.wf-view__over`, a box that ends where the bar begins, so `bottom`
+ * in here is measured from the top of the controls and `var(--s3)` is a gap above
+ * them. `max-height` is a percentage of that same box, which is the picture above
+ * the bar rather than the whole screen.
  */
 .queued,
 .isbncam__choices {
@@ -381,11 +273,10 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .queued--incam { z-index: 3; }
 
 /*
- * The frame every answer is held against, drawn once for both panels.
- *
- * It goes above them and stays there while they scroll. Comparing a candidate
- * against the viewfinder means comparing it against a memory, because the panel
- * covers most of the picture and the book has moved by then.
+ * The frame every answer is held against, drawn once for both panels. It goes
+ * above them and stays there while they scroll, because comparing a candidate
+ * against the viewfinder means comparing it against a memory: the panel covers
+ * most of the picture and the book has moved by then.
  */
 .queued__shot {
   display: block;
@@ -407,9 +298,9 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   color: var(--ink-2);
 }
 
-/* The whole row is the target, and the button around it adds nothing of its
-   own: what a waiting book looks like is `Queued`'s, on this screen and on the
-   queue, and a second box around it here would be the difference. */
+/* The whole row is the target, and the button around it adds nothing of its own:
+   what a waiting book looks like is `Queued`'s, on this screen and on the queue,
+   and a second box around it here would be the difference. */
 .queued__pick {
   display: block;
   width: 100%;
@@ -420,17 +311,11 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   text-align: left;
 }
 
-/* --- The queue's swipe ------------------------------------------------- */
-
 /*
  * A row is `.wf-qrow` out of the design system, which is the card the gallery
- * draws a waiting book on, and what is written here is the gesture around it:
- * the clip, the word revealed behind, the layer that follows a thumb, and the
- * undo that takes the row's place. `library.css` says the same from its end.
- *
- * **No coloured rail down the side.** There was one, three pixels of it, tinted
- * per status. That is the mark the owner named as an AI fingerprint and
- * rejected on a card, and a row is a card with a book in it.
+ * draws a waiting book on, and what is written here is the gesture around it: the
+ * clip, the word revealed behind, the layer that follows a thumb, and the undo
+ * that takes the row's place. `library.css` says the same from its end.
  */
 .queue__tools { margin-bottom: 12px; }
 
@@ -440,10 +325,10 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   border-radius: var(--r-lg);
 }
 
-/* What the row is sliding off, so the gesture says what it is going to do
-   before the finger lifts. Half lit while the drag is short of the distance
-   that would discard, full once it is past it: letting go early is how
-   somebody backs out, and that has to be legible under a thumb. */
+/* What the row is sliding off, so the gesture says what it is going to do before
+   the finger lifts. Half lit while the drag is short of the distance that would
+   discard, full once it is past it: letting go early is how somebody backs out,
+   and that has to be legible under a thumb. */
 .queue__behind {
   position: absolute;
   inset: 0;
@@ -467,9 +352,9 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
 .queue__slide {
   position: relative;
-  /* Opaque, and it has to be. The card above it fades while its photographs
-     are still being read, and a translucent card over the word revealed behind
-     it puts "Discard" on a row nobody has touched. Found by looking at it. */
+  /* Opaque, and it has to be. The card above it fades while its photographs are
+     still being read, and a translucent card over the word revealed behind it
+     puts "Discard" on a row nobody has touched. */
   background: var(--paper-raised);
   transform: translateX(calc(-1 * var(--dx, 0px)));
   /* Vertical panning stays the browser's and sideways is ours, so scrolling
@@ -482,9 +367,9 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .queue__row[data-dragging='yes'] .queue__slide { transition: none; }
 
 /* Still being read, so there is nothing to shelve yet. Dimmed rather than
-   disabled: a disabled button swallows the pointer events the swipe is made
-   of, and a capture whose photographs came out unusable is exactly one
-   somebody wants rid of before the worker finishes with it. */
+   disabled: a disabled button swallows the pointer events the swipe is made of,
+   and a capture whose photographs came out unusable is exactly one somebody wants
+   rid of before the worker finishes with it. */
 .queue__open[aria-disabled='true'] { opacity: 0.55; }
 
 /* A discard that has not happened. Nothing has been sent while this is on
@@ -502,9 +387,8 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 }
 .queue__undo-text { font-size: var(--size-small); color: var(--ink-2); }
 .queue__undo-text strong { color: var(--ink); font-weight: 600; }
-/* The window draining, which is the one thing on this row that is not a word.
-   It is not the only thing saying what is happening: the sentence beside it
-   says what is being discarded and that nothing has gone yet. */
+/* The window draining. Not the only thing saying what is happening: the sentence
+   beside it says what is being discarded and that nothing has gone yet. */
 .queue__undo-bar {
   position: absolute;
   left: 0;
@@ -526,17 +410,13 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   .queue__slide { transition: none; }
 }
 
-/* --- What is quoted beside a form -------------------------------------- */
-
 /*
- * What the photographs read, beside the form and never in it (#147).
- *
- * The well it sits in is a sunk `Card` now and the labels over each part are
- * the design system's own field labels, so what is left here is the two things
- * that have no answer in a system built on three faces and no monospace: the
- * shape of a label over a quotation, and the quotation itself, set apart from
- * the page's own prose because this is a machine quoting a photograph rather
- * than the app talking.
+ * What the photographs read, beside the form and never in it. The well it sits in
+ * is a sunk `Card` and the labels over each part are the design system's own
+ * field labels, so what is left here is the two things a system built on three
+ * faces and no monospace has no answer for: the shape of a label over a
+ * quotation, and the quotation itself, set apart from the page's own prose
+ * because this is a machine quoting a photograph rather than the app talking.
  */
 .evidence__part { display: grid; gap: 2px; }
 .evidence__lines {

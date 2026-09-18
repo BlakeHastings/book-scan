@@ -1,20 +1,8 @@
 /**
- * What a rule change would do, and what it did, drawn under the rule itself.
- *
- * **One definition, two callers**, which is the rule this app runs on: an
- * area's page and a piece's page both draw it, so the two cannot drift. It is
- * here rather than in `design/` because it reads a `Writing`, which is state,
- * and the design system holds none; what it draws is `WouldHappen` and
- * `Confirmation`, both of which are in the design system and are drawn in the
- * gallery.
- *
- * ## Three states and the middle one is the point
- *
- * Nothing, then the plan, then what the write did. **The plan is the only door
- * between editing a rule and a book moving**, and it is where every count that
- * matters is said out loud, pinned books included. The last state does not
- * report success and stop: it hands over the books, because applying wrote down
- * where they belong and moved none of them.
+ * Lives here rather than in `design/` because it reads a `Writing`, which is
+ * state; what it draws (`WouldHappen`, `Confirmation`) is in the design
+ * system. Applying a plan writes down where books belong and moves none of
+ * them: carrying them is a separate, later act.
  */
 
 import { Card, Confirmation } from '../design/Card'
@@ -71,13 +59,7 @@ export function Changing({
   )
 }
 
-/**
- * Whatever refused the change, where somebody is looking at it.
- *
- * Its own line rather than the page's error, because the page's error is about
- * the room and this is about the rule under a thumb: a refusal drawn at the top
- * of a screen somebody has scrolled past is a refusal nobody reads.
- */
+/** Separate from the page's own error: that is about the room, this is about the rule under a thumb, and a refusal at the top of a screen somebody has scrolled past goes unread. */
 export function Refusing({ said }: { said: string }) {
   if (!said) return null
   return <Card weight="quiet" kind="It would not take that" title={said} />

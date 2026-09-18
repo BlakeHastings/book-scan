@@ -1,37 +1,22 @@
 /**
  * Measure how far apart two photographs of one book land, and how far apart
  * two photographs of different books land, so the cutoff a queue match uses
- * is a measurement rather than an inheritance (#122).
+ * is a measurement rather than an inheritance.
  *
  * Run with: npx tsx scripts/queue-match-accuracy.ts <directory of photographs>
  *
- * It reads every file with `front` in its name, which is the shape the camera
- * already saves. Point it at real photographs. Generated covers will not do
- * here: what makes this comparison hard is the room around the book, and a
- * generated cover has none.
+ * It reads every file with `front` in its name. Point it at real
+ * photographs: generated covers will not do here, since what makes this
+ * comparison hard is the room around the book, and a generated cover has
+ * none. Nothing here writes to the directory it is given.
  *
- * The measured set was the owner's own 48 photographs, 18 of them fronts,
- * copied out of `book-scan-crop-samples`. Nothing here writes to the
- * directory it is given.
- *
- * ## Why a re-photograph has to be modelled
- *
- * The one thing those 48 photographs do not contain is the same book
- * photographed twice, which is the exact case this needs. So the second shot
- * is modelled: the frame is scaled, shifted, turned, relit, softened and
- * re-encoded as JPEG, and the sizes of those come from the photographs
- * themselves rather than from taste. Running the detector over the fronts it
- * handles puts the book's centre at cx sd 0.016 and cy sd 0.022 of the frame,
- * and its size at sd about 0.048. Those spreads are measured across
- * *different* books, so they are an upper bound on how much one book moves
- * between two shots: a different book is a different size as well as a
- * different framing. The `ordinary` tier below uses them unreduced, which
- * errs towards a harder problem than the real one, and `steady` and
- * `careless` bracket it either side.
- *
- * The negative side needs no modelling at all, and it is the side that
- * decides the cutoff: two different books, both really photographed, in the
- * same room, by the same person.
+ * A real sample set will not contain the same book photographed twice, so
+ * the second shot is modelled instead: the frame is scaled, shifted, turned,
+ * relit, softened and re-encoded as JPEG, sized from the spread the detector
+ * measures across different real books, an upper bound on how far one book
+ * actually moves between two shots of itself. The negative side needs no
+ * modelling: two different books, both really photographed, in the same
+ * room, by the same person.
  */
 
 import sharp from 'sharp'
@@ -75,12 +60,11 @@ interface Jitter {
   blur: number
 }
 
-/** One tier of "the same person photographing the same book a second time". */
 function tier(shift: number, zoom: number, turn: number, light: number, soft: number) {
   return (): Jitter => ({
     dx: normal() * shift,
-    // The book moves further up and down the frame than across it: the person
-    // is standing over a table, and their distance from it is what varies.
+    // Larger than dx: the person is standing over a table, so their distance
+    // from it varies more than their position across it.
     dy: normal() * shift * 1.4,
     scale: 1 + normal() * zoom,
     angle: normal() * turn,
@@ -95,13 +79,7 @@ const TIERS = [
   ['careless', tier(0.032, 0.10, 5.0, 0.20, 2.5)],
 ] as const
 
-/**
- * The same scene from a slightly different place.
- *
- * The padding continues the surrounding texture by mirroring it rather than
- * inventing a flat colour, because a flat border is exactly the thing the
- * hash's detector refuses and a room does not contain one.
- */
+/** The padding mirrors the surrounding texture rather than a flat colour, because a flat border is exactly what the hash's detector refuses. */
 async function reshoot(buffer: Buffer, jitter: Jitter): Promise<Buffer> {
   const meta = await sharp(buffer).metadata()
   const width = meta.width ?? 1

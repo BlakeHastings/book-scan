@@ -1,26 +1,17 @@
 /**
  * A generated book cover, written as a video file Chromium will play as a
- * camera.
- *
- * The end to end suite drives the real camera path: getUserMedia, a video
- * element, a canvas grab, an upload. Real hardware cannot be part of that and
- * still be deterministic, so Chromium is started with
+ * camera, using
  *
  *     --use-fake-device-for-media-stream
  *     --use-file-for-fake-video-capture=<this file>
  *
- * and every frame the page sees is this image. That is what makes the ISBN
- * under test known before the test runs rather than whatever happened to be in
- * front of a webcam.
+ * so the ISBN under test is known before the test runs rather than whatever
+ * happened to be in front of a webcam.
  *
- * The cover itself comes from server/fixtures.ts, the same generator the unit
- * tests decode barcodes out of, so the picture the browser is shown is a
- * picture the server is already known to be able to read.
- *
- * Y4M rather than MJPEG for two reasons. It is uncompressed, so nothing sits
- * between the generated barcode and the frame the page receives. And it can be
- * written here with sharp, which this project already depends on, rather than
- * requiring ffmpeg on whatever machine runs the suite.
+ * Y4M rather than MJPEG: it is uncompressed, so nothing sits between the
+ * generated barcode and the frame the page receives, and it can be written
+ * here with sharp rather than requiring ffmpeg on whatever machine runs the
+ * suite.
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs'
@@ -46,14 +37,7 @@ function clamp(value: number): number {
   return Math.max(0, Math.min(255, Math.round(value)))
 }
 
-/**
- * One still, as a single-frame Y4M in I420.
- *
- * A single frame is enough: Chromium loops the file, so the page sees a
- * perfectly steady picture. That steadiness is the point. A real camera hands
- * the page a different, slightly blurrier frame every time, which is exactly
- * the source of flake this file exists to remove.
- */
+/** A single-frame Y4M in I420: Chromium loops the file, so a single frame gives the page a perfectly steady picture. */
 export async function stillToY4m(png: Buffer, fps = 30): Promise<Buffer> {
   const meta = await sharp(png).metadata()
 
@@ -88,9 +72,9 @@ export async function stillToY4m(png: Buffer, fps = 30): Promise<Buffer> {
     }
   }
 
-  // Chroma is the mean of each 2x2 block, which is what any encoder does and
-  // what keeps a hard black-on-white barcode edge from acquiring a colour
-  // fringe that the decoder would have to see past.
+  // Chroma is the mean of each 2x2 block, which keeps a hard black-on-white
+  // barcode edge from acquiring a colour fringe the decoder would have to see
+  // past.
   for (let row = 0; row < chromaHeight; row += 1) {
     for (let col = 0; col < chromaWidth; col += 1) {
       let r = 0
@@ -115,12 +99,10 @@ export async function stillToY4m(png: Buffer, fps = 30): Promise<Buffer> {
   return Buffer.concat([header, Buffer.from('FRAME\n', 'ascii'), y, u, v])
 }
 
-/** The back cover of a book with this ISBN: blurb, barcode, printed number. */
 export async function backCoverVideo(isbn: string): Promise<Buffer> {
   return stillToY4m(await backCover(isbn))
 }
 
-/** The front cover, for a book being held up to be recognised. */
 export async function frontCoverVideo(title: string, author: string): Promise<Buffer> {
   return stillToY4m(await frontCover(title, author))
 }
@@ -131,13 +113,7 @@ const USAGE = [
   '  npm run e2e:fixture front <title> <author> <out.y4m>',
 ].join('\n')
 
-/**
- * Command line, so the suite generates its fixtures through this package's own
- * toolchain rather than reaching into web/node_modules from outside it.
- *
- * Positional arguments, not flags: npm swallows anything that looks like
- * `--name value` after `npm run` and hands the script the bare values.
- */
+/** Positional arguments, not flags: npm swallows anything that looks like `--name value` after `npm run` and hands the script the bare values. */
 async function main(): Promise<void> {
   const [kind, ...rest] = process.argv.slice(2)
 

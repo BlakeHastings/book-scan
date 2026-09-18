@@ -1,26 +1,15 @@
 /**
  * Move a run of books onto another bookcase: plan it, then apply it.
  *
- * The two halves of one idea, and they are deliberately in one file. **Plan
- * computes and writes nothing. Apply writes the furniture and then the
- * `assigned` rows the rules want, only where the answer differs from where the
- * book already is**, which is #185's rule and is `assignmentFor`'s job rather
- * than this file's.
+ * Plan computes and writes nothing. Apply writes the furniture and then the
+ * `assigned` rows the rules want, only where the answer differs from where
+ * the book already is; that is `assignmentFor`'s job, not this file's.
  *
- * ## Nothing here moves a book
- *
- * Applying records an intention. The books move when a person carries them and
- * says so, through `PATCH /api/books/:id/location`, and the list of what is
- * still outstanding is the needs-attention list that already exists: an
- * assignment disagreeing with where the book was last seen. There is no second
- * queue here and there must not be one.
- *
- * ## Why apply re-plans instead of trusting what it was shown
- *
- * A plan is a proposal and the shelves can have moved under it, exactly as a
- * cascade's outer frame can (#106). So the apply reads the furniture again
- * inside its own transaction and refuses on the same terms the plan did, rather
- * than acting on a bookcase number a screen was holding.
+ * Applying records an intention; books move only through
+ * `PATCH /api/books/:id/location`. Apply re-plans rather than trusting what
+ * it was shown, since the shelves can have moved under the plan: it reads
+ * the furniture again inside its own transaction and refuses on the same
+ * terms.
  */
 
 import {
@@ -49,10 +38,9 @@ export interface RunMovePlan extends PlacementPlan {
   /**
    * Every piece the move would leave standing with nothing on its face.
    *
-   * **The half of this that is not about books** (#391). Nothing is deleted, and
-   * a person still has to be told: a bookcase they put up after the run and have
-   * not filled yet is the tail of that run, so moving the run takes its planks
-   * and leaves it bare.
+   * Nothing is deleted; a bookcase put up after the run and not yet filled is
+   * the tail of that run, so moving the run takes its planks and leaves it
+   * bare.
    */
   emptied: EmptiedPiece[]
 }
@@ -76,11 +64,10 @@ interface BookRow {
 /**
  * The books of one run, with the tags a rule claims them by.
  *
- * `catalogued_books`, so a checked out or withdrawn book is here to be counted
- * as skipped rather than quietly absent, and `shelf_range` because that is the
- * run somebody is moving. A book whose genre tag disagrees with the range it is
- * filed in is not in this list and is not this feature's to find:
- * `areaDisagreements` already names those on every start.
+ * Reads `catalogued_books`, so a checked-out or withdrawn book is counted as
+ * skipped rather than quietly absent. A book whose genre tag disagrees with
+ * the range it is filed in is not in this list; `areaDisagreements` already
+ * names those on every start.
  */
 async function booksIn(db: Db, range: ShelfRange): Promise<PlannableBook[]> {
   const rows = await db.all<BookRow>(
@@ -114,38 +101,25 @@ export interface RunPlank {
 /**
  * Where a run lives, what it is cut into, and whether it can be moved at all.
  *
- * **The read the arrange screen draws itself from**, and it exists because that
- * screen used to answer all three from the books it happened to be showing.
+ * Where a run lives is where its rule points, not wherever its first book
+ * happens to be standing: an empty leading bookcase can make those two
+ * different bookcases. What the run is cut into includes planks holding
+ * nothing, since dropping them would make a run with an empty shelf at the
+ * top look like it started one bookcase further along.
  *
- * - Where a run lives is where its rule points. The first group of books is
- *   wherever the first book happens to be standing, and an empty leading
- *   bookcase makes those two different bookcases (#500).
- * - What the run is cut into is the planks a move would rehang. A plank holding
- *   nothing is in that list, because it is a plank of the run, and dropping it
- *   is exactly how a run with an empty shelf at the top got described as
- *   starting one bookcase further along.
- * - Whether it can be moved is `runToMove`'s refusal, which nothing about a
- *   destination is needed to ask (#486).
- *
- * **`why` is an answer rather than an error.** A run a move cannot pick up is an
- * ordinary arrangement — an area rule serving a range is what "say what belongs
- * here" on a plank writes, and #430 item 1 keeps two rules on one genre legal —
- * so the screen is told before it offers anything, rather than after somebody
- * has chosen.
+ * `why` is an answer rather than an error: a run a move cannot pick up is an
+ * ordinary arrangement, so the screen is told before it offers anything
+ * rather than after somebody has chosen.
  */
 export interface RunMoveOffer {
   /** The bookcase the run starts on, or null when its rule points nowhere. */
   from: number | null
-  /** Every plank a move would take with it, empty ones included. */
   planks: RunPlank[]
   /** Why this run cannot be moved, or null when it can. */
   why: string | null
 }
 
-/**
- * What the screen needs before it draws a single destination. **Writes
- * nothing.**
- */
+/** What the screen needs before it draws a single destination. Writes nothing. */
 export async function runMoveOffer(db: Db, range: ShelfRange): Promise<RunMoveOffer> {
   const { order, rules } = await furnitureIn(db)
   const rule = ruleForRange(rules, range)
@@ -155,9 +129,9 @@ export async function runMoveOffer(db: Db, range: ShelfRange): Promise<RunMoveOf
   if (!movable.ok) return { from: movable.from, planks: [], why: movable.error }
 
   /*
-   * The label and the count off the same row, which is `areasStanding`: the one
-   * statement in the app that counts the books standing on an area. A plank the
-   * screen names and a plank the screen counts must not come from two readings.
+   * The label and the count come off the same row, from `areasStanding`, the
+   * one statement in the app that counts books standing on an area, so a
+   * plank the screen names and counts cannot come from two different readings.
    */
   const standing = new Map((await areasStanding(db)).map((area) => [area.id, area]))
 
@@ -175,11 +149,10 @@ export async function runMoveOffer(db: Db, range: ShelfRange): Promise<RunMoveOf
 const NO_RULE = 'No rule files books into this run, so it lives nowhere to move.'
 
 /**
- * What moving this run would mean. **Writes nothing at all.**
+ * What moving this run would mean. Writes nothing.
  *
- * Also what the apply calls before it writes, so the answer somebody approves
- * and the answer that gets recorded are the same function rather than two
- * implementations that have to be kept saying the same thing.
+ * Also what apply calls before it writes, so the plan somebody approves and
+ * the plan that gets recorded are the same function.
  */
 export async function planRunMove(db: Db, range: ShelfRange, to: number): Promise<Planned> {
   const { order, rules } = await furnitureIn(db)
@@ -207,14 +180,14 @@ export async function planRunMove(db: Db, range: ShelfRange, to: number): Promis
 /**
  * Move the run, and record where the rules now want every book.
  *
- * One transaction, serialised on the range, because between the furniture write
- * and the assignment run the range's rule points at planks nobody has been told
+ * One transaction, serialised on the range: between the furniture write and
+ * the assignment run, the range's rule points at planks nobody has been told
  * about yet, and a save landing in that window would place a book by half an
  * arrangement.
  *
- * **Safe to call twice.** The second call finds the run already on that bookcase
- * and moves no furniture, and `assignmentFor` finds every book already assigned
- * where the rules want it and writes nothing.
+ * Safe to call twice: the second call finds the run already on that bookcase
+ * and moves no furniture, and `assignmentFor` finds every book already
+ * assigned where the rules want it and writes nothing.
  */
 export async function applyRunMove(
   db: Db,

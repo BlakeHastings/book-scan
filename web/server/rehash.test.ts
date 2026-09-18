@@ -1,10 +1,10 @@
 /**
- * The rehash path, against a real database and real generated cover images. No
- * file is opened: the tool takes its image reader from the caller, so a test
- * hands it a map and never names a directory.
+ * Against a real database and real generated cover images. No file is
+ * opened: the tool takes its image reader from the caller, so a test hands
+ * it a map and never names a directory.
  *
- * Since stage F this runs against both databases, and nothing below knows
- * which. See server/testdb.ts.
+ * Runs against both databases; nothing below knows which. See
+ * server/testdb.ts.
  */
 
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
@@ -131,8 +131,7 @@ describe('applying', () => {
     expect(front).not.toBe(OLD_FRONT)
     expect(isCurrentFormat(front)).toBe(true)
 
-    // The whole purpose: the same book photographed again now matches, where
-    // before the stale hash answered 64 to everything.
+    // The whole purpose: the same book photographed again now matches.
     const again = await coverHash(images.get('dune_front.jpg')!)
     expect(distance(front, again)).toBe(0)
   })
@@ -203,10 +202,9 @@ describe('applying', () => {
   })
 
   /*
-   * The CLI half of #200. `rehash-covers.ts` is argument parsing and a file
-   * reader around exactly the call below, so a hash that reached the column
-   * and not the photograph is the drift that issue is about, arriving from a
-   * tool the server never runs.
+   * `rehash-covers.ts` is argument parsing and a file reader around exactly
+   * the call below, so a hash that reaches the column and not the
+   * photograph would be drift from a tool the server never runs.
    */
   it('writes the new hash onto the photograph, not only onto the book row', async () => {
     const id = await addBook(
@@ -273,14 +271,10 @@ describe('images that cannot be read', () => {
 
   it('cannot be left with a stale hash and no photograph to rehash it from', async () => {
     /*
-     * This used to be a state, and it used to be reported: a hash was a column
-     * on the book, so a book could carry one for a photograph it no longer
-     * named, which no run of this tool could ever fix. Somebody had to be told.
-     *
-     * A hash is a fact about a photograph now and lives on that photograph's
-     * row (#228), so there is nowhere for one to sit without an image behind
-     * it. Offering one for a book with no artwork records nothing at all, which
-     * is the honest answer rather than a refusal.
+     * A hash is a fact about a photograph and lives on that photograph's
+     * row, so there is nowhere for one to sit without an image behind it. A
+     * book with no artwork records nothing at all, which is the honest
+     * answer rather than a refusal.
      */
     const id = await addBook('Dune', 'Frank Herbert', {}, { cover: OLD_COVER })
     expect(await photographHashes(id)).toEqual({})

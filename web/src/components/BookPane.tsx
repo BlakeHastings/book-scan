@@ -1,81 +1,3 @@
-/**
- * One book's own page.
- *
- * ## It is about the book, not about where the book sits
- *
- * That is a pinned rule and the owner has said it twice:
- *
- * > This is the detailed view for a book. Where it is, is one part of that.
- * > It's not the whole picture.
- *
- * So the page answers "what do I know about this book, and what can I do with
- * it", and where it sits is one section of several. There is no sentence over
- * the drawing of the board saying in words what the drawing shows; that line
- * came off in #282 and this page never had one.
- *
- * ## Doing before knowing, which is the order of the whole page
- *
- * > We should have the actions available to the user the moment they get to
- * > this detail view [...] And then if they don't intend to take action, when
- * > they scroll down they see the current shelving view, and that shows them
- * > where it is, which might be what they're here for.
- *
- * The book, its facts, its tags, what you can do. Then, on scrolling: where it
- * sits, and what else is here by the same author. A test pins that order on the
- * drawn screens and this page is built to it.
- *
- * ## Round eight took the headings off it (#365)
- *
- * > And "what you can do", we don't need that text there either. [...] And
- * > instead of "where it is", once again, we don't need that text there.
- * > Looking at this tells them where it is.
- *
- * Four of the five headings are gone and only one of the five sections went
- * with them. The tags are in the head, beside the picture and under the ISBN,
- * because what a book is about is a fact about the book. The actions are a row
- * of buttons, and every button that was under that heading is still in the row.
- * The board draws where the book is without being introduced, and "why is it
- * here" stays under it, which is the one part of that section the owner kept.
- *
- * **Where it has been went entirely**, section and heading and the request
- * behind it: this page asked `api.placements` for the ledger and no longer
- * does, so it makes four requests rather than five. The moves themselves are
- * untouched. They are the record of where a book actually is,
- * `/api/books/:id/placements` still answers with them, and the misfile list
- * still rests on the difference between the app assigning a book and somebody
- * carrying one. Nothing draws them now.
- *
- * **More by this author is not drawn at all** when the catalogue has nothing
- * else by them, which is nearly every book in a new collection. Nothing is lost
- * by its going: the name is in the bar and under the title, and what it files
- * under is what the bar says.
- *
- * ## The picture a catalogue holds comes first
- *
- * > We should show the catalogue picture of the front of the book first if
- * > possible, instead of the one the user took.
- *
- * "If possible" is doing real work in that sentence and `deckOrder` in
- * `design/Shots.tsx` is where it is answered: a downloaded cover leads only
- * where there is one, so a book without one still opens on the photograph
- * somebody took rather than on an empty frame. Which way round it is comes off
- * `lib/firstPicture.ts`, which the settings screen writes.
- *
- * ## Editing is an action on this page rather than the whole of it
- *
- * The app has had one screen for a book since it had screens, and that screen is
- * a form: it exists to correct a record. This is the other half, and the two are
- * one journey rather than two doors to one room. The pencil in the corner opens
- * the form, which is exactly what the corner has meant since the first round.
- *
- * ## Four requests, and none of them blocks the book
- *
- * The record, its tags, where it sits and the rest of the author arrive
- * separately, and each part draws when its own answer does. The alternative is
- * one request that waits for the slowest of them before the title appears, on a
- * page somebody often opens to read one line of.
- */
-
 import { useEffect, useState } from 'react'
 import { Actions, Head, Part, Tagged, Tagging, Where } from '../design/Book'
 import { Button } from '../design/Controls'
@@ -115,15 +37,8 @@ export function BookPane() {
   const [theirs, setTheirs] = useState<{ books: BookRow[]; name: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  /*
-   * Which picture a book opens on, read once when the page mounts.
-   *
-   * A preference rather than a live value: it is changed on another screen,
-   * getting there means leaving this one, and coming back mounts this again.
-   * Reading `localStorage` on every render to catch a change that cannot
-   * happen while this is on screen would be work done on every keystroke
-   * elsewhere for nothing.
-   */
+  // Read once on mount; it is changed on another screen, and coming back
+  // here mounts this again.
   const [firstPicture] = useState(rememberedFirstPicture)
 
   /** Read the record again, which is what every action here changes. */
@@ -154,13 +69,8 @@ export function BookPane() {
     return () => { live = false }
   }, [viewing])
 
-  /*
-   * The board this book stands on.
-   *
-   * `previewPlacement` writes nothing and already answers with the run drawn,
-   * which is the same drawing the shelving step is looked at on. It is asked for
-   * only once the record has arrived, because it is asked in terms of the book.
-   */
+  // Asked only once the record has arrived, since the request is built from
+  // it. `previewPlacement` writes nothing.
   useEffect(() => {
     let live = true
     if (!book?.location || !book.title) return undefined
@@ -207,14 +117,8 @@ export function BookPane() {
 
   const out = Boolean(book.checked_out_at)
 
-  /*
-   * Everything else of theirs, which is the list and also the condition.
-   *
-   * The book on the screen is always in what the server answers with, so "is
-   * there anything else by this author" is this list being empty rather than a
-   * count of one, and working it out once means the section cannot be drawn on
-   * a different answer from the one it lists.
-   */
+  // Computed once so the section can't disagree with what it lists: "is
+  // there more" is this list being non-empty, not a separate count.
   const others = theirs ? theirs.books.filter((one) => one.id !== book.id) : []
 
   const checkOut = async (leaving: boolean) => {
@@ -235,12 +139,6 @@ export function BookPane() {
 
   return (
     <Frame tab="library" top={top}>
-      {/* The tags are in the head now, under the publisher and the ISBN and
-          beside the picture, because that is where the owner put them: what a
-          book is about is a fact about the book, and it had a heading three
-          sections down that said nothing the chips do not. A book nobody has
-          said anything about gets the line rather than an empty row, because
-          "nothing has been said" is a thing to know and a thing to fix. */}
       <Head
         title={book.title}
         by={book.authors || 'Nobody is credited'}
@@ -262,39 +160,10 @@ export function BookPane() {
 
       {error && <Nothing said="That did not work.">{error}</Nothing>}
 
-      {/*
-        What a person can do, the moment they arrive, as buttons and with
-        nothing written over them: "we don't need that text there either. We
-        should just enable them to take action on a book with a series of
-        buttons."
-
-        The heading came off and the row is exactly as it was. Three things are
-        drawn and the rest are deliberately not. Editing is the pencil in the
-        corner and has been since the first round; a second door to it here is
-        the fault the first screen had its camera card taken off for. Carrying a
-        book to where the rules want it is a journey of its own and the screen
-        for it is being built beside this one, so it is not offered here as a
-        button that goes nowhere.
-      */}
       <Actions>
-        {/*
-          **"Check it in", and it starts checking the book in** (#459).
-
-          It said "Put it back" and opened the screen that corrects a record,
-          where a button called "Check in" opened the step that places a book.
-          So one act had two words and three screens, and the first of the three
-          read like it had done something. That is the fault "It moved" had
-          taken off it in #433, arrived at from the other direction.
-
-          The word is the one the rest of the app already says. This page says
-          "Check it out" and the record screen says "Check out" and "Check in",
-          and `docs/shelving.md` has one way to say where a book is: the
-          shelving step. So this is the same walk `moveBook` is, and the record
-          screen is no longer on the way to it. Coming back is still a physical
-          statement made at the shelf, which is why it is a step and not a tap:
-          `api.updateAndShelve` writes the plank and the check-in together, and
-          neither is a thing this screen knows.
-        */}
+        {/* The same walk `moveBook` makes elsewhere: `api.updateAndShelve`
+            writes the plank and the check-in together, and neither is a
+            fact this screen holds. */}
         {out ? (
           <Button tone="secondary" small onPress={() => void moveBook(book.id)}>
             Check it in
@@ -304,13 +173,6 @@ export function BookPane() {
             {busy ? 'Just a moment' : 'Check it out'}
           </Button>
         )}
-        {/*
-          A walk, not a form (#433). It opened the screen that corrects a record,
-          which offers check out, edit, back to library and delete and nothing at
-          all about where the book now is, so pressing it did nothing and said
-          nothing about why. It opens the step that places a book, which is where
-          a location is written and the only place one is.
-        */}
         {!out && (
           <Button tone="quiet" small onPress={() => void moveBook(book.id)}>
             It moved
@@ -323,34 +185,10 @@ export function BookPane() {
         )}
       </Actions>
 
-      {/* Below the fold, drawn rather than said, and no longer announced:
-          "looking at this tells them where it is." The board names the books
-          either side and the cat on top of it says which one this is. */}
       <Where>
-        {/*
-          The board answers for itself and the labels have to answer for
-          themselves, which is what changed when the heading came off. "Out"
-          and "1C" were answers under a heading reading "Where it is" and are
-          two words with no question on a page that no longer asks one, so the
-          two labels that are not a drawing say the whole thing. Found by
-          looking at the checked-out book with the heading taken off.
-        */}
         {out ? (
-          /*
-            **And since when** (#459). "Out of the house" was the whole of what
-            this page said about a lent book, while `checked_out_at` was in the
-            answer it had already read: the one screen that rendered the date
-            was the record screen, reached from here or from a list of misfiled
-            books, and a lent book is not misfiled. The question somebody has
-            three weeks later is how long it has been gone, and it was on no
-            screen they had a reason to open.
-
-            Said the way the rest of the app says a day, through `whenSaid`:
-            "yesterday" inside the week and "on 24 August" beyond it, because a
-            date three weeks old is a puzzle and a weekday three weeks old is
-            worse. Two lines rather than one sentence, because the place and the
-            day are two facts and the first of them is the one somebody came for.
-          */
+          // Said the way the rest of the app says a day, through `whenSaid`:
+          // "yesterday" inside the week and "on 24 August" beyond it.
           <div>
             <Place quiet>Out of the house</Place>
             <p className="wf-said">Checked out {whenSaid(book.checked_out_at!.slice(0, 10))}.</p>
@@ -369,15 +207,6 @@ export function BookPane() {
           </div>
         )}
 
-        {/*
-          Why it is there rather than somewhere else (#323), which is a rule
-          with a name and is the one thing this part could not say. The same
-          screen the furniture reaches, so the household gets one explanation of
-          the rules rather than two written for two places. It sits under the
-          drawing rather than in the row of actions above, because it answers
-          nothing about the book and everything about where it sits, and it is
-          the one thing here the owner kept when the rest of this went.
-        */}
         <Actions>
           <Button tone="quiet" small onPress={() => openClaim(book.id)}>
             Why is it here?
@@ -385,23 +214,6 @@ export function BookPane() {
         </Actions>
       </Where>
 
-      {/*
-        Drawn only where there is more, which is the last of #365:
-
-        > And if there's nothing else in the catalogue by that author, we
-        > shouldn't show "more by this author" at all.
-
-        That covers three states with one condition. While the answer is still
-        coming there is nothing to head, so nothing is drawn and the page does
-        not jump; where the answer is that this is the only book of theirs,
-        there is nothing to head either, and the card that used to say so is
-        gone with the heading over it. Only the third state draws, and it is
-        the one with a list under it.
-
-        Nothing is lost in the other two. The name is in the bar and under the
-        title, and what it files under is what the bar says, so the two lines
-        this section opened with are on the screen either way.
-      */}
       {others.length > 0 && theirs && (
         <Part head="More by this author" note={`${grouped(theirs.books.length)} of theirs`}>
           <p className="wf-book__by" style={{ margin: 0 }}>
@@ -442,29 +254,16 @@ export function BookPane() {
 }
 
 /**
- * The photographs, as the book they are photographs of.
- *
- * The four kinds are drawn whether or not they exist, because a kind nobody has
- * taken is a thing to know and a thing to fix. The spine is the one marked
- * `sliver`, which is what stands it against the front rather than beside it, and
- * a crop is preferred to the whole photograph for the reason the gallery prefers
- * one: the room the book was photographed in is not part of the book.
- *
- * **And the whole photograph goes with it**, which is the other half of that
- * sentence (#373). Cropping is right for a book on a page and wrong for a
- * picture somebody has tapped to look at, so each shot carries both: the crop
- * to draw, and the photograph it was taken from for the full screen view.
- *
- * The second one is asked for at no width at all, which is deliberate: the
- * server resizes to a short list and the largest of them is 640, which is less
- * than a phone's own screen holds. The book page's lightbox has asked for the
- * file itself since it existed, and this is that request moved rather than a
- * cheaper one substituted for it.
+ * A crop is drawn in preference to the whole photograph, since the room a
+ * book was photographed in is not part of the book, but each shot also
+ * carries the whole photograph for the full-screen view. That full view is
+ * asked for at no width at all, deliberately: the server's largest resize
+ * is 640, which is smaller than a phone's own screen.
  */
 function shotsOf(book: BookRow): Shot[] {
   const of = (file: string, crop: string) => coverThumbUrl(crop || file, 320)
-  /* Nothing where there is no photograph, so an absent one stays absent rather
-     than becoming a url to a file that is not there. */
+  // Nothing where there is no photograph, rather than a url to a file that
+  // is not there.
   const whole = (file: string) => coverUrl(file) || undefined
 
   return [
@@ -489,27 +288,16 @@ function shotsOf(book: BookRow): Shot[] {
     },
     {
       word: 'Downloaded',
-      // The one that did not come out of the camera, and the one the owner
-      // wants first. The list stays in the order the photographs are taken in;
-      // `deckOrder` is what moves this one to the front, and only when
-      // `cover_image` says there is one to move.
+      // `deckOrder` moves this one to the front when `cover_image` says
+      // there is one; this list stays in the order photographs are taken.
       catalogue: true,
       cloth: book.cover_image ? clothFor(book.id + 3) : undefined,
       photo: coverThumbUrl(book.cover_image, 320),
-      // Nothing was ever cut off a downloaded cover, so the whole of it is
-      // what is already drawn, only larger.
       full: whole(book.cover_image),
     },
   ]
 }
 
-/**
- * The facts, as sentences rather than as a table of labels.
- *
- * A phone is 414 wide and a label column eats half of it to repeat words a
- * reader can see the shape of. What is absent is said once, plainly, rather than
- * left as three empty rows.
- */
 function factsOf(book: BookRow): string[] {
   const facts: string[] = []
 
@@ -537,21 +325,3 @@ function whoSaid(tag: AppliedTag): string {
   if (tag.source === 'catalogue') return 'A catalogue says so'
   return 'The app guessed it, and it is not sure'
 }
-
-/*
- * `moves` and `asRow` were here, and they turned the ledger's rows into the
- * sentences the bottom of this page read out. The section is gone, so the
- * words for it are too rather than being kept warm for a screen nobody has
- * asked for. The rows themselves are untouched and the route that answers with
- * them is still there; if the ledger is ever wanted again it comes back with
- * whatever screen wants it, said the way that screen needs.
- */
-
-/*
- * `standing` was here, and it is in `lib/bookLook.ts` now.
- *
- * The screen this page's pencil opens draws the same run with the same book
- * marked (#387), and a run of spines written twice is two answers waiting to
- * disagree about which photograph stands in for a spine. It moved rather than
- * being copied.
- */

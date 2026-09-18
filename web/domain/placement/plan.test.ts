@@ -80,11 +80,7 @@ describe('planning a run onto another bookcase', () => {
   })
 
   it('says how many books it skipped and why, rather than dropping them', () => {
-    /*
-     * The failure this exists to prevent: a plan saying "3 books move" having
-     * quietly left a pinned one out. A pin beats every rule forever, so the book
-     * is not moving, and a person reading a count has to be told.
-     */
+    // A pin beats every rule forever; a count that dropped a pinned book silently would be lying.
     const pinned = [...PLACED, row(2, 'pinned', 41)]
     const move = movedToThree()
     const plan = planPlacements(NON_FICTION, pinned, move.rules, move.order, LABELS(ORDER))
@@ -139,12 +135,7 @@ describe('planning a run onto another bookcase', () => {
   })
 
   it('still names the plank a book was recorded on after that plank is taken out', () => {
-    /*
-     * A retired plank is on no arrangement there is, and what a person wrote
-     * down is still `4D`. Reading the label out of the furniture alone would
-     * show the move as coming from nowhere, which is not somewhere anybody can
-     * go and pick a book up from.
-     */
+    // A retired plank is on no current arrangement, but a person still recorded 4D; the label must come from that record, not the furniture.
     const move = movedToThree()
     const retired = new Map(LABELS(ORDER)).set(99, '4D')
     const plan = planPlacements(
@@ -155,16 +146,7 @@ describe('planning a run onto another bookcase', () => {
     ])
   })
   it('carries a book onto the twin bookcase standing on the same number', () => {
-    /*
-     * #430 item 1. Two pieces of furniture standing on one number is an
-     * arrangement `slotsInOrder` names as one this catalogue has, and both
-     * render `4A`. A plan that decided on the two strings called this book
-     * "staying exactly where it is" while the engine, which compares area ids,
-     * wrote an assignment moving it, and the carry list then read `4A` to `4A`.
-     *
-     * The preview and the engine have to be one answer, so this asks the plan
-     * for the answer the engine gives.
-     */
+    // Two different areas can render the same label ('4A'); the plan must agree with the engine, which compares area ids, not the rendered strings.
     const twin = slotsInOrder(
       [fixture(1, 1), fixture(4, 4), fixture(5, 4)],
       [area(10, 1, 0), area(40, 4, 0), area(50, 5, 0)],

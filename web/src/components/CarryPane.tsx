@@ -1,54 +1,3 @@
-/**
- * The whole of the outstanding work, as the trips it is made of.
- *
- * ## The unit of work is a trip
- *
- * Five rows for fifty-three books, because that is what somebody does: stand at
- * one area, take everything off it that is going to one other area, walk once,
- * put them down. A flat list of fifty-three books is a list of fifty-three
- * walks, and it is the thing #291 says not to hand anybody.
- *
- * No card explaining the list, either. Each row names both ends and the count,
- * which is the whole of what a sentence over it could have said.
- *
- * ## Coming back on Sunday is the normal case
- *
- * Nothing is stored per session, so there is nothing to resume: the list is what
- * is left, and every book carried has taken itself off it. What the screen owes
- * is that coming back does not read as starting again, so when anything has been
- * carried the screen leads with that, the trips say how much of them is done,
- * and the button says carry on rather than start.
- *
- * ## One book, and none
- *
- * A list of one trip so it can be tapped is a tap for nothing, so a single book
- * skips this screen entirely and lands on the area it comes off. That is
- * `CarryScreen`'s decision rather than this file's, and it is why there is no
- * one-book state drawn here.
- *
- * Nothing to carry is the state this whole flow is trying to reach, and it says
- * so rather than drawing an empty list.
- *
- * ## Not doing it is an answer, and it is on this screen
- *
- * Applying a plan writes what the rules want and moves nothing, and until #402
- * there was no way to say that answer is not one you are going to act on. So
- * forty-six of the owner's books sat here being asked for by an app he had
- * already decided against, and the only exits were to carry them or to look at
- * the list forever.
- *
- * **Leaving them where they are moves no book.** Every book stands where it
- * stands, the ones already carried keep the other end of the trip they were
- * carried on, and pinned books were never on this list to be reached. What goes
- * is the asking.
- *
- * It does not go quietly, either. The rule that wanted those books is still on
- * that place and only the owner can decide about it, so the pair, the count and
- * the rule's name stay on this screen under "Left where they are", with the way
- * to put the work back beside them. Silently forgetting a decision is the same
- * failure as silently reversing one.
- */
-
 import { Card, Nothing } from '../design/Card'
 import { Cat } from '../design/Cat'
 import { TopBar, type TabName } from '../design/Chrome'
@@ -67,13 +16,7 @@ interface Props {
   work: CarryWork | null
   onTrip: (trip: CarryTrip) => void
   onChanged: () => void
-  /**
-   * The question about leaving them is on screen.
-   *
-   * A prop rather than state in here, the way `AreaPane` takes the question
-   * about removing an area: these panes hold nothing, which is what lets every
-   * state of them be rendered and read in a test rather than driven.
-   */
+  /** A prop rather than local state, like `AreaPane`: this component holds no state so every state can be rendered directly in a test. */
   asking?: boolean
   onAsk: () => void
   onKeep: () => void
@@ -84,16 +27,8 @@ interface Props {
   /** A leave or a put-back is in flight, so neither can be sent twice. */
   busy?: boolean
   onHome: () => void
-  /** The Library, which is where the tab of that name goes (#459). */
   onLibrary: () => void
-  /**
-   * The furniture, which is where the button saying so goes.
-   *
-   * Its own prop since #459, because it was `onLibrary` and the screen wiring
-   * it up handed that the Library: a button reading "See your fixtures" opened
-   * the wall of covers. One name for the tab and one for the button, so neither
-   * can be given the other's screen by a caller reading the prop's name.
-   */
+  /** Kept separate from `onLibrary`: a caller wiring both to the same screen previously sent "See your fixtures" to the library instead. */
   onFurniture: () => void
   onQueue: () => void
   onScan: () => void
@@ -101,8 +36,8 @@ interface Props {
 
 /** What one row says under the two labels and the count. */
 function noteOn(trip: CarryTrip): string {
-  /* First, because a row whose two ends read the same is a row nobody can act
-     on, and the stretch of authors under it would read as though they could. */
+  // Checked first: a row whose two ends read the same cannot be acted on, so
+  // the authors stretch beneath it must not imply otherwise.
   if (trip.sharedNumber !== null) return sharedSaid(trip.from, trip.sharedNumber)
   if (trip.carried > 0) {
     const all = trip.carried + trip.books.length
@@ -111,14 +46,7 @@ function noteOn(trip: CarryTrip): string {
   return stretchOf(trip.books.map((book) => book.authorFiling))
 }
 
-/**
- * What somebody has already left where it is, and the way to put it back.
- *
- * Drawn on the list with work on it and on the list with none, because the state
- * this whole flow is trying to reach is one somebody can now reach by deciding
- * rather than by walking, and an empty list that said nothing about the decision
- * would read as the rules having changed their minds.
- */
+/** Drawn on both the populated and empty states: an empty list that said nothing about this decision would read as the rules having changed their mind. */
 function leftBehind(work: CarryWork, onRestore: () => void, busy: boolean) {
   if (work.setAside.length === 0) return null
 
@@ -145,19 +73,6 @@ export function CarryPane({
   work, onTrip, onChanged, asking = false, onAsk, onKeep, onLeave, onRestore, busy = false,
   onHome, onLibrary, onFurniture, onQueue, onScan,
 }: Props) {
-  /*
-   * **The Library tab opens the Library** (#459).
-   *
-   * It was bound to nothing at all, on the reasoning that this screen already
-   * wears that tab, so somebody who pressed it twice watched the heading go on
-   * saying "Books to carry" while the other three tabs worked. A tab that is
-   * dead on one screen is not a tab.
-   *
-   * Wearing the tab is not the fault and is not changed: `Frame` does exactly
-   * this for the book's own page and for the shelves, and on both of them the
-   * tab takes you to the Library proper. This is that arrangement, said in the
-   * map `WfScreen` takes instead.
-   */
   const tabs: Record<TabName, () => void> = {
     home: onHome,
     library: onLibrary,
@@ -183,10 +98,7 @@ export function CarryPane({
         tabs={tabs}
         top={<TopBar title="Books to carry" sub="Nothing to carry" onBack={onHome} />}
       >
-        {/* Two different empty lists, and saying the wrong one is a lie about
-            whose decision emptied it. Every book being where the rules want it
-            is the rules agreeing; books left where they are is somebody having
-            answered them, and the card underneath says what was answered. */}
+        {/* The two empty messages mean different things: one says the rules agree, the other that somebody has already answered them. */}
         <Nothing
           said={left > 0
             ? 'Nothing is waiting to be carried.'
@@ -219,8 +131,6 @@ export function CarryPane({
           onBack={onHome}
         />
       }
-      /* Over the list rather than beside it, and the list stays drawn
-         underneath, because what is being asked about is the work on it. */
       over={asking ? (
         <Sure
           title={`${saidBooks(work.moving)} stay where they are`}
@@ -239,9 +149,7 @@ export function CarryPane({
         />
       ) : undefined}
     >
-      {/* What was already done is said first, so a resumed list reads as
-          carrying on. It is a fact about the ledger rather than about a session:
-          books put down on the most recent day anybody put one down. */}
+      {/* A fact about the ledger, not the session: `work.carried` is whatever was put down most recently, not what happened in this sitting. */}
       {resumed && (
         <Card weight="sunk">
           <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
@@ -270,23 +178,13 @@ export function CarryPane({
         {resumed ? `Carry on at ${first.from}` : `Start at ${first.from}`}
       </Button>
 
-      {/* Only once there is a "while you were away" to have been away from.
-          Applying a plan is itself a change, and offering to explain it to
-          somebody who has just made it and is looking at the result is noise;
-          the case this is for is a list somebody was part way through. Books
-          they carried and have to carry again are named whether or not they
-          carried anything today, because that is the one thing nobody may find
-          out one book at a time at a shelf. */}
+      {/* Shown only when resumed or something changed again, not right after applying a plan, since explaining a change to whoever just made it would be noise. */}
       {work.changed && (resumed || work.changed.again.length > 0) && (
         <Button tone="quiet" block onPress={onChanged}>
           What changed while you were away
         </Button>
       )}
 
-      {/* Quiet, and under the two that carry on with the work, because it is the
-          answer somebody gives when the work is not going to happen. It asks
-          before it does anything: one press deciding about every book on the
-          list is a press whose size is not visible from the button. */}
       <Button tone="quiet" block off={busy} onPress={onAsk}>
         Leave them where they are
       </Button>
@@ -305,4 +203,3 @@ export function CarryPane({
     </WfScreen>
   )
 }
-

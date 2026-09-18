@@ -1,12 +1,8 @@
 /**
- * Everything a person can do to the book on screen.
- *
- * Read by review and by the shelving step, which are the two screens a book
- * is acted on from. They are here rather than in either screen because they
- * are shared by both, and because they compose four things at once: the book,
- * the counts the write moves, where the screen goes afterwards, and the error
- * line. Splitting them per screen would mean two copies of `persist`, and
- * `persist` is the one function that writes a book down.
+ * Everything a person can do to the book on screen, read by review and by the
+ * shelving step. Here rather than in either screen because splitting them would
+ * mean two copies of `persist`, and `persist` is the one function that writes a
+ * book down.
  */
 
 import { useState } from 'react'
@@ -33,32 +29,27 @@ const CHECKOUT_SAID: Record<CheckoutOutcome, string> = {
 }
 
 /**
- * Where a finished save leaves you.
+ * Where a finished save leaves you. `origin` is where the book was picked up.
+ * `here` is the shelving step keeping the screen so it can say the book is on the
+ * shelf, which only makes sense for a book that was not in the catalogue a moment
+ * ago.
  *
- * `origin` is where the book was picked up: the queue, the library, the
- * scanner. `here` is the shelving step keeping the screen so it can say the
- * book is on the shelf, which is the end of the drawn journey and only makes
- * sense for a book that was not in the catalogue a moment ago. A book being
- * checked back in or carried across a boundary came from somewhere and owes
- * that screen a return.
- *
- * Both put the book down. They differ in where they leave the person, and
- * `here` leaves them looking at a screen about a book they are no longer
- * holding, which is why it is the one that takes a `finished` callback.
+ * Both put the book down. They differ in where they leave the person, and `here`
+ * leaves them looking at a screen about a book they are no longer holding, which
+ * is why it is the one that takes a `finished` callback.
  */
 export type Landing = 'origin' | 'here'
 
 export interface BookActions {
   /**
-   * Finish shelving a book, and go wherever the landing says.
-   *
-   * `shelvedAt` is the plank the person just said the book fits on, or null for
-   * an edit nobody made a statement about the room in. The plank rather than its
-   * name, for the reason `ShelveView.onShelved` gives (#359).
+   * Finish shelving a book, and go wherever the landing says. `shelvedAt` is the
+   * plank the person just said the book fits on, or null for an edit nobody made
+   * a statement about the room in. The plank rather than its name, for the reason
+   * `ShelveView.onShelved` gives.
    *
    * `finished` is what a screen wants to go on saying about a book it has just
-   * finished with, written down in the same update the book is put down in.
-   * Only meaningful with `land: 'here'`; see `persist`.
+   * finished with, written down in the same update the book is put down in. Only
+   * meaningful with `land: 'here'`; see `persist`.
    */
   readonly save: (
     shelvedAt?: number | null,
@@ -85,14 +76,10 @@ export function useBookActions(): BookActions {
   const book = useBookInHand()
 
   /*
-   * Two "this action is in flight" flags, and they are local on purpose. Each
-   * one is read by exactly one button on the book's own page, and each settles
-   * before the screen it is drawn on can be left, so neither is shared with
-   * anything.
-   *
-   * The two that are not here are the two that outlive this hook: `saving`,
-   * which the shelving step draws too, and `boundaryMoving`, which is still
-   * true while the move it started is navigating. Both are on the book in hand.
+   * Two "this action is in flight" flags, local on purpose: each is read by one
+   * button on the book's own page and each settles before the screen it is drawn
+   * on can be left. The two that are not here are the two that outlive this hook,
+   * `saving` and `boundaryMoving`, and both are on the book in hand.
    */
   const [deletingBook, setDeletingBook] = useState(false)
   const [checkingOut, setCheckingOut] = useState(false)
@@ -104,25 +91,19 @@ export function useBookActions(): BookActions {
   } = book
 
   /**
-   * Write the book. `stay` is the difference between finishing a new book,
-   * which hands the screen back to the camera for the next one, and editing a
-   * catalogued book, where throwing you out to the camera would be absurd.
+   * Write the book. `stay` is the difference between finishing a new book, which
+   * hands the screen back to the camera for the next one, and editing a
+   * catalogued book.
    *
-   * `shelvedAt` is the plank the person has just been told to put the book on
-   * and answered "it fits" about. Null for an ordinary edit, where nobody has
-   * been anywhere near the shelves and the recorded location must be left
-   * alone, along with whether the book is on the bookcase at all.
+   * `shelvedAt` is the plank the person has just been told to put the book on and
+   * answered "it fits" about. Null for an ordinary edit, where the recorded
+   * location must be left alone along with whether the book is on the bookcase at
+   * all. That is the whole of what this knows about the physical world, and
+   * nothing here reads `checkedOutAt` to decide to write anything: both statements
+   * a placement makes travel with the plank, in `api.updateAndShelve`.
    *
-   * That is the whole of what this knows about the physical world, and it is
-   * carried by one value. Nothing here reads `checkedOutAt` to decide to write
-   * anything: a save that used to check a book in on the strength of the book
-   * being out is what destroyed take-down times, since editing a note is not a
-   * statement about where a book is (#87). Both statements a placement makes
-   * now travel with the plank, in `api.updateAndShelve`.
-   *
-   * A new book needs nothing here: POST /api/books records where it landed as
-   * part of the insert. Only the update path had the gap, and it is the path a
-   * book takes every time it goes back on a shelf.
+   * A new book needs nothing here: POST /api/books records where it landed as part
+   * of the insert.
    */
   const persist = async (
     stay: boolean,
@@ -139,50 +120,33 @@ export function useBookActions(): BookActions {
       setCounts(result.counts)
       // Only the insert path reports queue counts; an edit does not touch it.
       if ('queue' in result) setQueueCounts(result.queue as QueueCounts)
-      // result.placement is deliberately dropped. The server still recomputes
-      // it at save time, but you have just come through the shelving step
-      // with the book in your hand, so repeating the instruction over the
-      // next book's viewfinder tells you nothing you did not act on.
+      // result.placement is deliberately dropped: you have just come through the
+      // shelving step with the book in your hand, so repeating the instruction
+      // over the next book's viewfinder tells you nothing you did not act on.
       if (stay) {
-        // Staying means the edit just written is the one still on screen: no
-        // navigation happens, so nothing else bumps the session for it. A
-        // relookup started before this save is no longer wanted once the
-        // write it would have raced with has landed.
+        // Staying means no navigation happens, so nothing else bumps the session
+        // for this edit. A relookup started before the save is no longer wanted
+        // once the write it would have raced with has landed.
         endReviewSession()
         await refreshPlacement()
       } else if (land === 'here') {
         /*
          * The book is on a shelf, so it is out of the hands that carried it
-         * there, and this is the moment that says so (#431).
+         * there, and this is the moment that says so. Keeping it in hand for the
+         * one screen that says where it went left a finished book in the
+         * viewfinder for anybody who reached for the tab bar instead of that
+         * screen's own answers.
          *
-         * It used to stay in hand for the one screen that says where it went,
-         * on the reasoning that both of that screen's answers put it down.
-         * They do; the trouble is that they are not the only way off it. The
-         * tab bar is right there, and pressing Scan is what somebody with the
-         * next book in their hands does. That reopened the viewfinder holding
-         * the finished book, three of three, so the next press of the shutter
-         * attached a different book's photograph to it and took its spine off
-         * the shelf. The same stale draft then wrote a second row for a book
-         * already catalogued, past a duplicate check that had been answered
-         * before the first save, and the finished capture went on being polled
-         * because a poll only stops when there is no capture.
-         *
-         * None of those are three defects. They are one piece of state that
-         * outlived the book it described, so it does not outlive it any more.
-         *
-         * `finished` runs first and in the same update, so the screen has
-         * written down what it is about to say about the book before the book
-         * is put down, and the shelving step never redraws its question
-         * against an emptied one in between.
+         * `finished` runs first and in the same update, so the screen has written
+         * down what it is about to say about the book before the book is put down,
+         * and the shelving step never redraws its question against an emptied one
+         * in between.
          */
         finished?.()
         clearBookInHand()
       } else {
-        // Finished with the book, so back the way you came in: the scanner for
-        // the next one off the pile, the shelves for the next adjustment, the
-        // queue for the next capture, the library for the book you were just
-        // looking at. returnToOrigin reads that off the origin rather than
-        // guessing.
+        // Finished with the book, so back the way you came in. returnToOrigin
+        // reads that off the origin rather than guessing.
         returnToOrigin()
       }
       return true
@@ -196,14 +160,12 @@ export function useBookActions(): BookActions {
 
   // Named wrappers rather than passing persist straight to a handler: onClick
   // hands its callback a MouseEvent, which would arrive as a truthy `stay`.
-  /** Finish shelving a book, and go wherever the landing says. */
   const save = (
     shelvedAt: number | null = null,
     land: Landing = 'origin',
     finished?: () => void,
   ) => persist(false, shelvedAt, land, finished)
 
-  /** Write edits to a catalogued book without leaving it. */
   const saveEdits = () => persist(true)
 
   /** Remove a shelved book and the photos nothing else is using. */
@@ -227,11 +189,10 @@ export function useBookActions(): BookActions {
   }
 
   /**
-   * Change whether the book is on the bookcase.
-   *
-   * Only ever from a tap on this book's own page, and it takes the id and the
-   * direction the person asked for. Nothing derives the direction from the
-   * state, and no photograph reaches this call.
+   * Change whether the book is on the bookcase. Only ever from a tap on this
+   * book's own page, and it takes the id and the direction the person asked for:
+   * nothing derives the direction from the state, and no photograph reaches this
+   * call.
    */
   const checkOut = async (out: boolean) => {
     if (bookId === null) return
@@ -254,26 +215,22 @@ export function useBookActions(): BookActions {
   }
 
   /**
-   * Replace the ISBN and refetch the record from the catalogue.
-   *
-   * The ISBN is the key everything else hangs off, so a misread digit makes
-   * every other field wrong. Correcting it refetches rather than asking the
-   * user to retype the metadata. Location and notes are kept: they are the
+   * Replace the ISBN and refetch the record from the catalogue. The ISBN is the
+   * key everything else hangs off, so correcting it refetches rather than asking
+   * the user to retype the metadata. Location and notes are kept: they are the
    * fields the person, not the catalogue, is the authority on.
    *
-   * This runs while the user is looking at the detail view, not a modal, so it
-   * can outlive the screen it was started from. The session token is read
-   * before the request goes out and checked again after it comes back; if
-   * review has since moved on to a different book, the answer is dropped
-   * rather than landing on whatever is on screen by then.
+   * This can outlive the screen it was started from, so the session token is read
+   * before the request goes out and checked again after it comes back; if review
+   * has since moved on to a different book, the answer is dropped rather than
+   * landing on whatever is on screen by then.
    *
-   * For a book still in the queue the correction goes through the capture
-   * itself, which both persists it and runs the lookup in a single call. Two
-   * calls would mean a browser closed in between leaves a capture carrying a
-   * corrected ISBN and the old book's title. The ISBN is recorded as typed by
-   * a person rather than read from a barcode or guessed by OCR, because that
-   * is a third kind of fact and the record is worth less if it pretends
-   * otherwise (#29).
+   * For a book still in the queue the correction goes through the capture itself,
+   * which both persists it and runs the lookup in a single call: two calls would
+   * mean a browser closed in between leaves a capture carrying a corrected ISBN
+   * and the old book's title. The ISBN is recorded as typed by a person rather
+   * than read from a barcode or guessed by OCR, because that is a third kind of
+   * fact.
    */
   const relookup = async (isbn: string) => {
     const session = book.reviewSessionRef.current
@@ -349,18 +306,14 @@ export function useBookActions(): BookActions {
   }
 
   /**
-   * Move a boundary book on to the plank next door, through the shelving step.
+   * Move a boundary book on to the plank next door, through the shelving step. The
+   * boundary moves first and the book's recorded location does not: the furniture
+   * is the app's to change, and where a book physically is only a person can say,
+   * so "It fits, save" writes it down through the one route that changes a
+   * location.
    *
-   * The boundary moves first and the book's recorded location does not, which
-   * is the same shape the overflow cascade has always had: the furniture is
-   * the app's to change, and where a book physically is only a person can say.
-   * So the layout now puts this book on the next plank, the shelving step
-   * names that plank because it derives it, and "It fits, save" writes it down
-   * through the one route that changes a location.
-   *
-   * Backing out leaves the book reported as needing to move, which is the
-   * truth: the shelves have been reorganised and the book has not been carried
-   * yet. Moving it back is one tap from the same list.
+   * Backing out leaves the book reported as needing to move, which is the truth:
+   * the shelves have been reorganised and the book has not been carried yet.
    */
   const moveAcrossBoundary = async (
     range: ShelfRange,
@@ -372,18 +325,16 @@ export function useBookActions(): BookActions {
     await openBook(id, 'move')
 
     /*
-     * The placement in hand describes the shelves as they were a moment ago,
-     * and the move has just changed them. It names the plank the book is
-     * coming FROM, so handing it to the shelving step offers "It fits, save"
-     * against the wrong label: the instruction reads "put it back where it
-     * already was", and a tap answers it by writing that plank into
-     * `location`. That is #105, and it lost the move somebody had just made.
+     * The placement in hand describes the shelves as they were a moment ago, and
+     * the move has just changed them. It names the plank the book is coming FROM,
+     * so handing it to the shelving step would offer "It fits, save" against the
+     * wrong label, and a tap would answer it by writing that plank into
+     * `location`.
      *
-     * Dropped rather than left to be overwritten, because the reload below is
-     * a round trip and the screen is on the shelving step before it lands.
-     * With nothing there, ShelveView says it is still working out where the
-     * book goes and refuses every answer, which is the same guard #79 put on
-     * a placement that had not arrived yet.
+     * Dropped rather than left to be overwritten, because the reload below is a
+     * round trip and the screen is on the shelving step before it lands. With
+     * nothing there, ShelveView says it is still working out where the book goes
+     * and refuses every answer.
      */
     setPlacement(null)
     setRoute('shelve')
@@ -391,28 +342,22 @@ export function useBookActions(): BookActions {
   }
 
   /**
-   * Start a boundary move from the book's own page (#96).
+   * Start a boundary move from the book's own page. `boundaryMoves` on the
+   * placement preview says which directions are genuinely open; the server checks
+   * again on the write regardless.
    *
-   * The library used to offer this next to every area instead, which had to
-   * make sense drawn three different ways (#82) and put a control next to
-   * every book in a scrolling row, one mistap from moving the wrong one. The
-   * detail view already derives its actions from the book's own state (#59),
-   * and this is exactly that: an action available because of where this book
-   * sits. `boundaryMoves` on the placement preview says which directions are
-   * genuinely open; the server checks again on the write regardless.
-   *
-   * `theAreaGoes` is carried rather than worked out here, because it is not a
-   * fact about the shelves: it is whether somebody read what the move would take
-   * off the furniture and pressed the button that does it (#433). The screen is
-   * the only place that knows, and the server refuses without it.
+   * `theAreaGoes` is carried rather than worked out here, because it is not a fact
+   * about the shelves: it is whether somebody read what the move would take off
+   * the furniture and pressed the button that does it. The screen is the only
+   * place that knows, and the server refuses without it.
    */
   const startBoundaryMove = async (
     direction: 'next' | 'previous',
     theAreaGoes = false,
   ) => {
     // A book no genre tag claims is in neither run, so there is no boundary of
-    // one for it to cross (#304). Nothing offers this for such a book; the
-    // guard is here because the range is what the write is addressed to.
+    // one for it to cross. Nothing offers this for such a book; the guard is here
+    // because the range is what the write is addressed to.
     const range = rangeOfSlug(draft.genre)
     if (bookId === null || range === null) return
     setBoundaryMoving(true)

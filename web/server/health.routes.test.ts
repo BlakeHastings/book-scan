@@ -1,17 +1,11 @@
 /**
- * Where somebody finds out that a catalogue has been quiet (#348).
+ * `/api/health` already settles which database was opened; it now also
+ * settles whether the second catalogue has ever answered.
  *
- * `/api/health` is already the one command AGENTS.md tells anybody to run
- * against a running server, and it already settles which database was opened.
- * It now settles the other question about this process whose wrong answer is
- * invisible from outside: whether the second catalogue has ever answered.
- *
- * `source-watch.test.ts` is where the record itself is put through its cases and
- * `lookup-sources.test.ts` is where a real catalogue is made to fail. What is
- * here is the wiring, and it is worth a real request for the reason
- * `backup.routes.test.ts` gives about `/api/backup`: the route is the wiring, so
- * calling `sourceStandings()` directly would prove nothing about whether it is
- * reached.
+ * `source-watch.test.ts` puts the record itself through its cases and
+ * `lookup-sources.test.ts` makes a real catalogue fail. What is here is the
+ * wiring: calling `sourceStandings()` directly would prove nothing about
+ * whether the route reaches it.
  *
  * The harness is `backup.routes.test.ts`'s, unchanged.
  */
@@ -41,14 +35,12 @@ let scratch: string
 const running: Array<{ app: BookScanApp; server: Server }> = []
 
 /**
- * The session every request in this file carries.
+ * The session every request in this file carries. `gate.routes.test.ts` is
+ * where the refusal itself is asserted; this file is about what the answer
+ * says once somebody is allowed to see it.
  *
- * `/api/health` is behind the gate since #521 and answers `401` without one.
- * That is the trade AGENTS.md's "one command for a running server" now makes,
- * and `gate.routes.test.ts` is where the refusal itself is asserted; this file
- * is about what the answer says once somebody is allowed to see it.
- *
- * Made once rather than per test, because nothing here empties the catalogue.
+ * Made once rather than per test, because nothing here empties the
+ * catalogue.
  */
 let cookie = ''
 
@@ -101,10 +93,9 @@ describe('GET /api/health', () => {
 
   it('names every catalogue, so one that has never been asked is visible as that', async () => {
     /*
-     * Four of them since #305, and the last two are the ones this matters most
-     * for: they are a top-up asked only about a book the first two left without
-     * a page count or a genre, so `asked: 0` after a long session is a real and
-     * good state rather than a source that has been left out of the report.
+     * The last two catalogues are a top-up asked only about a book the
+     * first two left without a page count or a genre, so `asked: 0` is a
+     * real and good state, not a source left out of the report.
      */
     const answer = await (await ask(`${await serving()}/api/health`)).json()
 
@@ -135,12 +126,10 @@ describe('GET /api/health', () => {
 
   it('carries all five states through the route, not the coarse three', async () => {
     /*
-     * The route hands the report out whole, so what is asserted here is that
-     * the fields survive the wire rather than what any of them mean;
-     * `source-watch.test.ts` is where each is put through its cases. It is
-     * worth a real request because the route is the wiring, and a report that
-     * lost its finer half between the tally and the response would leave the
-     * client reading two numbers where it now reads five.
+     * Asserted here only that the fields survive the wire, not what each
+     * means; `source-watch.test.ts` puts each through its cases. A report
+     * that lost its finer half between the tally and the response would
+     * leave the client reading two numbers where it now reads five.
      */
     const base = await serving()
     noteSourceAnswer('Open Library', 'record')
@@ -167,11 +156,9 @@ describe('GET /api/health', () => {
 
   it('reports a catalogue that was wanted and not asked, as neither of the other two', async () => {
     /*
-     * #305 put two free national catalogues behind a rate limiter, and the
-     * failure mode a rate limiter has is costing answers quietly. Nothing was
-     * sent, so the catalogue neither answered nor stayed silent and owes no
-     * explanation; the decision was this application's, and it is counted as
-     * this application's.
+     * Nothing was sent, so the catalogue neither answered nor stayed silent
+     * and owes no explanation; the decision was this application's, and it
+     * is counted as this application's.
      */
     const base = await serving()
     noteSourceSkipped('Library of Congress')
@@ -199,25 +186,16 @@ describe('GET /api/health', () => {
 })
 
 /**
- * The other question about this process whose wrong answer is invisible (#505).
- *
- * `applySchema` has counted these on every start since the projection landed and
- * **nothing has ever read the line**. It is also printed once, so a writer that
- * stops recording itself an hour after boot is not reported until the next
- * restart. Asked here it is answered about now.
- *
- * These tests build the disagreement out of the rows rather than by stubbing the
- * check, because the wiring is the thing in question: calling
- * `countProjectionDisagreements` directly would prove nothing about whether the
- * route reaches it. That is `backup.routes.test.ts`'s argument, and
- * `placement-ledger.test.ts` is where the check itself is put through its cases.
+ * These tests build the disagreement out of the rows rather than by
+ * stubbing the check, because the wiring is the thing in question: calling
+ * `countProjectionDisagreements` directly would prove nothing about whether
+ * the route reaches it. `placement-ledger.test.ts` is where the check
+ * itself is put through its cases.
  */
 describe('GET /api/health and the placement projection', () => {
   /**
    * A book whose column says a plank and whose ledger says nothing at all.
-   *
-   * Which is the shape of the defect exactly: something wrote a placement and
-   * recorded nothing. Returns what to run to put the catalogue back.
+   * Returns what to run to put the catalogue back.
    */
   async function aBookPlacedWithoutARecord(title: string): Promise<() => Promise<void>> {
     // An area hangs on a fixture and a fixture hangs on a collection, and the
@@ -260,11 +238,10 @@ describe('GET /api/health and the placement projection', () => {
     try {
       const answer = await (await ask(`${base}/api/health`)).json()
 
-      // `ok` is the field a machine reads without knowing the shape of the rest,
-      // and this is the one condition on this endpoint that moves it: a quiet
-      // catalogue leaves it true because somebody can still catalogue a book,
-      // and so would a drifted shelf, because a person resolves that by carrying
-      // books. This one says the server wrote something it cannot account for.
+      // `ok` is the field a machine reads without knowing the shape of the
+      // rest. A quiet catalogue or a drifted shelf leave it true, since a
+      // person resolves those; this says the server wrote something it
+      // cannot account for.
       expect(answer.ok).toBe(false)
       expect(answer.placement.projection.disagreeing).toBe(1)
       expect(answer.placement.projection.books).toEqual([{
@@ -286,9 +263,7 @@ describe('GET /api/health and the placement projection', () => {
       const answer = await (await ask(`${base}/api/health`)).json()
 
       // The repair is a command somebody runs having read the names, not a
-      // button and not a POST. #485's diagnosis depended on the broken state
-      // surviving restarts, so a repair reachable from a request is the one
-      // thing this must not grow. Asserted rather than described, because an
+      // button and not a POST. Asserted rather than described, because an
       // endpoint that looks unfinished without a write is how one gets added.
       expect(answer.placement.projection.repair).toBe(REBUILD_COMMAND)
       expect(answer.placement.projection.repair).not.toMatch(/https?:|\/api\//)
@@ -316,23 +291,19 @@ describe('GET /api/health and the placement projection', () => {
 })
 
 /**
- * The blind spot the check above has, given a reader at the same address (#518).
+ * A second unread check, asserted the same way as the one above: out of the
+ * rows, through a real request, because the wiring is the thing in
+ * question.
  *
- * A second unread check would be #505 again one along, so this is here for the
- * same reason and asserted the same way: out of the rows, through a real
- * request, because the wiring is the thing in question.
- *
- * `infrastructure/placement/stranded.test.ts` is where the check itself is put
- * through its cases, including the `SET NULL` / `RESTRICT` map that decides it
- * is one check rather than two.
+ * `infrastructure/placement/stranded.test.ts` is where the check itself is
+ * put through its cases, including the `SET NULL` / `RESTRICT` map that
+ * decides it is one check rather than two.
  */
 describe('GET /api/health and the furniture the ledger names', () => {
   /**
    * A book properly recorded on a plank somebody then took off the face.
-   *
-   * **Both halves are written and both stay right**, which is the state the
-   * whole issue is about: the column agrees with the ledger and the two of them
-   * are wrong about the furniture together.
+   * Both halves are written and both stay right: the column agrees with the
+   * ledger, and the two of them are wrong about the furniture together.
    */
   async function aBookOnAPlankThatWent(title: string): Promise<() => Promise<void>> {
     const fixture = await db.get<{ id: number }>(
@@ -382,9 +353,9 @@ describe('GET /api/health and the furniture the ledger names', () => {
     try {
       const answer = await (await ask(`${base}/api/health`)).json()
 
-      // The whole of #518 in one assertion pair. The check that looks like it
-      // exists for this reports healthy, because the act wrote to neither of the
-      // two things it compares, and the third opinion is what sees it.
+      // The check that looks like it exists for this reports healthy,
+      // because the act wrote to neither of the two things it compares; the
+      // third opinion is what sees it.
       expect(answer.placement.projection.disagreeing).toBe(0)
       expect(answer.placement.stranded.books).toBe(1)
       expect(answer.placement.stranded.where).toEqual([{
@@ -395,10 +366,10 @@ describe('GET /api/health and the furniture the ledger names', () => {
         why: 'plank-off-the-face',
       }])
 
-      // It moves `ok`, by the same narrow rule the projection moves it under:
-      // this is the server unable to account for something it wrote, and not a
-      // state of the collection a person resolves by carrying a book. Carrying
-      // this one clears the misfile and leaves the missing writer missing.
+      // It moves `ok` by the same narrow rule the projection does: this is
+      // the server unable to account for something it wrote, not a state a
+      // person resolves by carrying a book. Carrying this one clears the
+      // misfile and leaves the missing writer missing.
       expect(answer.ok).toBe(false)
     } finally {
       await undo()

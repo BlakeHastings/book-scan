@@ -18,7 +18,7 @@ describe('matchConfidence', () => {
   })
 
   it('calls a match at the cutoff loose', () => {
-    // The pair the issue names: a 2 and a 24 must not read alike.
+    // A 2 and a 24 must not read alike.
     expect(matchConfidence(MATCH_CUTOFF).strength).toBe('loose')
     expect(matchConfidence(2).label).not.toBe(matchConfidence(MATCH_CUTOFF).label)
   })
@@ -47,8 +47,7 @@ describe('matchConfidence', () => {
   })
 
   it('says nothing about how many bits differ', () => {
-    // The word alone still carries no number. The number lives in `percent`,
-    // a separate field, so a caller that only reads `label` sees words only.
+    // The number lives in `percent`, a separate field; a caller reading only `label` sees words.
     for (let d = 0; d <= MATCH_CUTOFF; d += 1) {
       expect(matchConfidence(d).label).not.toMatch(/\d/)
     }
@@ -57,8 +56,7 @@ describe('matchConfidence', () => {
 
 describe('matchConfidence percent', () => {
   it('rescales so chance reads as 0%, not a misleading 50%', () => {
-    // The trap the issue calls out by name: (64 - distance) / 64 would put
-    // pure chance at 32 bits and 50%, which reads like a real signal.
+    // A naive (64 - distance) / 64 would put pure chance at 32 bits and 50%, which reads like a real signal.
     expect(matchConfidence(CHANCE_DISTANCE).percent).toBe(0)
   })
 
@@ -113,8 +111,7 @@ describe('hasCloseMatch', () => {
   })
 
   it('does not grade a candidate against the others on the list', () => {
-    // Best of a bad set is still a bad set. A relative scale would flatter
-    // the 17 here into the top band, which is exactly the wrong tap.
+    // A relative scale would flatter the 17 here into the top band, which is exactly the wrong tap.
     expect(hasCloseMatch([{ distance: 17 }, { distance: 23 }, { distance: 24 }])).toBe(false)
     expect(matchConfidence(17).strength).toBe(matchConfidence(23).strength)
   })
@@ -149,16 +146,14 @@ describe('confidentPick', () => {
   })
 
   it('picks nothing when the best on offer is merely similar', () => {
-    // 9 is one bit past the close band. That is the whole gate: the band, not
-    // the ordering, decides whether anything opens by itself.
+    // 9 is one bit past the close band: the band decides, not the ordering.
     expect(confidentPick([{ distance: 9 }, { distance: 12 }])).toBeNull()
     expect(confidentPick([{ distance: SIMILAR_LIMIT }])).toBeNull()
     expect(confidentPick([{ distance: MATCH_CUTOFF }])).toBeNull()
   })
 
   it('picks nothing when two candidates are both close', () => {
-    // They cannot both be the book being held up, and preferring the nearer
-    // one is the relative grading the bands exist to refuse.
+    // Preferring the nearer one would be exactly the relative grading the bands exist to refuse.
     expect(confidentPick([{ distance: 1 }, { distance: 4 }])).toBeNull()
     expect(confidentPick([{ distance: 0 }, { distance: CLOSE_LIMIT }])).toBeNull()
   })
@@ -178,9 +173,7 @@ describe('confidentPick', () => {
 
 describe('queueMatches', () => {
   it('holds a capture to the close band and nothing weaker', () => {
-    // The measurement behind this is written against QUEUE_LIMIT. The short
-    // version: on real photographs, two different books land as close as 16
-    // bits apart, so MATCH_CUTOFF would call nearly one pair in five a match.
+    // On real photographs, two different books can land as close as 16 bits apart, so MATCH_CUTOFF would flag far too many as matches.
     expect(QUEUE_LIMIT).toBe(CLOSE_LIMIT)
     expect(queueMatches([{ distance: CLOSE_LIMIT }])).toHaveLength(1)
     expect(queueMatches([{ distance: CLOSE_LIMIT + 1 }])).toEqual([])
@@ -196,11 +189,7 @@ describe('queueMatches', () => {
   })
 
   it('keeps both when two captures are close, unlike confidentPick', () => {
-    // The difference is what happens next. confidentPick opens a page unasked,
-    // so ambiguity there is a coin toss acted on. This only draws a panel, and
-    // two captures that both look like the book in your hands very likely
-    // means the book has already been scanned twice, which is the thing being
-    // reported rather than a reason to say nothing.
+    // confidentPick opens a page unasked, so ambiguity there is a coin toss acted on; this only draws a panel, and two close captures likely mean the book has already been scanned twice.
     const first = { id: 1, distance: 2 }
     const second = { id: 2, distance: 5 }
     expect(queueMatches([second, first])).toEqual([first, second])

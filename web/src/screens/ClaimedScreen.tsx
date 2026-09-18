@@ -1,26 +1,11 @@
 /**
- * Why one book is here.
+ * Reached from two places and back to whichever one it came from: the books standing on an
+ * area, and the book's own page. That is why the book it is about lives in `navigation` rather
+ * than in `arranging`, which is about furniture.
  *
- * Reached from two places and back to whichever one it came from: the books
- * standing on an area, and the book's own page. That is why the book it is about
- * lives in `navigation` rather than in `arranging`, which is about furniture.
- *
- * Opening a rule from here lands on the page the rule is drawn on, which is the
- * area the rule points at. A rule about a whole piece of furniture is drawn on
- * the first area of that piece, because that is the area its books begin in and
- * the one whose page already says so.
- *
- * **That page used to be `belongs` and there is no such screen now** (#381). It
- * existed to explain what belongs in an area, and the owner asked for the area's
- * own page to say it instead: "instead of 'see what belongs here' we should just
- * show what belongs there." So the rule, the lines it asks for, what beats what
- * and the books standing there are all on the area, which is where this lands.
- *
- * **And since #341 it can say what the book is**, which is the one state this
- * screen used to explain and offer nothing about. It is the same screen the
- * list of books no rule claims opens, drawn here rather than a panel of its
- * own: two screens reaching one way of saying what a book is, exactly as two
- * screens already reach this one.
+ * Opening a rule from here lands on the page the rule is drawn on, which is the area the rule
+ * points at. A rule about a whole piece of furniture is drawn on the first area of that piece,
+ * since that is the area its books begin in.
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -32,14 +17,7 @@ import { useDesignPage, useRoom, useRoomTabs } from '../app/room'
 import { useTagging } from '../app/tagging'
 import { api, type BookClaim, type BookRow, type RuleDto, type UnclaimedBook } from '../lib/api'
 
-/**
- * The claim, as the screen that settles one book needs a book.
- *
- * The two states are told apart the way `booksNoRuleClaims` tells them apart
- * and by the same fact, so a book reached from here and the same book reached
- * from the list are the same book on that screen. Only ever built for a book no
- * rule claims, which is the only state that opens it.
- */
+/** Told apart the same way `booksNoRuleClaims` tells them apart, so a book reached from here and from the list are the same book on that screen. */
 const asUnclaimed = (claim: BookClaim): UnclaimedBook => ({
   id: claim.book.id,
   title: claim.book.title,
@@ -60,8 +38,6 @@ export function ClaimedScreen() {
   const tabs = useRoomTabs()
   useDesignPage()
 
-  /* Only while that screen is up. It is two reads of a book nobody is looking
-     at otherwise, and this screen has its own answer about the book's tags. */
   const tagging = useTagging(saying ? claiming : null)
 
   const read = useCallback(async () => {
@@ -83,15 +59,13 @@ export function ClaimedScreen() {
     return () => { stale = true }
   }, [claiming, setError])
 
-  /* What the catalogue holds, which is what somebody decides a genre on. Only
-     for the screen that asks them to. */
   useEffect(() => {
     if (!saying || claiming === null) return
     let live = true
     setRecord(null)
     api.getBook(claiming)
       .then((answer) => { if (live) setRecord(answer.book) })
-      .catch(() => { /* The facts are an addition to that screen, not the screen. */ })
+      .catch(() => { /* Deliberately ignored: the catalogue record is an addition to that screen, not the screen itself. */ })
     return () => { live = false }
   }, [saying, claiming])
 
@@ -110,21 +84,11 @@ export function ClaimedScreen() {
 
     setFixtureId(piece.id)
     setAreaId(area.id)
-    /*
-     * Through the trail rather than straight to the route, so that back off
-     * that screen is this one. #367 is what that fixed: a screen that names its
-     * own way out is guessing on behalf of every door into it.
-     */
+    // Through the trail rather than straight to the route, so that back off that screen is this one.
     onward('area')
   }
 
-  /*
-   * Back off that screen asks the whole claim again, because saying what a book
-   * is changes what this screen says: a rule may take it now, and which rule
-   * takes which book is `claim` on the server rather than something this can
-   * work out. A word no rule wants leaves the screen saying exactly what it
-   * said before, which is the truth and is why it also names the other repair.
-   */
+  /* Re-fetches the whole claim, since which rule takes a book after a genre is said is decided on the server. */
   const leaveSaying = () => {
     setSaying(false)
     setNaming(false)

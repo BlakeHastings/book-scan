@@ -1,61 +1,3 @@
-/**
- * The shelves as they physically are, and the books that are not on them.
- *
- * Converted to the design system by #387, which is the last screen in the app
- * that wore the app's own header and its own three-place row of pills. What it
- * does is unchanged: this is a conversion, and every decision underneath it is
- * still the one the screen was carrying.
- *
- * ## The gallery draws this screen's middle and not its edges
- *
- * There is no `shelves` in `design/gallery/screens.tsx`. What is drawn there is
- * `library`, `listing` and `covers`: the same books, in the same order, grouped
- * the same way, in the three drawings a person picks between (#82). So the three
- * drawings are the drawn ones, imported rather than copied, and they are the
- * same three `LibraryPane` builds:
- *
- *   - the board, `Shelf`, one per area, which never wraps because a break in a
- *     run means "a new area" everywhere else here (#81);
- *   - the list, `List` and `Row`, a line per book;
- *   - the gallery, `Covers`, which is allowed to wrap precisely because it is
- *     not pretending to be a photograph of the furniture.
- *
- * What the gallery has no drawing of is everything this screen exists for: the
- * misfile list, the books off the bookcase, the boundary lines and the books a
- * boundary change asks somebody to carry. Those keep their words and are dressed
- * in `Card`, `List` and `Said`, which is what the design system says to do with
- * a fact: say the thing in words at the top of it.
- *
- * ## Two drawings of a shelf, and this one lost
- *
- * `ShelfStrip` drew this screen's spines and `design/Shelf.tsx` drew the
- * gallery's, and they disagreed about four things: how wide a book is, what
- * marks the one book a screen is about, whether a spine carries the number you
- * count along to, and whether the run ends in anything. The design system wins
- * every one of them, because those answers are the owner's and are written down
- * where he gave them. `ShelfStrip` is now what its name says and nothing else:
- * the strip with a gap in it that the placing step draws.
- *
- * **The count-along number is gone with it**, which is the one thing this screen
- * loses. `Shelf` draws no number on a spine and never has, the library screen
- * has been drawn without one since #315, and two shelves in one app numbered
- * differently is worse than neither being numbered.
- *
- * ## The misfile list is the reason this screen is reachable
- *
- * #358 repaired it after it had been silently setting 181 of 238 books aside,
- * and it is drawn here and nowhere else. Every part of it is kept: the count
- * that is not zero above the list, the two answers per book, "Undo the move"
- * offered only where the server says a move is outstanding, and the sentence
- * about books nobody has ever confirmed onto a bookcase. The words are the
- * words it had.
- *
- * A boundary move is not offered here at all (#96). It is one book's own
- * business, so it lives on that book's page, only when the book is genuinely
- * at an edge; a control drawn into every area, in three different drawings, is
- * one mistap away from moving a book nobody meant to touch.
- */
-
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   api, Refusal, type AreaGoing, type CheckedOutAt, type Counts, type DriftingBook,
@@ -82,20 +24,11 @@ import { Frame } from './Frame'
 import { Trouble } from './RoomFrame'
 
 /**
- * Where the library was when a book was opened from it, so coming back lands
- * there rather than at the top of the first bookcase.
- *
- * Both axes, because this view now has two. The page scroll says which area
- * you were looking at; the book says where along that area's row you were,
- * and it is stored as an id rather than a pixel offset so the row can have
- * moved underneath you and still land in the right place.
- *
- * **The horizontal half is now the cat** (#387). It used to be a map of every
- * spine's element and a `scrollIntoView` on the one that was opened, and
- * `Shelf` already does exactly that for the book a screen is about: it puts the
- * cat on top of it and brings it into the run. So coming back marks the book
- * you came back from, which is both the restore and the answer to "which one
- * was I looking at".
+ * Both axes: the page scroll says which area you were looking at, and the
+ * book (stored as an id, not a pixel offset, so the row can move underneath
+ * you) says where along that area's row you were. The horizontal half is
+ * restored by `Shelf` itself, which marks the given book and brings it into
+ * the run.
  */
 export interface LibraryReturnAnchor {
   range: ShelfRange
@@ -121,15 +54,7 @@ interface Props {
    * same reason the return anchor is passed up rather than kept here.
    */
   onArrange?: (range: ShelfRange) => void
-  /**
-   * The way through to the furniture, and the only one there is (#313).
-   *
-   * It belongs here rather than on the first screen for the reason the drawing
-   * puts it here: describing the room is something you do while looking at
-   * what is in it. It is a quiet button under the shelves and not a card with
-   * a paragraph over it, which is what was there before the owner read it:
-   * "the app has no reason to summarise what somebody's furniture is made of".
-   */
+  /** The only way through to the furniture screen. */
   onFurniture?: () => void
 }
 
@@ -139,25 +64,17 @@ export function ShelfView({
   // A return trip opens on the range it left from, or the tab would change
   // under the person while they were away.
   const [range, setRange] = useState<ShelfRange>(returnAnchor?.range ?? 'fiction')
-  /*
-   * Which of the three drawings, from the same place the library screen reads
-   * it. One preference, one storage key, and it was already the same key before
-   * this screen was converted: a person who chooses covers on one of the two
-   * screens that draw every book they own has not chosen it on only one of them.
-   */
+  // Same storage key the library screen reads: a person who chooses covers
+  // on one of the two screens that draw every book they own has not chosen
+  // it on only one of them.
   const { look, setLook } = useBrowsing()
   const [groups, setGroups] = useState<ShelfGroupDto[]>([])
-  /*
-   * What the plank this range opens at is called, null when no rule says, and
-   * undefined until a read has answered (#479).
-   *
-   * Three states rather than two, because an empty screen has three causes and
-   * only one of them is "nothing catalogued here yet". The other two are a read
-   * that has not come back, which `loading` already covers, and a range no rule
-   * places, which nothing covered: the run has no planks, so the layout has no
-   * boards, so `groups` is empty exactly as it is for a range somebody has
-   * catalogued nothing into. The books are still there. It is the furniture
-   * that has nothing to say about them.
+  /**
+   * Null when no rule says where the plank begins; undefined until a read
+   * has answered. Three states rather than two: an empty screen can mean
+   * nothing catalogued here yet, a read still in flight, or a range no rule
+   * places at all (in which case the books are still there, but the
+   * furniture has nothing to say about them).
    */
   const [begins, setBegins] = useState<string | null | undefined>(undefined)
   const [moves, setMoves] = useState<Move[]>([])
@@ -166,12 +83,8 @@ export function ShelfView({
   const [counts, setCounts] = useState<Counts | null>(null)
   const [off, setOff] = useState<CheckedOutAt[]>([])
   const [review, setReview] = useState<ShelvingReviewResponse | null>(null)
-  /*
-   * The books the shelf and the rules disagree about (#489), or nothing when
-   * the read has not answered or failed. Not part of `Promise.all` below, and
-   * not able to fail this screen: a check that could not answer must not take
-   * the shelves down with it, and it must not produce a sentence either.
-   */
+  // Not part of `Promise.all` below and not able to fail this screen: a
+  // check that could not answer must not take the shelves down with it.
   const [drift, setDrift] = useState<{ books: DriftingBook[]; total: number } | null>(null)
   const [moving, setMoving] = useState(0)
   /*
@@ -180,38 +93,25 @@ export function ShelfView({
    * is every moment nothing is being asked.
    */
   const [going, setGoing] = useState<{ id: number; cost: AreaGoing } | null>(null)
-  /*
-   * The anchor this mount was born with, which is the only one that means
-   * "you are coming back".
-   *
-   * Read from the prop once, on the first render, and never again. Opening a
-   * book records an anchor while this view is still on screen, since the book
-   * has to be fetched before the screen changes. Watching the prop would see
-   * that one arrive, treat the visit it is still in the middle of as a return
-   * trip, and consume it, so the actual return had nothing left to restore.
-   */
+  // Read from the prop once, on the first render, and never again: watching
+  // the prop live would catch the anchor this same visit records when
+  // opening a book, treating an in-progress visit as a return trip.
   const arrivedWith = useRef(returnAnchor ?? null)
   // A fresh mount every time the shelves are shown, so this only needs to fire
   // once per visit.
   const restored = useRef(false)
 
-  /*
-   * Both tallies, not just this tab's. A non-fiction book saved while the
-   * shelves sit on Fiction is invisible with no hint it exists, which reads
-   * as the save having silently failed rather than as a tab being unopened.
-   */
+  // Both tallies, not just this tab's, so a book saved to the other run is
+  // not invisible with no hint it exists.
   useEffect(() => {
     api.health().then((h) => setCounts(h.counts)).catch(() => {})
   }, [groups])
 
   const load = useCallback(() => {
     setLoading(true)
-    /*
-     * Asked again on every reload rather than once per visit, because removing
-     * a boundary on this screen changes the areas, and the areas are one of the
-     * two things the check compares. A card left over from before the act would
-     * be the app reporting a state it had just changed.
-     */
+    // Asked again on every reload, not once per visit: removing a boundary
+    // here changes the areas, which is one of the two things the check
+    // compares, so a stale card would report a state just changed.
     api.drift().then(setDrift).catch(() => setDrift(null))
     Promise.all([api.shelves(range), api.misfiles(range)])
       .then(([shelves, flagged]) => {
@@ -227,20 +127,10 @@ export function ShelfView({
   useEffect(() => { load() }, [load])
 
   /**
-   * Put the person back where they were reading, not at the top.
-   *
-   * A row can be forty books long, and the page is a stack of those rows, so
-   * both axes have to be restored or coming back from a book means hunting
-   * for the place you had already found. This is the vertical half; the
-   * horizontal half is `Shelf`, which brings the marked book into its own run.
-   *
-   * It runs after `Shelf`'s does, because a child's effects fire before its
-   * parent's, so the page lands where the person left it rather than wherever
-   * bringing one spine into view put it.
-   *
-   * Registers as consumed whether or not the book is still there. It can have
-   * been deleted, or checked out and so no longer in the run at all, and in
-   * that case the vertical position alone is the best answer available.
+   * The vertical half of the restore; `Shelf` handles the horizontal half.
+   * Runs after `Shelf`'s effect, since a child's effects fire before its
+   * parent's, so the page lands where the person left it rather than
+   * wherever bringing one spine into view put it.
    */
   useEffect(() => {
     const anchor = arrivedWith.current
@@ -256,17 +146,9 @@ export function ShelfView({
     onOpen(id, { range, bookId: id, scrollY: window.scrollY })
 
   /**
-   * The person says they have carried this book to where it belongs.
-   *
-   * Nothing here decides that on their behalf. The list is a report, and a
-   * book stays on it until somebody has actually been to the shelf, because
-   * writing the answer we would like to be true would destroy the only record
-   * of where the book really is.
-   *
-   * Through `recordMoved`, which sends the plank rather than the row's label:
-   * this list is drawn once and acted on minutes later, and a label is a
-   * rendering that reads differently the moment somebody names the piece it is
-   * on (#356).
+   * `recordMoved` sends the plank rather than the row's label: this list is
+   * drawn once and acted on minutes later, and a label is a rendering that
+   * reads differently the moment somebody names the piece it is on.
    */
   const confirmMoved = async (misfile: Misfile) => {
     setMoving(misfile.book.id)
@@ -282,14 +164,8 @@ export function ShelfView({
   }
 
   /**
-   * The person says they never picked this book up, so the move goes back.
-   *
-   * The other end of the same row. "Moved it" closes the gap by recording that
-   * somebody walked to a shelf; this closes it by withdrawing an assignment
-   * nobody acted on, and writes no location at all, because nothing about the
-   * room has changed. Without it the only way out of a mistapped move was to
-   * claim the walk and then move the book back: two false statements to undo
-   * one tap (#196).
+   * Withdraws an assignment nobody acted on, and writes no location at all,
+   * since nothing about the room has changed.
    */
   const takeBack = async (misfile: Misfile) => {
     setMoving(misfile.book.id)
@@ -305,18 +181,10 @@ export function ShelfView({
   }
 
   /**
-   * Press Remove on the line between two areas.
-   *
-   * **The first press is a question, never the act** (#456). The server refuses
-   * a removal nobody has been asked about and hands back what it would cost, so
-   * this asks with that rather than with anything it worked out for itself, and
-   * the second press is the answer. Before this, one tap took an area off the
-   * furniture and moved its books, and the only thing the person saw was the
-   * carry list drawn afterwards, which is a list of what has already happened.
-   *
-   * The refusal is the server's and not this screen's on purpose: a control
-   * that only appears after a dialog is one caller away from being lost, which
-   * is how this door stayed open while the other two were shut.
+   * The first press is a question, never the act: the server refuses a
+   * removal nobody has been asked about and hands back what it would cost,
+   * so this asks with that answer rather than with anything worked out here,
+   * and the second press (`theAreaGoes`) is the confirmation.
    */
   const removeSeparator = async (id: number, theAreaGoes = false) => {
     setError('')
@@ -338,37 +206,25 @@ export function ShelfView({
   const misfiles = review?.misfiles ?? []
   const unplaced = (review?.excluded ?? [])
     .filter((entry) => entry.reason === 'never-placed').length
-  /*
-   * Books the check could not judge at all, which is a different thing from
-   * books it judged and found fine, and the difference is the whole of #356: a
-   * check that quietly sets 181 of 238 books aside answers an empty list, and an
-   * empty list reads as "everything is fine". So the count is drawn whenever it
-   * is not zero, above the list rather than under it.
-   */
+  // Books the check could not judge at all, which is different from books
+  // it judged and found fine: an empty list would otherwise read as
+  // "everything is fine" even when the check excluded some silently.
   const unjudged = notChecked(review)
 
   /** The book somebody came back from, marked so the run opens on it. */
   const marked = arrivedWith.current?.bookId ?? 0
 
   /**
-   * How many books are filed in this range, or null while nobody has said.
-   *
-   * The same tally the heading above already reads, taken here so the card that
-   * says a range has nowhere to stand can say the books are still there. Null
-   * rather than nought when the count has not arrived: a number nobody answered
-   * with, on a card about books somebody is worried they have lost, is the one
-   * thing that card must not invent.
+   * Null rather than nought when the count has not arrived: a number nobody
+   * answered with, on a card about books somebody is worried they have
+   * lost, is the one thing that card must not invent.
    */
   const rangeCount = counts
     ? (range === 'fiction' ? counts.fiction : counts.nonfiction)
     : null
 
-  /*
-   * The piece the last board was on, so a heading is drawn where it changes
-   * rather than over every board. The **piece**, not what the piece is called:
-   * two pieces standing on one number read the same and are two pieces, and a
-   * comparison of the words would draw them as one (#447).
-   */
+  // The piece itself, not its label: two pieces standing on one number read
+  // the same, and comparing the words would draw them as one.
   let piece: number | null = null
 
   return (
@@ -382,15 +238,9 @@ export function ShelfView({
         />
       }
     >
-      {/*
-        One row above the books, which is the row every screen that lists books
-        wears. It leads with the run rather than with tags, because this screen
-        is not narrowed by tags and never was: fiction and non-fiction are two
-        separate arrangements of furniture here, not two words a book carries.
-        The circle at the end of it is the same one the library has, and it is
-        what replaced the floating strip of three pills that used to sit over
-        the bottom of this screen.
-      */}
+      {/* Leads with the run rather than with tags: this screen is not
+          narrowed by tags, since fiction and non-fiction are two separate
+          arrangements of furniture here, not two words a book carries. */}
       <Filter look={look} onLook={setLook}>
         <Segmented
           label="Which run of shelves"
@@ -408,34 +258,19 @@ export function ShelfView({
 
       <Trouble said={error} />
 
-      {/*
-        Above everything, including the list of books that are not where they
-        should be (#489).
-
-        It is the one thing on this screen that says the drawing under it may be
-        wrong about where a book belongs, and everything below it is written on
-        the assumption that it is not. The misfile list compares where somebody
-        last saw a book against where the order puts it now; both of those are
-        readings this check has just said cannot be relied on for these books.
-
-        Drawn whichever run is on screen, with the whole collection's count.
-        See `driftOnShelves`: #485 was three screens giving three counts of one
-        thing, and scoping this to the visible half would rebuild that.
-      */}
+      {/* Above the misfile list: everything below is written on the
+          assumption that where a book was last seen and where the order
+          puts it now are both readings this check has not flagged as
+          unreliable. Drawn with the whole collection's count regardless of
+          which run is on screen; see `driftOnShelves`. */}
       {drift && drift.total > 0 && <Drifted drift={drift} onOpen={open} />}
 
-      {/* Louder than a hint, and above the list rather than below it, because
-          it is the one line that says the list underneath is not the whole
-          answer. Nothing here is actionable book by book: what is missing is
-          furniture, so it says so and says how many books are behind it. */}
       {!loading && unjudged.count > 0 && (
         <Card kind="Not checked" title={saidBooks(unjudged.count)}>
           <Said>{unjudged.said}</Said>
         </Card>
       )}
 
-      {/* The re-shelving list. Locations are descriptive, so the catalogue can
-          only report the disagreement; closing it is a walk to the shelf. */}
       {misfiles.length > 0 && (
         <Misfiled
           misfiles={misfiles}
@@ -447,8 +282,6 @@ export function ShelfView({
         />
       )}
 
-      {/* Said out loud rather than left as a silent exclusion: a book nobody
-          has ever confirmed onto a shelf cannot be in the wrong place. */}
       {!loading && unplaced > 0 && (
         <Said>
           {unplaced} book{unplaced === 1 ? ' has' : 's have'} never been confirmed
@@ -460,11 +293,6 @@ export function ShelfView({
       {off.length > 0 && (
         <div className="offshelf">
           <p className="wf-heading wf-heading--flush">Checked out ({off.length})</p>
-          {/* What happens to a book that is not on the bookcase depends on
-              what is being drawn, so this says which. The list files it into
-              its alphabetical place and says so instead of a place; the two
-              pictures of the furniture leave it out, because it is not in the
-              room. */}
           <Said>
             {look === 'list'
               ? 'Filed into the list below in their alphabetical place, saying so '
@@ -522,23 +350,11 @@ export function ShelfView({
         <NothingDrawn range={range} begins={begins} filed={rangeCount} />
       )}
 
-      {/*
-        Areas and the lines between them as one sequence, ordered by
-        `libraryRows` rather than by where this file puts a div.
-
-        A boundary belongs to the area it opens, so its line is drawn above
-        that area's heading and its Remove deletes that area's boundary. Both
-        halves come off the same row, which is the point: they used to be
-        decided in two places and disagreed by one (#145).
-      */}
+      {/* A boundary belongs to the area it opens: its line is drawn above
+          that area's heading, and its Remove deletes that area's boundary. */}
       {libraryRows(groups).map((row) => {
         if (row.row === 'divider') {
           return (
-            /* A line, not a card. It was a quiet card with the notice as its
-               title and Remove in its foot, and at 414 wide that is two hundred
-               pixels of dashed outline between two areas that are eighty each:
-               the thing separating the shelves was louder than the shelves.
-               Found by looking at it. */
             <div
               className="divider"
               key={`divider-${row.separatorId}`}
@@ -554,30 +370,19 @@ export function ShelfView({
 
         const group = row.group
         const missing = missingFrom(group, off)
-        /* Counted, not concatenated. "1 books" was on this screen before it was
-           converted and survived the first cut of the conversion; `plural` is
-           what every other count in the app goes through. */
         const note = `${plural(group.books.length, 'book')}${missing > 0 ? `, ${missing} off` : ''}`
-        /* The piece the area is on, named once where it changes rather than over
-           every row: `2A` and `2B` are two planks of one bookcase, and the
-           drawing says "Bookcase 2" once above them. It comes off the board's
-           own `standing` through `pieceSaid`, which every furniture screen uses,
-           so a crate reads "Crate 5" and something somebody has called the hall
-           shelf reads "Hall shelf" (#447). */
+        // Named once where the piece changes, not over every row: `2A` and
+        // `2B` are two planks of one bookcase, so the drawing says
+        // "Bookcase 2" once above them.
         const heading = group.standing && group.standing.fixtureId !== piece
           ? pieceOn(group.standing)
           : null
         piece = group.standing?.fixtureId ?? null
 
         return (
-          /* Keyed on the area, because that is what makes this one board and not
-             two: two pieces standing on one number draw the same label, and a
-             board's place in the page shifts under it as later pages arrive.
-
-             The label is on the section as well as on the board, because the
-             boundary line above it is found by stepping back one element from
-             this section and nothing else on the page carries the plank whole
-             in an attribute. */
+          // Keyed on the area, not the label: two pieces standing on one
+          // number draw the same label, and a board's place in the page
+          // shifts under it as later pages arrive.
           <section
             key={group.areaId ?? `at-${group.shelf}-${group.area}`}
             className="shelfgroup"
@@ -585,11 +390,6 @@ export function ShelfView({
           >
             {heading && <p className="wf-heading">{heading}</p>}
 
-            {/* The area itself, drawn whichever way was asked for. Everything
-                above and below this is the same in all three. */}
-
-            {/* One run of spines, scrolled sideways and never wrapped. Tap one
-                to open it, and the cat is on the one you came back from. */}
             {look === 'spines' && (
               <div className="wf-bleed">
                 <Shelf
@@ -609,18 +409,10 @@ export function ShelfView({
               </div>
             )}
 
-            {/* A line per book, and the one thing the list does that neither
-                picture of the furniture can: a book somebody has taken away is
-                filed into its alphabetical place and says so. A spine row and a
-                grid of covers are pictures of a bookcase and a book that is out
-                of the house is not in the picture; a line of text is not a
-                picture.
-
-                **No plank on the rows.** Every row in this card is the plank the
-                card is titled with, so a column of ten identical labels is the
-                same fact eleven times and it buries the one row that differs.
-                The library's list says a place per row because there every row
-                is a different one. Found by looking at it. */}
+            {/* No plank on the rows: every row in this card is already the
+                plank the card is titled with, so repeating it here would
+                bury the one row that differs (`meta` says "Checked out"
+                instead). */}
             {look === 'list' && (
               <Card kind={note} title={group.label}>
                 <List label={`Area ${group.label}`}>
@@ -640,7 +432,6 @@ export function ShelfView({
               </Card>
             )}
 
-            {/* The same run, laid out face up and allowed to wrap. */}
             {look === 'covers' && (
               <Card kind={note} title={group.label}>
                 <Covers
@@ -651,10 +442,6 @@ export function ShelfView({
                     author: filedAs(book) || book.title,
                     cloth: clothFor(book.id),
                     photo: coverArt(book, 320),
-                    /* What the tile is showing where that is not a front cover
-                       of this copy, said in words. It was a dashed border and a
-                       corner note; a fact about a picture belongs in the line
-                       under it. */
                     meta: coverNote(coverOf(book)) || undefined,
                   }))}
                   onPress={(item) => open(Number(item.id))}
@@ -665,13 +452,9 @@ export function ShelfView({
         )
       })}
 
-      {/* Whole-run surgery, kept off the areas themselves and at the foot,
-          which is where the drawing puts a way onward: moving a stretch of
-          books is a decision about the furniture rather than about any book on
-          it, so it does not belong beside a spine one mistap away.
-
-          The word "run" is one this code says and this interface does not,
-          which `design.test.tsx` pins on every screen in the gallery. */}
+      {/* Kept at the foot rather than beside the areas: moving a stretch of
+          books is a decision about the furniture, not about any one book,
+          so it does not belong beside a spine one mistap away. */}
       {onArrange && groups.length > 0 && (
         <div className="wf-under">
           <Button tone="quiet" onPress={() => onArrange(range)}>
@@ -689,17 +472,11 @@ export function ShelfView({
         </div>
       )}
 
-      {/* The same dialog an area is removed through on the furniture screen and
-          on a book's own page, because it is the same act reached from a third
-          door (#456). Its title is the cost said about their books, which is
-          what #281 settled and what the other two already say; the sentence
-          under it adds what happens next rather than repeating the title, and
-          the rows are the labels that read differently afterwards. */}
       {going && (
         <Sure
-          /* The area is named rather than said as "its", which is what the
-             area's own page can afford: this dialog covers a page of shelves
-             and there is nothing on it for a pronoun to point at. */
+          // The area is named rather than said as "its": this dialog covers
+          // a page of shelves, and there is nothing on it for a pronoun to
+          // point at.
           title={going.cost.books === 0
             ? `No books stand in ${going.cost.area}`
             : `${going.cost.area} goes, and its ${plural(going.cost.books, 'book')} `
@@ -720,28 +497,11 @@ export function ShelfView({
 }
 
 /**
- * What an empty page of shelves says, and there are two of them (#479).
- *
- * **Drawing nothing and saying nothing could be found are different**, and this
- * screen used to say only the first: "Nothing catalogued in this range yet",
- * for both. That sentence is a statement about the books, and it is false of
- * the case underneath it. A range whose rule has just been taken off holds
- * every book it held a minute ago; what it has lost is the one thing the rules
- * alone say, which is where it stands in the room. Read on the screen somebody
- * opens to look for their books, it says the books have gone.
- *
- * So the second says what the state is, says the books are still there, and
- * says what ends it. `begins` is what tells them apart and it is the server's
- * answer, from `bandOf` through `Shelves.beginsAt`: undefined until a read has
- * come back, null when no rule places the range, and the plank the run opens at
- * otherwise. Undefined reads as the ordinary empty range, which is what a server
- * that does not send the field yet leaves this looking at.
- *
- * No button of its own. Writing a rule is the furniture screen, which is the
- * quiet button already at the foot of this one, and a second door to it would be
- * a second answer to where rules are written.
- *
- * Split out and holding no state for `Misfiled`'s reason, below.
+ * Two different empty states, not one: a range whose rule has just been
+ * taken off still holds every book it held a minute ago, and saying only
+ * "Nothing catalogued in this range yet" would be false of it. `begins`
+ * tells them apart: undefined until a read has come back, null when no
+ * rule places the range, and the plank the run opens at otherwise.
  */
 export function NothingDrawn({
   range, begins, filed,
@@ -761,9 +521,6 @@ export function NothingDrawn({
       <p>
         No rule points {named} at a bookcase or a shelf, so there is no run to
         draw and no plank to put a book on.{' '}
-        {/* The count, or nothing rather than a nought. A number nobody answered
-            with, on the card about books somebody is worried they have lost, is
-            the one thing this must not invent. */}
         {filed === null
           ? 'Nothing has been changed.'
           : filed === 1
@@ -776,17 +533,8 @@ export function NothingDrawn({
 }
 
 /**
- * The books whose recorded place and the order's answer disagree.
- *
- * Split out and holding no state, so what it says can be held to a claim in a
- * test rather than only looked at. That is the same reason `Planned` is split
- * out of `MoveRunPane` and `MovesSoFar` out of `ShelveView`, and this is the
- * list that has most earned it: #358 found it silently excluding 181 of 238
- * books, and #196 found its one-way answer trapping somebody who mistapped.
- *
- * One card per book, which is the arrangement the book's own page already uses
- * for the same disagreement (`MisfileNotice`), with the same sentence in it. Two
- * spellings of one fact is how they get to disagree.
+ * Split out and holding no state, so what it says can be held to a claim in
+ * a test rather than only looked at.
  */
 export function Misfiled({
   misfiles, review, moving, onOpen, onMoved, onTakeBack,
@@ -804,18 +552,10 @@ export function Misfiled({
       <p className="wf-heading wf-heading--flush">
         Needs attention ({misfiles.length})
       </p>
-      {/*
-        The instruction over the list names the one answer every row has (#433).
-
-        It named both, and "Undo the move" is on the rows the app made a move
-        for and on no others, which is not a rendering to fix: a book pushed onto
-        the next plank by a newcomer has no assignment behind it, and moving the
-        boundary to close that would be a new decision about the furniture made
-        on somebody's behalf wearing the word undo. `docs/shelving.md` settles it
-        under "Taking the move back is not the opposite move". So the promise
-        went to the rows that can keep it, one line under each, and the button
-        did not move at all.
-      */}
+      {/* "Undo the move" is on the rows the app made a move for and on no
+          others: a book pushed onto the next plank by a newcomer has no
+          assignment behind it, and moving the boundary to close that would
+          be a new decision wearing the word undo. See `docs/shelving.md`. */}
       <Said>
         Where each book was last seen, against where the order now puts it.
         Nothing has been changed for you. Tap "Moved it" once the book is
@@ -824,8 +564,6 @@ export function Misfiled({
 
       {misfiles.map((misfile) => {
         const busy = moving === misfile.book.id
-        /* Drawn only where the app made the move, so the two kinds of entry
-           stay tellable apart at a glance. */
         const undoable = canTakeBack(review, misfile.book.id)
 
         return (
@@ -863,14 +601,10 @@ export function Misfiled({
                   && ' The app made this move and nobody has picked the book up,'
                     + ' so "Undo the move" puts it back.'}
               </Said>
-              {/*
-                Under the sentence rather than instead of it, because both ends
-                really do read `1B` and the person is standing in front of two
-                planks that say so. The carry screen has drawn this since #447
-                and this list did not, which is how a renumbered bookcase (#491)
-                could put five rows in front of somebody each saying to carry a
-                book from a plank to itself.
-              */}
+              {/* Under the sentence rather than instead of it: both ends
+                  really do read the same label, e.g. after a bookcase is
+                  renumbered, and the person is standing in front of two
+                  planks that say so. */}
               {misfile.sharedNumber !== null && (
                 <Said>{sharedSaid(misfile.from, misfile.sharedNumber)}</Said>
               )}
@@ -883,40 +617,13 @@ export function Misfiled({
 }
 
 /**
- * The books the shelf and the rules put in different places (#489).
+ * Offers nothing to press, deliberately: repairing a disagreement destroys
+ * the evidence of how it happened, and a stable broken state is what makes
+ * one diagnosable weeks later. A row opens the book and does nothing else,
+ * the same as every other list of books in this app.
  *
- * **The check behind this is not new and has always been right.**
- * `areaDisagreements` has placed every shelved book twice since #213, once the
- * way this screen draws it and once the way the rules claim it, and
- * `applySchema` has run it on every start ever since. Through the whole of #485
- * it named twelve books on every restart of the api, into the server log, and
- * nothing anywhere else said a word. This card and the one on the first screen
- * are the reading half; `GET /api/placement/drift` is what both of them read.
- *
- * ## Why it is here and not only on the first screen
- *
- * The first screen is where somebody learns something is wrong, and it never
- * names a book. This is where the books are drawn, so this is where the names
- * belong: a card saying twelve books are in the wrong place with no way to find
- * out which twelve is the log line moved onto a screen.
- *
- * ## It offers nothing to press, and that is the decision
- *
- * Not an omission, and not a card waiting for a button. Repairing a
- * disagreement destroys the evidence of how it happened, and the only reason
- * #485 was diagnosable three weeks after it began is that the broken state was
- * stable and survived every restart. So there is no repair here, there is
- * nothing to write to on the server either, and the sentence says so where the
- * reader can see it rather than in a comment they will never read.
- *
- * **A row opens the book and does nothing else**, which is what every other
- * list of books in this app does and is the reason it is not spelled out as an
- * exception: a row that led nowhere would be a target that does nothing, and
- * looking at a book is not moving it. What is absent is any control here that
- * writes, and its absence is checked rather than described.
- *
- * Split out and holding no state, like `Misfiled` above, so what it says can be
- * held to a claim in a test rather than only looked at.
+ * Split out and holding no state, like `Misfiled` above, so what it says
+ * can be held to a claim in a test rather than only looked at.
  */
 export function Drifted({
   drift, onOpen,
@@ -925,14 +632,9 @@ export function Drifted({
   onOpen: (id: number) => void
 }) {
   const said = driftOnShelves(drift.total)
-  /*
-   * Bounded, and by a screen rather than by the wire. The route answers up to
-   * `PAGE_LIMIT` of these and the worst case is a rule somebody switched off,
-   * which puts the whole collection on this list; five hundred rows above the
-   * shelves is the log's own failure mode rebuilt, a report so long nobody
-   * reads it. The count in the title is the number that matters and it is never
-   * truncated.
-   */
+  // Bounded by the screen rather than by the wire: the worst case is a
+  // rule somebody switched off, putting the whole collection on this list.
+  // The count in the title is never truncated.
   const shown = drift.books.slice(0, 25)
   const rest = drift.total - shown.length
 
@@ -945,12 +647,9 @@ export function Drifted({
             <Row
               key={one.bookId}
               title={one.title}
-              /* Both answers on the row, because one without the other says
-                 nothing: the whole content of a disagreement is which two
-                 places disagree. A book no rule claims at all reaches this list
-                 too and has only one of them, so it says that rather than
-                 drawing an empty place. Those books have a screen of their own
-                 (#341) and this is not it. */
+              // A book no rule claims at all also reaches this list and has
+              // only one of the two answers, so it says that rather than
+              // drawing an empty place.
               sub={one.fromRules
                 ? `drawn in ${one.fromLayout}, claimed into ${one.fromRules}`
                 : `drawn in ${one.fromLayout}, and no rule claims it`}

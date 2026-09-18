@@ -1,14 +1,7 @@
 /**
- * The end of one trip.
- *
- * Two reads, and both are of the world as it now is rather than of anything this
- * flow was holding: the area that has just been filled, and what is left to
- * carry. The armful is only asked how many books went down and where, which is
- * the one thing the ledger cannot say on its own.
- *
- * Leaving here puts the armful down for good. There is no session to close: the
- * books that were carried are on the shelves and written down, and the list is
- * whatever is left.
+ * Both reads are of the world as it now is rather than of anything this flow was holding: the
+ * armful is only asked how many books went down and where, which is the one thing the ledger
+ * cannot say on its own.
  */
 
 import { useEffect, useState } from 'react'
@@ -31,8 +24,7 @@ export function CarriedScreen() {
     if (!trip) { setRoute('carry'); return undefined }
 
     let live = true
-    // The area named twice is the area on its own: everything standing on it
-    // now, with nothing going anywhere. See `tripAtArea`.
+    // The area named twice means the area on its own: everything standing on it now, with nothing going anywhere. See `tripAtArea`.
     api.carryTrip(trip.toAreaId, trip.toAreaId)
       .then((at) => { if (live) setBoard(at.books) })
       .catch((caught) => { if (live) setError((caught as Error).message) })

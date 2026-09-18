@@ -1,25 +1,13 @@
 /**
- * Which drawing of the library somebody is looking at, and remembering that
- * they chose it.
- *
- * A closed set, deliberately, rather than a registry something can add to.
- * These are a handful of answers to one question, not a mechanism.
- *
- * The choice is kept in localStorage rather than in App state because the
- * library is unmounted the moment a book is opened from it, and a preference
- * that resets every time you come back from a book is not a preference. It
- * also has to survive a reload: the phone this runs on drops the page whenever
- * the camera app is used, and being handed a different library each morning is
- * the same complaint with a longer gap.
+ * Kept in localStorage rather than in App state: the library is unmounted the moment a book is
+ * opened from it, and a preference that resets every time you come back from a book is not a
+ * preference. It also has to survive a reload, since the phone this runs on drops the page
+ * whenever the camera app is used.
  */
 
 export type LibraryView = 'shelf' | 'list' | 'gallery'
 
-/**
- * In the order they are offered. Spines first because that is what the
- * library has looked like since #81 and what somebody who has never chosen
- * gets.
- */
+/** In the order they are offered. Spines first: what somebody who has never chosen gets. */
 export const LIBRARY_VIEWS: readonly LibraryView[] = ['shelf', 'list', 'gallery']
 
 /** A word each, because the switcher is a thumb-sized pill. */
@@ -58,8 +46,7 @@ export function rememberedView(): LibraryView {
   try {
     return parseView(localStorage.getItem(KEY))
   } catch {
-    // Private browsing can refuse storage outright. A library that will not
-    // remember your choice is still a library.
+    // Private browsing can refuse storage outright, but that must not stop the library from working.
     return DEFAULT_VIEW
   }
 }

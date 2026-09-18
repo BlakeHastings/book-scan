@@ -9,48 +9,20 @@ import type { BookState } from '../../domain/books/state'
 
 /**
  * Naming boundary, recorded here because this file is the only client to
- * server path.
- *
- * The wire and database field `shelf` (also `shelf_range`, `ShelfRange`,
- * `ShelfGroupDto.shelf`, the `kind: 'shelf'` separator tag) names a whole
- * bookcase. Nothing in the code or schema is being renamed, per issue #8.
- * The UI, however, never shows the word "shelf": that same unit is displayed
- * to the person holding a book as "Bookcase". The plank within it is `area`
- * on both sides of this boundary, and reads as "Area" in the UI too.
- *
- * So exactly one term differs between what a user reads and what the code
- * calls it, in one direction: server/DB `shelf` == UI "Bookcase". If you are
- * reading a `shelf` value here and about to put it on screen, it needs that
- * translation first.
+ * server path. The wire and database field `shelf` (also `shelf_range`,
+ * `ShelfRange`, `ShelfGroupDto.shelf`, the `kind: 'shelf'` separator tag) names
+ * a whole bookcase, and the UI shows that same unit as "Bookcase". The plank
+ * within it is `area` on both sides. A `shelf` value needs that translation
+ * before it goes on screen.
  */
 
 export interface Classification {
-  /**
-   * Which genre the classifier guessed, as the tag it means.
-   *
-   * A slug rather than a boolean since #227. `books.is_fiction` is gone and the
-   * genre tag is what decides a shelf range, so there is one vocabulary for a
-   * book's genre from the ladder in `server/classify.ts` through to the field
-   * beside the title.
-   *
-   * **Null when no source stated one** (#304). The ladder in
-   * `server/classify.ts` reasons from what a catalogue said, and its last rung
-   * has nothing to reason from; a slug there would be a guess the save then
-   * wrote as a tag.
-   */
+  /** Null when no catalogue stated a genre. The classifier does not guess one. */
   genre: GenreSlug | null
   confidence: 'high' | 'medium' | 'weak' | 'unknown'
   reason: string
 }
 
-/**
- * A book the catalogue already holds under an ISBN somebody is holding.
- *
- * Named since #435, because it is now answered in two places and they must
- * answer with the same three fields: a lookup says whether the ISBN it just
- * fetched is already on a shelf, and `GET /api/captures/:id` says whether a
- * capture's own ISBN is, whether or not anything looked it up.
- */
 export interface CataloguedBook {
   id: number
   title: string
@@ -76,7 +48,6 @@ export interface LookupResponse {
   duplicateOf: CataloguedBook | null
 }
 
-/** What the review pane edits and what gets posted. */
 export interface Draft {
   isbn13: string
   isbn10: string
@@ -87,12 +58,7 @@ export interface Draft {
   published: string
   pages: string
   notes: string
-  /**
-   * The genre this draft states, as a slug, or null when nothing states one.
-   *
-   * See `Classification.genre`. Null is what the review pane draws with neither
-   * option highlighted, and what a save writes no genre tag for (#304).
-   */
+  /** Null when nothing states a genre, and a save then writes no genre tag. */
   genre: GenreSlug | null
   classificationSource: string
   classificationConfidence: string
@@ -104,66 +70,45 @@ export interface Draft {
   authorFilingOverride: string
 }
 
-/** One book already on the shelf, as drawn end on in a row of spines. */
 export interface StripBook {
   id: number
   title: string
   authorFiling: string
-  /**
-   * Filename of the photo standing in for this book's spine, or '' when
-   * there is none to show or none was asked for.
-   */
+  /** Filename of the photo standing in for the spine, or '' when there is none. */
   spine: string
-  /**
-   * Which face `spine` actually is. A book catalogued before the spine slot
-   * existed falls back to a cover, and this says so rather than letting a
-   * front cover pass for a spine.
-   */
+  /** Which face `spine` actually is. A cover never passes for a spine. */
   spineSlot: ShelfSlot
   /**
-   * How thick the book is, as the catalogue holds it, which is text.
-   *
-   * The one measurement a drawing of a shelf may take from a book: pages are
-   * thickness and thickness is width seen end on. Empty for about one book in
-   * four, which is drawn at the median of the ones that are not.
+   * Thickness, which is pages, as the catalogue holds it: text, and empty where
+   * the catalogue has no page count. A book with no count is drawn at the median
+   * of the ones that have one.
    */
   pages?: string
 }
 
 /**
- * One plank, said both ways.
- *
- * **The label is what somebody reads and the id is what the app sends back.** A
- * label is derived from where a piece stands and what its owner called it, so a
- * screen drawn a minute ago can name a plank by a name nobody uses now, and on a
- * named bookcase it is not even the string the layout numbers the plank with.
- * The id is the plank. See #356, and #359 for the writing half of it.
- *
- * Null only for a plank a proposal would make and has not made yet.
+ * The label is what somebody reads and the id is what the app sends back: a
+ * label is derived from where a piece stands and what its owner called it, so it
+ * can name a plank by a name nobody uses now. `areaId` is null only for a plank
+ * a proposal would make and has not made yet.
  */
 export interface Plank {
   areaId: number | null
   label: string
 }
 
-/** A label as it reads now and as it will read. */
 export interface LabelChange {
   from: string
   to: string
 }
 
 /**
- * One direction a boundary move is open in, and what taking it costs.
- *
  * `empties` is set for the one move that removes furniture: a book alone in an
- * area is both the first and the last book of it, so both directions are open,
- * and either leaves the area with no books to name. The screen asks before
- * taking one, the same way the furniture screen asks before removing an area
- * (#281), and it can only ask because the offer says the question is coming.
+ * area is both its first and its last book, so both directions are open and
+ * either leaves the area with no books to name.
  */
 export interface BoundaryOffer extends Plank {
   empties: {
-    /** What each area that goes is called today. */
     areas: string[]
     /** Every label that reads differently once they are gone. */
     becomes: LabelChange[]
@@ -171,16 +116,10 @@ export interface BoundaryOffer extends Plank {
 }
 
 /**
- * What removing the line between two areas costs, as the refusal carries it.
- *
- * The other half of the same act `BoundaryOffer.empties` describes (#456). A
- * boundary move empties the area before it takes it, so nothing is standing on
- * it; pressing Remove on the line itself takes an area with its books still on
- * it, and they join the one above. Same act, different cost, so the dialog says
- * a different thing.
+ * A boundary move empties the area before it takes it. Removing the line itself
+ * takes an area with its books still on it, and they join the one above.
  */
 export interface AreaGoing {
-  /** The area coming off the furniture, named the way the screen names it. */
   area: string
   /** The area its books join. Empty when there are none to hand over. */
   into: string
@@ -189,23 +128,21 @@ export interface AreaGoing {
   becomes: LabelChange[]
 }
 
-/** A single shelf seen end on, with the space the new book goes in. */
 export interface PlacementStrip {
   label: string
   books: StripBook[]
   /** How many books sit to the left of the gap, or -1 when there is no gap. */
   gapIndex: number
   /**
-   * Where the book itself sits in the row, when it is already shelved and
-   * still filed correctly. Null when it has yet to be put anywhere.
+   * Where the book sits in the row when it is shelved and still filed
+   * correctly. Null when it has yet to be put anywhere.
    */
   placedIndex: number | null
   /**
    * Which plank a boundary move would land this book on, in each direction.
-   * Null in a direction this book cannot move that way; absent altogether
-   * when `placedIndex` is null, since only a book settled in its recorded
-   * position can be offered one (#96). The server refuses the move itself
-   * regardless of what this said a moment ago.
+   * Null in a direction this book cannot move; absent altogether when
+   * `placedIndex` is null, since only a book settled in its recorded position
+   * can be offered one. The server refuses the move itself regardless.
    */
   boundary?: { next: BoundaryOffer | null; previous: BoundaryOffer | null }
 }
@@ -213,14 +150,10 @@ export interface PlacementStrip {
 export interface PlacementResponse extends Placement {
   authorFiling: string
   sortKey: string
-  /** What the plank the shelving step asks about is called, for the person. */
   derivedLocation?: string
   /**
-   * That same plank, said as the plank (#359).
-   *
-   * What "It fits, save" writes down and what "no room" is asked about. Null
-   * when the run has no plank to put this book on, which is a rule pointing at
-   * furniture somebody has taken out, and the step refuses rather than guessing.
+   * That same plank, said as the plank. Null when the run has no plank to put
+   * this book on, which is a rule pointing at furniture somebody has taken out.
    */
   derivedAreaId?: number | null
   strip?: PlacementStrip | null
@@ -230,36 +163,23 @@ export interface Counts {
   total: number
   fiction: number
   nonfiction: number
-  /** Catalogued but physically off the shelf. */
   checkedOut: number
 }
 
-/**
- * What one catalogue has done since the server started (#348).
- *
- * The counters and not a verdict, the same arrangement `BackupWatch` keeps: the
- * server decides what happened and `catalogueWords.ts` decides how to say it.
- *
- * The five states somebody has to be able to tell apart are all in here, and
- * four of them used to be two numbers. `server/source-watch.ts` is where each
- * is defined and why the split is worth the fields.
- */
+/** The counters and not a verdict. `server/source-watch.ts` defines each. */
 export interface SourceStanding {
-  /** The catalogue, spelled as the app spells it on a book. */
   source: string
-  /** Requests sent to it. */
   asked: number
   /** Requests it replied to, whether or not it had the book. */
   answered: number
-  /** Requests it did not reply to at all. */
   silent: number
   /** Replies that had a record of the book. */
   held: number
   /** Replies that had no record of the book. Ordinary, and not a failure. */
   noRecord: number
-  /** Requests it heard and refused: 401, 403 or 429. A person can end these. */
+  /** Requests it heard and refused: 401, 403 or 429. */
   declined: number
-  /** Requests that failed for any other reason. Nobody's configuration ends these. */
+  /** Requests that failed for any other reason. */
   failed: number
   /** Times it was wanted and not asked, to stay inside its rate. */
   skipped: number
@@ -270,11 +190,8 @@ export interface SourceStanding {
 }
 
 /**
- * What every catalogue has done, and whether the second one has a key.
- *
- * `googleBooksKeyConfigured` is a boolean and stays one. It answers "is that
- * why it is quiet" without going anywhere near the key, and a length, a prefix
- * or a masked form would all leak and would all invite the next widening.
+ * `googleBooksKeyConfigured` is a boolean and stays one: a length, a prefix or a
+ * masked form would all leak the key.
  */
 export interface LookupStandings {
   googleBooksKeyConfigured: boolean
@@ -282,11 +199,8 @@ export interface LookupStandings {
 }
 
 /**
- * What the server found where the backups are kept.
- *
- * The states are the server's own words and the wire carries them rather than a
- * sentence, so the interface decides how to say each one and the server keeps
- * deciding what is true. `server/backup-watch.ts` explains each.
+ * The states are the server's own words rather than a sentence, so the interface
+ * decides how to say each one. `server/backup-watch.ts` explains each.
  */
 export interface BackupWatch {
   state: 'unwatched' | 'unreachable' | 'none' | 'unverified' | 'stale' | 'fresh'
@@ -316,30 +230,16 @@ export interface BookRow {
   series_name: string
   series_index: number | null
   /**
-   * Where a person last said this book physically is, as a label to read.
-   *
-   * A rendering, and only that. Nothing is decided from it and nothing is
-   * grouped by it: see `area_id` and `standing`, which are the halves that
-   * answer which place it is and where that place stands.
+   * Where a person last said this book physically is, as a label to read. A
+   * rendering and only that: nothing is decided from it and nothing is grouped
+   * by it. See `area_id` and `standing`.
    */
   location: string
   /** The area `location` renders, or null for a book nobody has placed. */
   area_id: number | null
-  /**
-   * The piece that area hangs on and where the two of them stand.
-   *
-   * What lets a drawing of the room put the boards in the order somebody walks
-   * past them and name the piece over them, without reading a label back to
-   * front. Null with `area_id`.
-   */
+  /** The piece that area hangs on and where the two of them stand. Null with `area_id`. */
   standing: AreaStanding | null
-  /**
-   * Which run this book is in, which is what its genre tag settled on.
-   *
-   * There is no `is_fiction` beside it any more (#227). The column is dropped,
-   * and this is the answer the genre tag gave, so the field beside the title
-   * comes up from here: see `draftFromBook`.
-   */
+  /** Which run this book is in, which is what its genre tag settled on. */
   shelf_range: ShelfRange
   classification_source: string
   classification_confidence: string
@@ -352,21 +252,12 @@ export interface BookRow {
   edge_image: string
   /** Set while the book is off the shelf; null while it is on one. */
   checked_out_at: string | null
-  /**
-   * Which of the seven states this book is in, which is why it is off a shelf.
-   *
-   * On the wire since `books.state` existed and undeclared until #459: the
-   * listing selects every column of `catalogued_books`. It is declared now
-   * because the library needed to tell three reasons apart, and had exactly one
-   * sentence for all of them: "3 books are not on a bookcase". Lent, given away
-   * and never put anywhere are three different things to do about a book.
-   */
   state: BookState
-  /** Publisher cover from the catalogue, for comparing against the real book. */
+  /** Publisher cover from the catalogue, not a photograph of this copy. */
   cover_image: string
   /**
-   * The three photos cut to the book, so a view can leave the room out. Empty
-   * where the detector has not looked or could not find the book.
+   * The three photos cut to the book. Empty where the detector has not looked or
+   * could not find the book.
    */
   front_crop: string
   back_crop: string
@@ -378,24 +269,17 @@ export interface BookRow {
 }
 
 /**
- * A book as a listing answers it: the row, and the name it files under.
- *
- * **One column `books` does not have**, since #227 dropped
- * `books.author_filing`. What a book files under is a fact about its first
- * credit's alias, and the three views on the server join it back on, so every
- * listing and every shelf row reads exactly what it read before. A lookup of one
- * book answers a `BookRow` with its credits beside it: see `getBook`.
+ * `author_filing` is not a column on `books`: it is a fact about the first
+ * credit's alias, and the server's views join it back on.
  */
 export interface FiledBookRow extends BookRow {
   author_filing: string
 }
 
 /**
- * One name a book credits, in the order the names are printed on it.
- *
- * The first is the one the shelf orders by, and `filingName` is what it files
- * under: the alias's own answer, which is either the heuristic's or the
- * correction somebody made to it.
+ * The names come in the order they are printed on the book, and the first is the
+ * one the shelf orders by. `filingName` is the alias's own answer, either the
+ * heuristic's or a correction somebody made to it.
  */
 export interface Credit {
   position: number
@@ -406,11 +290,8 @@ export interface Credit {
 }
 
 /**
- * What a listing is being narrowed to.
- *
- * Every field is optional and an absent one narrows nothing, so `{}` is what
- * the library opens on. `range` is `'all'` for the whole collection, which is
- * spelled out because an absent one has meant fiction since the route existed.
+ * Every field is optional and an absent one narrows nothing. `range` must be
+ * spelled `'all'` for the whole collection: an absent one means fiction.
  */
 export interface BookQuery {
   range?: 'all' | ShelfRange
@@ -420,13 +301,7 @@ export interface BookQuery {
   isbn?: string
   /** Slugs, all of which a book must carry, itself or under. */
   tags?: readonly string[]
-  /**
-   * One of the three states a catalogued book is in. Absent means all of them.
-   *
-   * What lets the first screen's "checked out" count open the books it counted
-   * (#459). It and "catalogued" opened the same unfiltered library, so two
-   * numbers had one destination and neither said what had happened.
-   */
+  /** One of the three states a catalogued book is in. Absent means all of them. */
   state?: BookState
   limit?: number
   offset?: number
@@ -445,13 +320,9 @@ function bookQuery(query: BookQuery): string {
 }
 
 /**
- * One tag in the vocabulary, and how many books it has.
- *
- * The count rolls up: choosing Fantasy shows the books tagged Urban fantasy
- * too, so this is the number of books choosing it produces.
- *
- * **`slug` is the identity and no screen may draw it.** `label` is what a
- * person reads, and the nesting is said with an indent and in words.
+ * The count rolls up: choosing Fantasy shows the books tagged Urban fantasy too.
+ * `slug` is the identity and no screen may draw it; `label` is what a person
+ * reads.
  */
 export interface TagRow {
   slug: string
@@ -459,19 +330,13 @@ export interface TagRow {
   note: string
   books: number
   /**
-   * A placement rule asks for this tag (#452).
-   *
-   * The only thing that separates two tags with no books on them. One is a word
-   * somebody made and never used, and the other is a bookcase set up for a
-   * subject before anything was bought for it, which is a thing #400 made
-   * possible and this app could not previously see. A screen offering to tidy
-   * empty tags away has to be able to tell them apart, and so does a person
-   * reading the list.
+   * A placement rule asks for this tag. The only thing that separates two tags
+   * with no books on them: a word somebody made and never used, and a bookcase
+   * set up for a subject before anything was bought for it.
    */
   ruled: boolean
 }
 
-/** A tag on one book, drawn as firmly as whoever said it. */
 export interface AppliedTag {
   slug: string
   label: string
@@ -483,7 +348,6 @@ export interface AppliedTag {
 export interface Been {
   /** `placed`, `assigned`, `checked_out`, `checked_in`, `pinned`, `withdrawn`. */
   kind: string
-  /** The plank it names, as the label reads off the furniture. */
   location: string
   /** `person` or `app`, which is what makes a carry different from a decision. */
   actor: string
@@ -501,16 +365,11 @@ export interface AuthorDto {
 }
 
 /**
- * A book going from one plank to another, said both ways at both ends.
- *
- * The two labels are what somebody reads on the way to the shelf; the two ids
- * are what gets written down when they say the book is there (#359). Both are
- * needed and neither will do on its own: on a bookcase whose owner has named it,
- * the label is not the string the layout numbers the plank with, and a label
- * read off a screen a minute old can name a plank by a name nobody uses now.
- *
- * `toAreaId` is null for one plank only: the one a proposal would make and has
- * not made yet, which cannot be written to because it does not exist.
+ * The two labels are what somebody reads on the way to the shelf; the two ids are
+ * what gets written down. Neither will do on its own: on a named bookcase the
+ * label is not the string the layout numbers the plank with, and a label read off
+ * a screen a minute old can name a plank by a name nobody uses now. `toAreaId` is
+ * null for one plank only, the one a proposal would make and has not made yet.
  */
 export interface PlankStep {
   from: string
@@ -521,7 +380,6 @@ export interface PlankStep {
 
 export interface Move extends PlankStep {
   id: number
-  /** Filled in by the server so the list reads as books, not row ids. */
   title?: string
 }
 
@@ -529,52 +387,30 @@ export interface ShelfGroupDto {
   area: number
   shelf: number
   /**
-   * What the board is called, worked out from the furniture.
-   *
-   * `4A` on a piece nobody has named and `Hall shelf · A` on one somebody has,
-   * which is the same answer every other screen gives (#447). It was
-   * `locationLabel`, a rendering of the two ordinals above, so this route and
-   * `/api/fixtures` said two different things about one plank one tap apart.
+   * What the board is called, worked out from the furniture: `4A` on a piece
+   * nobody has named and `Hall shelf · A` on one somebody has.
    */
   label: string
   /**
-   * The area this board is, or null where the furniture has no row for it.
-   *
-   * What says two boards are one board. A label is a rendering and two pieces
-   * standing on one number render the same, so nothing decides anything from
-   * `label`. See #356.
+   * The area this board is, or null where the furniture has no row for it. What
+   * says two boards are one board: `label` is a rendering and two pieces standing
+   * on one number render the same, so nothing decides anything from it.
    */
   areaId: number | null
   /**
-   * The piece the board hangs on, and where on it.
-   *
-   * What a screen groups and orders by, and where the word for the piece comes
-   * from: `standing.kind` is the owner's own, so a crate reads as a crate. The
-   * shelves screen used to run a regular expression over `label` to recover
-   * both, which invented "Bookcase" for whatever the piece actually was and was
-   * the last reader of a rendered label in the app (#447).
+   * The piece the board hangs on, and where on it. `standing.kind` is the owner's
+   * own word, so a crate reads as a crate.
    */
   standing: AreaStanding | null
   books: { book: FiledBookRow }[]
   /**
-   * The boundary this area begins at, if it is not the first.
-   *
-   * Its own boundary, never the one after it, exactly as `ShelfGroup` on the
-   * server says (#145). The line for it is drawn above this area's heading,
-   * and `libraryRows` in shared/layout.ts is what decides that, so the words
-   * on the line and the boundary its Remove deletes come from one place.
+   * The boundary this area begins at, if it is not the first: its own boundary,
+   * never the one after it. The line for it is drawn above this area's heading,
+   * and `libraryRows` in shared/layout.ts is what decides that.
    */
   opensWith: { id: number; kind: 'shelf' | 'area' } | null
 }
 
-/**
- * What happened when a book was held up to the camera.
- *
- * Every way this can go has its own outcome, because the useful thing to say
- * next differs: an unreadable barcode wants you to move the book, a book that
- * is not in the catalogue wants scanning properly, and one already in the
- * state you asked for is not an error at all.
- */
 /** A book that looks like the one held up. Never acted on without a tap. */
 export interface CoverMatch {
   id: number
@@ -590,23 +426,15 @@ export interface CoverMatch {
 }
 
 /**
- * What actually happened to a book's checked-out state.
- *
- * Asking to check out a book that is already out, or in one that is already
- * in, does not touch its timestamp, so both routes that can change this state
- * report it with the same four words rather than pretending a no-op is a
- * fresh action.
+ * Asking to check out a book that is already out, or in one that is already in,
+ * does not touch its timestamp, so a no-op is reported as one.
  */
 export type CheckoutOutcome = 'checked-out' | 'already-out' | 'checked-in' | 'already-in'
 
 /**
- * What the scanner made of a photograph.
- *
- * None of these is an action, and none of them changed anything. `identified`
- * is a barcode that named a catalogued row, which settles what the book is and
- * says nothing about what should happen to it; `candidates` is a shortlist to
- * put in front of a person. Where the flow goes next is the client's decision,
- * and what happens to the book is the person's.
+ * None of these is an action and none of them changed anything. `identified` is a
+ * barcode that named a catalogued row; `candidates` is a shortlist to put in
+ * front of a person. Where the flow goes next is the client's decision.
  */
 export type ScanResult =
   | { outcome: 'no-isbn'; barcodes: string[]; candidates: CoverMatch[] }
@@ -615,66 +443,36 @@ export type ScanResult =
   | { outcome: 'not-catalogued'; isbn13: string }
   | { outcome: 'identified'; book: FiledBookRow }
 
-/**
- * A capture already waiting to be shelved that looks like the book being held
- * up (#122).
- *
- * The whole capture row, not a summary of it. A capture has no catalogue id
- * and may have no title, so there is no short form of it that means anything;
- * what a person needs to recognise it is the photograph somebody took and
- * whatever has been worked out about it so far, which is exactly what
- * `draftFromCapture` already reads off this row for the queue. Handing back
- * the row means the scanner and the queue describe a capture the same way,
- * and means opening one costs no second request.
- */
 export interface QueueMatch {
   capture: Capture
   /**
-   * Differing bits out of 64, held to `QUEUE_LIMIT`, which is much tighter
-   * than the shortlist's cutoff.
-   *
-   * Null when the match came from the ISBN rather than from the pictures, and
-   * null rather than 0 on purpose: zero is a measurement and there is no
-   * measurement, because nothing was compared. Printing "looks the same, 100%"
-   * off a fabricated zero would dress an identifier up as a likeness.
+   * Differing bits out of 64, held to `QUEUE_LIMIT`. Null, and not 0, when the
+   * match came from the ISBN rather than from the pictures: nothing was compared,
+   * so there is no measurement.
    */
   distance: number | null
   /**
-   * What settled it. `isbn` is an exact identifier with its own check digit
-   * and beats any comparison of photographs; `cover` is the perceptual hash,
-   * which is what is left when nothing could be read (#146).
+   * What settled it. `isbn` is an exact identifier with its own check digit and
+   * beats any comparison of photographs; `cover` is the perceptual hash.
    */
   basis: 'isbn' | 'cover'
 }
 
-/** A book off the shelf, with the shelf it would go back on. */
 export interface CheckedOutAt {
   book: FiledBookRow
   /**
-   * The area it would go back on, which is what puts it in the right board.
-   *
-   * Null where the run has no plank to name, which is a rule pointing at
-   * furniture that has been taken out.
+   * The area it would go back on. Null where the run has no plank to name, which
+   * is a rule pointing at furniture that has been taken out.
    */
   areaId: number | null
-  /** That area as it reads off the furniture, for the line the person sees. */
   label: string
 }
 
 export type { Misfile, Excluded, ExcludedReason, ShelfSlot, ShelvingReview }
 
 /**
- * The review, plus which of its misfiles the app is responsible for.
- *
- * `ShelvingReview` stays exactly what `reviewShelving` returns: a comparison of
- * where books are with where they belong, decided per book and knowing nothing
- * about how any of them got that way. Whether a particular disagreement was
- * opened by a boundary move is a fact about what somebody asked the app to do,
- * so it arrives beside the review rather than inside it.
- *
- * It is what tells "you moved this and have not carried it yet", which can be
- * taken back, from "a newcomer pushed this along", which cannot: there is no
- * assignment to withdraw, and closing it is a walk to the shelf.
+ * `outstandingMoves` tells "you moved this and have not carried it yet", which
+ * can be taken back, from "a newcomer pushed this along", which cannot.
  */
 export interface ShelvingReviewResponse extends ShelvingReview {
   /** Book ids whose misfile is an outstanding boundary move. */
@@ -682,12 +480,6 @@ export interface ShelvingReviewResponse extends ShelvingReview {
 }
 
 /**
- * Moving a whole run onto another bookcase, as the plan screen reads it.
- *
- * Grouped rather than flat, and that is the shape rather than a decoration: 187
- * moves is not a list on a phone held in one hand. `groups` is what somebody
- * acts on and `books` inside one is what they open when a number looks wrong.
- *
  * The wire types are restated here rather than imported from `domain/`, the way
  * every other response on this path is: `src/` is the client and the server is
  * reached through this file alone.
@@ -719,17 +511,11 @@ export interface RunMovePlan {
   /** Every plank of the run, old label to new. Empty when it is already there. */
   planks: { from: string; to: string }[]
   /**
-   * Every piece the move would leave standing with nothing on its face.
-   *
-   * A run flows on past the bookcase its rule points at, so a piece somebody put
-   * up after it and has not filled yet is the tail of that run whether or not
-   * they think of it that way, and moving the run takes its planks. Nothing is
-   * deleted and the piece keeps standing (#391); this is what says so before
-   * anybody presses anything.
+   * Every piece the move would leave standing with nothing on its face. Nothing
+   * is deleted and the piece keeps standing.
    */
   emptied: { name: string; position: number; planks: number }[]
   groups: PlanGroup[]
-  /** Books to carry. The headline number. */
   moving: number
   /** Books the rules leave exactly where they are. */
   staying: number
@@ -740,24 +526,15 @@ export interface RunMovePlan {
 }
 
 /**
- * Where a run lives, what it is cut into, and whether it can be moved at all.
- *
- * **Everything the arrange screen needs before it offers anything**, and all
- * three of them are the server's answer rather than the screen's reading of a
- * list of books. The screen used to take the bookcase off the first group of
- * books it was drawing, which is a different question with a different answer
- * whenever the leading bookcase of a run holds nothing (#500), and it had no way
- * to find out that a run was one no move may pick up until somebody had chosen
- * a destination and been refused (#486).
+ * Everything the arrange screen needs before it offers anything, as the server's
+ * answer rather than the screen's reading of a list of books.
  */
 export interface RunMoveOffer {
   /** The bookcase the run starts on, or null when its rule points nowhere. */
   from: number | null
   /**
-   * Every plank a move would take with it, in the order they read.
-   *
-   * A plank holding no books is in this list, because it is a plank of the run.
-   * An empty shelf at the top of a run is a real state and the screen says so.
+   * Every plank a move would take with it, in the order they read. A plank
+   * holding no books is in this list, because it is a plank of the run.
    */
   planks: { label: string; books: number }[]
   /** Why this run cannot be moved, or null when it can. */
@@ -765,46 +542,31 @@ export interface RunMoveOffer {
 }
 
 /**
- * One line of a rule as a screen sends it back, which is a slug and a question.
- *
- * **The slug and not the label.** The label is what somebody read on the way to
- * choosing the tag; the slug is what the rule is about. A rule stored against a
- * label would stop matching the day the tag was renamed, and every book it
- * claimed would move with nothing anywhere saying why.
+ * The slug and not the label: a rule stored against a label would stop matching
+ * the day the tag was renamed, and every book it claimed would move with nothing
+ * saying why.
  */
 export interface RuleDraftLine {
   operator: 'is' | 'under'
-  /** A tag slug, taken off the vocabulary this app already reads. */
   tag: string
   /**
-   * What to call it, for a word the collection has not used yet (#392).
-   *
-   * **Set on nothing else.** A line quoting a tag somebody already keeps has its
-   * label on the row, and sending one up would be a rename arriving through a
-   * rule. This is the one case where the label is not yet anywhere: the word
-   * becomes a tag at the same press the rule becomes a row, so until then the
-   * draft is the only thing that knows what it is to be called.
-   *
-   * The server does not take it on trust. It goes back through the same rule
-   * that decides what a word means anywhere else in this app, and a word
-   * something already means is refused rather than written a second time.
+   * What to call it, for a word the collection has not used yet, and set on
+   * nothing else: a line quoting a tag somebody already keeps has its label on
+   * the row, and sending one up would be a rename arriving through a rule.
    */
   label?: string
 }
 
-/** One rule being written: the row it already is, and what it now asks. */
+/** `id` is null for a rule that has not been written yet. */
 export interface DraftRule {
   id: number | null
   conditions: RuleDraftLine[]
 }
 
 /**
- * Every rule written on one place, which is what is planned and written.
- *
- * A list, because a list is how this app says "or" (#384): **and** is another
- * line on one rule, **or** is another rule on the same place. Both point at the
- * same area, so which one `claim` picks makes no difference to where a book
- * lands, and there is no group inside a group anywhere in it.
+ * A list, because a list is how this app says "or": "and" is another line on one
+ * rule, "or" is another rule on the same place. Both point at the same area, and
+ * there is no group inside a group anywhere in it.
  */
 export interface RuleDraft {
   about: 'area' | 'fixture'
@@ -813,15 +575,11 @@ export interface RuleDraft {
 }
 
 /**
- * What changing what a place allows would do, over the whole catalogue.
- *
- * The same shape a run move answers with, plus the facts a count cannot carry.
  * Nothing has been written when this arrives: it is the sentence in front of the
  * write, and the write answers with the same thing again.
  */
 export interface RuleChangePlan {
   groups: PlanGroup[]
-  /** Books to carry. The headline number. */
   moving: number
   staying: number
   skipped: SkippedBooks[]
@@ -831,9 +589,8 @@ export interface RuleChangePlan {
   /** What each rule would be called, worked out from its own lines. */
   names: string[]
   /**
-   * How many rules are written on this place today, beside how many there would
-   * be. The pair is what tells taking the last rule off a place from a draft
-   * that is not a change at all (#391).
+   * How many rules are written on this place today, which is what tells taking
+   * the last rule off a place from a draft that is not a change at all.
    */
   already: number
   /** How many books anywhere in the collection any of these rules claim. */
@@ -844,17 +601,12 @@ export interface RuleChangePlan {
   losing: string[]
   /**
    * The other places asking for books these rules ask for, and how the tie went.
-   *
-   * Two places wanting one tag is allowed. It is also the one thing the counts
-   * cannot say, and #430 item 1 is what its absence read like: a rule written on
-   * a second piece of furniture, a preview answering "no book would have to be
-   * carried", and nothing anywhere mentioning the piece that already asks for
-   * the same books and is tried first.
+   * Two places wanting one tag is allowed, and it is the one thing the counts
+   * cannot say.
    */
   alsoClaims: AlsoClaims[]
 }
 
-/** One other place asking for books a draft's rules ask for. */
 export interface AlsoClaims {
   /** What that place reads as: a plank for an area rule, a piece for a fixture. */
   place: string
@@ -865,54 +617,30 @@ export interface AlsoClaims {
 }
 
 /*
- * --- The furniture -------------------------------------------------------
- *
- * The room as the screens read it (#313). The wire types are restated here
- * rather than imported from the server, the way every other response on this
- * path is.
- *
- * **No label is stored anywhere and none is sent back up.** Every `label` here
- * is worked out by the server at the moment it answered, from a piece's number
- * and name and an area's ordinal and name, so a screen that kept one in state
- * would be drawing a name for a piece somebody has since renamed. Every write
- * answers with `becomes`, which is each label that reads differently now, and
- * with the piece or area re-described. Read from the answer; never from memory.
+ * No label is stored anywhere and none is sent back up. Every `label` here is
+ * worked out by the server at the moment it answered, from a piece's number and
+ * name and an area's ordinal and name, so a screen that kept one in state would
+ * be drawing a name for a piece somebody has since renamed. Every write answers
+ * with the piece or area re-described and with `becomes`: read from the answer,
+ * never from memory.
  */
 
-/** A label that reads differently after a change, old to new. */
 export interface LabelChange {
   from: string
   to: string
 }
 
-/**
- * The books still to be carried, as the trips somebody would walk.
- *
- * **The unit is a trip, not a book**, which is the whole shape of the flow: a
- * list of fifty books in book order is fifty walks across a room, and "22 books,
- * 4C to 3C" is one. Ordered by where the books come off, biggest piece of
- * furniture first, because taking a book off means finding it among the ones
- * that are staying and putting one down does not.
- *
- * There is nothing stored behind this and nothing to go stale: it is `assigned`
- * disagreeing with `placed`, worked out afresh every time it is asked for.
- */
 export interface CarriedBook {
   id: number
   title: string
   authorFiling: string
   /**
-   * The photograph this book is drawn by standing up, or '' where it has none.
-   *
-   * Filenames under `/api/covers`, already chosen: the server asks
-   * `shared/shelving.ts` which photograph stands in for a spine and which for a
-   * cover, so a book on a carry screen is drawn by the same picture the library
-   * draws it by. **A book with no photograph is a real book**, and '' is what
-   * says so; the cloth behind the picture is what it is drawn in, here exactly
-   * as everywhere else.
+   * Filename under `/api/covers` for the photograph this book is drawn by
+   * standing up, already chosen by the server. '' where it has none, which is a
+   * real book and not a missing one.
    */
   spine: string
-  /** The same for a book lying face up, which is what a row shows. */
+  /** The same for a book lying face up. */
   cover: string
 }
 
@@ -924,11 +652,9 @@ export interface CarryTrip {
   from: string
   to: string
   /**
-   * The number two pieces stand on, when both ends of this trip read the same.
-   *
-   * A trip nobody can walk, and a real arrangement rather than a mistake: two
-   * pieces standing on one number, neither of them named, so their planks render
-   * alike. Null on nearly every trip. See the server's `CarryTrip.sharedNumber`.
+   * The number two pieces stand on, when both ends of this trip read the same: a
+   * trip nobody can walk, and a real arrangement rather than a mistake. Null on
+   * nearly every trip.
    */
   sharedNumber: number | null
   books: CarriedBook[]
@@ -938,9 +664,7 @@ export interface CarryTrip {
 
 /** What the newest change of mind did to a list somebody was part way through. */
 export interface CarryChange {
-  /** Books it took off the list. */
   left: number
-  /** Books it put on. */
   joined: number
   /** Of those, the ones somebody had already carried once. */
   again: { book: CarriedBook; from: string; to: string }[]
@@ -948,11 +672,7 @@ export interface CarryChange {
 
 /**
  * A trip somebody decided not to walk, kept on the list rather than forgotten.
- *
- * The books stand where they stood and nothing asks for them any more. What is
- * still true is that a rule on that place wants them somewhere else, and only
- * the person can decide whether to change it, so the pair and the count and the
- * rule's name stay on the screen.
+ * The books stand where they stood and nothing asks for them any more.
  */
 export interface SetAside {
   fromAreaId: number
@@ -965,7 +685,6 @@ export interface SetAside {
 }
 
 export interface CarryWork {
-  /** Books to carry. The headline number. */
   moving: number
   trips: CarryTrip[]
   /** Everything the rules will not move, and why. Never silently dropped. */
@@ -977,16 +696,7 @@ export interface CarryWork {
   setAside: SetAside[]
 }
 
-/**
- * One book on the carry list, flattened out of its trip.
- *
- * The first screen names three books and counts the rest, which is a list of
- * books rather than of trips. It is the shape `reviewShelving` answered in,
- * kept, so that screen did not have to change: **what changed under it is which
- * question is being asked.** This is `assigned` disagreeing with `placed`, the
- * ledger's own list, rather than a recorded label compared against one derived
- * from the sort order.
- */
+/** One book on the carry list, flattened out of its trip. */
 export interface CarryItem {
   book: CarriedBook
   from: string
@@ -1000,58 +710,36 @@ export interface RuleDto {
   /** One area, or a whole piece and everything the run flows onto after it. */
   about: 'area' | 'fixture'
   place: string
-  /** Which area or piece that is, so a screen can name a piece its own way. */
   placeId: number | null
   enabled: boolean
   /**
-   * What it asks, in the words a person reads. **Labels, and no slugs.**
-   *
-   * The identity is what a rule is really about, and it never travels on a
-   * reading route. Writing has a read of its own, `api.placeRules`, which
-   * answers the same rules in the shape they go back in.
+   * What it asks, in the words a person reads: labels, and no slugs. The identity
+   * never travels on a reading route. Writing has a read of its own,
+   * `api.placeRules`.
    */
   conditions: {
     operator: 'is' | 'under'
     tag: string
     /**
-     * Books carrying it, counting the ones under it. **Zero is a real state**:
-     * a shelf somebody prepared before the books arrived asks for a word nothing
-     * has yet, and the screen says it is waiting rather than drawing it exactly
-     * like a rule that claims forty books.
+     * Books carrying it, counting the ones under it. Zero is a real state: a
+     * shelf somebody prepared before the books arrived.
      */
     carried: number
   }[]
   /** The whole of it as one phrase: "Anything tagged Cookery". */
   said: string
   /**
-   * Which stretch of books this is the rule for, or null.
-   *
-   * **This is what makes a rule changeable from the furniture screens** (#323).
-   * A rule with one of these is the row `planRunMove` and `applyRunMove`
-   * retarget, so "point it somewhere else" is the journey #244 already built
-   * rather than a second way to do the same thing. A null says this app cannot
-   * point that rule anywhere yet, which is what the screen says.
+   * Which stretch of books this is the rule for. A rule with one of these is the
+   * row `planRunMove` and `applyRunMove` retarget; null says this app cannot
+   * point that rule anywhere yet.
    */
   range: ShelfRange | null
 }
 
 /**
- * One book standing somewhere, in the order it stands there.
- *
- * It carries every component any ordering reads, because the screens about a
- * place now show what its sort rule does to these books rather than only naming
- * the rule. Picking another ordering reorders the books in front of somebody,
- * which is the answer to "why do they sort like that" and is also the warning
- * before the change is written.
- */
-/**
- * One book standing in a place.
- *
- * **It is a `StripBook` with the ordering components added**, and that is not a
- * coincidence: since #405 an area's books are drawn standing on a board, and a
- * board is drawn from a photograph and a thickness. Keeping the same three
- * fields under the same three names is what lets `spineLabel` and the shelf
- * mapping in `lib/bookLook.ts` take either without a second spelling of them.
+ * A `StripBook` with the ordering components added. Keeping the same three fields
+ * under the same three names is what lets `spineLabel` and the shelf mapping in
+ * `lib/bookLook.ts` take either without a second spelling of them.
  */
 export interface AreaBook {
   id: number
@@ -1077,39 +765,30 @@ export interface AreaBook {
   claimedBy: string | null
 }
 
-/** What is standing on one piece of furniture, across all of its areas. */
 export interface FixtureBooks {
   fixture: { id: number; label: string; books: number }
   books: AreaBook[]
 }
 
 /**
- * What is standing in one area, asked **by identity**.
- *
- * The route #318 said was missing. Splitting an area needs the books in it, and
- * until this existed the screen asked for both stretches of shelving and matched
- * an area by its *label*, which is derived at read time from four things any of
- * which can change. This asks for the area by its row instead.
+ * Asked by identity rather than by label: a label is derived at read time from
+ * four things any of which can change.
  */
 export interface AreaBooks {
   /**
    * `gone` is a plank that has been taken out with books still standing on it.
-   *
    * The page opens rather than 404ing, because those books are recorded there
-   * until somebody carries them and this is the one screen that can show them.
-   * What it must not do is offer to take the area out again.
+   * until somebody carries them, but it must not offer to take the area out again.
    */
   area: { id: number; label: string; books: number; gone: boolean }
   books: AreaBook[]
 }
 
-/** A place, as a screen names one: the row, and what it reads as today. */
 export interface AtAPlace {
   areaId: number
   label: string
 }
 
-/** A rule that wanted a book, and whether it got it. The losers are the point. */
 export interface RuleClaim {
   rule: RuleDto
   won: boolean
@@ -1117,11 +796,9 @@ export interface RuleClaim {
 }
 
 /**
- * Why a book is where it is.
- *
- * `claims` is empty for a book **no rule claims at all**, which is a real state
- * since #304 rather than a gap: nothing states a genre, no tag is written, and
- * the rules have nowhere to put it. `wanted` is null for the same book.
+ * `claims` is empty for a book no rule claims at all, which is a real state
+ * rather than a gap: nothing states a genre, no tag is written, and the rules
+ * have nowhere to put it.
  */
 export interface BookClaim {
   book: { id: number; title: string; authorFiling: string }
@@ -1139,21 +816,12 @@ export interface BookClaim {
 }
 
 /**
- * Why no rule claims a book, which is two states and not one (#341).
- *
- * - `untagged`: it carries no tag at all, which is the state #304 made real. No
- *   catalogue stated a genre, so none was written, so every rule fails at its
- *   first condition. The only way out is somebody saying what it is.
- * - `unmatched`: it carries tags and no rule asks for any of them. Somebody has
- *   already said something about it; what is missing is a rule.
- *
- * Both are unclaimed and both have the same consequence, and the sentence a
- * screen writes about them is not the same sentence, which is why the read says
- * which rather than leaving a screen to guess it from an empty list of tags.
+ * `untagged` is a book carrying no tag at all, so every rule fails at its first
+ * condition and the only way out is somebody saying what it is. `unmatched` is a
+ * book carrying tags no rule asks for, where what is missing is a rule.
  */
 export type Unclaimed = 'untagged' | 'unmatched'
 
-/** One book no rule claims, as the list of them needs it. */
 export interface UnclaimedBook {
   id: number
   title: string
@@ -1166,17 +834,9 @@ export interface UnclaimedBook {
 }
 
 /**
- * One book the shelf and the rules put in different places (#489).
- *
- * The two fields are the two readings and they are named after where each one
- * comes from rather than after which is right, because neither of them is
- * known to be: the app draws a book from the range on its row and a walk over
- * the boundaries, and the rules claim it by the tags it carries. A
+ * The two fields are the two readings, named after where each one comes from
+ * rather than after which is right, because neither of them is known to be. A
  * disagreement says one of the two is wrong and never which.
- *
- * `fromRules` is empty for a book no rule claims at all. That is a different
- * complaint with a screen of its own (#341), and it arrives here as well
- * because a book nothing files is also a book drawn somewhere nothing justifies.
  */
 export interface DriftingBook {
   bookId: number
@@ -1203,18 +863,16 @@ export interface AreaDto {
   note: string
   /** Books standing in it, which is where somebody last said they were. */
   books: number
-  /** True for a plank taken out that books are still standing on. See #401. */
+  /** True for a plank taken out that books are still standing on. */
   gone: boolean
   holds: string
   entry: boolean
   /** The rule whose stretch of books reaches here, which may be the piece's. */
   rule: RuleDto | null
   /**
-   * Every rule written **on this area**, which is a different question.
-   *
-   * `rule` is about the stretch and may belong to the piece, carrying on through
-   * here. This is what the area itself allows, and there can be more than one,
-   * because two rules on a place is how this app says "or" (#384).
+   * Every rule written on this area, which is a different question from `rule`:
+   * that one is about the stretch and may belong to the piece. There can be more
+   * than one, because two rules on a place is how this app says "or".
    */
   own: RuleDto[]
 }
@@ -1227,24 +885,21 @@ export interface FixtureDto {
   name: string
   sortStrategy: SortStrategyCode
   note: string
-  /** Every book standing on the piece, planks taken out included (#401). */
+  /** Every book standing on the piece, planks taken out included. */
   books: number
   /** The areas the piece has, in the order they sit on its face. */
   areas: AreaDto[]
   /**
-   * The planks taken out that still have books standing on them.
-   *
-   * Apart from `areas` because they are not on the piece: they cannot be
-   * reordered, renumbered or counted as part of the face. What they have is
-   * books nobody has carried yet, and a screen that leaves them out is the
-   * screen that said a bookcase was empty over forty-six books.
+   * The planks taken out that still have books standing on them. Apart from
+   * `areas` because they are not on the piece: they cannot be reordered,
+   * renumbered or counted as part of the face.
    */
   gone: AreaDto[]
   /** Other pieces standing on this piece's number. Reported, never refused. */
   sharing: number[]
   holds: string
   rule: RuleDto | null
-  /** Every rule written on the piece itself. Two of them is "or" (#384). */
+  /** Every rule written on the piece itself. Two of them is "or". */
   own: RuleDto[]
 }
 
@@ -1254,7 +909,6 @@ export interface FurnitureDto {
   strategies: { code: SortStrategyCode; label: string; isInherit: boolean }[]
 }
 
-/** What a piece still holds, which is what has to leave before it can go. */
 export interface FixtureRemoval {
   /** Standing on one of its planks, or assigned to one and not carried yet. */
   books: number
@@ -1272,26 +926,22 @@ export interface AreaRemovalPlan {
   into: { id: number; label: string }
   joins: 'previous' | 'next'
   /**
-   * How many books the rules refile into `into`.
-   *
-   * **Not how many books that area then holds.** An assignment is what the
-   * rules want; where a book is is what somebody last said, and only the
-   * location route changes that. See `AreaPane`.
+   * How many books the rules refile into `into`, not how many books that area
+   * then holds. An assignment is what the rules want; where a book is is what
+   * somebody last said, and only the location route changes that.
    */
   joining: number
   skipped: { reason: SkipReason; books: number }[]
   becomes: LabelChange[]
 }
 
-/** One book standing on the area a trip comes off, going or staying. */
 export interface StandingBook extends CarriedBook {
   pages: number
   going: boolean
   /**
-   * Why it is not going. Null for the ones that are.
-   *
-   * `left` is a book somebody decided to leave where it stands, which is its own
-   * answer and not `settled`: settled means the rules want it here.
+   * Why it is not going. Null for the ones that are. `left` is a book somebody
+   * decided to leave where it stands, which is not `settled`: settled means the
+   * rules want it here.
    */
   staying: 'pinned' | 'elsewhere' | 'settled' | 'left' | null
 }
@@ -1307,7 +957,6 @@ export interface TripAtAnArea {
   books: StandingBook[]
 }
 
-/** What an apply wrote, in the numbers the ledger counts. */
 export interface AssignmentReport {
   assigned: number
   unchanged: number
@@ -1359,30 +1008,25 @@ export interface Capture {
   created_at: string
   processed_at: string | null
   /**
-   * The three photos cut to the book, as filenames under /api/covers. The same
-   * columns books carry and the same contract: a crop is derived from the
-   * photograph, never a replacement for it, so a view that has one shows it and
-   * a view that does not shows the whole frame.
-   *
-   * Empty where the detector has not looked, and also empty where it looked and
-   * declined. `cropped` is what tells those two apart.
+   * The three photos cut to the book, as filenames under /api/covers. A crop is
+   * derived from the photograph, never a replacement for it. Empty both where the
+   * detector has not looked and where it looked and declined; `cropped` is what
+   * tells those two apart.
    */
   front_crop: string
   back_crop: string
   edge_crop: string
   /**
-   * Slots the detector has looked at, comma separated, whether or not it found
-   * a book. A slot named here with an empty crop column was examined and
-   * declined, which is a different fact from a photo taken before crops
-   * existed. Empty means none have been looked at.
+   * Slots the detector has looked at, comma separated, whether or not it found a
+   * book. A slot named here with an empty crop column was examined and declined.
+   * Empty means none have been looked at.
    */
   cropped: string
 }
 
 /**
- * The fields a person may state about a queued capture. Mirrors the server's
- * `CaptureEdit`: only what somebody resolving details decides, and every field
- * optional, because a request carries only what was actually stated.
+ * Every field is optional, because a request carries only what was actually
+ * stated. Mirrors the server's `CaptureEdit`.
  */
 export interface CaptureEdit {
   isbn13?: string
@@ -1407,12 +1051,8 @@ export interface CaptureEdit {
 }
 
 /**
- * How much is waiting, and what kind of wrong the failed ones are.
- *
- * `failed` covers three situations that need different things from a person,
- * so the server sends the breakdown rather than leaving Home to infer one from
- * a single total, which is what it got wrong in #148. Mirrors the server's
- * `QueueCounts`.
+ * `failures` breaks `failed` down, because the three situations behind it need
+ * different things from a person.
  */
 export interface QueueCounts extends Record<CaptureStatus, number> {
   failures: FailureCounts
@@ -1433,14 +1073,9 @@ export function deviceName(): string {
 }
 
 /**
- * A refusal the caller can do something about, with what it has to show first.
- *
- * The furniture routes answer 409 with an `effect` attached wherever the
- * request was well formed and the room was not in a state to take it: giving an
- * area an order of its own cuts the run it was in, and the server refuses until
- * the caller says it has shown somebody what that does. A plain `Error` throws
- * that away and leaves a screen with nothing to show but the sentence, so the
- * body travels with the throw.
+ * A refusal the caller can do something about, with the body attached. The
+ * furniture routes answer 409 with an `effect` a screen has to show first, and a
+ * plain `Error` would throw that away.
  */
 export class Refusal extends Error {
   constructor(
@@ -1448,14 +1083,10 @@ export class Refusal extends Error {
     readonly status: number,
     readonly effect: unknown,
     /**
-     * Which of the three states the gate said this caller is in, when the gate
-     * is what refused (#524).
-     *
-     * Absent on every other refusal, because every other refusal is about the
-     * request rather than about who made it. It is carried rather than inferred
-     * from `status`: 401 and 403 are the gate's two answers today and reading
-     * the word the server wrote is what keeps this client from deciding for
-     * itself that a 403 somewhere else means somebody is on the waiting list.
+     * Which of the three states the gate said this caller is in, when the gate is
+     * what refused, and absent on every other refusal. Carried rather than
+     * inferred from `status`, so this client never decides for itself that a 403
+     * somewhere else means somebody is on the waiting list.
      */
     readonly authState?: AuthState,
   ) {
@@ -1465,38 +1096,27 @@ export class Refusal extends Error {
 }
 
 /**
- * Who to tell when the gate refuses, and why the notice exists at all.
- *
- * Every request in this app goes through `request` below, and any of them can
- * be the one that finds out the session has died or that this person has just
- * been disabled. The screen that has to change is not the screen that made the
- * request: it is the whole app. So the answer travels out of here rather than
- * back to the caller, and `app/gate.tsx` is the one listener.
- *
- * A set of callbacks rather than one, because `StrictMode` mounts an effect
- * twice in development and a single slot would have the second mount silently
- * replace the first.
+ * Any request can be the one that finds out the session has died, and the screen
+ * that has to change is the whole app, so the answer travels out of here rather
+ * than back to the caller. `app/gate.tsx` is the one listener. A set rather than
+ * a single slot because `StrictMode` mounts an effect twice in development, and
+ * the second mount would silently replace the first.
  */
 const watchers = new Set<(state: AuthState) => void>()
 
 /**
- * Hear about it when the server says this caller is not admitted.
- *
- * Returns the way to stop listening. Called by the gate provider and by
- * nothing else: two listeners deciding what the app draws would be two
- * answers to a question the server answers once.
+ * Returns the way to stop listening. Called by the gate provider and by nothing
+ * else: two listeners deciding what the app draws would be two answers.
  */
 export function whenTheGateRefuses(watcher: (state: AuthState) => void): () => void {
   watchers.add(watcher)
   return () => { watchers.delete(watcher) }
 }
 
-/** Say so, to whoever is listening. Never throws into the request that found it. */
 export function theGateSaid(state: AuthState): void {
   for (const watcher of watchers) watcher(state)
 }
 
-/** The word in a refusal body, when it is one of the three the gate writes. */
 function stateIn(body: { state?: unknown }): AuthState | undefined {
   return body.state === 'anonymous' || body.state === 'waiting' || body.state === 'admitted'
     ? body.state
@@ -1507,18 +1127,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     headers: { 'Content-Type': 'application/json' },
     /*
-     * Said out loud, because since #521 it is load-bearing and it is a default.
-     *
-     * Every path this client asks for is relative, so every request is
-     * same-origin, and `same-origin` is what `fetch` already does when nothing
-     * says otherwise — the session cookie would be sent with or without this
-     * line. `docs/auth-surface.md` noted exactly that, and noted that it was
-     * worth writing down before somebody needed it.
-     *
-     * It is written down now because the cost of the default quietly changing,
-     * or of somebody passing an `init` that overrides it, is every request in
-     * this app answering `401` with nothing saying why. A line that states a
-     * default is cheap; finding out that a default moved is not.
+     * Stated although it is also what `fetch` does by default: every path this
+     * client asks for is relative, so every request is same-origin. The cost of
+     * the default moving, or of an `init` overriding it, is every request in this
+     * app answering 401 with nothing saying why. See `docs/auth-surface.md`.
      */
     credentials: 'same-origin',
     ...init,
@@ -1531,10 +1143,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
     const state = stateIn(body)
     /*
-     * The gate refused, so the app is on the wrong screen and the screen that
-     * asked is not the one to fix it. Told before the throw, so the app has
-     * already begun changing by the time whichever caller this was decides what
-     * to do with its own error.
+     * Told before the throw, so the app has already begun changing by the time
+     * whichever caller this was decides what to do with its own error.
      */
     if (state && state !== 'admitted') theGateSaid(state)
     throw new Refusal(
@@ -1547,7 +1157,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T
 }
 
-/** Body shape shared by the preview and save endpoints. */
 function draftBody(draft: Draft) {
   return {
     ...draft,
@@ -1558,31 +1167,11 @@ function draftBody(draft: Draft) {
 }
 
 /**
- * Write the edits to a book the catalogue already holds.
- *
- * **It says nothing about where the book is, and that is a fix rather than an
- * omission** (found while building #409). The draft a catalogued book is loaded
- * into carries `location`, which is the label the app rendered for wherever the
- * ledger has the book; no field on the edit form changes it and nobody typed
- * it. Sending it back made every save a statement about the room, and the
- * server reads such a statement by turning the label into a plank.
- *
- * On a bookcase nobody has named that round trip happens to come back to the
- * plank it started on. **On a bookcase somebody has named it does not**: the
- * label is a phrase like "Hall shelf · A", nothing parses it back to a plank,
- * and the save is refused with `UnknownPlank` and reaches the person as
- * "Something went wrong." So editing any book on a named piece of furniture
- * could not be saved at all, and neither could finishing a placement for one,
- * which is how this was found: the notice on a misfiled book opens the shelving
- * step, and saying it fits saves the book.
- *
- * The rule this restores is the one `setLocation` below already states: it is
- * the only call that changes a recorded location, and it exists so that a person
- * who has actually walked to the shelf can say so. An edit is not a walk. The
- * server's own comment agrees, and it is what makes the empty string right
- * rather than a special case: "an edit that carries no location moved no book,
- * so it records no placement and the book stays where the ledger already has
- * it."
+ * Write the edits to a book the catalogue already holds. It deliberately sends
+ * an empty `location`: the draft's own `location` is a label the app rendered,
+ * nothing on the edit form changes it, and on a named bookcase nothing parses
+ * that label back to a plank, so sending it would be refused. `setLocation` is
+ * the only call that changes a recorded location.
  */
 const updateBook = (id: number, draft: Draft) =>
   request<{ id: number; placement: PlacementResponse; counts: Counts }>(
@@ -1591,11 +1180,8 @@ const updateBook = (id: number, draft: Draft) =>
   )
 
 /**
- * Say where a book physically is now.
- *
- * The only call that changes a recorded location, and it exists so that a
- * person who has actually walked to the shelf can say so. Nothing derives
- * this and nothing writes it on their behalf.
+ * Say where a book physically is now. The only call that changes a recorded
+ * location: nothing derives this and nothing writes it on somebody's behalf.
  */
 const setLocation = (id: number, location: string) =>
   request<{ book: FiledBookRow }>(`/api/books/${id}/location`, {
@@ -1604,12 +1190,10 @@ const setLocation = (id: number, location: string) =>
   })
 
 /**
- * The same, said as the plank rather than as its name.
- *
- * For a screen acting on a row the server drew, which is where a label is the
- * wrong key: it is derived from where a piece stands and what it is called, so
- * a list read a minute ago can name a plank by a name nobody uses now. The same
- * reason `/api/carry/trip` is asked with two ids. See #356.
+ * The same, said as the plank rather than as its name, for a screen acting on a
+ * row the server drew. A label is derived from where a piece stands and what it
+ * is called, so a list read a minute ago can name a plank by a name nobody uses
+ * now.
  */
 const setLocationIn = (id: number, areaId: number) =>
   request<{ book: FiledBookRow }>(`/api/books/${id}/location`, {
@@ -1618,10 +1202,9 @@ const setLocationIn = (id: number, areaId: number) =>
   })
 
 /**
- * Check a book out, or check it in. Nothing is deleted either way.
- *
- * Asking for the state it is already in is a no-op: `outcome` says whether
- * anything changed, and `book` always carries the real, unmodified value.
+ * Check a book out, or check it in. Asking for the state it is already in is a
+ * no-op: `outcome` says whether anything changed, and `book` always carries the
+ * real value.
  */
 const setCheckedOut = (id: number, out: boolean) =>
   request<{ outcome: CheckoutOutcome; book: FiledBookRow; counts: Counts }>(
@@ -1638,18 +1221,9 @@ export const api = {
 
   /**
    * `excludeId` keeps a book being edited out of its own neighbour search.
-   *
-   * **`goingTo` is the plank a walk is taking this book to** (#429). Without it
-   * the answer is where the rules say the book belongs, which is the question a
-   * person editing the review fields is asking. With it the answer is about the
-   * plank they are standing in front of, and the rules are not asked which plank
-   * that is.
-   *
-   * Only the carry flow sends it, and it sends the trip's own destination, fixed
-   * at the moment the armful was lifted. That is the fix for the loop in #429:
-   * the placing screen used to work out for itself where the book belonged now,
-   * and answered a plank no trip had ever named, so doing what the app asked
-   * never satisfied it.
+   * `goingTo` is the plank a walk is taking this book to: without it the answer
+   * is where the rules say the book belongs. Only the carry flow sends it, and it
+   * sends the trip's own destination, fixed when the armful was lifted.
    */
   previewPlacement: (draft: Draft, excludeId?: number, goingTo?: number) =>
     request<PlacementResponse>('/api/placement/preview', {
@@ -1681,21 +1255,10 @@ export const api = {
     }),
 
   /**
-   * One capture, whether it is a second photographing of a book already in the
-   * queue (#146), and whether the catalogue already holds its ISBN (#435).
-   *
-   * Both findings ride along on the poll the camera is already making rather
-   * than being their own request or their own poll. Neither can be answered
-   * when the photograph is handed over, because nothing has read it yet: the
-   * ISBN and the hash both arrive on the background pass, and this is the call
-   * that waits for that pass anyway.
-   *
-   * **`duplicates` and `catalogued` are two different findings** and the words
-   * for them are different on purpose: one is a book somebody has photographed
-   * and not shelved, the other is a book on a shelf. `catalogued` is null when
-   * the collection does not hold this ISBN, and also when nobody has read an
-   * ISBN off the photographs yet, which is every capture until the background
-   * pass has been.
+   * `duplicates` and `catalogued` are two different findings: one is a book
+   * somebody has photographed and not shelved, the other a book on a shelf.
+   * `catalogued` is null both when the collection does not hold this ISBN and
+   * when nobody has read an ISBN off the photographs yet.
    */
   getCapture: (id: number) =>
     request<{
@@ -1706,17 +1269,8 @@ export const api = {
     }>(`/api/captures/${id}`),
 
   /**
-   * The whole queue, its counts, and which capture the worker is holding.
-   *
-   * `reading` is a fact about the server rather than about a book, which is
-   * why it rides here rather than on a row: it is the id the background pass
-   * has in its hands for the seconds one reading takes, and null when the pass
-   * is not reading anything. A waiting book and a book being read said
-   * "Reading photos" alike until #436, so a queue that had stopped was
-   * indistinguishable from one that was busy.
-   *
-   * Absent from an older server, and the queue then says the honest thing for
-   * a server that did not answer the question, which is the waiting word.
+   * `reading` is the capture id the background pass has in its hands, null when
+   * it is not reading anything, and absent from an older server.
    */
   listCaptures: () =>
     request<{ captures: Capture[]; counts: QueueCounts; reading?: number | null }>(
@@ -1730,23 +1284,13 @@ export const api = {
     }),
 
   /**
-   * Persist what somebody has worked out about a capture still in the queue.
-   *
-   * Send only what was actually stated: on the server an absent key means
-   * "nobody has decided this" and leaves the background worker free to fill it
-   * in, while a present one means a person did and the worker must not touch
-   * it. An empty body is a legitimate call and records that somebody looked at
-   * this book and left it as it was.
-   *
-   * A changed `isbn13` re-runs the lookup server side and comes back in
-   * `lookup`, so the correction and everything that hangs off it land in one
-   * write rather than two the browser has to survive.
-   *
-   * `release` hands the capture back to the queue in the same request, and is
-   * the only way to release one. `keepalive` asks the browser to send the
-   * request even though the page that made it is going away, which is what
-   * makes a closing tab still let go of the book. Both are explained in
-   * `lib/leaveCapture.ts`, which is the only thing that passes them.
+   * Send only what was actually stated: on the server an absent key leaves the
+   * background worker free to fill that field in, and a present one means a
+   * person decided it and the worker must not touch it. An empty body is
+   * legitimate and records that somebody looked and left the book as it was. A
+   * changed `isbn13` re-runs the lookup server side and comes back in `lookup`.
+   * `release` is the only way to release a capture, and `keepalive` is what makes
+   * a closing tab still let go of one; see `lib/leaveCapture.ts`.
    */
   updateCapture: (
     id: number,
@@ -1773,11 +1317,9 @@ export const api = {
     ),
 
   /**
-   * Send a capture back through the reader (#299).
-   *
-   * For the one whose reading was given up on rather than finishing. It comes
-   * back `pending`, and the queue is already polling while anything is pending,
-   * so the row updates itself from there without this having to wait.
+   * Send a capture back through the reader. It comes back `pending`, and the
+   * queue is already polling while anything is pending, so the row updates itself
+   * from there without this having to wait.
    */
   readCaptureAgain: (id: number) =>
     request<{ capture: Capture; counts: QueueCounts }>(
@@ -1790,13 +1332,8 @@ export const api = {
     ),
 
   /**
-   * There is no `saveFilingOverride` flag any more (#227).
-   *
-   * It used to decide whether a filing name somebody typed was kept for the
-   * next book by the same author or applied to this one and forgotten, and the
-   * client set it whenever the field had anything in it, so the two were never
-   * really separate answers. A filing name belongs to the name now, on
-   * `author_alias`, and every save that carries one files it.
+   * A filing name belongs to the name, on `author_alias`, so every save that
+   * carries one files it.
    */
   saveBook: (
     draft: Draft,
@@ -1812,39 +1349,12 @@ export const api = {
     ),
 
   /**
-   * One book, and who it credits.
-   *
-   * The credits come with it because the review pane's filing field is about the
-   * first-listed name, and what that name files under is a fact about the alias
-   * rather than a column on the book (#227). A listing answers a `FiledBookRow`
-   * because a listing joins it back on; a lookup of one book reads the model.
+   * One book, and who it credits. The credits come with it because what a name
+   * files under is a fact about the alias rather than a column on the book.
    */
   getBook: (id: number) => request<{ book: BookRow; authors: Credit[] }>(`/api/books/${id}`),
 
   setCheckedOut,
-
-  /*
-   * `checkedOut()` was here and is gone (#459).
-   *
-   * It asked `/api/checked-out`, which answers every book that is out of the
-   * house in one response with no page, and **nothing in this app ever called
-   * it.** Found by the sweep this issue asked for: from the act's primitives,
-   * everything that reads a lending fact, walked to the screen it draws on. This
-   * one drew on none. So the app had a whole list of lent books available and no
-   * door to it, at the same time as a count on the first screen that opened the
-   * unfiltered library.
-   *
-   * That door exists now and it is `findBooks({ state: 'checked_out' })`, which
-   * answers the same books with a page, a total and the collection's counts
-   * beside them, so the library can say "2 of 27". This is removed for exactly
-   * the reason `listBooks` below it was: what was left of it was to be the first
-   * thing the next person found, and what it would have handed them is every
-   * lent book in one response.
-   *
-   * The route stays. `store.checkedOut()` is what `/api/shelves` reads to put an
-   * absent book in the gap it belongs in, and deleting a route with a live
-   * reader on the strength of its wrapper having none is a different change.
-   */
 
   backfillCovers: (limit = 10) =>
     request<{ tried: number; fetched: number; remaining: number }>(
@@ -1853,11 +1363,9 @@ export const api = {
     ),
 
   /**
-   * Photo in, an identity out. See ScanResult for what each outcome means.
-   *
-   * Deliberately has no direction argument and no way to gain one: the scanner
-   * finds out which book is being held up and nothing else. Changing a book's
-   * state is `setCheckedOut`, which takes an id.
+   * Photo in, an identity out. Deliberately has no direction argument and no way
+   * to gain one: the scanner finds out which book is being held up and nothing
+   * else. Changing a book's state is `setCheckedOut`.
    */
   scanBook: (image: string) =>
     request<ScanResult>('/api/books/scan', {
@@ -1868,36 +1376,14 @@ export const api = {
   updateBook,
 
   /**
-   * Save a catalogued book and record the shelf it has just been put on.
-   *
-   * Two calls, because they are two different kinds of statement. The PUT
-   * carries what the catalogue says about the book, and the server
-   * deliberately will not let an edit change a position: where a book
-   * physically is was observed by a person, and a metadata edit knows nothing
-   * about it. The shelving step does know, having just told somebody where to
-   * put the book and been told it fits, so it says so through the one route
-   * that changes a position.
-   *
-   * `shelvedAt` null means this is an ordinary edit and nobody observed
-   * anything, which leaves the recorded location exactly where it was, and now
-   * leaves whether the book is on the bookcase alone for the same reason (#87).
-   * Both are physical facts, both are observed at the shelf and nowhere else,
-   * so one condition governs both: correcting a note cannot state where a book
-   * is, and it cannot state that it is back either.
-   *
-   * **It is the plank, not what the plank is called** (#359). The step drew that
-   * plank a moment ago and knows which one it is; handing the label back would
-   * make the server work out from a string which row the screen had meant, and
-   * on a bookcase somebody has named there are two strings for that row.
-   *
-   * Putting the book back is safe to say on every confirmed placement rather
-   * than only when the caller believes the book was down, because asking for
-   * the state a book is already in is a no-op and not a write (#15). So this
-   * never invents a check-in, and never has to be told about one.
-   *
-   * Without this the guidance the person had just followed was never written
-   * down, and misfile detection then reported that same book as needing to
-   * make the move they had already made.
+   * Save a catalogued book and record the shelf it has just been put on. Two
+   * calls, because they are two kinds of statement: the server will not let an
+   * edit change a position, and the shelving step is the one that observed it.
+   * `shelvedAt` null is an ordinary edit, which leaves both the recorded location
+   * and whether the book is on the bookcase alone. It is the plank and not its
+   * label, because on a named bookcase there are two strings for a row. Putting
+   * the book back is safe to say on every confirmed placement, because asking for
+   * the state a book is already in is a no-op rather than a write.
    */
   updateAndShelve: async (id: number, draft: Draft, shelvedAt: number | null) => {
     const result = await updateBook(id, draft)
@@ -1908,54 +1394,27 @@ export const api = {
     return result
   },
 
-  /*
-   * `listBooks(range)` was here and is gone (#332).
-   *
-   * It asked `/api/books?range=` with no page, which meant the whole run, and
-   * nothing had ever called it: #315 added `findBooks` beside it and every
-   * screen went to that one. So it was a wrapper whose only remaining job was
-   * to be the first thing the next person found when they wanted a listing, and
-   * what it would have handed them is every book in the run in one response.
-   * `findBooks` answers the same question and takes a page.
-   */
-
   /**
-   * The listing, narrowed and a page at a time (#315).
-   *
-   * One call for all three ways of looking at the library and for every state
-   * of the find screen, because they are one question with different narrowings:
-   * a screen showing books should not have to know which of two routes answers
-   * its particular one.
-   *
-   * `total` is what the query matched and `counts` is the whole collection, which
-   * is what makes "6 of 1,204 books" one response rather than two.
+   * The listing, narrowed and a page at a time. `total` is what the query matched
+   * and `counts` is the whole collection, which is what makes "6 of 1,204 books"
+   * one response rather than two.
    */
   findBooks: (query: BookQuery = {}) =>
     request<{ books: FiledBookRow[]; total: number; counts: Counts }>(
       `/api/books?${bookQuery(query)}`,
     ),
 
-  /** Every tag somebody keeps, with how many books each one has. */
   tags: () => request<{ tags: TagRow[] }>('/api/tags'),
 
-  /** What one book is under, and who said each one. */
   bookTags: (id: number) => request<{ tags: AppliedTag[] }>(`/api/books/${id}/tags`),
 
   /**
-   * Somebody saying what a book is, which is `source: 'person'` and the only
-   * kind of tag no automatic rewrite may take back.
-   *
-   * The tag is defined if the collection has not got it yet and applied in the
-   * one call, because it is one act: nothing here creates a word nobody has put
-   * on a book. Which slug and which label is decided before this is called, by
-   * `domain/tagging/naming.ts`, so that the rule about two spellings of one idea
-   * is testable without a network.
-   *
-   * It reaches a queued capture as readily as a shelved book, because since #183
-   * a capture is a row in `books` from its first photograph. That is what lets
-   * the check-the-details screen write a person's tag at the moment they say it,
-   * rather than carrying it in a draft as far as the shelving step and hoping
-   * the walk between the two screens survives.
+   * Somebody saying what a book is, which is `source: 'person'`, the only kind of
+   * tag no automatic rewrite may take back. The tag is defined if the collection
+   * has not got it yet and applied in the one call. Which slug and which label is
+   * decided by `domain/tagging/naming.ts` before this is called. It reaches a
+   * queued capture as readily as a shelved book, because a capture is a row in
+   * `books` from its first photograph.
    */
   applyTag: (id: number, tag: { slug: string; label: string }) =>
     request<{ tags: AppliedTag[] }>(`/api/books/${id}/tags`, {
@@ -1971,15 +1430,9 @@ export const api = {
     ),
 
   /**
-   * Making a word with no book in your hand (#452).
-   *
-   * The same body `applyTag` sends and the same decision behind it: which slug
-   * and which label are `domain/tagging/naming.ts`, before either of these is
-   * called, so the three doors onto naming a tag cannot drift into three ideas
-   * of what "comic books" means.
-   *
-   * It answers the tag, with its count of nought on it, because that count is
-   * the whole evidence that anything happened.
+   * Making a word with no book in your hand. The same body `applyTag` sends, and
+   * which slug and which label are `domain/tagging/naming.ts` before either is
+   * called, so the doors onto naming a tag cannot drift apart.
    */
   defineTag: (tag: { slug: string; label: string }) =>
     request<{ tag: TagRow }>('/api/tags', {
@@ -1988,12 +1441,9 @@ export const api = {
     }),
 
   /**
-   * Unmaking one, which the server allows only while nothing depends on it.
-   *
-   * Refused with a 409 and a sentence when a book carries it or a rule asks for
-   * it. The screen draws that sentence rather than working the reason out again
-   * from the row it happens to be holding, which would be a second opinion about
-   * what may be removed.
+   * Refused with a 409 and a sentence when a book carries the tag or a rule asks
+   * for it. The screen draws that sentence rather than working the reason out
+   * again from the row it happens to be holding.
    */
   forgetTag: (slug: string) =>
     request<{ removed: string }>(`/api/tags?slug=${encodeURIComponent(slug)}`, {
@@ -2001,10 +1451,8 @@ export const api = {
     }),
 
   /**
-   * Where a book has been, newest first.
-   *
-   * Read only. There are four statements that write a placement and all four are
-   * on the server; this reads the rows they wrote and adds nothing.
+   * Where a book has been, newest first. Read only: the four statements that
+   * write a placement are all on the server.
    */
   placements: (id: number) =>
     request<{ been: Been[]; total: number }>(`/api/books/${id}/placements`),
@@ -2021,12 +1469,9 @@ export const api = {
     ),
 
   /**
-   * A whole range drawn: its planks, what stands on each, and where it opens.
-   *
-   * `begins` is what the first plank of the run is called, and **null when no
-   * rule says where the range begins** (#479). It is the only thing that tells
-   * an empty `groups` apart from a range nothing places: both draw no planks,
-   * and only one of them is a collection with nothing catalogued in it.
+   * `begins` is what the first plank of the run is called, and null when no rule
+   * says where the range begins. It is the only thing that tells an empty
+   * `groups` apart from a range nothing places.
    */
   shelves: (range: ShelfRange) =>
     request<{
@@ -2039,21 +1484,11 @@ export const api = {
 
   /**
    * The person at the shelf says it will not take another book. Returns the
-   * single step they would have to perform, and draws it, without changing
-   * anything.
-   *
-   * Asking and doing are two calls because they are two different things. The
-   * shelves are the record of where books physically are, so nothing about
-   * them may change until somebody has actually carried a book: proposing a
-   * move used to shift the boundary at once, which took the book off the plank
-   * the person was still standing at and left it off if they walked away
-   * (#111).
-   *
-   * `sortKey` is the book being placed, and passing it is what lets the server
-   * answer with `carry`: when the book belongs at the end of the full shelf it
-   * is the one that moves, and nothing already shelved is touched. Without it
-   * the server can only see the shelves, so it can only offer to displace a
-   * book that is on one, which is the extra handling #77 was about.
+   * single step they would have to perform, without changing anything: the
+   * shelves record where books physically are, so nothing about them may change
+   * until somebody has actually carried a book. `sortKey` is the book being
+   * placed, and passing it is what lets the server answer with `carry`, where the
+   * book in hand moves and nothing already shelved is touched.
    */
   planOverflow: (
     range: ShelfRange,
@@ -2075,11 +1510,9 @@ export const api = {
 
   /**
    * The person says they have carried it, so the shelves change to match.
-   *
-   * `expectId` is the book they were told to move. The server recomputes the
-   * step and refuses if the plank now ends with a different book, because a
-   * cascade confirms its outermost move last (#110) and an answer given
-   * against an arrangement that predates the last move is the bug #106 fixed.
+   * `expectId` is the book they were told to move: the server recomputes the step
+   * and refuses if the plank now ends with a different book, because a cascade
+   * confirms its outermost move last.
    */
   overflowShelf: (
     range: ShelfRange,
@@ -2101,24 +1534,13 @@ export const api = {
     }),
 
   /**
-   * Move the boundary so the first or last book of an area belongs on the
-   * plank next door.
-   *
-   * Only the furniture changes here, and deliberately nothing else. Saying
-   * which plank the book is physically on is an observation about the room,
-   * made by somebody who has walked over and put it there, so it goes through
-   * the shelving step and its `PATCH .../location` like every other placement
-   * (#79). Until they say so the book is genuinely not where the catalogue
-   * has it, and the library reports exactly that, which is the same shape the
-   * overflow cascade has always had.
-   *
-   * The server refuses a book that is not at a boundary; the controls that
-   * call this are only offered on ones that are. Both, deliberately.
-   *
-   * `theAreaGoes` says somebody has been asked about the one move that removes
-   * furniture, and the server refuses without it (#433). It is not a flag the
-   * caller may set to be rid of a dialog: it means a person read what would
-   * happen and pressed the button that does it.
+   * Move the boundary so the first or last book of an area belongs on the plank
+   * next door. Only the furniture changes, deliberately: saying which plank the
+   * book is physically on goes through the shelving step and its
+   * `PATCH .../location`, so until somebody says so the book is genuinely not
+   * where the catalogue has it. `theAreaGoes` means a person read what the one
+   * move that removes furniture would do and pressed the button that does it, and
+   * the server refuses without it.
    */
   moveAcrossBoundary: (
     range: ShelfRange,
@@ -2136,17 +1558,11 @@ export const api = {
     }),
 
   /**
-   * Take a boundary move back, for a book nobody picked up.
-   *
-   * Not `moveAcrossBoundary` with the direction reversed. That asks where the
-   * rules would put the book now; this puts the boundaries back where they were
-   * before the move, which after a move that emptied an area is a different
-   * plank. And it writes no location at all: the book never left the one the
-   * catalogue records, so there is nothing about the room to say.
-   *
-   * Offered only for a misfile the server lists under `outstandingMoves`. The
-   * server checks again, and rolls the whole thing back if putting the
-   * boundaries back does not put the book back.
+   * Take a boundary move back, for a book nobody picked up. Not
+   * `moveAcrossBoundary` with the direction reversed: that asks where the rules
+   * would put the book now, while this puts the boundaries back where they were,
+   * which after a move that emptied an area is a different plank. It writes no
+   * location at all, because the book never left the one the catalogue records.
    */
   retractMove: (range: ShelfRange, id: number) =>
     request<{
@@ -2160,14 +1576,10 @@ export const api = {
     }),
 
   /**
-   * Take the line between two areas out, merging the one below into the one
-   * above it.
-   *
-   * `theAreaGoes` says somebody has been asked, and the server refuses without
-   * it (#456), the same way `moveAcrossBoundary` does for the same act reached
-   * from a book's own page. The refusal arrives as a `Refusal` carrying an
-   * `AreaGoing` as its `effect`, which is what the dialog reads: it is not a
-   * flag a caller may set to be rid of a question.
+   * Take the line between two areas out, merging the one below into the one above
+   * it. `theAreaGoes` says somebody has been asked, and the server refuses
+   * without it; the refusal arrives as a `Refusal` carrying an `AreaGoing` as its
+   * `effect`, which is what the dialog reads.
    */
   removeSeparator: (id: number, range: ShelfRange, theAreaGoes = false) =>
     request<{ groups: ShelfGroupDto[]; moves: Move[] }>(
@@ -2179,18 +1591,15 @@ export const api = {
     request<ShelvingReviewResponse>(`/api/misfiles?range=${range}`),
 
   /**
-   * Where a run lives, what it is cut into, and whether it can be moved.
-   *
-   * The one read the arrange screen draws itself from, asked before it offers a
-   * destination rather than after somebody has picked one. **Writes nothing.**
+   * Where a run lives, what it is cut into, and whether it can be moved. Writes
+   * nothing.
    */
   runMoveOffer: (range: ShelfRange) =>
     request<RunMoveOffer>(`/api/placement/run?range=${range}`),
 
   /**
-   * What moving a whole run onto another bookcase would mean. **Writes
-   * nothing**, which is why it is safe to call as somebody changes their mind
-   * about the number.
+   * What moving a whole run onto another bookcase would mean. Writes nothing, so
+   * it is safe to call as somebody changes their mind about the number.
    */
   planRunMove: (range: ShelfRange, bookcase: number) =>
     request<RunMovePlan>('/api/placement/run/plan', {
@@ -2199,12 +1608,9 @@ export const api = {
     }),
 
   /**
-   * Move it, and record where the rules now want every book.
-   *
-   * This still moves no books. What comes back is the plan that was applied and
-   * the count of assignments written; the books are carried afterwards, and the
-   * list of what is outstanding is the same needs-attention list the library
-   * already shows.
+   * Move it, and record where the rules now want every book. This still moves no
+   * books: what comes back is the plan that was applied and the count of
+   * assignments written, and the books are carried afterwards.
    */
   applyRunMove: (range: ShelfRange, bookcase: number) =>
     request<{ plan: RunMovePlan; wrote: AssignmentReport }>('/api/placement/run', {
@@ -2213,22 +1619,16 @@ export const api = {
     }),
 
   /**
-   * The rules on one place, in the shape they go back in.
-   *
-   * The one read in this app that answers a tag by its identity rather than by
-   * its label, because that is what writing needs and a label matched back
-   * against the vocabulary would start asking for a different tag the day two
-   * of them read alike.
+   * The rules on one place, in the shape they go back in. The one read in this
+   * app that answers a tag by its identity rather than by its label, because that
+   * is what writing needs.
    */
   placeRules: (about: 'area' | 'fixture', placeId: number) =>
     request<{ rules: DraftRule[] }>(
       `/api/placement/rule?about=${about}&placeId=${placeId}`,
     ),
 
-  /**
-   * What changing what a place allows would do. **Writes nothing**, which is
-   * what lets the rule stay a draft on the screen until somebody has read this.
-   */
+  /** What changing what a place allows would do. Writes nothing. */
   planRuleChange: (draft: RuleDraft) =>
     request<{ plan: RuleChangePlan }>('/api/placement/rule/plan', {
       method: 'POST',
@@ -2236,11 +1636,8 @@ export const api = {
     }),
 
   /**
-   * Write the rule, and record where the rules now want every book.
-   *
-   * Still moves no books. What comes back is the plan that was applied and the
-   * count of assignments written, and the books themselves are on the carry
-   * list, which is the one this app already keeps.
+   * Write the rule, and record where the rules now want every book. Still moves
+   * no books: they go on the carry list.
    */
   applyRuleChange: (draft: RuleDraft) =>
     request<{ plan: RuleChangePlan; wrote: AssignmentReport }>('/api/placement/rule', {
@@ -2249,38 +1646,23 @@ export const api = {
     }),
 
   /**
-   * Everything still to be carried. **Read only, and worked out afresh.**
-   *
-   * Neither `planRunMove` nor `misfiles` could answer this. The first answers a
-   * question about furniture that does not exist yet and never reads an
-   * assignment; the second compares a recorded label against one derived from
-   * the sort order, one run at a time, and answers a flat list. See
+   * Everything still to be carried. Read only, and worked out afresh. See
    * `server/carry.ts`.
    */
   carry: () => request<CarryWork>('/api/carry'),
 
   /**
-   * One trip, read at the area the books come off.
-   *
-   * The areas go over as ids rather than labels, because a label is worked out
-   * from where a piece stands and somebody renaming a bookcase between the list
-   * and the trip would send this at a plank that no longer answers to it.
+   * One trip, read at the area the books come off. The areas go over as ids
+   * rather than labels, because somebody renaming a bookcase between the list and
+   * the trip would send this at a plank that no longer answers to the label.
    */
   carryTrip: (from: number, to: number) =>
     request<TripAtAnArea>(`/api/carry/trip?from=${from}&to=${to}`),
 
   /**
-   * Leave these books where they are, and stop the list asking for them.
-   *
-   * **No book moves.** It writes down that the answer was declined and nothing
-   * else: where every book is stays exactly what somebody last said it was, the
-   * ones already carried keep the home they were carried to, and pinned books
-   * are not reachable from here at all.
-   *
-   * A trip, or the whole of the outstanding work when none is named. The list
-   * comes back redrawn rather than being patched here, for the reason every
-   * write on these screens answers with the thing re-described: a screen that
-   * subtracted its own number would be a screen with an opinion.
+   * Leave these books where they are, and stop the list asking for them. No book
+   * moves: it writes down that the answer was declined and nothing else. A trip,
+   * or the whole of the outstanding work when none is named.
    */
   carryLeave: (trip?: { from: number; to: number }) =>
     request<{ books: number; work: CarryWork }>('/api/carry/leave', {
@@ -2299,25 +1681,16 @@ export const api = {
   setLocationIn,
 
   /*
-   * The furniture (#307's routes, #313's screens).
-   *
-   * Eleven calls, and not one of them takes a label: a label is worked out from
-   * where a thing sits, so there is nothing to send and nothing worth keeping.
-   * Every write answers with the thing re-described and with `becomes`, and a
-   * screen redraws from that rather than from what it had.
+   * The furniture. Not one of these calls takes a label: a label is worked out
+   * from where a thing sits, so there is nothing to send and nothing worth
+   * keeping. Every write answers with the thing re-described and with `becomes`,
+   * and a screen redraws from that rather than from what it had.
    */
 
-  /** The whole room: every piece on the floor and every area on its face. */
   furniture: () => request<FurnitureDto>('/api/fixtures'),
 
   /**
    * What the whole collection falls back on when nothing nearer has an opinion.
-   *
-   * The eleventh call, and the only one about the collection rather than about
-   * a piece of it. There is no read beside it because `furniture()` already
-   * answers `defaultSortStrategy`, and no id in the path because there is one
-   * collection.
-   *
    * Refused for `inherit`, which has nothing above it to ask, and for `tag`,
    * which is a way to order one area and not a way to order a house.
    */
@@ -2334,11 +1707,9 @@ export const api = {
     }),
 
   /**
-   * Rename a piece, renumber it, or say what kind of thing it is.
-   *
-   * **Renumbering moves no book.** Every area keeps its id, so a book's
-   * recorded location travels with the furniture; what changes is what the
-   * areas are called, which is `becomes`.
+   * Rename a piece, renumber it, or say what kind of thing it is. Renumbering
+   * moves no book: every area keeps its id, so a book's recorded location travels
+   * with the furniture, and what changes is what the areas are called.
    */
   editFixture: (
     id: number,
@@ -2358,12 +1729,9 @@ export const api = {
     request<{ removed: FixtureRemoval }>(`/api/fixtures/${id}`, { method: 'DELETE' }),
 
   /**
-   * Add an area to a piece.
-   *
-   * **Given nothing, the server decides where it opens** (#381), which is what
-   * lets the fixtures screen add one on a press. `startsAt` is still how a
-   * boundary is placed deliberately, and the empty string still means "from the
-   * beginning" rather than "you choose".
+   * Add an area to a piece. Given nothing, the server decides where it opens.
+   * `startsAt` is still how a boundary is placed deliberately, and the empty
+   * string means "from the beginning" rather than "you choose".
    */
   addArea: (
     fixtureId: number,
@@ -2375,11 +1743,9 @@ export const api = {
     }),
 
   /**
-   * Rename an area, move it along its piece, or give it an order of its own.
-   *
-   * The last one is refused with the effect attached until `acknowledge` is
-   * set, because an area that orders itself takes no overflow and that cuts the
-   * run it was in. The refusal arrives as a `Refusal` carrying what to show.
+   * Rename an area, move it along its piece, or give it an order of its own. The
+   * last is refused with the effect attached until `acknowledge` is set, because
+   * an area that orders itself takes no overflow and that cuts the run it was in.
    */
   editArea: (
     id: number,
@@ -2397,67 +1763,33 @@ export const api = {
     }),
 
   /**
-   * The books standing in one area, by identity (#323).
-   *
-   * **This is what the label match became.** Cutting an area in two needs the
-   * books in it, and #313 got them by asking for both stretches of shelving and
-   * finding the group whose label matched the area's. A label is worked out from
-   * a piece's number and name and an area's ordinal and name, so a rename, a
-   * reorder or two pieces standing on one number would each have picked the
-   * wrong books without saying anything.
+   * The books standing in one area, by identity rather than by label: a rename, a
+   * reorder or two pieces standing on one number would each pick the wrong books
+   * without saying anything.
    */
   areaBooks: (id: number) => request<AreaBooks>(`/api/areas/${id}/books`),
 
-  /**
-   * The same, about a whole piece: every book standing on its face, in order.
-   *
-   * A piece's page shows what its sort rule does to its books, and that is a
-   * question about the piece rather than about any one plank of it.
-   */
+  /** The same, about a whole piece: every book standing on its face, in order. */
   fixtureBooks: (id: number) => request<FixtureBooks>(`/api/fixtures/${id}/books`),
 
   /**
-   * Why a book is where it is: which rule claimed it, and which ones lost.
-   *
-   * Read only. An empty `claims` is the honest answer for a book no rule claims,
-   * not an error.
+   * Why a book is where it is. Read only, and an empty `claims` is the honest
+   * answer for a book no rule claims rather than an error.
    */
   bookClaim: (id: number) => request<{ claim: BookClaim }>(`/api/books/${id}/claim`),
 
   /**
-   * Every book no rule claims, and how many there are (#341).
-   *
-   * **The question nothing in the app could ask.** No listing expresses it: the
-   * tag filter has no negation and negating a tag would answer a different
-   * question anyway, because "no rule claims it" is about the rules rather than
-   * about a slug. `booksNoRuleClaims` puts it to the same function that places a
-   * book, so this list and the claim screen cannot disagree about one.
-   *
-   * `total` beside a capped page, which is `findBooks`' pair: the count is what
-   * the first screen's door is drawn from, and the names are what explain it.
-   *
-   * Read only, and it must stay that way. Answering it by writing a genre tag is
-   * exactly what #304 stopped doing on the owner's explicit instruction; what
-   * settles one of these books is a person saying what it is, through
-   * `applyTag`.
+   * Every book no rule claims, and how many there are. `total` sits beside a
+   * capped page. Read only, and it must stay that way: what settles one of these
+   * books is a person saying what it is, through `applyTag`.
    */
   unclaimed: () =>
     request<{ books: UnclaimedBook[]; total: number }>('/api/placement/unclaimed'),
 
   /**
-   * Every book the shelf and the rules disagree about, and how many (#489).
-   *
-   * **The check is older than this call by a long way.** `areaDisagreements`
-   * has run on every start since #213 and wrote its answer to the server log,
-   * which is where it stayed while #485's twelve books went unread for three
-   * weeks. This is the same answer, asked for by something a person looks at.
-   *
-   * `total` beside a capped page, which is `unclaimed`'s pair above: the first
-   * screen says the number and the shelves screen names the books.
-   *
-   * Read only, and there is nothing to write to. Repairing a disagreement
-   * erases how it happened, which is exactly what made the state in #485
-   * diagnosable three weeks after it started.
+   * Every book the shelf and the rules disagree about, and how many. `total` sits
+   * beside a capped page. Read only, and there is nothing to write to: repairing
+   * a disagreement erases how it happened.
    */
   drift: () =>
     request<{ books: DriftingBook[]; total: number }>('/api/placement/drift'),
@@ -2468,22 +1800,16 @@ export const api = {
 
   /**
    * Take an area off a piece and let its books fall into the next one along.
-   *
-   * Closer to a merge than a deletion: no book is deleted and none is moved.
-   * What is written is where the rules now want each book, and the difference
-   * between that and where somebody last saw it is the needs-attention list.
+   * Closer to a merge than a deletion: no book is deleted and none is moved, and
+   * what is written is where the rules now want each book.
    */
   dropArea: (id: number) =>
     request<{ plan: AreaRemovalPlan }>(`/api/areas/${id}`, { method: 'DELETE' }),
 
   /**
-   * The counts on the first screen, and what the catalogues have been doing.
-   *
-   * `lookups` is read here rather than fetched separately because this call
-   * already happens on every route change, so the catalogue standings cost
-   * nothing extra and are as fresh as the counts beside them. The endpoint also
-   * answers `db` and `placement`, which are for whoever curls the server and
-   * have no screen; they are typed only as far as this client reads them.
+   * The counts on the first screen, and what the catalogues have been doing. The
+   * endpoint also answers `db` and `placement`, which have no screen and are
+   * typed here only as far as this client reads them.
    */
   health: () =>
     request<{ ok: boolean; counts: Counts; db: string; lookups: LookupStandings }>(
@@ -2492,48 +1818,35 @@ export const api = {
 
   /**
    * Whether there is a backup of this collection anybody has proved restores.
-   *
-   * Files on a disk, asked about once, on the first screen. Nothing here says
-   * whether a scheduled job started, because it started on both of the two
-   * occasions this went unnoticed for days (#239, #311). See
+   * Nothing here says whether a scheduled job started. See
    * `server/backup-watch.ts`.
    */
   backup: () => request<BackupWatch>('/api/backup'),
 
   /**
-   * The three doors in front of the gate this client needs (#524).
-   *
-   * They are the only calls here that answer to somebody with no session, and
-   * they are grouped so that is visible: everything else on this object is
-   * behind the gate and answers `401` or `403` to the same caller.
+   * The only calls here that answer to somebody with no session, grouped so that
+   * is visible. Everything else on this object is behind the gate and answers
+   * `401` or `403` to the same caller.
    */
   auth: {
     /**
-     * Which of the three states this browser is in, asked of the server.
-     *
-     * **The client never decides this and never remembers it.** #524: "a client
-     * that remembers being admitted is a client that will show the app to
-     * somebody who has just been disabled." The gate reads `enabled` off the
-     * user row on every request precisely so that disabling somebody takes
-     * effect on their next one, and a cached answer here would throw that away.
+     * Which of the three states this browser is in, asked of the server. The
+     * client never decides this and never caches it: the gate reads `enabled` off
+     * the user row on every request so that disabling somebody takes effect on
+     * their next one, and a cached answer here would throw that away.
      */
     session: () => request<SessionAnswer>('/api/auth/session'),
 
     /**
-     * The ways in, as the server lists them.
-     *
-     * What makes adding a provider a configuration change: the sign-in screen
-     * draws this answer rather than a list written into it. The development
-     * door is in here like any other and is deliberately not told apart.
+     * The ways in, as the server lists them: the sign-in screen draws this answer
+     * rather than a list written into it. The development door is in here like
+     * any other and is deliberately not told apart.
      */
     providers: () => request<{ providers: SignInProvider[] }>('/api/auth/providers'),
 
     /**
-     * Give up the session in this browser's cookie.
-     *
-     * Not `request`, because this answers `204` with no body and `request`
-     * parses one. The one thing the waiting screen can offer a person who
-     * signed in as the wrong somebody.
+     * Give up the session in this browser's cookie. Not `request`, because this
+     * answers `204` with no body and `request` parses one.
      */
     signOut: async (): Promise<void> => {
       const response = await fetch('/api/auth/signout', {
@@ -2554,8 +1867,7 @@ export const api = {
 export const emptyDraft: Draft = {
   isbn13: '', isbn10: '', title: '', subtitle: '', authors: '', publisher: '',
   // No genre, because an empty draft is nothing having been said about a book
-  // and fiction is something (#304). The review pane comes up with neither
-  // option highlighted until a lookup or a person states one.
+  // and fiction is something.
   published: '', pages: '', notes: '', genre: null,
   classificationSource: 'auto', classificationConfidence: 'unknown',
   seriesName: '', seriesIndex: '', location: '', lookupSource: '',
@@ -2563,13 +1875,9 @@ export const emptyDraft: Draft = {
 }
 
 /**
- * Fill a draft from what the catalogue returned.
- *
- * `isbnSource` is not in the lookup and cannot be: the catalogue only knows
- * the number it was asked about, not how the number was read. It comes from
- * whoever did the reading, so the caller passes it, and a book catalogued at
- * the camera keeps the difference between a self-validating barcode and an
- * OCR guess the lookup happened to agree with.
+ * `isbnSource` is not in the lookup and cannot be: the catalogue only knows the
+ * number it was asked about, not how the number was read, so the caller passes
+ * it.
  */
 export function draftFromLookup(result: LookupResponse, isbnSource = ''): Draft {
   return {
@@ -2614,19 +1922,10 @@ export function editsOn(capture: Capture): CaptureEdit {
 
 /**
  * A queued capture as the worker left it, with nothing a person said on top.
- *
- * `title_guess` is deliberately not in here (#156). It is `coverLines[0]`, the
- * first line OCR read off a photograph, and this draft is what the review
- * pane's Title box is filled from and what Save writes to the catalogue. A
- * guess poured into that box is saved by the next person who agrees with
- * everything on the screen, and the catalogue then holds a machine's reading
- * of a photograph that is indistinguishable from a title somebody confirmed.
- * That is the whole of #147, and it was still true one field over.
- *
- * The guess is not thrown away: it names the row in the queue, through
- * `captureName`, which is a use it is good enough for. An ISBN read off a
- * barcode is kept because it is self-validating and was confirmed against a
- * catalogue before it was written.
+ * `title_guess` is deliberately not in here: it is the first line OCR read off a
+ * photograph, and this draft fills the Title box that Save writes to the
+ * catalogue, so the guess would become indistinguishable from a confirmed title.
+ * It names the row in the queue instead, through `captureName`.
  */
 function machineDraft(capture: Capture): Draft {
   const looked = lookupOn(capture)
@@ -2639,17 +1938,11 @@ function machineDraft(capture: Capture): Draft {
         isbnSource: capture.isbn_source,
       }
   /*
-   * The row's own columns have the last word about the identifier, and only
-   * about the identifier (#436).
-   *
-   * A catalogue's record is not obliged to carry the number it was found by:
-   * Open Library answers plenty of editions with no ISBN-13 identifier on them
-   * at all. Taking the lookup's copy and nothing else meant a book the row and
-   * the queue listing both showed a number for could reach the screen where it
-   * is corrected saying "Not read yet", which is the app telling somebody to
-   * retype a number it already has. Nothing else falls back like this: a title
-   * or an author off the row would be a machine's reading promoted into a box
-   * somebody saves (#147), and there is no such column to promote anyway.
+   * The row's own columns have the last word about the identifier, and only about
+   * the identifier: a catalogue's record is not obliged to carry the number it was
+   * found by, and Open Library answers plenty of editions with no ISBN-13 on them
+   * at all. Nothing else falls back like this, because a title or an author off
+   * the row would be a machine's reading promoted into a box somebody saves.
    */
   return {
     ...base,
@@ -2659,13 +1952,10 @@ function machineDraft(capture: Capture): Draft {
 }
 
 /**
- * A queued capture in the shape the review pane edits.
- *
- * The whole precedence rule, on the reading side: the worker's lookup is the
- * base, and whatever a person stated goes on top of it, field by field. That
- * is what makes the middle person's work durable across a handoff. The two
- * live in separate columns, so a re-analysis can improve the base underneath
- * without ever displacing a correction laid over it.
+ * The precedence rule on the reading side: the worker's lookup is the base, and
+ * whatever a person stated goes on top of it, field by field. The two live in
+ * separate columns, so a re-analysis can improve the base underneath without
+ * displacing a correction laid over it.
  */
 export function draftFromCapture(capture: Capture): Draft {
   const base = machineDraft(capture)
@@ -2691,25 +1981,11 @@ export function draftFromCapture(capture: Capture): Draft {
 }
 
 /**
- * The identifier a reading produced, laid into a draft that has none (#436).
- *
- * **For the camera, where there is no draft to read a capture into.** Opening a
- * book from the queue goes through `draftFromCapture` above and always has; the
- * camera watches the capture it is filling and had exactly two answers for what
- * came back, a found lookup and an error banner. So the third outcome, which is
- * the ordinary one for a book no catalogue has, put nothing anywhere: the
- * barcode decoded, the digits went to the row and to the database, and the
- * screen where the book is corrected said "Not read yet" underneath a banner
- * quoting the very number it had read.
- *
- * Two rules, and both are about not claiming more than was read:
- *
- * - **The identifier and nothing else.** No catalogue answered, so there is no
- *   title and no author to carry, and what OCR read off the cover is evidence
- *   rather than an answer (#147).
- * - **A person's answer wins.** An empty box is filled in; one somebody has
- *   already answered is left exactly as it is, which is the precedence the
- *   queue keeps on the server (#65) said once more on this side of the wire.
+ * The identifier a reading produced, laid into a draft that has none, for the
+ * camera, where there is no draft to read a capture into. The identifier and
+ * nothing else, because no catalogue answered and what OCR read off the cover is
+ * evidence rather than an answer. An empty box is filled in; one somebody has
+ * already answered is left exactly as it is.
  */
 export function withReadIsbn(
   draft: Draft,
@@ -2725,31 +2001,22 @@ export function withReadIsbn(
   }
 }
 
-/** What to call a capture on a screen that lists several of them. */
 export interface CaptureName {
   /** What to draw. Never empty, because a row with no name is unworkable. */
   text: string
   /**
-   * True when `text` is the OCR guess and nothing better. Callers draw that
-   * differently, so somebody reading a stack of rows can tell a title the app
-   * was told from one it read off a photograph.
-   *
-   * False for the number, which is not a guess: it is the capture's own id.
+   * True when `text` is the OCR guess and nothing better, so callers can draw it
+   * differently. False for the number, which is not a guess but the capture's own
+   * id.
    */
   guessed: boolean
 }
 
 /**
- * Naming a capture, which is a different job from filling in its Title box.
- *
- * Those two used to be one value and that is the defect in #156. A queue of
- * unresolved captures that all read "Book #41", "Book #42" is unworkable, so
- * the machine's reading has to be allowed to name a row; but a name is read
- * and discarded, and a field is saved. So the guess names rows here, marked as
- * a guess, and reaches no draft anywhere.
- *
- * Order: what anybody stated or a catalogue confirmed, then the guess, then
- * the number. A capture has no catalogue id and often no title at all.
+ * Naming a capture, which is a different job from filling in its Title box: a
+ * name is read and discarded, and a field is saved, so the guess names rows here,
+ * marked as a guess, and reaches no draft anywhere. Order: what anybody stated or
+ * a catalogue confirmed, then the guess, then the number.
  */
 export function captureName(capture: Capture): CaptureName {
   const confirmed = draftFromCapture(capture).title.trim()
@@ -2762,17 +2029,11 @@ export function captureName(capture: Capture): CaptureName {
 }
 
 /**
- * What changed between the capture as it was put in front of somebody and the
- * draft they are looking at now.
- *
- * A difference, not the whole draft, and that is the point. On the server a
- * key that is present means a person decided that field and the background
- * worker must leave it alone, so sending every field would freeze the worker
- * out of a capture because somebody fixed one word in the title. Fields the
- * person did not touch are not claimed on their behalf.
- *
- * Returns an empty object when nothing changed, which is still worth sending:
- * it records that somebody looked and left the book as it was.
+ * A difference, not the whole draft: on the server a key that is present means a
+ * person decided that field and the background worker must leave it alone, so
+ * sending every field would freeze the worker out of a capture because somebody
+ * fixed one word in the title. An empty object is still worth sending, because it
+ * records that somebody looked and left the book as it was.
  */
 export function editFromDraft(draft: Draft, shown: Draft): CaptureEdit {
   const edit: CaptureEdit = {}
@@ -2799,7 +2060,6 @@ export function editFromDraft(draft: Draft, shown: Draft): CaptureEdit {
   return edit
 }
 
-/** Load a saved book back into the shape the detail view edits. */
 export function draftFromBook(book: BookRow): Draft {
   return {
     ...emptyDraft,
@@ -2812,10 +2072,8 @@ export function draftFromBook(book: BookRow): Draft {
     published: book.published ?? '',
     pages: book.pages ?? '',
     notes: book.notes ?? '',
-    // The genre tag's own answer, read back off the range it settled on. The
-    // client sends a slug and reads one, and `books.is_fiction` is gone (#227).
-    // Null for a book in neither run, which is a book no genre tag claims
-    // (#304) and which must not come up showing a tag nothing stated.
+    // The genre tag's own answer, read back off the range it settled on. Null for
+    // a book in neither run, which must not come up showing a tag nothing stated.
     genre: genreOfRange(book.shelf_range),
     classificationSource: book.classification_source || 'manual',
     classificationConfidence: book.classification_confidence || 'unknown',

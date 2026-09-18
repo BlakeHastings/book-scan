@@ -1,17 +1,15 @@
 /**
- * The half of the backup that is a property of the server rather than of this
- * code: what `readDigest` actually reads out of a real Postgres.
+ * What `readDigest` actually reads out of a real Postgres.
  *
- * Postgres-only, and not because of an accident of where the code lives. The
- * catalogue being backed up is Postgres, `md5(string_agg(... order by ...))`
- * has no SQLite spelling that means the same thing, and the failure this exists
- * to catch is a collation failure, which SQLite cannot have: it compares text
- * byte by byte with no exceptions.
+ * Postgres-only: the catalogue being backed up is Postgres,
+ * `md5(string_agg(... order by ...))` has no SQLite spelling that means the
+ * same thing, and the failure this exists to catch is a collation failure,
+ * which SQLite cannot have since it compares text byte by byte with no
+ * exceptions.
  *
- * The last test here is the one that matters. It is the manual proof from the
- * pull request that added this file, turned into something that runs on every
- * change: a catalogue whose rows are byte for byte identical and whose shelf
- * order is wrong, which every row count and every content digest calls fine.
+ * The last test here is the one that matters: a catalogue whose rows are
+ * byte for byte identical and whose shelf order is wrong, which every row
+ * count and every content digest calls fine.
  */
 
 import { getTableName } from 'drizzle-orm'
@@ -26,9 +24,8 @@ let ask: Queryable
 
 beforeEach(async () => {
   db = await openTestDatabase()
-  // `readDigest` takes anything that can be asked a question, so a pg.Client, a
-  // pg.Pool and the app's own Db all fit. The tool hands it the client holding
-  // the transaction the dump's snapshot was exported from.
+  // `readDigest` takes anything that can be asked a question, so a pg.Client,
+  // a pg.Pool and the app's own Db all fit.
   ask = { query: async (sql: string) => ({ rows: await db.all<Record<string, unknown>>(sql) }) }
 })
 
@@ -109,28 +106,21 @@ describe('reading a catalogue digest', () => {
       captures: 0,
       book_authors: 0,
       author_filing: 0,
-      // The remodel's tables, none of which the hard-coded six named. #212.
+      // Tables the original hard-coded list never named.
       book_tag: 0,
       author_alias: 0,
       capture: 0,
-      // Where the furniture is written down, and where `separators` and
-      // `shelf_ranges` went when #232 dropped them: `0013` turned each of the
-      // two ranges into a bookcase with one area on it. Seeded by the
-      // migrations and edited by the owner, so it is backed up like everything
-      // else somebody typed.
+      // Where the furniture is written down: `0013` turns each of the two
+      // ranges into a bookcase with one area on it, seeded by the migrations.
       fixture: 2,
       area: 2,
     })
   })
 
   /**
-   * The property the whole change rests on: **a table is covered by existing.**
-   *
-   * The list used to be six names in `backup.ts`, written when the schema had
-   * six tables. Thirteen have arrived since, every one of them dumped and none
-   * of them checked, and two more remodel steps are still to come. Asserting
-   * against the schema rather than against a second list here means the day
-   * somebody adds a table and this stops being true, this test says so.
+   * Asserting against the schema rather than against a second list here
+   * means the day somebody adds a table and forgets to cover it, this test
+   * says so.
    */
   it('covers every table the schema declares, and nothing else', async () => {
     const digest = await readDigest(ask)
@@ -138,14 +128,10 @@ describe('reading a catalogue digest', () => {
   })
 
   /**
-   * The two things a derived list is entitled to pick up and must not.
-   *
-   * `drizzle.__drizzle_migrations` is the migrator's record of which files it
-   * has run, not the owner's catalogue, and it is in its own schema so it can
-   * be told apart. Three of the views are `books` under three predicates and the
-   * fourth is `capture` under one: digesting one would count rows a second time
-   * and report a difference in several places whenever the table under it moved
-   * in one.
+   * `drizzle.__drizzle_migrations` is the migrator's own record, not the
+   * owner's catalogue, and is in its own schema so it can be told apart.
+   * Three of the views are `books` under a predicate and the fourth is
+   * `capture` under one: digesting a view would count rows a second time.
    */
   it('leaves the views and the migrator\'s bookkeeping out', async () => {
     const digest = await readDigest(ask)
@@ -170,11 +156,9 @@ describe('reading a catalogue digest', () => {
   })
 
   /**
-   * The failure #212 is about, on a real database.
-   *
-   * One row goes missing from `book_tag`, which is a table the six names never
-   * covered. Every one of those six matches, both order hashes match, and the
-   * comparison the tool made until now found nothing to say.
+   * One row goes missing from `book_tag`, a table the original hard-coded
+   * six never covered: every one of those six still matches, and both order
+   * hashes match, so only the schema-driven digest catches it.
    */
   it('catches a row lost from a table the hard-coded six never named', async () => {
     await addBooks()
@@ -252,30 +236,22 @@ describe('reading a catalogue digest', () => {
   })
 
   /**
-   * The whole reason the shelf order is hashed at all.
-   *
    * `COLLATE "C"` is dropped from `books.sort_key`, which is exactly what a
-   * restore onto a server built differently, or a schema change nobody noticed,
-   * would do. Not one byte of one row changes: every count matches, every
-   * content digest matches, and the books come back in a different order.
-   *
-   * A backup check that compared only counts would call this restore good, and
-   * the app would then tell somebody to put a book in the wrong place.
+   * restore onto a server built differently, or a schema change nobody
+   * noticed, would do. Not one byte of one row changes: every count matches,
+   * every content digest matches, and the books come back in a different
+   * order. A backup check that compared only counts would call this restore
+   * good.
    */
   it('catches a lost COLLATE "C" that every row count calls fine', async () => {
     await addBooks()
     const correct = await readDigest(ask)
 
     /*
-     * All three views read this column, and Postgres will not change the type
-     * of a column a view depends on. That is a small guard in its own right and
-     * it arrived with #183 rather than being asked for: the collation the whole
-     * shelf rests on cannot be altered out from under a view by accident, and
-     * there are three of them to get past now rather than one.
-     *
-     * They are in the way of damaging the column on purpose, so each is taken
-     * off and put back from its own definition rather than from a copy written
-     * here, which would be a second place to keep three predicates in step.
+     * Postgres will not change the type of a column a view depends on, and
+     * all three views read this one. Each is taken off and put back from its
+     * own definition rather than from a copy written here, which would be a
+     * second place to keep three predicates in step.
      */
     const views = await Promise.all(
       ['shelved_books', 'queued_books', 'catalogued_books'].map(async (name) => ({
@@ -310,12 +286,9 @@ describe('reading a catalogue digest', () => {
   })
 
   /**
-   * `area.starts_at` is the other `COLLATE "C"` column, and it is the column
-   * `separators.starts_at` was before #232: an area is a separator grown a
-   * parent, so the boundary this hash is about did not move, only the table it
-   * lives in. An ordering difference too small to change the book list can
-   * still be large enough to move one book past a boundary, and this is the
-   * only line that would show it.
+   * An ordering difference too small to change the book list can still be
+   * large enough to move one book past a boundary, and this is the only line
+   * that would show it.
    */
   it('catches the same thing on the areas', async () => {
     await addAreas()
@@ -336,14 +309,10 @@ describe('reading a catalogue digest', () => {
   })
 
   /**
-   * A retired area is left out of the order hash on purpose.
-   *
-   * A negative `position` is how an area says it is no longer part of the
-   * arrangement, and nothing files against one, so hashing it would report a
-   * difference about a boundary no book can be on the wrong side of. Leaving it
-   * out costs no coverage, which is the half worth proving rather than
-   * asserting on paper: the row is still counted and still moves the content
-   * digest of `area`, so a retired area lost in a restore is still a failure.
+   * A retired area (negative `position`) is left out of the order hash on
+   * purpose, since nothing files against one. Leaving it out costs no
+   * coverage: the row is still counted and still moves the content digest of
+   * `area`, so a retired area lost in a restore is still a failure.
    */
   it('leaves a retired area out of the order it hashes', async () => {
     await addAreas()
@@ -366,9 +335,7 @@ describe('reading a catalogue digest', () => {
 
   /**
    * The digest is sensitive to type as well as to value: a number that came
-   * back as a string renders identically on a page and sorts differently. This
-   * is the failure the stage H verification was built around, so it is checked
-   * here too rather than assumed to carry over.
+   * back as a string renders identically on a page and sorts differently.
    */
   it('changes the content digest when a value changes without moving a row', async () => {
     await addBooks()

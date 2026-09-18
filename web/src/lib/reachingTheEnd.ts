@@ -1,32 +1,10 @@
 /**
- * When the end of a paged listing arriving on screen is worth another page.
- *
- * The library and the find screen both watch a mark under the last book and
- * fetch the next page when it comes into view. The decision that watching feeds
- * is four lines of arithmetic about two booleans, and it is here rather than
- * inside the effect for the reason `areaRuns` is in its own file: a rule a test
- * can only reach through a browser is a rule that gets tested by looking at it.
- *
- * ## The rule, and the defect it is written against
- *
- * **Asking is an edge, not a state.** The mark being on screen is not a reason
- * to fetch; the mark *arriving* on screen is. The difference is the whole of
- * #364.
- *
- * What it replaced asked whenever the mark was on screen and relied on the page
- * that arrived pushing the mark back off it. That holds for the covers and the
- * list, which grow by a page of height for every page of books. It does not
- * hold for the boards, where one area is one row of spines that scrolls
- * sideways: sixty more books lengthen a row rather than lower the mark, so the
- * mark never left, the answer never changed, and the asking fed itself down the
- * whole catalogue in half a second. The flicker somebody saw at the bottom of
- * the library was `loading` going true and false once per lap.
- *
- * Under this rule that loop has no step to take rather than a slower one. A
- * page that does not move the mark reports nothing new, so nothing asks, and
- * the button underneath is what somebody presses to see more. Infinite scroll
- * is untouched where the drawing really does grow: the mark goes off screen
- * with the page and comes back when the scroll catches up, which is an edge.
+ * Asking is an edge, not a state: the mark being on screen is not a reason to fetch, the mark
+ * *arriving* on screen is. Fetching whenever the mark is on screen relies on the arriving page
+ * pushing the mark back off it, which holds for the covers and the list but not for the boards,
+ * where one area is a row of spines that scrolls sideways: more books lengthen the row rather
+ * than move the mark, so the mark never leaves and a level check would fetch the whole catalogue
+ * in a loop.
  */
 
 /** What the last report said, which is all the memory this needs. */
@@ -45,12 +23,8 @@ export interface Reached {
 }
 
 /**
- * Fold one report from the watcher into the reach, and say whether to fetch.
- *
- * `loading` suppresses the fetch and not the edge. A page already on its way is
- * the answer to this arrival, so asking again would be asking twice for it; but
- * the mark did arrive, and pretending otherwise would leave the next report of
- * the same state looking like a fresh arrival.
+ * `loading` suppresses the fetch and not the edge: the mark still counts as arrived, so the next
+ * report of the same state does not look like a fresh arrival and re-fetch.
  */
 export function reported(was: Reach, onScreen: boolean, loading: boolean): Reached {
   return {

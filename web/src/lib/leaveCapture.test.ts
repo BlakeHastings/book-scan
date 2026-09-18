@@ -1,11 +1,6 @@
 /**
- * Leaving a claimed capture, by every route that is not a tap.
- *
- * The taps are covered where they live, in App: this file is the part that
- * had no home at all before #150, which is what happens when the page itself
- * goes away. There is no browser in this project's test setup, so the
- * listener is registered against an EventTarget the test owns, which is also
- * the only way to prove the teardown actually stops it.
+ * There is no browser in this project's test setup, so the listener is registered against an
+ * EventTarget the test owns, which is also the only way to prove the teardown actually stops it.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -42,11 +37,7 @@ const held: HeldCapture = {
 describe('putting a capture down', () => {
   afterEach(() => { vi.unstubAllGlobals() })
 
-  /*
-   * One request, not two. The order between an edit and a release cannot be
-   * got wrong if there is no order, which is the whole reason they travel
-   * together; see the module comment.
-   */
+  /* One request, not two: the order between an edit and a release cannot be got wrong if there is no order. */
   it('writes what was typed and hands the claim back in one request', async () => {
     const calls = watchFetch()
 
@@ -63,11 +54,7 @@ describe('putting a capture down', () => {
     })
   })
 
-  /*
-   * The claim is not conditional on there being anything to say. Somebody who
-   * opened a book, read it and left has still let go of it, and the empty
-   * body is what records that they looked.
-   */
+  /* The claim is not conditional on there being anything to say: an empty body still records that the claim was let go of. */
   it('hands the claim back when nothing was typed', async () => {
     const calls = watchFetch()
 
@@ -76,10 +63,7 @@ describe('putting a capture down', () => {
     expect(bodyOf(calls[0])).toEqual({ who: 'alex', release: true })
   })
 
-  /*
-   * Every caller is already on their way out of the screen, so a rejection
-   * here would land as an unhandled one over a book nobody is looking at.
-   */
+  /* Every caller is already on their way out of the screen, so a rejection here would land as an unhandled one. */
   it('does not reject when the write is refused', async () => {
     watchFetch(false)
 
@@ -100,11 +84,7 @@ describe('putting a capture down', () => {
 describe('the page going away', () => {
   afterEach(() => { vi.unstubAllGlobals() })
 
-  /*
-   * The browser's back button out of the app, the tab closing, and the phone
-   * putting the page away all arrive here. None of them fired anything at
-   * all before, so the book stayed claimed for the whole five minute lease.
-   */
+  /* The browser's back button out of the app, the tab closing, and the phone putting the page away all arrive here. */
   it('hands back whatever is in hand, and says the page is going', () => {
     const calls = watchFetch()
     const target = new EventTarget()
@@ -127,11 +107,7 @@ describe('the page going away', () => {
     expect(calls).toHaveLength(0)
   })
 
-  /*
-   * Asked at the moment of leaving rather than captured when the listener was
-   * registered, because it is registered once and what is in somebody's hands
-   * changes all afternoon.
-   */
+  /* Asked at the moment of leaving rather than captured when the listener was registered, since the listener is registered once. */
   it('reads what is in hand at the moment of leaving', () => {
     const calls = watchFetch()
     const target = new EventTarget()

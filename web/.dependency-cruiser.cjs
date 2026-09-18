@@ -3,12 +3,6 @@
  *
  *     cd web && npm run lint:layers
  *
- * This runs in CI as a step of `web (typecheck + tests)`, which is one of the
- * two checks `scripts/merge-pr.mjs` requires. A rule nobody has watched fail is
- * not a rule, so the pull request that introduced this added an import from
- * `domain/` into `infrastructure/`, watched the check go red, and quoted the
- * output before taking it out again.
- *
  * ## The layers, and what each one may reach
  *
  * | Layer | May import |
@@ -20,21 +14,16 @@
  *
  * `shared/` is the odd one and it is deliberate. It holds the pure rules the
  * client and the server both use, it has no I/O and imports nothing below
- * itself, and it is where the layout arithmetic and the shelving rules already
- * live. It is domain code that predates `domain/` existing. Moving it would be
- * a large rename, and the rename it was once waiting on has happened: #232
- * dropped `separators`, and a boundary is now derived from the `area` rows
- * `infrastructure/shelving/areas.ts` reads. `shared/layout.ts` still speaks in
- * boundaries, because that is what the arithmetic is about, and it stays where
- * it is with the domain allowed to use it. What it must never gain is an import
- * from a layer below, which the last rule below checks.
+ * itself, and it is domain code that predates `domain/` existing. It stays
+ * where it is with the domain allowed to use it, but it must never gain an
+ * import from a layer below, which the last rule below checks.
  *
  * ## Why this and not an ESLint rule
  *
  * `no-restricted-imports` matches the specifier a file wrote, so
  * `../../infrastructure/db/schema` and a re-export through a barrel are two
- * different strings and only one of them is caught. This resolves the graph and
- * asks where a module actually is.
+ * different strings and only one of them is caught. This resolves the graph
+ * and asks where a module actually is.
  */
 
 /** @type {import('dependency-cruiser').IConfiguration} */
@@ -61,7 +50,7 @@ module.exports = {
       from: { path: '^domain/' },
       to: {
         dependencyTypes: ['npm', 'npm-dev', 'npm-optional', 'npm-peer'],
-        // The test runner, and nothing else. A domain test that needed a
+        // The test runner, and nothing else: a domain test that needed a
         // database would be a domain object that is not one.
         pathNot: ['node_modules/vitest/'],
       },
@@ -97,33 +86,20 @@ module.exports = {
       from: {
         pathNot: [
           '^infrastructure/',
-          /*
-           * `Db` and its one implementation. This *is* the seam: every
-           * repository executes through it, and it is the only thing in the
-           * codebase that may hold a connection. It belongs under
-           * `infrastructure/db/` and moving it is its own slice of #169,
-           * because forty files import `type { Db }` from it.
-           */
+          // `Db` and its one implementation: the only thing in the codebase
+          // that may hold a connection, which forty files import `type { Db }`
+          // from.
           '^server/db\\.pg\\.ts$',
-          /*
-           * The test harness. Both files say "test support only" at the top and
-           * both import `vitest`, so neither can be reached from a running
-           * server; what they do with `pg` is create and drop scratch
-           * databases, which is not a query about books.
-           */
+          // The test harness: both import `vitest`, so neither can be reached
+          // from a running server, and what they do with `pg` is create and
+          // drop scratch databases, not query about books.
           '^server/(pgcontainer|testdb)\\.ts$',
-          /*
-           * The backup tool, which opens its own connection on purpose: it
-           * talks to a catalogue whose schema it does not assume, reads
-           * `pg_class` to find out, and must work against a database this
-           * code's schema has never been applied to. See #240.
-           */
+          // The backup tool opens its own connection on purpose: it talks to
+          // a catalogue whose schema it does not assume, reading `pg_class`
+          // to find out.
           '^server/backup-catalogue\\.ts$',
-          /*
-           * A test may look inside the box. Fourteen of them stand up a real
-           * Postgres and assert what the production code actually wrote, which
-           * is the opposite of a layering violation.
-           */
+          // A test may look inside the box: these stand up a real Postgres
+          // and assert what the production code actually wrote.
           '\\.test\\.ts$',
         ],
       },

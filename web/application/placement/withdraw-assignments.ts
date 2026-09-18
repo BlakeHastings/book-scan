@@ -1,52 +1,19 @@
 /**
- * Taking back the answer a plan wrote, and putting it back on the list again.
+ * Takes back the answer a plan wrote, putting the book back on the list.
  *
- * **Withdrawing is the missing half of applying.** Applying a plan writes an
- * intention and moves nothing; until this existed there was no way to say the
- * intention was not one this person was going to act on, so the app went on
- * asking for forty-six books to be walked across a room by somebody who had
- * already decided not to. An intention a person can create and cannot withdraw
- * is a one-way door, and this app does not have those anywhere else.
+ * Writes one `released` row and nothing else: no location, no `placed` row,
+ * no area. No book moves; the schema refuses a `released` row an area, so
+ * this cannot rewrite a placement by mistake. Nothing is deleted: the
+ * assignment stays in the ledger, and the withdrawal is another row after it.
  *
- * ## What it writes, and the much longer list of what it does not
+ * A book is outstanding work only if it is not pinned, checked out,
+ * withdrawn, or already carried to its assigned area. A trip narrows this
+ * further, to books coming off one area for one other; omitted, it is all
+ * outstanding work.
  *
- * One `released` row per book, and nothing else. It writes no location, no
- * `placed` row and no area of any kind, because **no book moves**: the whole
- * point is that every book is left standing exactly where it stands, and where a
- * book is remains the only thing `PATCH /api/books/:id/location` writes. The
- * schema refuses a `released` row an area, so this cannot rewrite a placement
- * even by mistake.
- *
- * Nothing is deleted either. The assignment stays in the ledger with the rule
- * that wanted it and the day it was written, and the withdrawal is another row
- * after it. Somebody reading a book's history later sees that the rules asked
- * and that a person said no, which is what happened.
- *
- * ## Which books it touches, decided here rather than by the caller
- *
- * The caller hands over every book the list can see and this folds each one, so
- * there is one place that decides what is outstanding work:
- *
- * - a book with nothing outstanding is left alone, which is what keeps a
- *   **partly carried** trip safe. Books already carried have their assignment
- *   satisfied, so they are not outstanding, so nothing is written for them and
- *   they keep the new home somebody walked them to;
- * - a **pinned** book has no standing assignment at all, because a pin clears
- *   one, so it cannot be reached from here. Pinned books are untouched;
- * - a checked out or withdrawn book is not on any list and is not work.
- *
- * A trip narrows it further, to books coming off one area for one other. Absent,
- * it is the whole of the outstanding work, which is the state the owner is in.
- *
- * ## Putting it back is the same shape in reverse
- *
- * `RestoreAssignmentsHandler` writes an `assigned` row naming the area that was
- * declined, by a person rather than by the rules, which is what clears the
- * memory in `standingOf`. So the withdrawal is itself withdrawable and this is
- * not a one-way door either. It carries no `rule_id`: the rule may have been
- * renamed or taken off the place since, and what a person is asking for is the
- * work back rather than a claim about which rule wants it. The area-removal path
- * has written assignments with no rule behind them since #281.
+ * `RestoreAssignmentsHandler` reverses this by writing a new `assigned` row
+ * with no `rule_id`: what a person restores is the work, not a claim about
+ * which rule wants it.
  */
 
 import { standingOf, type Placement, type PlacementActor } from '../../domain/placement/ledger'
@@ -91,9 +58,6 @@ export class WithdrawAssignmentsHandler {
     for (const book of books) {
       const standing = standingOf(rows.get(book.id) ?? [])
 
-      // Outstanding work and nothing else. A pin, a check out, a withdrawal and
-      // a carry that already happened all land here as "there is nothing wanted
-      // of this book", which is the one condition worth stating.
       if (standing.pinned || standing.checkedOut || standing.withdrawn) continue
       if (standing.assigned === null || standing.assigned === standing.area) continue
       if (standing.area === null) continue
@@ -105,7 +69,7 @@ export class WithdrawAssignmentsHandler {
       await this.ledger.record({
         bookId: book.id,
         kind: 'released',
-        // No area, and the schema will not accept one. See the header.
+        // No area: the schema refuses one on a released row.
         areaId: null,
         sortKey: book.sortKey,
         actor,
@@ -133,8 +97,7 @@ export class RestoreAssignmentsHandler {
 
       if (standing.pinned || standing.checkedOut || standing.withdrawn) continue
       if (standing.declined === null || standing.area === null) continue
-      // The book has been carried there since, or was there all along. There is
-      // no work to put back, only a memory that no longer describes anything.
+      // Already there, or carried there since: nothing to put back.
       if (standing.declined === standing.area) continue
 
       if (trip && (standing.area !== trip.fromAreaId || standing.declined !== trip.toAreaId)) {

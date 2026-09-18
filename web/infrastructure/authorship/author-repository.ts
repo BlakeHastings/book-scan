@@ -1,34 +1,30 @@
 /**
  * `AuthorRepository` over Drizzle, executed through `Db`.
  *
- * The third slice built the way #172 established: the SQL is generated from
- * `infrastructure/db/schema.ts` rather than written out, so a column renamed in
- * the schema is a compile error here rather than a statement that fails on
- * somebody's shelf, and `Db` still owns the connection, the transaction and the
- * advisory lock. Drizzle never sees a connection. See `infrastructure/db/query.ts`
- * for why that is, and `separator-repository.ts` for why an insert spells its own
+ * The SQL is generated from `infrastructure/db/schema.ts` rather than
+ * written out, so a column renamed in the schema is a compile error here;
+ * `Db` owns the connection, the transaction and the advisory lock, and
+ * Drizzle never sees a connection. See `infrastructure/db/query.ts` for
+ * why, and `separator-repository.ts` for why an insert spells its own
  * column list instead of using the insert builder.
  *
- * ## A name is looked up folded, and stored as printed
- *
- * `author_alias.display_name` is unique on the exact string, because a book
- * credits a printed name and the printed name is the only identity the model
- * has. But `J.R.R. Tolkien` and `J. R. R. Tolkien` are one name, so a lookup
- * folds both sides with `NAME_KEY_SQL`, which is `nameKey` in
+ * `author_alias.display_name` is unique on the exact string, since a book
+ * credits a printed name and the printed name is the only identity the
+ * model has. But `J.R.R. Tolkien` and `J. R. R. Tolkien` are one name, so a
+ * lookup folds both sides with `NAME_KEY_SQL`, which is `nameKey` in
  * `domain/authorship/authors.ts` said in SQL.
  *
- * **There are three copies of that fold and they have to agree**: the domain
+ * There are three copies of that fold and they have to agree: the domain
  * function, this expression, and the one in
  * `migrations/0004_authors_become_rows.sql`, which cannot call TypeScript.
- * `author-repository.test.ts` asks Postgres for this one's answer over a table
- * of names and compares it against the domain's, so a divergence is a test
- * failure rather than a duplicate author appearing months later.
+ * `author-repository.test.ts` checks this one's answer against the
+ * domain's over a table of names.
  *
- * The fold is not indexed, so a lookup is a scan of the vocabulary. Deliberate
- * rather than overlooked: an expression index would carry the same expression a
- * fourth time, and a collection has hundreds of authors where it has thousands
- * of books. If that stops being true the index goes on the expression, not on a
- * second stored column that could disagree with the first.
+ * The fold is not indexed, so a lookup is a scan of the vocabulary.
+ * Deliberate: an expression index would carry the same expression a
+ * fourth time, and a collection has hundreds of authors where it has
+ * thousands of books. If that stops being true the index belongs on the
+ * expression, not on a second stored column that could disagree with it.
  */
 
 import { asc, eq, inArray, sql } from 'drizzle-orm'
@@ -42,13 +38,11 @@ import { author, authorAlias, bookAuthor } from '../db/schema'
 import { bookLock } from '../tagging/transactions'
 
 /**
- * `nameKey`, in SQL.
- *
- * `[:alnum:]` rather than `A-Za-z0-9`: the ASCII class would treat every
- * accented letter as a separator and cut `García` into two words. Where the two
- * folds can still disagree is on a character Postgres's ctype and JavaScript's
- * `toUpperCase` classify differently, and a disagreement there costs an extra
- * alias rather than a wrong merge, which is the direction to be wrong in.
+ * `nameKey`, in SQL. `[:alnum:]` rather than `A-Za-z0-9`: the ASCII class
+ * would treat every accented letter as a separator and cut `García` into
+ * two words. Where the two folds can still disagree is on a character
+ * Postgres's ctype and JavaScript's `toUpperCase` classify differently,
+ * and a disagreement there costs an extra alias rather than a wrong merge.
  */
 export const NAME_KEY_SQL = (value: unknown) =>
   sql`upper(btrim(regexp_replace(btrim(${value}), '[^[:alnum:]]+', ' ', 'g')))`
@@ -94,16 +88,16 @@ export class DrizzleAuthorRepository implements AuthorRepository {
   constructor(private readonly db: Db) {}
 
   /**
-   * An author and their first name in one statement, then read back.
+   * An author and their first name in one statement, then read back. Two
+   * statements rather than an upsert: an upsert would rewrite the filing
+   * name every time a book was saved, and the filing name is a person's to
+   * change.
    *
-   * Two statements rather than an upsert, for the reason `DrizzleTagRepository.
-   * define` gives: an upsert would rewrite the filing name every time a book was
-   * saved, and the filing name is a person's to change.
-   *
-   * The author and the alias are inserted together so a race cannot leave an
-   * author behind with no name: the alias insert selects from the author insert,
-   * and the author insert writes nothing when the name has appeared since the
-   * read above. The loser of the race then reads the winner's row.
+   * The author and the alias are inserted together so a race cannot leave
+   * an author behind with no name: the alias insert selects from the
+   * author insert, and the author insert writes nothing when the name has
+   * appeared since the read above. The loser of the race then reads the
+   * winner's row.
    */
   async introduce(name: PrintedName, filing: string): Promise<StoredAlias> {
     const found = await this.aliasFor(name)
@@ -132,8 +126,8 @@ export class DrizzleAuthorRepository implements AuthorRepository {
     await this.db.run(insert.text, insert.values)
 
     const alias = await this.aliasFor(name)
-    // The insert either wrote the row or found one already there, so there is no
-    // third case. An absence here is a broken statement, not a state to handle.
+    // The insert either wrote the row or found one already there; an
+    // absence here is a broken statement, not a state to handle.
     if (!alias) throw new Error(`the name ${name.value} was neither written nor found`)
     return alias
   }
@@ -142,9 +136,9 @@ export class DrizzleAuthorRepository implements AuthorRepository {
     const query = statement(
       build.select(ALIAS_COLUMNS).from(authorAlias)
         .where(sql`${NAME_KEY_SQL(authorAlias.displayName)} = ${NAME_KEY_SQL(name.value)}`)
-        // The fold is wider than the unique index, so it can in principle match
-        // two rows. The oldest is the one the migration or the first save wrote,
-        // and answering the same one every time matters more than which it is.
+        // The fold is wider than the unique index, so it can in principle
+        // match two rows; answering the oldest one every time matters more
+        // than which it is.
         .orderBy(asc(authorAlias.id)).limit(1),
     )
     const row = await this.db.get<AliasRow>(query.text, query.values)
@@ -188,15 +182,10 @@ export class DrizzleAuthorRepository implements AuthorRepository {
   }
 
   /**
-   * Move every alias, then delete the emptied author.
-   *
-   * The delete is what makes this a merge rather than a copy: an author with no
-   * names is nobody, and leaving the row would put an unnameable person in every
-   * listing. Nothing else references an author, so nothing is orphaned, and the
-   * books still credit the same aliases, which is why nothing moves on a shelf.
-   *
-   * The moved aliases stop being primary in the same statement, so there is
-   * never a moment when one person has two names they are called by.
+   * Move every alias, then delete the emptied author. The delete is what
+   * makes this a merge rather than a copy: an author with no names is
+   * nobody. The moved aliases stop being primary in the same statement, so
+   * there is never a moment when one person has two names they are called by.
    */
   async absorb(intoId: number, fromId: number): Promise<void> {
     await this.db.tx(async (tx) => {
@@ -222,14 +211,12 @@ export class DrizzleAuthorRepository implements AuthorRepository {
   }
 
   /**
-   * The book's credits afterwards are exactly these, in this order.
-   *
-   * Delete then insert, in a transaction serialised on the book, so two saves of
-   * one book take turns rather than interleaving into a mixture of both. The
-   * lock name comes from `infrastructure/tagging/transactions.ts`, which asks
-   * that a second thing serialising on a book import that name rather than spell
-   * its own: two spellings of a lock name are two locks, and the second one
-   * serialises against nothing.
+   * The book's credits afterwards are exactly these, in this order. Delete
+   * then insert, in a transaction serialised on the book, so two saves of
+   * one book take turns rather than interleaving. The lock name is
+   * imported from `infrastructure/tagging/transactions.ts` rather than
+   * respelled here: two spellings of a lock name are two locks, and the
+   * second serialises against nothing.
    */
   async credit(bookId: number, aliasIds: readonly number[]): Promise<void> {
     await this.db.tx(async (tx) => {
@@ -250,10 +237,8 @@ export class DrizzleAuthorRepository implements AuthorRepository {
   }
 
   /**
-   * Every book credited to any of these names.
-   *
-   * The join the comma-joined string could not do. "Everything by this person"
-   * is this, over all of one author's aliases at once, which is what makes
+   * Every book credited to any of these names: "everything by this
+   * person" over all of one author's aliases at once, which is what makes
    * Banks and Banks M one answer while they stay two places on the shelf.
    */
   async booksCreditedTo(aliasIds: readonly number[]): Promise<number[]> {
@@ -279,10 +264,10 @@ function assemble(authors: AuthorRow[], aliases: AliasRow[]): StoredAuthor[] {
 
   return authors.flatMap((row) => {
     const stored = byAuthor.get(row.id) ?? []
-    // An author with no names cannot be built and should not exist: `absorb`
-    // deletes the one it empties. Skipped rather than thrown on, because a
-    // listing that refuses to render is a worse answer than one missing a row
-    // that has nothing to show anyway.
+    // An author with no names cannot be built and should not exist:
+    // `absorb` deletes the one it empties. Skipped rather than thrown on,
+    // since a listing that refuses to render is worse than one missing a
+    // row with nothing to show.
     if (!stored.length) return []
     return [{
       id: row.id,

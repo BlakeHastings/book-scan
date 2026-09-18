@@ -1,18 +1,7 @@
 /**
- * The list of books that are not where the order puts them, which is the whole
- * reason the shelves screen is reachable.
- *
- * It is drawn here and nowhere else. #196 found it offering one answer where
- * there are two, and #358 found it silently setting 181 of 238 books aside and
- * reporting an empty list, which reads as everything being fine. #387 redrew it
- * with the design system, and a redraw is exactly the change that quietly loses
- * a button, so every part of it is held to a claim here rather than looked at.
- *
- * Rendered to static markup rather than into a DOM, the way `BookDetail.test`
- * is and for the same reason: this project has no browser environment in its
- * test setup, and everything asserted here is what the screen says on arrival.
- * `Misfiled` is split out of `ShelfView` and holds no state, so it is callable
- * as the plain function it is.
+ * Rendered to static markup rather than into a DOM: this project has no
+ * browser environment in its test setup. `Misfiled` is split out of
+ * `ShelfView` and holds no state, so it is callable as a plain function.
  */
 
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -64,8 +53,6 @@ function drawn(misfiles: Misfile[], response: ShelvingReviewResponse, moving = 0
 
 describe('the list of books that are not where they should be', () => {
   it('names both places for every book on it', () => {
-    // One without the other is not something you can act on at the bookcase:
-    // which plank to take it off, and which to put it on.
     const html = drawn([misfile()], review())
     expect(html).toContain('Dune')
     expect(html).toContain('Herbert, Frank')
@@ -73,16 +60,9 @@ describe('the list of books that are not where they should be', () => {
     expect(html).toContain('2B')
   })
 
-  /**
-   * The row that reads "last seen on 1B, now puts it on 1B" (#491).
-   *
-   * Two pieces standing at one number is legal (`fixture.position` carries no
-   * unique index) and draws two planks with one letter, so this really is an
-   * instruction to carry a book from a plank to itself unless something says
-   * which two planks they are. The carry screen has said it since #447 through
-   * `sharedSaid`; this list said nothing at all, and one renumber puts five of
-   * these in front of somebody holding a phone.
-   */
+  // Two pieces can legally stand at the same position number
+  // (`fixture.position` has no unique index), so "from" and "to" can read
+  // identically without saying which two planks they are.
   it('says so when both planks read the same', () => {
     const html = drawn([{ ...misfile({}, '1B', '1B'), sharedNumber: 1 }], review())
 
@@ -100,8 +80,6 @@ describe('the list of books that are not where they should be', () => {
   })
 
   it('says nothing has been changed for anybody', () => {
-    // The sentence that stops this reading as a to-do list the app is working
-    // through. A location is descriptive: closing one of these is a walk.
     expect(drawn([misfile()], review())).toContain('Nothing has been changed for you')
   })
 
@@ -109,44 +87,18 @@ describe('the list of books that are not where they should be', () => {
     expect(drawn([misfile()], review())).toContain('Moved it')
   })
 
-  /*
-   * #196. "Moved it" closes the gap by recording that somebody walked to a
-   * shelf; this closes it by withdrawing an assignment nobody acted on. Without
-   * it the only way out of a mistapped move was to claim the walk and then move
-   * the book back: two false statements to undo one tap.
-   */
   it('offers "Undo the move" where the server says the app made the move', () => {
     expect(drawn([misfile()], review([7]))).toContain('Undo the move')
   })
 
-  /*
-   * And nowhere else. The two kinds of entry look identical on screen and are
-   * not the same thing: the other is the order having genuinely moved a book,
-   * and the only thing that closes it is carrying the book. Offering an undo
-   * there would move the furniture on the person's behalf and call it an undo.
-   */
   it('offers it nowhere else', () => {
-    // The answers, not the words around them, so this stays a claim about the
-    // buttons whatever the rows happen to say.
     const answers = (html: string) => html.split('wf-card__foot')[1] ?? ''
     expect(answers(drawn([misfile()], review([99])))).not.toContain('Undo the move')
     expect(answers(drawn([misfile()], review()))).not.toContain('Undo the move')
     expect(answers(drawn([misfile()], review([7])))).toContain('Undo the move')
   })
 
-  /**
-   * The instruction over the list names the one answer every row has (#433).
-   *
-   * It named both, and "Undo the move" is on the rows the app made a move for
-   * and on no others, so on a list of misfiles the app did not make the words
-   * promised a button that was nowhere in the page. That is not a rendering to
-   * fix: docs/shelving.md settles it under "Taking the move back is not the
-   * opposite move", because a book pushed onto the next plank by a newcomer has
-   * no assignment behind it, and moving the boundary to close that would be a
-   * new decision about the furniture made on somebody's behalf wearing the word
-   * undo. So the promise went to the rows that can keep it, and the button did
-   * not move at all.
-   */
+  // See docs/shelving.md: undoing a move is not the opposite move.
   it('promises nothing over the list that a row on it may not offer', () => {
     const said = drawn([misfile()], review())
 
@@ -167,8 +119,6 @@ describe('the list of books that are not where they should be', () => {
     expect(drawn([misfile()], review([99]))).not.toContain('The app made this move')
   })
 
-  /* Both answers go quiet together while a write is in flight, so a second tap
-     cannot record a second walk nobody made. */
   it('goes quiet on the book being written and on no other', () => {
     const html = drawn([misfile({ id: 7 }), misfile({ id: 8, title: 'Emma' })], review([7, 8]), 7)
     const cards = html.split('attention__row')
@@ -177,26 +127,12 @@ describe('the list of books that are not where they should be', () => {
   })
 
   it('draws a book nobody has credited rather than dropping it', () => {
-    // It arrives with two empty names, which is what says so. A row of the
-    // report is a book to walk to, and one with no author is still that.
     const html = drawn([misfile({ authorFiling: '', authors: '' })], review())
     expect(html).toContain('Dune')
     expect(html).toContain('unknown author')
   })
 })
 
-/**
- * The books the shelf and the rules put in different places (#489).
- *
- * **The check has been right since #213 and had no reader but the server log.**
- * Through the whole of #485 it named twelve books on every restart of the api
- * and nothing on any screen said a word. This card is where the names arrive;
- * the first screen carries the count and the sentence sending somebody here.
- *
- * What is pinned is what makes it worth drawing at all: both places on every
- * row, the refusal to repair said out loud rather than left in a comment, and
- * nothing on it to press.
- */
 describe('the books the shelf and the rules disagree about', () => {
   const drifting = (over: Partial<DriftingBook> = {}): DriftingBook => ({
     bookId: 7,
@@ -210,8 +146,6 @@ describe('the books the shelf and the rules disagree about', () => {
     renderToStaticMarkup(<Drifted drift={{ books, total }} onOpen={() => {}} />)
 
   it('names both places for every book on it', () => {
-    // One without the other says nothing: the whole content of a disagreement
-    // is which two places disagree.
     const html = card([drifting()])
 
     expect(html).toContain('Dune')
@@ -219,9 +153,6 @@ describe('the books the shelf and the rules disagree about', () => {
   })
 
   it('says so when no rule claims the book at all', () => {
-    // The state #223 describes: a tag comes off a book that is already shelved,
-    // the range column keeps the answer it had, and nothing files it any more.
-    // An empty second place must read as a sentence rather than as a gap.
     const html = card([drifting({ fromRules: '' })])
 
     expect(html).toContain('drawn in 1A, and no rule claims it')
@@ -229,10 +160,8 @@ describe('the books the shelf and the rules disagree about', () => {
   })
 
   it('counts the whole collection in its title, not the run on screen', () => {
-    // #485 was three screens giving three counts of one thing. This card is
-    // drawn under whichever run is showing and says the number the first screen
-    // says, because a disagreement is a fact about how the furniture and the
-    // rules fit together rather than about the half somebody is looking at.
+    // Uses `total`, not the length of `books` drawn: the count describes the
+    // whole collection's disagreement, not just what is on screen.
     expect(card([drifting()], 12))
       .toContain('Twelve books are drawn in one place and claimed by another')
   })
@@ -242,19 +171,12 @@ describe('the books the shelf and the rules disagree about', () => {
 
     expect(html).toContain('Nothing has been moved and nothing will be')
     expect(html).toContain('never repaired')
-    // And what the person should do instead, which is nothing to the books.
     expect(html).toContain('rather than moving a book to make the two agree')
   })
 
   it('carries no control that would put any of it right', () => {
-    /*
-     * The decision, not an omission, and the one thing about this card that has
-     * to survive somebody tidying the screen. Repairing a disagreement destroys
-     * the evidence of how it happened, and #485 was diagnosable three weeks in
-     * only because the broken state was stable and outlived every restart. The
-     * rows are books and open books, the way every list here does; what must
-     * not appear is an action.
-     */
+    // Deliberate: no action here, since repairing a disagreement would destroy
+    // the evidence of how it happened.
     const html = card([drifting(), drifting({ bookId: 8, title: 'Emma' })])
 
     expect(html, 'the card grew an action').not.toContain('wf-btn')
@@ -262,10 +184,6 @@ describe('the books the shelf and the rules disagree about', () => {
   })
 
   it('stops naming books long before it becomes a wall of them', () => {
-    // The worst case is a rule somebody switched off, which puts the whole
-    // collection on this list. Five hundred rows above the shelves is the log's
-    // own failure mode rebuilt: a report too long to read. The count in the
-    // title is never truncated.
     const many = Array.from({ length: 40 }, (_, at) =>
       drifting({ bookId: at + 1, title: `Book ${at + 1}` }))
     const html = card(many, 300)
@@ -276,15 +194,6 @@ describe('the books the shelf and the rules disagree about', () => {
   })
 })
 
-/**
- * A page of shelves with nothing on it, which has two causes (#479).
- *
- * The screen said "Nothing catalogued in this range yet" for both, and one of
- * them is a range holding every book it held a minute ago whose rule somebody
- * has just taken off. That is #562's distinction on the screen that draws
- * somebody's collection: drawing nothing and saying nothing could be found are
- * different, and only the second is what a person needs.
- */
 describe('a range with no planks to draw', () => {
   const drawnEmpty = (begins: string | null | undefined, filed: number | null = null) =>
     renderToStaticMarkup(
@@ -319,8 +228,8 @@ describe('a range with no planks to draw', () => {
   })
 
   it('reads a server that does not send the field as the ordinary empty range', () => {
-    // `begins` is optional on the wire, so undefined is "nobody said" and must
-    // not draw the louder of the two. Only null is the claim.
+    // `begins` is optional on the wire: undefined means nobody said, only null
+    // is the claim that nothing places the range.
     expect(drawnEmpty(undefined)).toContain('Nothing catalogued in this range yet')
   })
 })

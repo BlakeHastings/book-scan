@@ -1,41 +1,21 @@
 /**
- * Carrying a book, driven over the wire the way the screens drive it (#429).
+ * Carrying a book, driven over the wire the way the screens drive it.
  *
- * **The reproduction in the issue, in a world built here.** Add a piece of
- * furniture, stand it first, give it a rule another piece already has, move the
- * non-fiction run onto bookcase 3, and then walk the carry list: read the trip,
- * ask where the book in your hand goes, say it fits, and look at the list again.
+ * The room: add a piece of furniture, stand it first, give it a rule
+ * another piece already has, move the non-fiction run onto bookcase 3, then
+ * walk the carry list: read the trip, ask where the book in your hand goes,
+ * say it fits, and look at the list again.
  *
- * Three things were wrong and they were one defect. The trip said `3A`, the
- * placing screen said `Landing shelves · Top`, and the plan had said something
- * else again; the book went where the app asked, no assignment named that plank,
- * so the trip came straight back and the list never shrank. The finished screen
- * then said a book was on `3A` while drawing `3A` with nothing on it, because
- * nothing had ever been written there.
+ * Two pieces claiming the same tag is legitimate and not an error; it is
+ * what makes a placing screen that is told where to go answer differently
+ * from one that works it out from the rules.
  *
- * The cause was that **the placing screen asked where the book belongs now,
- * from the rules, rather than being told where this trip was taking it.** With a
- * second piece claiming the same tag, "where it belongs" is answered by a
- * different reading of the rules from the one that wrote the assignment, and the
- * two answers are two different planks.
- *
- * ## Why the world has two pieces claiming one tag
- *
- * Because that is legitimate and it is what exposes this. Two rules asking for
- * the same tag is a room somebody is rearranging, not an error, and nothing here
- * refuses it. What it does is make the two readings disagree, which is the only
- * way to tell a placing screen that is *told* where to go from one that works it
- * out and happens to agree.
- *
- * ## What these tests drive
- *
- * The four calls the four carry screens make and nothing else: `GET /api/carry`
- * for the list, `GET /api/carry/trip` for the area the books come off and for
- * the area they land on, `POST /api/placement/preview` for where one book goes,
- * and `PATCH /api/books/:id/location` for the person saying they carried it.
- * **Nothing here writes a placement any other way**, which is the same promise
- * `carry.test.ts` makes at the module level: if the list needed a write of its
- * own to work, this file is where that would show up.
+ * These tests drive the four calls the carry screens make and nothing
+ * else: `GET /api/carry` for the list, `GET /api/carry/trip` for the areas
+ * a trip runs between, `POST /api/placement/preview` for where one book
+ * goes, and `PATCH /api/books/:id/location` for the person saying they
+ * carried it. Nothing here writes a placement any other way, the same
+ * promise `carry.test.ts` makes at the module level.
  */
 
 import type { AddressInfo } from 'node:net'
@@ -119,14 +99,14 @@ async function shelve(of: DraftBook): Promise<number> {
 }
 
 /**
- * The room the issue describes: books on a bookcase, a new piece standing in
- * front of them claiming the same tag, and the run moved off onto bookcase 3.
+ * A new piece standing in front of existing furniture claiming the same
+ * tag, with the non-fiction run moved onto bookcase 3.
  *
- * Standing the piece first is what renumbers the non-fiction bookcase, which is
- * why the trip in these tests reads `5A to 3A` exactly as the issue's does. It
- * is done by bumping the pieces that were there and then taking the number, the
- * way the fixtures screen does it: nothing renumbers a room on somebody's
- * behalf, because every label on every piece is derived from its number.
+ * Standing the piece first is what renumbers the non-fiction bookcase, so
+ * the trip in these tests reads `5A to 3A`. It is done by bumping the
+ * pieces that were there and then taking the number, the way the fixtures
+ * screen does it: nothing renumbers a room on somebody's behalf, since
+ * every label on every piece is derived from its number.
  */
 async function buildTheWorld(): Promise<void> {
   for (let at = 0; at < 6; at += 1) await shelve(draft(at))
@@ -227,11 +207,10 @@ const theList = async () => (await get('/api/carry')).body as unknown as {
 }
 
 /**
- * Where one book goes, asked the way `CarryingScreen` asks it.
- *
- * The book's own row first, because the preview is answered from a draft and the
- * answer has to be the one a save of that book would give; then the plank the
- * trip is taking it to, which is the argument this issue is about.
+ * Where one book goes, asked the way `CarryingScreen` asks it: the book's
+ * own row first, since the preview is answered from a draft and the answer
+ * has to be the one a save of that book would give, then the plank the
+ * trip is taking it to.
  */
 async function whereItGoes(bookId: number, goingTo?: number) {
   const { book } = (await get(`/api/books/${bookId}`)).body as unknown as {
@@ -278,27 +257,15 @@ describe('the placing screen is told where the trip goes', () => {
   })
 
   /*
-   * The half that says the divergence is real rather than assumed. Asked without
-   * being told, the same book is answered somewhere else, because that is where
-   * the rules put it now. Both readings are defensible and neither is this
-   * screen's to make: what the person is doing is walking a trip, and the trip
-   * already said where it goes.
+   * Asked without being told, the same book is answered somewhere else,
+   * because that is where the rules put it now. Both readings are
+   * defensible and neither is this screen's to make: what the person is
+   * doing is walking a trip, and the trip already said where it goes.
    *
-   * **The divergence this used to rely on was itself a defect, and #463 is it.**
-   * The world already diverged when this file was written, and nobody had to do
-   * anything to make it: `bandsOf` picked the range's rule with `rules.find`
-   * over a `SELECT` with no `ORDER BY`, `applyRunMove` rewrites the non-fiction
-   * rule's row, and a rewritten row goes to the end of the heap. So the layout
-   * read the *other* non-fiction rule, the one on the landing, while `claim`
-   * read the one the move had just retargeted, and this test held that apart as
-   * the expected answer. It is one answer now, and both of them say `3A`.
-   *
-   * So the divergence is made rather than found, by the thing that makes one for
-   * real: **the rules change after the trip is written down.** Somebody says the
-   * non-fiction lives on the landing plank after all, which beats both fixture
-   * rules outright, and where the book belongs moves. The trip does not move
-   * with it, because a trip is a recorded assignment and not a recomputation,
-   * and that is the whole of #429.
+   * The divergence here is made, not found: the rule changes after the
+   * trip is written down, so where the book belongs moves while the trip
+   * does not, since a trip is a recorded assignment and not a
+   * recomputation.
    */
   it('is a different answer from the one the rules give unasked', async () => {
     const { trips } = await theList()
@@ -355,9 +322,8 @@ describe('the placing screen is told where the trip goes', () => {
     })
 
   /*
-   * The review pane asks the same route and asks the other question, so this is
-   * the check that nothing was taken away from it: with no plank named, the
-   * answer is still the rules' own.
+   * The review pane asks the same route with the other question: with no
+   * plank named, the answer is still the rules' own.
    */
   it('still answers where a book belongs when nobody says where it is going',
     async () => {
@@ -401,8 +367,8 @@ describe('doing what the app asks satisfies the app', () => {
       await carried(book.id, asked.body.derivedAreaId!)
     }
 
-    // The area named twice is the area on its own, which is what the finished
-    // screen reads. It said "one book is on 3A" over a drawing of nothing.
+    // The area named twice is the area on its own, which is what the
+    // finished screen reads.
     const board = (await get(
       `/api/carry/trip?from=${trip.toAreaId}&to=${trip.toAreaId}`,
     )).body as unknown as { to: string; books: { title: string }[] }
@@ -413,9 +379,9 @@ describe('doing what the app asks satisfies the app', () => {
   })
 
   /*
-   * The rule this fix is not allowed to break. Where a book is is what a person
-   * said, and one `placed` row per carry is the whole of what this journey
-   * writes: no repair, no second row, and nothing rewriting an older one.
+   * Where a book is is what a person said, and one `placed` row per carry
+   * is the whole of what this journey writes: no repair, no second row,
+   * and nothing rewriting an older one.
    */
   it('writes one placed row per book and rewrites none of them', async () => {
     const trip = (await theList()).trips[0]!

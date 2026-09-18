@@ -1,23 +1,4 @@
-/**
- * Leaving a screen with something typed on it that has not been kept.
- *
- * **A data-loss defect that reads as a nicety** (#430 item 4). Somebody typed a
- * name for an area, pressed Back, and it was gone: no prompt, no trace, nothing
- * anywhere saying it had not been saved. The button that keeps a name sits under
- * the field, which is right, and Back sits at the top of the screen, which is
- * also right, and between them is a thumb's width and everything the person had
- * written.
- *
- * The two screens that hold a draft are the area's page and the piece's page, so
- * this is one sentence rather than two that agree today. Both say what is about
- * to be lost by name, because "unsaved changes" is a phrase about the app and
- * "Cookery" is the thing the person actually typed.
- *
- * `Sure` and no new dialog: this is a destructive answer and a way back out,
- * which is exactly the two answers it draws, in the order it draws them. The
- * red one throws the words away and the quiet one returns to the screen with
- * the keeping button still on it.
- */
+/** Says what is about to be lost by name rather than generically: "unsaved changes" is a phrase about the app, "Cookery" is the thing the person actually typed. */
 
 import type { ReactElement } from 'react'
 import { Sure } from '../design/Sure'

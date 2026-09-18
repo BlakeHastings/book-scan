@@ -1,39 +1,8 @@
-// What the merge gate must let through, and what it must stop.
-//
-//   node scripts/merge-pr.test.mjs
-//
-// `merge-pr.mjs` used to check only that every required check was green. It did
-// not check what those checks ran against. GitHub computes a pull request's
-// checks from a merge of the branch and the base at that moment, so a green
-// tick can describe a tree that stopped existing when something else landed.
-// #151 and #152 both merged green, an hour apart, touching no file in common,
-// and master stopped compiling (#154).
-//
-// The allow cases matter more than the deny cases, and here more than usually.
-// This gate fires at merge time on somebody who has already done the work, and
-// every refusal costs a rebase and a full re-run in billed minutes. A gate that
-// refuses a documentation merge gets switched off, and a switched-off gate is
-// every gap at once.
-//
-// The case that decides the design is `disjoint file sets`. It is the shape of
-// #151 and #152: the base gained a commit touching a file this branch never
-// touched, and it still has to refuse, because the coupling was a type across
-// one TypeScript program rather than a line in a shared file. Any rule built on
-// "do the changed files overlap" passes that case and is worthless.
-//
-// The other half of this file is the required-check list, and it is newer than
-// the stale-base half by four hundred issues (#154 in August, #552 in
-// September). Nothing here read `REQUIRED` until then, which is the part worth
-// noticing: the stale-base gate was tested the day it was written, because it
-// was the new and clever half, while the plain "is it green" half that had been
-// there all along was never tested at all. The gate's two most basic refusals,
-// a check that is red and a check that is not on the board at all, had never
-// been exercised, so a misspelled name or a dropped one would have left every
-// test green while the gate waved the run through. The cases below are mostly
-// deny cases for that reason. The one allow case that matters as much as any
-// of them is the documentation-only board, because #535 is what a check that
-// cannot go green costs, and the way this change could go wrong is by making a
-// README pull request unmergeable.
+// The case that decides the design is `disjoint file sets`: the base gained a
+// commit touching a file this branch never touched, and it still has to refuse,
+// because the coupling can be a type across one TypeScript program rather than
+// a line in a shared file. Any rule built on "do the changed files overlap"
+// passes that case and is worthless.
 import { judgeBase, judgeChecks, REQUIRED, COMPARE_FILE_LIMIT } from './merge-pr.mjs'
 
 const named = (...paths) => paths.map((filename) => ({ filename }))
@@ -41,8 +10,7 @@ const named = (...paths) => paths.map((filename) => ({ filename }))
 /**
  * A rollup as `gh pr view --json statusCheckRollup` reports one: every required
  * name green, then whatever the case overrides. An override of `null` takes the
- * name off the board entirely, which is a different failure from a red one and
- * has to be tested as one.
+ * name off the board entirely, which is a different failure from a red one.
  */
 const board = (overrides = {}) =>
   REQUIRED.map((name) => [name, name in overrides ? overrides[name] : 'SUCCESS'])
@@ -50,7 +18,6 @@ const board = (overrides = {}) =>
     .map(([name, conclusion]) => ({ name, conclusion }))
 
 const cases = [
-  // ---------------------------------------------------------------- allow --
   {
     what: 'the base has not moved since the checks ran',
     compared: { ahead_by: 0, files: [] },
@@ -88,10 +55,7 @@ const cases = [
     expect: 'allow',
   },
 
-  // ----------------------------------------------------------------- deny --
   {
-    // #151 changed web/server/db.ts. #152 added web/server/dividers.test.ts and
-    // touched nothing db.ts touched. This is that pair, and it must refuse.
     what: 'disjoint file sets: the base gained code this branch never touched',
     compared: { ahead_by: 1, files: named('web/server/db.ts', 'web/server/driver.ts') },
     expect: 'deny',
@@ -132,9 +96,8 @@ const cases = [
     compared: { ahead_by: 3 },
     expect: 'deny',
   },
-  // Neither of these knows the base is stale, so neither says "rebase". They
-  // refuse because "could not tell" must not read as "green", which is the same
-  // direction a required check that never ran is already read in.
+  // Neither of these knows the base is stale, so neither says "rebase": they
+  // refuse because "could not tell" must not read as "green".
   {
     what: 'the API answered without saying how far the base has moved',
     compared: {},
@@ -161,8 +124,6 @@ for (const { what, compared, expect, says = ['master', 'rebase'] } of cases) {
     continue
   }
 
-  // A refusal nobody can act on gets worked around. Every deny must name the
-  // branch it is talking about and say what to do about it.
   if (actual === 'deny') {
     const why = verdict.why ?? ''
     for (const wanted of says) {
@@ -177,8 +138,6 @@ for (const { what, compared, expect, says = ['master', 'rebase'] } of cases) {
   }
 }
 
-// The list is shown, not just counted: a refusal that named only "3 files" is
-// one the reader cannot check.
 const long = judgeBase(
   { ahead_by: 1, files: named('web/server/db.ts', 'web/server/store.ts') },
   'master',
@@ -190,16 +149,11 @@ for (const wanted of ['web/server/db.ts', 'web/server/store.ts']) {
   }
 }
 
-// A base branch that is not called master is said by its own name.
 const other = judgeBase({ ahead_by: 1, files: named('web/server/db.ts') }, 'release/3')
 if (!(other.why ?? '').includes('release/3') || (other.why ?? '').includes('master has gained')) {
   failed++
   console.error('FAIL  refusal hardcodes master instead of the pull request\'s base')
 }
-
-// ------------------------------------------------------------------------
-// The required-check gate.
-// ------------------------------------------------------------------------
 
 const IMAGE = 'image (build + contract)'
 
@@ -217,13 +171,11 @@ if (new Set(REQUIRED).size !== REQUIRED.length) {
 }
 
 const checkCases = [
-  // ---------------------------------------------------------------- allow --
   {
-    // The board a documentation-only pull request gets. All three jobs start,
+    // The board a documentation-only pull request gets: all three jobs start,
     // `ci-scope.mjs` tells each of them there is nothing to prove, and all
-    // three report green in seconds. #559 changed one markdown file and the
-    // image job went green in about seven. If this case ever denies, the
-    // repository is unmergeable for docs changes, which is #535 again.
+    // three report green. If this case ever denies, the repository is
+    // unmergeable for documentation changes.
     what: 'a documentation-only board: every required name present and green',
     rollup: board(),
     expect: 'allow',
@@ -240,8 +192,7 @@ const checkCases = [
   },
   {
     // The rollup lists a rerun after the run it replaces, so the last entry for
-    // a name wins. Judging a rerun on its first result would refuse a run that
-    // was fixed.
+    // a name wins.
     what: 'a rerun: the image check failed, was re-run, and is green now',
     rollup: [
       ...board({ [IMAGE]: 'FAILURE' }),
@@ -255,7 +206,6 @@ const checkCases = [
     expect: 'allow',
   },
 
-  // ----------------------------------------------------------------- deny --
   {
     what: 'the image check is red',
     rollup: board({ [IMAGE]: 'FAILURE' }),
@@ -263,9 +213,8 @@ const checkCases = [
     says: [IMAGE, 'failure'],
   },
   {
-    // Not the same failure as red, and the one that reads as a clean board: the
-    // name is simply not there. A `paths:` filter on `image.yml` produces this,
-    // which is why `ci-scope.mjs` skips steps and never the job.
+    // A `paths:` filter on `image.yml` produces this board, which is why
+    // `ci-scope.mjs` skips steps and never the job.
     what: 'the image check is absent from the rollup entirely',
     rollup: board({ [IMAGE]: null }),
     expect: 'deny',
@@ -338,9 +287,8 @@ for (const { what, rollup: given, expect, says = [] } of checkCases) {
   }
 }
 
-// Every name in the list is load-bearing, and none of them is advisory. Taken
-// off the board one at a time, each must refuse by name. That is the property
-// #552 was about, stated so that adding a fourth name inherits it.
+// No name in the list is advisory: taken off the board one at a time, each must
+// refuse by name, and a fourth name inherits that.
 for (const name of REQUIRED) {
   const verdict = judgeChecks(board({ [name]: null }))
   if (verdict.green || !(verdict.why ?? '').includes(`${name}: never ran`)) {

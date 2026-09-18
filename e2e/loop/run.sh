@@ -1,29 +1,8 @@
 #!/usr/bin/env bash
 #
-# Run one feature N times and write down what each run answered.
-#
-# The point of this harness is that a flake is a rate, not an anecdote. One
-# green run proves nothing about a suite that fails one time in ten, and the
-# only way to tell a fix from a lucky afternoon is to run the same loop before
-# and after and compare two rates.
-#
-#   ./loop/run.sh before 12                        # the default feature
-#   ./loop/run.sh before 12 carrying-a-book        # any other one
-#
-# $1 = a tag naming the measurement, $2 = how many runs, $3 = which feature.
-#
-# Each run gets its own AppHost: the suite starts and stops one in global setup,
-# so this is deliberately not `playwright test --repeat-each`, which would reuse
-# a single app and measure something else entirely.
-#
-# `loop/<tag>/summary.txt` is the answer. `loop/<tag>/run-N.log` is what the run
-# printed, which since #448 includes the browser's own account of a failure, and
-# `loop/<tag>/run-N-artifacts/` is the screenshot, the aria snapshot and the
-# trace, moved out of `test-results/` because the next run deletes that.
-#
-# Nothing here reads the machine's memory: `global-setup.ts` prints the commit
-# headroom into every run's log, which is one place rather than two and works on
-# both platforms this suite runs on.
+# Deliberately not `playwright test --repeat-each`: each run needs its own
+# AppHost, started and stopped in global setup, or two runs would share a
+# server and measure something else entirely.
 set -u
 cd "$(dirname "$0")/.."
 

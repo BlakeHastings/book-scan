@@ -1,28 +1,4 @@
-/**
- * The first screen, now drawn with the design system (#303).
- *
- * Two things are checked here and they are different in kind.
- *
- * The first is the design rules that reach this screen, which `design.test.tsx`
- * pins for the gallery and nothing pinned for the app: every count is a target,
- * the five counts are ungrouped and in the order the owner named them (#361),
- * and the camera that catalogues a book is not offered here.
- *
- * The second is what the drawing did not have to survive, because it was drawn
- * with numbers somebody chose: nothing catalogued, nothing waiting, a count
- * that has not come back yet, and four digits. A wireframe never sees any of
- * those.
- *
- * #148 is why this file existed before. It said "9 need an ISBN by hand" when
- * five of those nine already had a valid ISBN off a barcode, so the sentence is
- * gone and the count is not: this screen says how many are stuck and the queue
- * says what each one needs. The check that the old wording cannot come back is
- * still here.
- *
- * Rendered as a tree and read as markup rather than driven in a browser, the
- * way `QueuePane.test.tsx` does it: this project has no DOM in its test setup,
- * and `HomePane` holds no state, so it stays callable as a plain function.
- */
+/** Rendered as a tree and read as markup rather than driven in a browser: this project has no DOM in its test setup. */
 
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
@@ -42,13 +18,6 @@ function queue(over: Partial<QueueCounts> = {}): QueueCounts {
   return { pending: 0, ready: 0, failed: 0, done: 0, failures: noFailures, ...over }
 }
 
-/**
- * One book still to be carried, as the carry list answers one.
- *
- * The pictures are on it because every book on the wire carries them now
- * (#386), and this screen is the one place a carried book is counted rather
- * than drawn: it wants the shape, not the photograph.
- */
 function toCarry(over: Partial<CarryItem['book']> = {}, from = '2C', to = '3A'): CarryItem {
   return {
     book: {
@@ -78,13 +47,7 @@ function catalogue(over: Partial<SourceStanding> & { source: string }): SourceSt
   }
 }
 
-/**
- * The four catalogues, all answering unless a test says otherwise.
- *
- * The ordinary day, so it is what `propsFor` defaults to. `catalogueWords.ts`
- * is where the sentences are put through their cases; what these tests ask is
- * only whether a card reaches this screen and what else is on it when it does.
- */
+/** The four catalogues, all answering unless a test says otherwise. */
 function catalogues(
   over: Partial<Record<string, Partial<SourceStanding>>> = {},
   googleBooksKeyConfigured = true,
@@ -103,28 +66,17 @@ function propsFor(
   return {
     counts,
     queue: queue(),
+    // Defaults below are all the ordinary day (nothing wrong, nothing
+    // unclaimed), so a card drawn in every render would make the tests below
+    // say nothing about when it is actually drawn.
     carrying: [],
-    /* Nothing unfiled is the ordinary day, so it is the default here: a door
-       drawn in every one of these renders would make the tests below say
-       nothing about when it is drawn. */
     unclaimed: 0,
     backup: null,
-    /* The shelf and the rules agreeing is the ordinary day, so it is the
-       default here for `unclaimed`'s reason: a card drawn in every render
-       below would make none of these tests say when it is drawn (#489). */
     drifting: 0,
-    /* Every catalogue answering is the ordinary day, so it is the default here
-       for `drifting`'s reason: a card drawn in every render below would make
-       none of these tests say when it is drawn (#348). */
     lookups: catalogues(),
-    /* The server answering is the ordinary day, so it is the default here for
-       `drifting`'s reason: a card drawn in every render below would make none
-       of these tests say when it is drawn (#562). */
     unreachable: false,
     onAdd: () => {},
     onInHand: () => {},
-    /* The corner (#350). `RoomMenu` decides what it says and what it opens;
-       this screen is handed one, so this is a stand-in of the same shape. */
     corner: { word: 'Your fixtures', icon: null, onPress: () => {} },
     onLibrary: () => {},
     onQueue: () => {},
@@ -138,17 +90,8 @@ function home(over: Partial<Parameters<typeof HomePane>[0]> = {}): string {
   return renderToStaticMarkup(HomePane(propsFor(over)) as ReactElement)
 }
 
-/**
- * The screen as a tree rather than as markup, for the one thing markup cannot
- * answer: where a press goes.
- *
- * Every count on this screen is a button, and rendering one tells you it is a
- * button and nothing about what it opens. #436 is exactly that gap: the counts
- * were targets, they went to the right screen, and two of them showed the wrong
- * books when they got there.
- */
+/** The screen as a tree rather than as markup, for the one thing markup cannot answer: where a press goes. */
 function tree(over: Partial<Parameters<typeof HomePane>[0]> = {}): ReactElement {
-  // The same props `home` renders, taken before they are rendered.
   return HomePane(propsFor(over)) as ReactElement
 }
 
@@ -210,39 +153,19 @@ describe('the design rules that reach the app', () => {
   })
 
   it('keeps the cat', () => {
-    // "We still should have the cat icon on this screen though, because it's
-    // cute." Where he is, on a day there are things to do, is #427's whole
-    // subject and is checked below.
     expect(home(), 'the cat has gone off the first screen').toMatch(/wf-cat/)
   })
 
-  /*
-   * #427, and the fault it closes is the one no rendered tree caught: the cat
-   * was drawn correctly, animated correctly, and in the wrong place.
-   *
-   * > This is the cat. It is supposed to be sleeping on the actions, not as
-   * > part of the metrics grid.
-   *
-   * Markup can answer which block he is in, and that is what is asked here.
-   * Whether he then *looks* like he is lying on the buttons is a fact about
-   * pixels and is answered by measuring him against the first one in a browser:
-   * `e2e/features/the-cat-is-alive.feature`.
-   */
   it('sleeps on the things you can do rather than among the counts', () => {
     const html = home({ carrying: [toCarry()], unclaimed: 12 })
 
     expect(html, 'the cat is back in the counts grid').not.toMatch(/wf-stats__cat/)
     expect(html, 'the cat is not on the things you can do').toMatch(/wf-doors__cat/)
-    // Before the first button in the markup, which is the half of "behind" that
-    // is not a stylesheet: the buttons are painted after him and over him.
     expect(html.indexOf('wf-doors__cat'), 'the cat is painted over the buttons')
       .toBeLessThan(html.indexOf('wf-door--'))
   })
 
   it('still says five counts with him gone from the grid', () => {
-    // The hole this was not allowed to leave. Five counts across two rows is
-    // what round eight settled, and the cell after the last one is empty the
-    // way it is empty whenever a count has not answered.
     const html = home({ queue: queue({ ready: 6, failed: 3 }), carrying: [toCarry()] })
 
     expect(said(html)).toEqual([
@@ -260,11 +183,6 @@ describe('the design rules that reach the app', () => {
   })
 
   it('offers few things to do, and nothing a tab already reaches', () => {
-    // The ceiling rather than the count, for the reason the gallery's copy of
-    // this rule gives: the fault is a screen of buttons, which is the thing
-    // this round was called to fix said another way. Asked on the busiest day
-    // this screen has, which since #341 is three doors: something to find,
-    // something to carry, and something to say what it is.
     const html = home({ carrying: [toCarry()], unclaimed: 12 })
     const doors = html.match(/class="wf-door[ "]/g) ?? []
 
@@ -302,8 +220,6 @@ describe('what the counts say', () => {
   })
 
   it('says how many are stuck and never what they need', () => {
-    // #148: the sentence that sent somebody to retype an ISBN that was already
-    // correct. The count stays, the diagnosis lives on the queue.
     const html = home({
       queue: queue({
         failed: 9,
@@ -316,11 +232,6 @@ describe('what the counts say', () => {
   })
 
   it('no longer says anything about what is waiting on the table', () => {
-    // #361, and the one thing that genuinely left with that sentence: a book
-    // still being looked up is neither ready nor stuck, so no count here holds
-    // it. It is on the queue, one press away, and it stops being pending on its
-    // own. What is checked is that the sentence has not been rewritten shorter
-    // somewhere else on the screen.
     const html = home({ queue: queue({ pending: 9, ready: 6, failed: 3 }) })
 
     expect(words(html)).not.toMatch(/on the table/i)
@@ -330,9 +241,6 @@ describe('what the counts say', () => {
 
 describe('the numbers the drawing did not have to survive', () => {
   it('draws five zeros and a sleeping cat when there is nothing at all', () => {
-    // Not "nothing is catalogued yet" over a tile that reads nought
-    // catalogued: that is the same fact twice, which is what this round took
-    // off the screen everywhere else. The cat says it and costs no line.
     const html = home({ counts: { total: 0, fiction: 0, nonfiction: 0, checkedOut: 0 } })
 
     expect(said(html).length, 'the counts are not all drawn on an empty day').toBe(5)
@@ -342,13 +250,6 @@ describe('the numbers the drawing did not have to survive', () => {
   })
 
   it('stretches him out as soon as there is a book anywhere', () => {
-    /*
-     * Round eight's distinction, redrawn by #410 and moved by #427 rather than
-     * dropped. He used to sit up on a screen with something on it and sleep on
-     * an empty one; what separates the two days now is where he is. A book on
-     * the table is a screen with a door on it, so it is a screen he lies on,
-     * and the scoot that makes room for him is that block's own margin.
-     */
     const table = home({
       counts: { total: 0, fiction: 0, nonfiction: 0, checkedOut: 0 },
       queue: queue({ pending: 2 }),
@@ -362,9 +263,6 @@ describe('the numbers the drawing did not have to survive', () => {
   })
 
   it('leaves him a still loaf on the evening there is nothing to lie on', () => {
-    // The empty screen has no doors at all, so there is nothing to sleep on
-    // and no button for a tail to go behind. He keeps the cell after the last
-    // count, still and curled, which is where he has been since round eight.
     const nothing = home({ counts: { total: 0, fiction: 0, nonfiction: 0, checkedOut: 0 } })
 
     expect(nothing, 'a tail was drawn reaching behind doors that are not there')
@@ -375,14 +273,6 @@ describe('the numbers the drawing did not have to survive', () => {
   })
 
   it('gives him a behaviour rather than a still drawing, on the screen he lies on', () => {
-    /*
-     * #410, and the half of it a rendered tree can answer. That the tail
-     * actually moves is a claim about frames, and it is checked by watching
-     * frames: `e2e/features/the-cat-is-alive.feature`. What is pinned here is
-     * that the drawing asks for a behaviour at all, because a component that
-     * quietly stopped passing one would leave that browser scenario the only
-     * thing standing between this screen and a still cat.
-     */
     const html = home({ carrying: [toCarry()] })
 
     expect(html, 'the cat on the first screen is doing nothing').toMatch(/wf-cat--dozing/)
@@ -390,9 +280,6 @@ describe('the numbers the drawing did not have to survive', () => {
   })
 
   it('offers no way to find a book when there is nothing to find one against', () => {
-    // A door to an empty room, on the screen whose whole argument is that
-    // everything on it earns its place. The wireframe draws a library of
-    // 1,204 and never sees this (#355).
     const empty = { total: 0, fiction: 0, nonfiction: 0, checkedOut: 0 }
 
     expect(home({ counts: empty })).not.toContain('wf-door--inhand')
@@ -400,18 +287,12 @@ describe('the numbers the drawing did not have to survive', () => {
   })
 
   it('offers it for a book on the table, with nothing catalogued at all', () => {
-    // #122's journey: somebody else photographed this book an hour ago and the
-    // way to find that out is to hold it up. A collection can be entirely on
-    // the table on its first evening, and that is the evening two people are
-    // most likely to photograph one book twice.
     const empty = { total: 0, fiction: 0, nonfiction: 0, checkedOut: 0 }
 
     expect(home({ counts: empty, queue: queue({ pending: 2 }) })).toContain('wf-door--inhand')
   })
 
   it('offers it only once the catalogue has answered', () => {
-    // The same reason the counts wait: a door drawn against a number that has
-    // not arrived is a guess about somebody's collection.
     expect(home({ counts: null })).not.toContain('wf-door')
     expect(home({ queue: null })).not.toContain('wf-door')
   })
@@ -431,44 +312,24 @@ describe('the numbers the drawing did not have to survive', () => {
   })
 
   it('offers carrying only when there is something to carry', () => {
-    // The count is how many and the door is the invitation, so the count is
-    // drawn at nought and the door is not: a walk to a bookcase for nothing is
-    // the door-to-an-empty-room fault wearing the other camera's clothes.
     expect(home({ carrying: [] })).not.toContain(CARRY_BOOKS)
     expect(words(home({ carrying: [toCarry()] }))).toContain(CARRY_BOOKS)
   })
 
-  /*
-   * #341, and the whole of what this screen says about those books.
-   *
-   * The issue's complaint is that a book no rule claims appears in no listing,
-   * in neither review, in none of these five counts and on no area's card, so
-   * the books most in need of a person are the ones the app mentions least. The
-   * five counts are the five the owner named and both suites pin that list, so
-   * the only thing that can carry this is the row that says what to do about it.
-   */
   it('offers a way to the books nothing files, when there are any', () => {
     expect(words(home({ unclaimed: 12 }))).toContain(SAY_WHAT)
     expect(home({ unclaimed: 12 })).toContain('wf-door--saying')
   })
 
   it('offers it on the day there is one, which is the day it matters most', () => {
-    // Twelve is the drawing's number and one is the state a collection reaches
-    // on the way to none. A door that only turned up for a crowd would leave
-    // the last book unfindable, which is the whole failure this closes.
     expect(words(home({ unclaimed: 1 }))).toContain(SAY_WHAT)
   })
 
   it('offers nothing of the sort once every book is claimed', () => {
-    // The door-to-an-empty-room fault, which is what took the camera card off
-    // this screen and is what keeps the carry door off it on a settled day.
     expect(words(home({ unclaimed: 0 }))).not.toContain(SAY_WHAT)
   })
 
   it('offers nothing of the sort until the read has answered', () => {
-    // Null is "nobody answered", not "none". A row inviting somebody to settle a
-    // dozen books, drawn because a request did not come back, is a walk to a
-    // screen that will say there is nothing to do.
     expect(words(home({ unclaimed: null }))).not.toContain(SAY_WHAT)
   })
 
@@ -482,8 +343,6 @@ describe('the numbers the drawing did not have to survive', () => {
   })
 
   it('counts a long carry list rather than naming three of it', () => {
-    // The card that named three of them went in #361, for saying a third time
-    // what the count says. What is left is the count and the door.
     const many = Array.from({ length: 53 }, (_, at) =>
       toCarry({ id: at + 1, title: `Book ${at + 1}` }))
     const html = home({ carrying: many })
@@ -493,9 +352,6 @@ describe('the numbers the drawing did not have to survive', () => {
   })
 
   it('says nothing about backups on an ordinary day, in either silence', () => {
-    // Fine, and not watched at all, both draw nothing, and they have to: a
-    // reassuring line about a directory nobody read is the failure this whole
-    // card exists to end, printed the other way round (#311).
     for (const state of ['fresh', 'unwatched'] as const) {
       const html = home({ backup: watched({ state }) })
       expect(html, `${state} drew a card`).not.toContain('wf-card__kind')
@@ -504,11 +360,6 @@ describe('the numbers the drawing did not have to survive', () => {
   })
 })
 
-/*
- * The other half of #311. The check itself is `server/backup-watch.test.ts`;
- * what is here is that each answer reaches the screen as words somebody would
- * act on, and that the two answers meaning "nothing to say" say nothing.
- */
 describe('when the collection has stopped being backed up', () => {
   it('says how old the last proved one is, and when it was taken', () => {
     const html = home({
@@ -524,9 +375,6 @@ describe('when the collection has stopped being backed up', () => {
   })
 
   it('says a disk it could not read is a disk it could not read', () => {
-    // Never "everything is fine", and never "there are no backups" either: the
-    // dumps are on a second physical disk on purpose, and a disk with its cable
-    // out is a thing nobody knows the answer about.
     const text = words(home({ backup: watched({ state: 'unreachable', why: 'there is no such folder' }) }))
 
     expect(text).toContain('The backups cannot be read')
@@ -546,9 +394,6 @@ describe('when the collection has stopped being backed up', () => {
   })
 
   it('draws it above everything else on the screen', () => {
-    // Above the counts rather than among them, which is the arrangement #311
-    // chose and the headings going does not change: this is news, and the
-    // counts are work somebody can walk over and do.
     const html = home({
       queue: queue({ ready: 6 }),
       backup: watched({ state: 'none' }),
@@ -558,8 +403,6 @@ describe('when the collection has stopped being backed up', () => {
   })
 
   it('says it even before the catalogue has answered', () => {
-    // The morning after the worst kind of night is the one where the database
-    // is slow as well, and that must not be the morning this stays quiet.
     const html = home({ counts: null, queue: null, backup: watched({ state: 'none' }) })
 
     expect(words(html)).toContain('Nothing has been backed up')
@@ -585,25 +428,8 @@ describe('when the collection has stopped being backed up', () => {
   })
 })
 
-/*
- * The other half of #489, and the reason that issue exists.
- *
- * The check itself has been right since #213 and is covered by four test files;
- * what it did not have was a reader. It printed to the server log on every
- * start, correctly, all the way through #485, and no screen said a word, so the
- * one person who could act on it never found out.
- *
- * What is held to a claim here is the reading half: that the news reaches this
- * screen as words somebody would act on, that a day the two agree says nothing
- * at all, and that the card carries the refusal to repair rather than leaving
- * it to a comment nobody reads.
- */
 describe('when the shelf and the rules disagree about where books stand', () => {
   it('says nothing on a day they agree, and nothing when nobody answered', () => {
-    // Nought and null both draw nothing, and they are different silences. There
-    // is no reassuring version of this card for `backupWords`' reason: a line
-    // saying the shelf is fine is a line a bug can print over a check that
-    // never ran, and this whole card exists because a correct check went unread.
     for (const drifting of [0, null]) {
       const html = home({ drifting })
       expect(words(html), `${drifting} drew a card`).not.toMatch(/claimed by another/)
@@ -614,8 +440,6 @@ describe('when the shelf and the rules disagree about where books stand', () => 
     const text = words(home({ drifting: 12 }))
 
     expect(text).toContain('Twelve books are drawn in one place and claimed by another')
-    // The last sentence is the door, because the card has no button. Without it
-    // this is the log line moved onto a screen: true, and nothing to act on.
     expect(text).toContain('Books that are not where they should be')
   })
 
@@ -625,11 +449,6 @@ describe('when the shelf and the rules disagree about where books stand', () => 
   })
 
   it('says out loud that nothing will be repaired', () => {
-    // The sentence that has to survive somebody tidying this screen. #485 was
-    // diagnosable three weeks in because the broken state was stable and
-    // outlived every restart; a check that put it right on sight would have
-    // hidden the defect indefinitely. Said where the reader can see it, so
-    // nobody adds a button on the grounds that the card looks unfinished.
     const text = words(home({ drifting: 12 }))
 
     expect(text).toContain('Nothing has been moved and nothing will be')
@@ -644,15 +463,10 @@ describe('when the shelf and the rules disagree about where books stand', () => 
   })
 
   it('names no book, because this screen never has', () => {
-    // Round eight's deletion, holding. The count is here and the names are on
-    // the screen whose job is drawing the books, which is what the last
-    // sentence of the card sends somebody to.
     expect(home({ drifting: 12 })).not.toContain('wf-row')
   })
 
   it('says it even before the catalogue has answered', () => {
-    // The two reads are independent, so a catalogue that is slow must not be
-    // able to hide this. Same argument as the backup card above it.
     const html = home({ counts: null, queue: null, drifting: 12 })
 
     expect(words(html)).toContain('claimed by another')
@@ -660,9 +474,6 @@ describe('when the shelf and the rules disagree about where books stand', () => 
   })
 
   it('draws both pieces of bad news when there are two', () => {
-    // Not either-or. A morning where the backups stopped and the shelf stopped
-    // agreeing with its own rules is one morning, and the app has no business
-    // picking which of the two to mention.
     const text = words(home({ backup: watched({ state: 'none' }), drifting: 12 }))
 
     expect(text).toContain('Nothing has been backed up')
@@ -677,19 +488,6 @@ describe('when the shelf and the rules disagree about where books stand', () => 
   })
 })
 
-/**
- * The third card, and the one whose condition is the argument (#348).
- *
- * The counters behind it have existed since the first half of this issue and
- * were correct the whole time. Their readers were a log line printed once per
- * outage and a `/api/health` behind the sign-in gate, and the person who owns
- * the books reads neither. That is the same shape as the two cards above, one
- * storey up: a detection nobody reads is silent exactly the way a missing one
- * is.
- *
- * What is checked here is mostly what does **not** draw a card. The sentences
- * themselves are `lib/catalogueWords.test.ts`'s.
- */
 describe('when a catalogue has described none of the books looked up', () => {
   it('says nothing while every catalogue is answering, or nobody answered', () => {
     for (const lookups of [catalogues(), null]) {
@@ -699,12 +497,6 @@ describe('when a catalogue has described none of the books looked up', () => {
   })
 
   it('says nothing about a catalogue that is only having a bad afternoon', () => {
-    /*
-     * The line this card is drawn on, and the reason the server had to learn
-     * the difference first. A timeout ends on its own; a refusal answers the
-     * same way tomorrow. A card for the first is a card somebody learns to
-     * scroll past, on a screen carrying two others that must not be.
-     */
     const html = home({
       lookups: catalogues({
         'Google Books': { asked: 12, answered: 0, held: 0, noRecord: 0, silent: 12, failed: 12 },
@@ -722,10 +514,7 @@ describe('when a catalogue has described none of the books looked up', () => {
     }))
 
     expect(text).toContain('Google Books has described none of the 12 books')
-    // The reassurance, which is what stops this being an alarm about somebody
-    // else's server put in front of somebody holding a book.
     expect(text).toContain('Nothing you have catalogued is wrong')
-    // And the door, in words, because the card has no button.
     expect(text).toContain('Where your books are described from')
   })
 
@@ -741,8 +530,6 @@ describe('when a catalogue has described none of the books looked up', () => {
   })
 
   it('draws all three pieces of bad news when there are three', () => {
-    // One morning, and the app has no business picking which two of the three
-    // to mention.
     const text = words(home({
       backup: watched({ state: 'none' }),
       drifting: 12,
@@ -757,8 +544,6 @@ describe('when a catalogue has described none of the books looked up', () => {
   })
 
   it('says it even before the catalogue counts have answered', () => {
-    // Independent reads, like the two cards above: a slow collection must not
-    // be able to hide this.
     const html = home({
       counts: null,
       queue: null,
@@ -772,34 +557,15 @@ describe('when a catalogue has described none of the books looked up', () => {
   })
 })
 
-/**
- * What a person sees when the reads this screen is made of do not come back
- * (#562).
- *
- * The defect was that they saw nothing: the two reads behind `counts` and
- * `queue` ended in a bare `.catch(() => {})`, and both values are null while a
- * read is in flight as well as after one has failed, so a server that was not
- * there drew the same screen as a server that had not answered yet. A top bar,
- * a tab bar, and white space, until somebody happened to navigate.
- *
- * So the thing worth asserting is not that a `catch` ran. It is that the two
- * cases now look different to somebody holding the phone, and that the ordinary
- * day is unchanged.
- */
 describe('when nothing answered', () => {
   it('says so, on the screen that would otherwise be blank', () => {
     const html = home({ counts: null, queue: null, unreachable: true })
 
     expect(words(html)).toContain('Your books could not be counted')
-    // Still no counts, which is the half that was already right: a number drawn
-    // from a request that did not come back is a guess about the collection.
     expect(html).not.toContain('wf-stat')
   })
 
   it('is what tells that screen apart from the one still waiting', () => {
-    // The whole of the defect, in one comparison. Before #562 these two renders
-    // were the same markup, and a person could not tell a server that is not
-    // there from the first half second of an ordinary visit.
     const waiting = home({ counts: null, queue: null })
     const nothing = home({ counts: null, queue: null, unreachable: true })
 
@@ -808,12 +574,6 @@ describe('when nothing answered', () => {
   })
 
   it('keeps the last counts on the screen rather than emptying it', () => {
-    // Not the answer the four reads below it give, and deliberately (#562).
-    // They each claim something is wrong or invite a walk to a bookcase, so a
-    // stale one is a false alarm. A count is the cheapest thing to be wrong
-    // about, these are re-read on every change of screen, and dropping the
-    // whole screen out of the layout because one re-read hiccuped is worse than
-    // saying beside it that the app could not check.
     const html = home({ queue: queue({ ready: 6 }), unreachable: true })
 
     expect(words(html)).toContain('Your books could not be counted')
@@ -822,18 +582,11 @@ describe('when nothing answered', () => {
   })
 
   it('says nothing at all on a day the server answered', () => {
-    // There is no reassuring version of this card, for `backupWords`' reason: a
-    // line saying the app can reach the server is a line that can be printed
-    // over a read nobody made.
     expect(words(home())).not.toContain('could not be counted')
     expect(words(home({ counts: null, queue: null }))).not.toContain('could not be counted')
   })
 
   it('is read before the news it is the reason for', () => {
-    // The three cards below it are ranked by what is worse, because they are
-    // three things to worry about. This one is why the rest of the screen is
-    // empty, and an explanation drawn after the thing it explains is one
-    // somebody has already stopped looking for.
     const html = home({
       counts: null,
       queue: null,
@@ -861,18 +614,6 @@ describe('when nothing answered', () => {
   })
 })
 
-/**
- * A count is a promise about what you will see (#436).
- *
- * Both of the queue's counts opened the queue on the whole queue. Pressing "31
- * stuck" produced a list headed "All 39", so the number that sent somebody
- * there was contradicted by the first thing they read when they arrived, and
- * the thirty-one had to be found again by hand.
- *
- * Which books each one opens is the only thing checked, because it is the only
- * thing that was wrong: they were already targets and they already went to the
- * right screen.
- */
 describe('what a count opens', () => {
   const pressing = (word: string, over: Partial<Parameters<typeof HomePane>[0]> = {}) => {
     const opened: (Which | undefined)[] = []
@@ -893,8 +634,6 @@ describe('what a count opens', () => {
     expect(pressing('ready to shelve')).toEqual(['ready'])
   })
 
-  /* The tab is the one way in that claims nothing, so it is the one way in that
-     filters nothing: somebody working through a pile wants the pile. */
   it('opens the whole queue from the tab bar, which counts nothing', () => {
     const opened: (Which | undefined)[] = []
     const screen = tree({ onQueue: (showing?: Which) => opened.push(showing) })
@@ -903,14 +642,6 @@ describe('what a count opens', () => {
     expect(opened).toEqual([undefined])
   })
 
-  /**
-   * The same promise, one screen along (#459).
-   *
-   * "2 checked out" and "27 catalogued" both opened the plain library, so the
-   * smaller number produced the larger list and the arriving screen said "Every
-   * book / 27 books" either way. Two counts, one destination, and nothing
-   * saying which of them had been pressed.
-   */
   const opening = (word: string) => {
     const opened: (string | undefined)[] = []
     const items = pressable({
@@ -925,8 +656,6 @@ describe('what a count opens', () => {
     expect(opening('checked out')).toEqual(['checked_out'])
   })
 
-  /* And the count that means the whole collection says so, rather than leaving
-     whatever the last press narrowed to in place. */
   it('opens the whole library from the count that means all of it', () => {
     expect(opening('catalogued')).toEqual([undefined])
   })
@@ -939,9 +668,6 @@ describe('what a count opens', () => {
     expect(opened).toEqual([undefined])
   })
 
-  /* The other three are about books that are not in the queue at all, and this
-     is here so that a later hand wiring a filter through does not wire one
-     through these by accident. */
   it('leaves the counts that are not about the queue alone', () => {
     const went: string[] = []
     const items = pressable({

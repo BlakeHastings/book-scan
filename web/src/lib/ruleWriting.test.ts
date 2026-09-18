@@ -30,9 +30,8 @@ const vocabulary: TagRow[] = [
 
 describe('the tags a rule can be given', () => {
   /**
-   * Matched anywhere in the label rather than at the front. Somebody who has to
-   * remember how a tag begins is somebody scrolling a vocabulary instead, and
-   * "Second World War" is exactly the tag a person looks for by its middle.
+   * Matched anywhere in the label rather than at the front: "Second
+   * World War" is exactly the tag a person looks for by its middle.
    */
   it('narrows on the letters wherever they fall in the word', () => {
     expect(offering(vocabulary, 'co', []).map((one) => one.tag))
@@ -45,10 +44,8 @@ describe('the tags a rule can be given', () => {
   })
 
   /**
-   * The count travels with the word, and it is what makes the choice a
-   * decision. A tag forty books carry and a tag nothing carries are different
-   * answers to "what should belong here", and the word alone does not say which
-   * of the two somebody is about to pick.
+   * The count travels with the word: a tag forty books carry and a tag
+   * nothing carries are different answers to "what should belong here".
    */
   it('carries how many books each one has', () => {
     expect(offering(vocabulary, 'poetry', [])).toEqual([{ tag: 'Poetry', books: 41 }])
@@ -66,9 +63,8 @@ describe('the tags a rule can be given', () => {
   })
 
   /**
-   * One direction only. The slug is what the rule is about and the label is
-   * what a person reads; a slug that reached a screen would be the same mistake
-   * as showing somebody a row id.
+   * One direction only: the slug is what the rule is about and the label
+   * is what a person reads.
    */
   it('names a line by its label and never by its identity', () => {
     expect(linesSaid(vocabulary, [{ operator: 'under', tag: 'genre/fiction' }]))
@@ -91,10 +87,7 @@ describe('the phrase at the top of what belongs here', () => {
     }])).toBe('Anything tagged Comic books and tagged Fiction')
   })
 
-  /**
-   * And joins two rules with "or", which is the whole of what alternation is
-   * here. One sentence about one place, rather than a list headed "rule 1 of 2".
-   */
+  /** One sentence about one place, rather than a list headed "rule 1 of 2". */
   it('joins two rules on one place with "or"', () => {
     expect(draftHolds(vocabulary, [
       { id: 1, conditions: [{ operator: 'is', tag: 'subject/comic-books' }] },
@@ -146,9 +139,8 @@ const book = (id: number) => ({ id, title: `Title ${id}`, authorFiling: 'Author'
 
 describe('what a change comes to', () => {
   /**
-   * The biggest moves first and the rest counted. A hundred and one lines is
-   * not something anybody reads standing in a room, and the books themselves
-   * are named a screen later, on the trip they belong to.
+   * The biggest moves first and the rest counted: a hundred and one
+   * lines is not something anybody reads standing in a room.
    */
   it('draws the biggest moves and counts the others', () => {
     const groups = [
@@ -167,9 +159,9 @@ describe('what a change comes to', () => {
   })
 
   /**
-   * Nothing is quietly left out. A change that said "84 books move" having left
-   * three pinned ones out of the eighty-four would be believed, and the person
-   * would come back from the furniture three books short.
+   * Nothing is quietly left out: a change that said "84 books move"
+   * having left three pinned ones out of the eighty-four would be
+   * believed, and the person would come back short.
    */
   it('names every book the rules will not touch, with the reason', () => {
     expect(leaving([
@@ -183,9 +175,9 @@ describe('what a change comes to', () => {
   })
 
   /**
-   * The consequence a count cannot carry: an area a rule points at begins a
-   * stretch, so it stops taking overflow **and** the areas after it come with
-   * it. The second half was found by running it against a real room.
+   * The consequence a count cannot carry: an area a rule points at begins
+   * a stretch, so it stops taking overflow and the areas after it come
+   * with it.
    */
   it('says what an area gaining its first rule does to the ones after it', () => {
     const said = noteOf(plan({ opens: true }))
@@ -209,12 +201,9 @@ describe('what a change comes to', () => {
   })
 
   /**
-   * #391's second half. A rule nothing carries and no rule at all were given the
-   * same sentence, so somebody who opened the editor on a plank that files by
-   * overflow, added nothing and asked what would move read "No book in the
-   * collection carries all of these" about lines that did not exist. Writing it
-   * down then answered "Nothing changed about where the books belong", which was
-   * true, and read as their work being lost.
+   * A rule nothing carries and no rule at all get different sentences:
+   * conflating them reads as "no book in the collection carries all of
+   * these" about lines that do not exist.
    */
   it('tells a draft that is not a change from a rule that claims nothing', () => {
     const said = noteOf(plan({ names: [], already: 0, claiming: 0 }))
@@ -234,13 +223,10 @@ describe('what a change comes to', () => {
   })
 
   /**
-   * #430 item 1. "Anything tagged Non-fiction" written on a second piece of
-   * furniture previewed as "no book would have to be carried, 25 stay exactly
-   * where they are" and then as "Nothing changed about where the books belong".
-   * Both true, and neither said that seven non-fiction books were sitting on a
-   * bookcase whose rule is tried first, which is why nothing moved.
-   *
-   * Two places wanting one tag stays allowed. What it stops being is silent.
+   * Two places wanting one tag stays allowed. What it stops being is
+   * silent: a place seeing "no book would have to be carried" does not
+   * say that other books are sitting on a bookcase whose rule is tried
+   * first.
    */
   it('says which other place is asking for the same books, and who keeps them', () => {
     const said = noteOf(plan({
@@ -271,9 +257,9 @@ describe('what a change comes to', () => {
   })
 
   /**
-   * Two numbers that are never the same number. `wrote` is rows saying where
-   * the rules want a book; a second apply of the same change writes none of them
-   * and still leaves the same books to carry.
+   * Two numbers that are never the same number: `wrote` is rows saying
+   * where the rules want a book, and a second apply of the same change
+   * writes none of them while still leaving the same books to carry.
    */
   it('reports what was written rather than what has to be carried', () => {
     expect(wroteSaid(29)).toBe('29 books now belong somewhere else.')
@@ -284,28 +270,22 @@ describe('what a change comes to', () => {
 
 
 /**
- * Naming a word where the rule is written (#392).
- *
- * The decision itself is `domain/tagging/naming.ts` and it has its own tests;
- * what is checked here is the half this file owns, which is turning its four
- * answers into a drawing without inventing a fifth.
+ * Naming a word where the rule is written. The decision itself is
+ * `domain/tagging/naming.ts`, tested there; this file only checks turning
+ * its answers into a drawing without inventing a fifth.
  */
 describe('a word the collection has never used', () => {
   it('offers to make one, under the collection\'s own heading', () => {
     const { make, slug, said } = making(vocabulary, 'Manga', [])
     expect(make).toEqual({ name: 'Manga', where: 'Subject' })
     expect(slug).toBe('subject/manga')
-    // Nothing under the box: the offer says both halves of it already, and both
-    // sentences were on screen together until it was looked at.
+    // The offer already says both halves; no extra sentence under the box.
     expect(said).toBe('')
   })
 
   /**
-   * The one thing this must not become is a second way to make a tag.
-   *
-   * "Comic Book" and "comic books" are one tag to this app, so a rule may not
-   * make the second of them, and being refused without being told why reads as
-   * the box being broken.
+   * The one thing this must not become is a second way to make a tag:
+   * "Comic Book" and "comic books" are one tag to this app.
    */
   it('refuses a second spelling and says which word it already means', () => {
     const { make, said } = making(vocabulary, 'comic book', [])
@@ -313,7 +293,7 @@ describe('a word the collection has never used', () => {
     expect(said).toMatch(/one tag rather than two/)
   })
 
-  /** #304: those two are stated on a book, and typing the word is not stating it. */
+  /** Fiction and non-fiction are stated on a book; typing the word is not stating it. */
   it('sends the two genre answers back to the tags there already are', () => {
     const { make, said } = making(vocabulary, 'fiction', [])
     expect(make).toBeNull()
@@ -326,11 +306,9 @@ describe('a word the collection has never used', () => {
   })
 
   /**
-   * A word named on the first rule of an "or" is vocabulary for the second.
-   *
-   * Without this the picker would offer to make it again and the two lines
-   * would then disagree about which tag they meant, which is the two-spellings
-   * defect arriving inside one draft.
+   * A word named on the first rule of an "or" is vocabulary for the
+   * second: otherwise the picker would offer to make it again, and the
+   * two lines would disagree about which tag they meant.
    */
   it('will not make a word this draft has already named', () => {
     const drafted = [{ tag: 'subject/manga', label: 'Manga' }]
@@ -338,11 +316,9 @@ describe('a word the collection has never used', () => {
   })
 
   /**
-   * One word said twice on purpose is not a duplicate.
-   *
-   * "Tagged Comics and Fiction, or tagged Comics and Poetry" is two rules that
-   * share a tag, and the picker narrows by the lines on the rule being written
-   * rather than by the place's, or the second half of an "or" is unwritable.
+   * One word said twice on purpose is not a duplicate: two rules can
+   * share a tag, and the picker narrows by the lines on the rule being
+   * written rather than by the place's.
    */
   it('still offers a tag another rule on the place already names', () => {
     expect(offering(vocabulary, 'comic', ['subject/poetry']).map((one) => one.tag))
@@ -350,11 +326,9 @@ describe('a word the collection has never used', () => {
   })
 
   /**
-   * A tag they keep under another spelling is offered, not hidden.
-   *
-   * "comic books" typed against a tag labelled "Comic Book" is a substring of
-   * nothing, so matching the label alone offered no tag and an offer to make a
-   * second one. The fold that answers that on a book answers it here.
+   * A tag they keep under another spelling is offered, not hidden:
+   * "comic books" typed against a tag labelled "Comic Book" matches
+   * nothing by label alone.
    */
   it('offers the tag a near spelling means, first', () => {
     const theirs: TagRow[] = [tag('subject/comic-book', 'Comic Book', 46), ...vocabulary.slice(1)]
@@ -365,10 +339,8 @@ describe('a word the collection has never used', () => {
 
 /**
  * A shelf somebody prepared before the books arrived, said in one line.
- *
- * The wording is the empty rule's own clause, deliberately: "so it claims
- * nothing" is already how this widget says a rule is a real state rather than a
- * fault, and this is the neighbouring case with one word added.
+ * The wording reuses the empty rule's own clause: "so it claims nothing"
+ * already says a rule is a real state rather than a fault.
  */
 describe('a rule waiting on a word nothing carries', () => {
   it('names the word, and ends the way the empty rule ends', () => {
@@ -391,11 +363,9 @@ describe('a rule waiting on a word nothing carries', () => {
   })
 
   /**
-   * The draft's own word reads back as the word rather than as the slug.
-   *
-   * A line naming a tag that is not a row yet has no label in the vocabulary,
-   * and the fallback is the slug, which is a bug worth seeing. So the label
-   * rides with the line until the write.
+   * The draft's own word reads back as the word rather than as the slug:
+   * a line naming a tag that is not a row yet has no label in the
+   * vocabulary, and falling back to the slug would be a bug worth seeing.
    */
   it('draws a word being named by the word, and counts it as carried by nothing', () => {
     expect(linesSaid(vocabulary, [{ operator: 'is', tag: 'subject/manga', label: 'Manga' }]))

@@ -2,11 +2,8 @@
  * The engine, over a ledger it can be handed row by row.
  *
  * `infrastructure/db/placement-ledger.test.ts` runs this handler over a real
- * catalogue of 236 books and counts what it wrote; this file is the other half,
- * where each case is one book whose history is stated outright. The two are
- * worth having separately because the interesting inputs here are histories a
- * seeded catalogue does not have yet: a pinned book, a withdrawn one, a book two
- * rules both claim.
+ * catalogue; this file covers histories a seeded catalogue does not have yet:
+ * a pinned book, a withdrawn one, a book two rules both claim.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -112,9 +109,7 @@ describe('assigning placements', () => {
   })
 
   it('does not write the same assignment again on the next run', async () => {
-    // The flood this rule exists to prevent. Nobody has carried the book, the
-    // answer has not changed, and a second identical row would say nothing while
-    // doubling the history of every book that is out of place.
+    // A second identical row would double the history of every book that is out of place, saying nothing new.
     const ledger = new LedgerInMemory([rowFor(1, 'placed', 11)])
     await run(ledger, [fictionBook(1)])
     expect(await run(ledger, [fictionBook(1)]))

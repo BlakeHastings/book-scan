@@ -1,27 +1,16 @@
 /**
  * What a boundary change does to the rows.
  *
- * **This file used to read the SQL and never run it.** Through #213 a boundary
- * was a row in `separators`, `add` was one insert and `remove` was one delete,
- * and the claims worth pinning were about the statement text: that the
- * placeholders came out as `?`, and that the insert did not contain the word
- * `default`. A fake `Db` that recorded rather than executed was the only thing
- * that could say either.
+ * Each method reads the range's boundaries out of the areas, applies one change
+ * and writes the areas back, so the claim worth making is which rows are on the
+ * floor afterwards: which fixture an area hangs on, what it is anchored at, and,
+ * above all, whether an area a book has been placed in survived its boundary
+ * being removed. Every one of those is the database's answer rather than the
+ * repository's, so this runs against a real database.
  *
- * Since #232 there is no `separators` table and no statement of that shape. Each
- * method reads the range's boundaries out of the areas, applies one change and
- * writes the areas back, so the interesting claim is not what SQL was generated
- * but which rows are on the floor afterwards: which fixture an area hangs on,
- * what it is anchored at, and, above all, whether an area a book has been placed
- * in survived its boundary being removed. A recording fake cannot answer any of
- * those, because every one of them is the database's answer rather than the
- * repository's.
- *
- * So this runs against a real database, like `server/dividers.test.ts` and
- * `areas.test.ts` beside it. A test database arrives with the two runs already
- * standing, seeded by `0013`: fiction on the fixture at position 1 and
- * non-fiction on the one at position 4, each with a single area at position 0
- * anchored at the empty string.
+ * A test database arrives with the two runs already standing, seeded by `0013`:
+ * fiction on the fixture at position 1 and non-fiction on the one at position 4,
+ * each with a single area at position 0 anchored at the empty string.
  */
 
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
@@ -49,13 +38,10 @@ afterAll(closeTestDatabase)
 const STAMP = '2026-08-09T00:00:00.000Z'
 
 /**
- * A boundary somebody asked for, as the port states one.
- *
- * `position`, `note` and `createdAt` are still on `NewSeparator` and none of
- * them reaches a row. A boundary's position is where its area sits in the run,
- * so it is derived rather than given, and the two text columns belonged to a
- * table that no longer exists. They are passed as the port asks for them and
- * nothing here reads them back.
+ * A boundary somebody asked for, as the port states one. `position`, `note` and
+ * `createdAt` are still on `NewSeparator` and none of them reaches a row: a
+ * boundary's position is where its area sits in the run, so it is derived rather
+ * than given. They are passed as the port asks for them and read back nowhere.
  */
 const asked = (range: ShelfRange, kind: SeparatorKind, startsAt: string): NewSeparator => ({
   range, kind, startsAt, position: 0, note: '', createdAt: STAMP,
@@ -79,13 +65,10 @@ const furniture = () =>
   )
 
 /**
- * The walk and the walk back, checked against the rows they describe.
- *
- * Two claims, and the first is the one a fake database could never make: the
- * areas actually written are the areas `areasOf` says the boundaries imply. The
- * second is the identity `boundariesFrom` owes it, taken over real ids: reading
- * those areas back gives the boundaries they were walked from, so a boundary
- * comes out as the boundary that went in.
+ * The walk and the walk back, checked against the rows they describe: the areas
+ * actually written are the areas `areasOf` says the boundaries imply, and
+ * reading those areas back over real ids gives the boundaries they were walked
+ * from, so a boundary comes out as the boundary that went in.
  */
 async function roundTrips(range: ShelfRange): Promise<void> {
   const boundaries = await repository.inRange(range)
@@ -101,7 +84,6 @@ async function roundTrips(range: ShelfRange): Promise<void> {
 
 /**
  * Point the rule that serves a range at one area, or back at a whole bookcase.
- *
  * Which rule that is comes from the tag it asks for, the same pairing
  * `ruleForRange` reads out of `GENRE_RANGES`, so this moves the run's beginning
  * exactly as "Say what belongs here" and "Have no rule here" do on a screen.
@@ -121,13 +103,11 @@ const fictionOpensAt = (at: { area: number } | { fixture: number }) =>
   runOpensAt('genre/fiction', at)
 
 /**
- * A second rule naming a genre, written on one plank.
- *
- * Two rules on one genre is legal and stays legal (#430 item 1), and this is
- * what "say what belongs here" writes on a plank: an area rule beside the
- * fixture rule the migration seeded. `ruleForRange` picks between them by
- * `byPrecedence`, area before fixture, so this one is the one that serves the
- * range from here on and the bookcase rule goes on standing.
+ * A second rule naming a genre, written on one plank, which is what "say what
+ * belongs here" writes: an area rule beside the fixture rule the migration
+ * seeded. Two rules on one genre is legal, and `ruleForRange` picks between them
+ * by `byPrecedence`, area before fixture, so this one serves the range from here
+ * on and the bookcase rule goes on standing.
  */
 async function alsoBelongsHere(slug: string, area: number, name: string): Promise<void> {
   const rule = await db.get<{ id: number }>(
@@ -165,12 +145,9 @@ async function plankOf(fixture: number, position: number): Promise<number> {
 const firstAreaOf = (fixture: number) => plankOf(fixture, 0)
 
 /**
- * A shelved book carrying the tag its range comes from.
- *
- * The tag is what a rule reads and the column is what the layout reads, so a
- * book needs both before `areaDisagreements` has two answers to compare. The
- * rows are written directly because this file has no save path; `tag` itself is
- * seeded by the migrations.
+ * A shelved book carrying the tag its range comes from. The tag is what a rule
+ * reads and the column is what the layout reads, so a book needs both before
+ * `areaDisagreements` has two answers to compare.
  */
 async function shelve(title: string, range: ShelfRange, sortKey: string): Promise<number> {
   const slug = range === 'fiction' ? 'genre/fiction' : 'genre/non-fiction'
@@ -234,8 +211,8 @@ describe('adding a boundary', () => {
 
     await repository.add(asked('fiction', 'shelf', 'd'))
 
-    // A bookcase really is a row: there is a third fixture now, and the new
-    // area is the top plank of it rather than the next plank of bookcase 1.
+    // A bookcase is a row: there is a third fixture now, and the new area is the
+    // top plank of it rather than the next plank of bookcase 1.
     const after = await db.all<{ position: number }>(
       'SELECT position FROM fixture ORDER BY position',
     )
@@ -286,16 +263,7 @@ describe('the areas and the boundaries being two readings of one run', () => {
     await roundTrips('fiction')
   })
 
-  /**
-   * **What this asserted before #465 was a bookcase disappearing.**
-   *
-   * `remove` used to write the boundary list back without one entry and let
-   * `areasOf` re-walk it, so taking out a bookcase break folded bookcase 2 into
-   * bookcase 1: bookcase 1 grew a plank it had never had, and bookcase 2 was
-   * left standing with none. Removing a boundary takes *that area* off the
-   * furniture (`docs/shelving.md`), so it is `dropArea` now, and what goes is
-   * the plank the boundary opened.
-   */
+  /** Removing a boundary takes that area off the furniture. See docs/shelving.md. */
   it('round-trips what a removal wrote', async () => {
     await repository.add(asked('fiction', 'area', 'b'))
     await repository.add(asked('fiction', 'shelf', 'd'))
@@ -318,12 +286,9 @@ describe('the areas and the boundaries being two readings of one run', () => {
   })
 
   /**
-   * The one refusal this method has, and it is new (#465).
-   *
-   * An area that is the only one on its piece has nothing there for its books
-   * to join, so `removeArea` refuses and says what to do instead. The boundary
-   * list rewrite had no such answer: it took every plank off the piece and left
-   * it standing empty, which is the state #391 and #420 are about.
+   * The one refusal this method has. An area that is the only one on its piece
+   * has nothing there for its books to join, so `removeArea` refuses and says
+   * what to do instead rather than leaving the piece standing empty.
    */
   it('refuses to take the only plank off a piece, and leaves it standing', async () => {
     await repository.add(asked('fiction', 'shelf', 'd'))
@@ -342,22 +307,12 @@ describe('the areas and the boundaries being two readings of one run', () => {
 })
 
 /**
- * #485, at the level the anchor is written.
- *
- * A plank the run happens to open at is still a plank, and the boundary above
- * it is still where it was. Where the run **begins** is the rule's answer, asked
- * through `ruleForRange` and `entryAreaOf`; the anchor says where an area is cut
- * off from the one before it. `writeBoundaries` used to record the first answer
- * in the second place, blanking the anchor of whichever plank the run opened at,
- * and nothing took it back when the rule moved the entry somewhere else.
- *
- * What that left is one press away in the app: give an empty plank a rule, do
- * anything that touches a boundary, then take the rule off again. The plank sat
- * in the middle of the run holding a boundary anchored below every book, both
- * walks that sort boundaries by anchor stepped it first, and the ordinal walk
- * slid a plank along: a board drawn for a plank that does not exist, a bookcase
- * holding twelve books not drawn at all, and three screens counting three
- * different things.
+ * A plank the run happens to open at is still a plank, and the boundary above it
+ * is still where it was. Where the run begins is the rule's answer, asked through
+ * `ruleForRange` and `entryAreaOf`; the anchor says where an area is cut off from
+ * the one before it, and `writeBoundaries` does not write the first into the
+ * second. A plank left anchored below every book sorts to the front of both
+ * walks that order boundaries by anchor and slides the ordinal walk along.
  */
 describe('a run that begins at a plank, and then does not', () => {
   /** Bookcase 1 cut once, then bookcase 2 with a plank of its own. */
@@ -406,41 +361,30 @@ describe('a run that begins at a plank, and then does not', () => {
     await fictionOpensAt({ fixture: await fixtureAt(1) })
 
     // `n` is past `m` and short of `p`, so it belongs on the top plank of
-    // bookcase 2 and nowhere else. With the anchor blanked, `m` sorted below
-    // every key, the walk stepped that boundary before the one at `b`, and this
-    // book was filed back onto bookcase 1.
+    // bookcase 2 and nowhere else. With that plank's anchor blanked it would
+    // sort below every key and the book would be filed onto bookcase 1.
     const run = await runAreasOf(db, 'fiction')
     expect(areaOfKey(run, 'n')?.id).toBe(await firstAreaOf(2))
   })
 })
 
 /**
- * #490, which is the same sentence one layer in from #463.
- *
- * #463 made `ruleForRange` the one answer to *which rule* serves a range. Both
- * sides here already ask that rule and then disagree about **what the run
- * derived from it contains**: `bandOf` answers where a run begins as a plank,
- * because `entryAreaOf` resolves the plank the rule points at, and `runAreasOf`
- * read the bookcase out of that answer and threw the plank away.
- *
- * So a run whose entry is not the top plank of its piece came back holding the
- * planks standing before its entry, and called the first of those the plank the
- * run opens at. `docs/shelving.md` settles which of the two is right in one
- * line — "a run runs from its rule's entry area until the next area any rule
- * points at" — and `runFrom` has always read it that way in the domain.
+ * A run begins at a plank, not at a bookcase: `bandOf` answers with the plank
+ * `entryAreaOf` resolves from the rule, and `runAreasOf` reads that plank.
+ * `docs/shelving.md` settles it in one line, "a run runs from its rule's entry
+ * area until the next area any rule points at", and `runFrom` reads it that way
+ * in the domain.
  *
  * The arrangement is the rule editor's own guidance followed on a plank: "say
  * what belongs here" writes an area rule, and two rules naming one genre is
- * legal (#430 item 1). Nothing here makes that state an error.
+ * legal. Nothing here makes that state an error.
  */
 describe('a run that opens partway down a bookcase', () => {
   /**
    * Fiction cut into five planks over two bookcases, then non-fiction's rule
-   * written onto the third plank of the second one.
-   *
-   * `2A` and `2B` are anchored at real sort keys, which is what makes the old
-   * reading visible rather than merely wrong: `areaOfKey` sorts a run by anchor,
-   * so two planks the run does not own sorted in front of the one it does.
+   * written onto the third plank of the second one. `2A` and `2B` are anchored
+   * at real sort keys, so a run that wrongly held them would sort them in front
+   * of the plank it does own.
    */
   const nonfictionOpensAtTheThirdPlank = async (): Promise<void> => {
     await repository.add(asked('fiction', 'area', 'b'))
@@ -469,17 +413,16 @@ describe('a run that opens partway down a bookcase', () => {
     await nonfictionOpensAtTheThirdPlank()
 
     // A one plank run has nothing above it to be cut off from, so it has no
-    // boundaries at all. `2A` and `2B` came back as two of non-fiction's, which
-    // is what put a `2D` and a `2E` on the shelves screen that no bookcase has.
+    // boundaries at all.
     expect(await repository.inRange('nonfiction')).toEqual([])
   })
 
   it('lands a book on its entry plank rather than on the run before it', async () => {
     await nonfictionOpensAtTheThirdPlank()
 
-    // `pz` is past `2B`'s anchor and short of `2C`'s, so the old reading walked
-    // it onto `2B`: a plank inside the run that owns the shelves above. That is
-    // the plank the misfile list prints as where the book belongs.
+    // `pz` is past `2B`'s anchor and short of `2C`'s, so a run holding `2B`
+    // would walk the book onto a plank of the run that owns the shelves above,
+    // which is the plank the misfile list prints as where the book belongs.
     const run = await runAreasOf(db, 'nonfiction')
     expect(areaOfKey(run, 'pz')?.id).toBe(await plankOf(2, 2))
   })
@@ -501,13 +444,11 @@ describe('a run that opens partway down a bookcase', () => {
   })
 
   /**
-   * The instrument, asked in the arrangement it was silent about.
-   *
    * `areaDisagreements` places every shelved book twice and says nothing when
-   * the two agree. Its two readings stay independent here on purpose (#488): the
-   * layout side walks the areas the boundary list is derived from, the rules
-   * side walks `runFrom` over the slots, and making them agree by construction
-   * would blind the one check that catches this whole family.
+   * the two agree. Its two readings stay independent on purpose: the layout side
+   * walks the areas the boundary list is derived from, the rules side walks
+   * `runFrom` over the slots, and making them agree by construction would blind
+   * the one check that catches this whole family.
    */
   it('is where the rules put the book, which is what the drift check asks', async () => {
     await nonfictionOpensAtTheThirdPlank()
@@ -529,9 +470,7 @@ describe('removing a boundary whose area a book has been placed in', () => {
    *
    * So it is retired instead: taken off the face by giving it a negative
    * position, which every read of the furniture filters out, while the row and
-   * every placement naming it stay exactly where they are. That is the case this
-   * whole file exists for, and it is invisible to any test that does not put a
-   * book somewhere first.
+   * every placement naming it stay exactly where they are.
    */
   it('retires the area rather than deleting it, and the boundary stops coming back', async () => {
     await repository.add(asked('fiction', 'area', 'b'))
@@ -572,8 +511,8 @@ describe('removing a boundary whose area a book has been placed in', () => {
   })
 
   it('deletes the area outright when no book was ever placed in it', async () => {
-    // The contrast that makes the retirement a decision rather than the only
-    // thing this code can do. Nothing names this area, so nothing keeps it.
+    // Nothing names this area, so nothing keeps it, which is what makes the
+    // retirement above a decision rather than the only thing this code can do.
     await repository.add(asked('fiction', 'area', 'b'))
     const [boundary] = await repository.inRange('fiction')
 
@@ -605,29 +544,18 @@ describe('which range a boundary is in', () => {
 })
 
 /**
- * #499, which is #490 read at the other end of the same answer.
- *
- * #490 fixed where a band **begins**: `bandOf` answers with a plank and
- * `runAreasOf` reads the plank. The band's other end was a bookcase and stays
- * one for the reader it belongs to, because a move stops one piece earlier than
- * a run does (#420) and that is a decision rather than an untidiness.
- *
- * The mistake was never the asymmetry. It was that one number stood for both
- * answers, so "which planks is this run" was put to the bound that exists to say
- * which *bookcases* a move may pick up, and two states nobody chose came out of
- * it. Both are reached through the rule editor's own guidance, both are
- * arrangements #430 item 1 deliberately keeps legal, and the band now carries
- * `end` for the run and `limit` for the move so each caller says which it is
- * asking for.
+ * The other end of the same answer. A band's `end` is a plank, for the run, and
+ * its `limit` is a bookcase, for a move, because a move stops one piece earlier
+ * than a run does. Each caller says which of the two it is asking for, and
+ * putting "which planks is this run" to the move's bound is what these
+ * arrangements catch.
  */
 describe('a run that stops part way down a bookcase', () => {
   /**
    * Fiction over two bookcases with non-fiction's rule on the third plank of the
-   * second, which leaves `2A` and `2B` flowing on from fiction.
-   *
-   * `runFrom` has always given those two to fiction: a run runs from its rule's
-   * entry area until the next area any rule points at, and the next such area is
-   * `2C`. The band stopped at bookcase 2 entire, so they belonged to nobody.
+   * second, which leaves `2A` and `2B` flowing on from fiction. `runFrom` gives
+   * those two to fiction: a run runs from its rule's entry area until the next
+   * area any rule points at, and the next such area is `2C`.
    */
   const fictionRunsOntoNonfictionsBookcase = async (): Promise<void> => {
     await repository.add(asked('fiction', 'area', 'b'))
@@ -641,7 +569,7 @@ describe('a run that stops part way down a bookcase', () => {
     await fictionRunsOntoNonfictionsBookcase()
 
     // `2A` and `2B` are fiction's, because a run stops at an area and the next
-    // area a rule points at is `2C`. The bookcase bound dropped both.
+    // area a rule points at is `2C`.
     expect(drawn(await runAreasOf(db, 'fiction'))).toEqual([
       '1:0@', '1:1@b', '2:0@m', '2:1@p',
     ])
@@ -650,9 +578,8 @@ describe('a run that stops part way down a bookcase', () => {
   it('keeps the cuts somebody made on those planks', async () => {
     await fictionRunsOntoNonfictionsBookcase()
 
-    // Three boundaries went in and three come back. Bounding at the bookcase
-    // answered one, so the shelf cut onto `2A` and the cut at `2B` were offered
-    // by no read and could be acted on by nobody.
+    // Three boundaries went in and three come back, so the shelf cut onto `2A`
+    // and the cut at `2B` are still offered to somebody who could act on them.
     expect(said(await repository.inRange('fiction'))).toEqual([
       'area@b#0', 'shelf@m#1', 'area@p#2',
     ])
@@ -662,8 +589,8 @@ describe('a run that stops part way down a bookcase', () => {
     await fictionRunsOntoNonfictionsBookcase()
 
     // `mm` is past `2A`'s anchor and short of `2B`'s, so `runFrom` and `areaFor`
-    // put it on `2A`. The band ended fiction's run at `1B`, so the layout drew
-    // it there instead, which is the drift below said one book at a time.
+    // put it on `2A`. A band ending fiction's run at `1B` would have the layout
+    // draw it there instead, which is the drift below said one book at a time.
     const run = await runAreasOf(db, 'fiction')
     expect(areaOfKey(run, 'mm')?.id).toBe(await plankOf(2, 0))
   })
@@ -671,12 +598,11 @@ describe('a run that stops part way down a bookcase', () => {
   it('leaves the next run\'s entry plank standing when this run gives one up', async () => {
     await fictionRunsOntoNonfictionsBookcase()
 
-    // The cut at `p` is dragged up above the one onto bookcase 2, which is one
-    // reanchor and leaves fiction with one plank on that piece instead of two.
-    // So bookcase 2 is half inside this run and half outside it, which is the
-    // shape `writeBoundaries` had no bound for at this end: `2B` is fiction's to
-    // give up and `2C`, a plank standing past everything fiction derives and
-    // holding somebody's rule, is not fiction's to take off the face.
+    // The cut at `p` is dragged up above the one onto bookcase 2, which leaves
+    // fiction with one plank on that piece instead of two. So bookcase 2 is half
+    // inside this run and half outside it: `2B` is fiction's to give up, and
+    // `2C`, standing past everything fiction derives and holding somebody's
+    // rule, is not fiction's to take off the face.
     await repository.reanchor(await plankOf(2, 1), 'c')
 
     expect(await furniture()).toEqual([
@@ -698,17 +624,14 @@ describe('a run that stops part way down a bookcase', () => {
 })
 
 /**
- * The worse of the two, and the one with no symptom at all.
- *
- * Two runs beginning on one bookcase made the earlier band's limit and its start
- * the same number, so `runAreasOf` asked for `f.position >= 1 AND f.position < 1`
- * and fiction came back with no run. Not an error and not a warning: a range
- * that simply was not there, with the planks somebody had cut still standing on
- * the bookcase and every book drawn on the first of them.
+ * The case with no symptom at all. Two runs beginning on one bookcase can make
+ * the earlier band's limit and its start the same number, which asks for
+ * `f.position >= 1 AND f.position < 1` and answers with no run: not an error and
+ * not a warning, a range that is simply not there, with the planks somebody cut
+ * still standing and every book drawn on the first of them.
  *
  * The arrangement is one press of "say what belongs here" on a plank of a
- * bookcase a run already opens on. #430 item 1 keeps that legal and #463, #486,
- * #490 and this all rest on it, so nothing here refuses it.
+ * bookcase a run already opens on. That is legal, so nothing here refuses it.
  */
 describe('two runs beginning on one bookcase', () => {
   const nonfictionOpensAtTheThirdPlankOfFictionsBookcase = async (): Promise<void> => {
@@ -727,9 +650,9 @@ describe('two runs beginning on one bookcase', () => {
   it('leaves the earlier range its boundaries', async () => {
     await nonfictionOpensAtTheThirdPlankOfFictionsBookcase()
 
-    // One cut, at `b`, which is the one still fiction's. With no run there was
-    // no boundary list either, so the shelves screen drew every fiction book on
-    // `1A` and offered nothing that could move any of them.
+    // One cut, at `b`, which is the one still fiction's. With no run there is no
+    // boundary list either, so the shelves screen draws every fiction book on
+    // `1A` and offers nothing that could move any of them.
     expect(said(await repository.inRange('fiction'))).toEqual(['area@b#0'])
   })
 
@@ -745,8 +668,7 @@ describe('two runs beginning on one bookcase', () => {
 
     // A boundary act on fiction, which reconciles fiction's areas. `1C` stands
     // on the piece fiction opens on and is not fiction's, so nothing here may
-    // take it off the face — the same claim #490 made about `2A` and `2B`, at
-    // the other end of the run.
+    // take it off the face.
     await repository.add(asked('fiction', 'area', 'bb'))
 
     expect(await furniture()).toEqual([
@@ -767,16 +689,11 @@ describe('two runs beginning on one bookcase', () => {
 })
 
 /**
- * The next site, found by asking where else a run is cut (#499).
- *
  * `startsARun` cuts a run in two places: an area a rule points at, and an area
  * given an ordering of its own, which is self-contained and takes no overflow.
- * `runFrom` has always read both. `nextRunStartAfter` and the band read only the
- * first, so a plank somebody had set to order by title headed a run for the
- * domain and headed nothing for the furniture — the same one-question-two-answers
- * this family is made of, reached by a different button, and the dialog on that
- * button says "would order itself, so nothing overflows into it" before anybody
- * presses it.
+ * `runFrom`, `nextRunStartAfter` and the band all have to read both, or a plank
+ * somebody set to order by title heads a run for the domain and heads nothing
+ * for the furniture.
  */
 describe('a plank that orders itself', () => {
   const secondPlankOrdersItself = async (): Promise<void> => {

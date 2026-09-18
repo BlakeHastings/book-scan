@@ -2,20 +2,15 @@
  * Fiction or non-fiction, from whatever the metadata sources gave us, and
  * nothing at all when they gave us nothing.
  *
- * Shelf 4 is the only non-fiction shelf, so a wrong answer sends the book to a
- * different bookcase entirely. Nothing here is allowed to be silent: the result
- * reaches the review pane as a toggle, and `source` records whether a human ever
- * looked at it.
+ * Shelf 4 is the only non-fiction shelf, so a wrong answer sends the book to
+ * a different bookcase entirely. Nothing here is allowed to be silent: the
+ * result reaches the review pane as a toggle, and `source` records whether a
+ * human ever looked at it.
  *
- * **The last rung answers no genre rather than fiction** (#304). Every rung
- * above it is grounded in something a catalogue actually said: a BISAC heading,
- * an Open Library subject, a Dewey number, an LC class. The last one is grounded
- * in nothing, and it used to answer `genre/fiction` with the confidence set to
- * `unknown` and a sentence asking the person to fix it. That is a guess wearing
- * an answer's clothes, and a save wrote it as a tag whether or not anybody read
- * the sentence. There is no scale of definiteness here and none was added: a
- * source either stated a genre or it did not, and `confidence` is where how
- * strongly it said so already lives.
+ * The last rung answers no genre rather than fiction: every rung above it is
+ * grounded in something a catalogue actually said (a BISAC heading, an Open
+ * Library subject, a Dewey number, an LC class), and the last one is
+ * grounded in nothing.
  */
 
 import {
@@ -35,14 +30,12 @@ export interface ClassificationInput {
 
 export interface Classification {
   /**
-   * The genre this book is guessed to be under, as the tag it means (#227), or
-   * null when no source stated one (#304).
+   * The genre this book is guessed to be under, as the tag it means, or null
+   * when no source stated one.
    *
-   * A slug rather than a boolean, because that is the vocabulary a genre
-   * travels in now: the ladder below still reasons in fiction-or-not, which is
-   * the only question it can answer, and this is where that becomes a claim
-   * about a tag. `claimsFrom` turns it into the row the shelf range is derived
-   * from, and writes no row at all when this is null.
+   * A slug rather than a boolean: the ladder below still reasons in
+   * fiction-or-not, and this is where that becomes a claim about a tag.
+   * `claimsFrom` writes no row at all when this is null.
    */
   genre: GenreSlug | null
   confidence: Confidence

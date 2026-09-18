@@ -1,48 +1,19 @@
-// Fail when a commit reached `main` without a pull request behind it.
+// Fail when a commit reached the default branch without a pull request behind it.
 //
-// WHAT THIS PREVENTS
-// This used to say branch protection was unavailable on a private repo on this
-// plan, so nothing at GitHub's end stopped a direct push to `main` or a merge
-// taken with CI red. That was false: the repository is public and rulesets are
-// free on a public repository. #540 added one, and GitHub now refuses both.
-//
-// Which changes what this check is for, and makes it more useful rather than
-// less. Three preventive layers now stand ahead of it and every one of them can
-// be absent without saying so: `guard-merge.mjs` only loads in a session that
-// started with `.claude/settings.json` present, `merge-pr.mjs` only binds
-// whoever chooses to type it, and a ruleset is a setting on an account that two
-// clicks can disable, leaving no trace in any diff. A layer that can be
-// bypassed cannot tell you it was bypassed, and a layer that can be switched
-// off cannot tell you it was switched off.
-//
-// This one runs on the result, so it cannot be. For every commit a push added to
-// `main` it asks the API which pull requests that commit belongs to. A squash
-// merge from a PR is associated with it; a commit pushed straight to `main` is
-// associated with nothing. That is the whole distinction, and it is the one we
-// need. Record it in an ADR when you install it.
-//
-// It detects rather than prevents: by the time it fails, the commit is on main.
-// The value is that the failure is loud, dated and attributable, which is what
-// makes "we enforce this procedurally" an auditable claim instead of a promise.
-//
-//   node scripts/check-main-provenance.mjs              # $BEFORE..$AFTER, or HEAD
-//   node scripts/check-main-provenance.mjs <sha> [...]  # named commits
+// It detects rather than prevents: by the time it fails, the commit is already on
+// the branch. For every commit a push added it asks the API which pull requests
+// that commit belongs to, because a squash merge from a pull request is
+// associated with it and a commit pushed straight to the branch is associated
+// with nothing.
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 
-// History below this commit is not judged, and the line is not arbitrary: this
-// is `Block merges to main programmatically instead of asking nicely`, the
-// commit that added `guard-merge.mjs` and `merge-pr.mjs`. Before it, the PR-only
-// rule was a sentence in a document; from the commit after it, every commit on
-// main came through a pull request, without exception. Judging anything earlier
-// would report eleven violations that were not violations at the time, and a
-// check whose output is mostly noise gets muted.
-//
-// Do not move this forward to silence a failure. Moving it forward is how a
-// real violation gets absorbed into "history we agreed not to look at".
+// History below this commit is not judged: from the commit after it, every
+// commit on the branch came through a pull request. Do not move it forward to
+// silence a failure.
 // SETUP: the commit that first made the PR-only rule a control rather than a
 // sentence, normally the one that adds this script and the merge wrapper.
 const BASELINE = '1f995ff28f82983c736302cbd33109ed1e7d8ac5'
@@ -50,16 +21,12 @@ const BASELINE = '1f995ff28f82983c736302cbd33109ed1e7d8ac5'
 const DEFAULT_BRANCH = 'master'
 
 // The association shows up in the API a moment after the merge, not always
-// during it. We retry rather than accept a rare false positive: this check's
-// only output is a red build that says somebody bypassed the process, and a
-// check that cries wolf even once a month stops being read. Waiting half a
-// minute to be sure is cheap; being ignored is not.
+// during it, so a first look can miss a pull request that really did land.
 const RETRY_ATTEMPTS = 5
 const RETRY_DELAY_MS = 6000
 
 // Only a commit young enough for the API to still be catching up gets those
-// retries. Anything older is being examined after the fact, where there is no
-// lag left to wait out, so it answers immediately.
+// retries. There is no lag left to wait out on an older one.
 const LAG_WINDOW_MS = 15 * 60 * 1000
 
 function git(args) {
@@ -89,14 +56,11 @@ function commitExists(rev) {
   }
 }
 
-// Which commits this run has to answer for.
-//
 // A push can add several commits at once, and only the head of it is visible in
-// `github.sha`, so the range is what matters: every commit the push put on the
-// branch gets asked about, not just the last one. `PROVENANCE_BEFORE` is
-// `github.event.before`, which is the zero SHA on a branch creation and is not
-// an ancestor at all after a force push. In either case `BASELINE..HEAD` is the
-// honest fallback: it is every commit the baseline says we are willing to judge.
+// `github.sha`, so every commit the push put on the branch gets asked about.
+// `PROVENANCE_BEFORE` is `github.event.before`, which is the zero SHA on a branch
+// creation and is not an ancestor at all after a force push, so `BASELINE..HEAD`
+// is the fallback in either case.
 function commitsToCheck() {
   const named = process.argv.slice(2)
   if (named.length > 0) {
@@ -127,7 +91,6 @@ if (!commitExists(BASELINE)) {
   process.exit(1)
 }
 
-// A commit at or below the baseline predates the rule and is not judged.
 function predatesBaseline(sha) {
   try {
     git(['merge-base', '--is-ancestor', sha, BASELINE])
@@ -137,10 +100,9 @@ function predatesBaseline(sha) {
   }
 }
 
-// The associated pull requests, narrowed to ones that actually explain how this
-// commit got onto the default branch: merged, and targeting the default branch.
-// An open PR, or one aimed at some other branch, associates a commit without
-// landing it, so it is not evidence of anything.
+// Narrowed to the pull requests that explain how the commit got onto the default
+// branch: merged, and targeting it. An open one, or one aimed at another branch,
+// associates a commit without landing it.
 function associatedPulls(sha) {
   let pulls
   try {

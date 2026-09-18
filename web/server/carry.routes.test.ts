@@ -1,16 +1,14 @@
 /**
- * The two routes that take work off the carry list, over real HTTP (#402).
+ * What the module test beside this proves is that no book moves. What is
+ * only visible from the wire is the shape of the request, and one part of
+ * that is load-bearing: a body that names half a trip is refused rather
+ * than widened into all of them. `{ from: 4 }` with the `to` lost on the
+ * way is a request to withdraw one trip; treating it as "no trip named, so
+ * the whole list" would answer the rules about every outstanding book in
+ * the collection on the strength of a typo.
  *
- * What the module test beside this proves is that no book moves. What is only
- * visible from the wire is the shape of the request, and one part of that is
- * load-bearing: **a body that names half a trip is refused rather than widened
- * into all of them.** `{ from: 4 }` with the `to` lost on the way is a request
- * to withdraw one trip; treating it as "no trip named, so the whole list" would
- * answer the rules about every outstanding book in the collection on the
- * strength of a typo, which is the one way these routes could do harm.
- *
- * The harness is `refusal.routes.test.ts`'s: `createApp()` on an ephemeral port
- * with the catalogues stubbed, so nothing here reaches the network.
+ * The harness is `refusal.routes.test.ts`'s: `createApp()` on an ephemeral
+ * port with the catalogues stubbed, so nothing here reaches the network.
  */
 
 import type { AddressInfo } from 'node:net'
@@ -84,8 +82,8 @@ afterAll(async () => {
 const post = async (path: string, body: unknown) => {
   const response = await fetch(`${baseUrl}${path}`, {
     method: 'POST',
-    // The suite arrives holding a session, because every route under /api is
-    // behind the gate since #521 and a request without one is refused 401.
+    // Every route under /api is behind the gate, so a request without a
+    // session cookie is refused 401.
     headers: { cookie, 'content-type': 'application/json' },
     body: JSON.stringify(body),
   })

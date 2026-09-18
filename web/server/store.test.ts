@@ -1,9 +1,7 @@
 /**
- * Integration coverage for the path that actually matters: a book goes in,
- * the two index seeks find its neighbours, and the instruction names them.
- * Runs against a real database, not a mock, and since stage F against both of
- * them: in-memory SQLite, and a real Postgres in a container. Nothing below
- * knows which, deliberately. See server/testdb.ts.
+ * Runs against a real database, not a mock, against both in-memory SQLite
+ * and a real Postgres in a container; nothing below knows which. See
+ * server/testdb.ts.
  */
 
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -28,17 +26,17 @@ let store: Store
 let db: Db
 
 /**
- * Cut the fiction run into more planks, so a fixture has somewhere to put a book.
+ * Cut the fiction run into more planks, so a fixture has somewhere to put a
+ * book.
  *
  * A test database stands as migration `0013` leaves it: one area per run, so
- * `1A` and `4A` are the only planks the furniture has. Since #232 a book cannot
- * be recorded at a plank that does not exist, so a fixture naming `1B` or `2A`
- * has to build one first, which is what `POST /api/shelves/overflow` does at a
- * shelf. Each `area` adds a plank to the current bookcase and each `shelf`
- * starts the next one.
+ * `1A` and `4A` are the only planks the furniture has, and a fixture naming
+ * `1B` or `2A` has to build one first. Each `area` adds a plank to the
+ * current bookcase and each `shelf` starts the next one.
  *
- * The anchors sort above every Latin sort key this file writes, so what these
- * add is furniture rather than a rearrangement of the books already on it.
+ * The anchors sort above every Latin sort key this file writes, so what
+ * these add is furniture rather than a rearrangement of the books already on
+ * it.
  */
 async function splitFiction(...kinds: SeparatorKind[]): Promise<void> {
   const separators = new DrizzleSeparatorRepository(db)
@@ -55,17 +53,11 @@ async function splitFiction(...kinds: SeparatorKind[]): Promise<void> {
 }
 
 /**
- * Where a draft would go, and saving an edit, both filed under the genre the
- * draft itself states.
- *
- * Since #223 the shelf range arrives beside the draft, because it is settled
- * against `book_tag` before the row is written and this class does not write
- * tags. There is no tagging layer in this file, and for a book carrying no
- * other genre the draft's own claim is the answer `settleGenre` would reach,
- * which is the same reasoning `Store.addBook` uses for a book that does not
- * exist yet.
+ * The range a draft's own genre files it into, used for placement and edits
+ * in this file. There is no tagging layer here, so for a book carrying no
+ * other genre the draft's own claim is the same answer `settleGenre` would
+ * reach.
  */
-/** The range the draft's own genre files it into. A draft here always states one. */
 const rangeOf = (of: DraftBook): ShelfRange => {
   const { range } = genreStatedBy(of)
   if (range === null) throw new Error('That draft states no genre, so nothing files it.')
@@ -165,13 +157,8 @@ describe('placement as books arrive one at a time', () => {
 
 describe('a name somebody has filed by hand', () => {
   /*
-   * The override table's job, on the alias it moved to (#227).
-   *
-   * `Store.saveFilingOverride` used to write `author_filing`, keyed on a
-   * normalised spelling, and `Store.filingFor` consulted it on the way past.
-   * The same fact is a column on the name now, so filing one is the two
-   * statements the save routes make: introduce the name, then file it. What
-   * this file checks is the half that decides where a book goes, which is that
+   * Filing an alias is two statements: introduce the name, then file it.
+   * What this file checks is the half that decides where a book goes:
    * `Store` reads the alias rather than the heuristic when there is one.
    */
   const fileAs = async (printed: string, filing: string): Promise<void> => {
@@ -223,11 +210,8 @@ describe('a name somebody has filed by hand', () => {
   })
 
   it('can be filed for a name written in another script', async () => {
-    // Issue #195 from the other side. The override table keyed on a fold that
-    // deleted such a name entirely, so there was no key to store one under: the
-    // row went nowhere and the correction could not be made at all.
-    // `author_alias` is keyed on the printed name, so there is nowhere for that
-    // to happen.
+    // `author_alias` is keyed on the printed name, so a name that folds to
+    // nothing under the heuristic still has somewhere to be stored.
     await fileAs('村上春樹', 'Murakami, Haruki')
 
     expect(
@@ -238,9 +222,6 @@ describe('a name somebody has filed by hand', () => {
 })
 
 describe('a name written in a script with no A-Z in it', () => {
-  // Issue #195. `Store.filingFor` guarded its override lookup with the fold and
-  // returned '' when the key came back empty, which is what every such name
-  // folded to, so the book was stored filing under nobody.
   it('files under the author the reader can see, not under nobody', async () => {
     const resolved = await store.resolveKey(
       draft({ title: 'Crime and Punishment', authors: ['Фёдор Достоевский'] }),
@@ -260,8 +241,7 @@ describe('a name written in a script with no A-Z in it', () => {
     )
 
     // Every letter outside A-Z sorts after Z, so the Cyrillic block is at the
-    // end of the range. Before the fix this was 'first-in-range', ahead of
-    // Austen, which is the one answer that is certainly wrong.
+    // end of the range.
     expect(placement.kind).not.toBe('first-in-range')
     expect(placement.predecessor?.title).toBe('The Book Thief')
     expect(placement.successor).toBeNull()
@@ -277,17 +257,14 @@ describe('a name written in a script with no A-Z in it', () => {
 
     expect(greek.authorFiling).toBe('Καζαντζάκης, Νίκος')
     expect(cjk.authorFiling).toBe('村上春樹')
-    // Two books by two people used to share one sort key prefix, the empty
-    // one, so which came first was decided by the id tiebreak.
     expect(greek.sortKey).not.toBe(cjk.sortKey)
     expect(greek.sortKey < cjk.sortKey).toBe(true)
   })
 
   it('keeps the Latin half of a mixed name filing where it did', async () => {
-    // The surprising one. `Smith, Иван` folded to `SMITH`, so this book filed
-    // on top of an author called plainly Smith. It now files inside the Smith
-    // block rather than merged into it, which the space rule puts before
-    // Smithson.
+    // `Smith, Иван` folds to `SMITH`, so this book files inside the Smith
+    // block rather than merged into one entry, which the space rule puts
+    // before Smithson.
     await splitFiction('area')
     await store.addBook(draft({ title: 'A', authors: ['Ann Smith'], location: '1A' }))
     await store.addBook(draft({ title: 'B', authors: ['Ada Smithson'], location: '1B' }))
@@ -306,11 +283,11 @@ describe('bookkeeping', () => {
       draft({ title: 'Good Omens', authors: ['Terry Pratchett', 'Neil Gaiman'] }),
     )
     const row = (await store.listRange('fiction')).find((b) => b.id === id)
-    // The first-listed name is the one the key is built from, and the joined
-    // string keeps both in the order they are printed. The view's
-    // `author_filing` is empty here because nothing in this file credits a book:
-    // that is `CreditBookHandler`, from the save routes, and
-    // `authors.routes.test.ts` is where the two are asserted together.
+    // The first-listed name is the one the key is built from; the joined
+    // string keeps both in the order they are printed. `author_filing` is
+    // empty here because nothing in this file credits a book: that is
+    // `CreditBookHandler`, tested together with this in
+    // `authors.routes.test.ts`.
     expect(row?.sort_key.split(SEP)[0]).toBe('PRATCHETT TERRY')
     expect(row?.authors).toBe('Terry Pratchett, Neil Gaiman')
   })
@@ -356,13 +333,8 @@ describe('bookkeeping', () => {
 })
 
 /**
- * What `Store.setLocation` can and cannot be told, now that the ledger is the
- * only record of where a book is (#232).
- *
- * The column would hold any string somebody typed, so `9Z` was storable and the
- * app then disagreed with itself about the same book: the location said one
- * plank and the ledger had no row for it at all. There is nothing behind the
- * ledger to hold such a label, so the write refuses rather than half-happening.
+ * There is nothing behind the ledger to hold a label naming a plank that
+ * does not exist, so the write refuses rather than half-happening.
  */
 describe('recording where a book physically is', () => {
   it('records the plank a person names', async () => {
@@ -413,8 +385,7 @@ describe('editing a shelved book', () => {
     const after = (await store.getBook(id))!
 
     expect(after.sort_key).not.toBe(before)
-    // The key's first component is what the book files under, and there is no
-    // column beside it holding a copy any more (#227).
+    // The key's first component is what the book files under.
     expect(after.sort_key.split(SEP)[0]).toBe('AUTHOR ANN')
   })
 
@@ -501,10 +472,8 @@ describe('checking a book out and back in', () => {
   })
 
   it('puts the book back on the plank it came off', async () => {
-    // A round trip used to cost nothing, because a checkout never touched
-    // `books.location` and the book simply reappeared where the column said.
-    // The ledger is append only, so coming back has to be written down (#232),
-    // and what is written is where the book actually was rather than where the
+    // The ledger is append only, so coming back has to be written down, and
+    // what is written is where the book actually was rather than where the
     // rules would send it.
     const { id } = await store.addBook(
       draft({ title: 'X', authors: ['Ann Author'], location: '1A' }),
@@ -575,10 +544,9 @@ describe('setCrop', () => {
 
   it('says nothing about a slot that has no photograph in it', async () => {
     /*
-     * `examined` is a fact about a photograph, and a slot with nothing in it is
-     * not a photograph. It used to be a name in a string on the book, so a crop
-     * pass could record that a detector had looked at a photograph that did not
-     * exist. There is nowhere to write that now, which is the point (#228).
+     * `examined` is a fact about a photograph, and a slot with nothing in it
+     * is not a photograph. There is nowhere to record examining a photograph
+     * that does not exist.
      */
     const { id } = await store.addBook(draft({ title: 'X', authors: ['Ann Author'] }))
 
@@ -665,13 +633,9 @@ describe('imageInUse', () => {
   })
 
   /**
-   * The one judgement in `imageInUse`, and the reason discarding still frees
-   * the photographs it was taken with.
-   *
-   * A discarded scan keeps its filenames, because they are the record of what
-   * was thrown away. Counting them as a claim on the file would mean the sweep
-   * behind a discard found nothing to delete, and deleting the photographs is
-   * most of what discarding a mistaken scan is for.
+   * The one judgement in `imageInUse`: a discarded scan keeps its filenames
+   * as a record of what was thrown away, but counting them as a claim on the
+   * file would mean the sweep behind a discard found nothing to delete.
    */
   it('does not count a discarded scan, whose filenames are history rather than a claim', async () => {
     const created = await db.get<{ id: number }>(
@@ -705,24 +669,19 @@ describe('imageInUse', () => {
 })
 
 /**
- * The order the whole product rests on, pinned to a fixture.
- *
  * `sort_key` ordering is not a detail of the store: `neighbours` compares it
- * with `<` and `>`, `Shelves.booksIn` orders by it, separators are anchored to
- * it, and the layout believes the sequence it is handed. Get the comparison
- * wrong and nothing throws. A shelf comes back in a slightly different order,
- * one book crosses a boundary, and the app tells somebody with total confidence
- * to put a book in the wrong place.
+ * with `<` and `>`, `Shelves.booksIn` orders by it, separators are anchored
+ * to it, and the layout believes the sequence it is handed. Get the
+ * comparison wrong and nothing throws; a shelf comes back in a slightly
+ * different order and the app tells somebody with total confidence to put a
+ * book in the wrong place.
  *
- * SQLite compares text byte by byte and has no other option. A database whose
- * collation folds case, ignores punctuation or sorts accents next to their
- * plain forms would order some of these pairs the other way round, so this is
- * written now, while it can be seen to pass, and is the acceptance test for
- * anything that changes what does the comparing. Every case below is one the
- * fold in shared/shelving.ts exists to handle.
+ * SQLite compares text byte by byte. A database whose collation folds case,
+ * ignores punctuation, or sorts accents next to their plain forms would
+ * order some of these pairs the other way round.
  *
- * It follows that this test must never be relaxed to make a database pass. If
- * it goes red the database is wrong, not the fixture.
+ * This test must never be relaxed to make a database pass. If it goes red,
+ * the database is wrong, not the fixture.
  */
 describe('text ordering, which every shelf depends on', () => {
   /** One book per ordering hazard, deliberately added out of order. */
@@ -758,11 +717,10 @@ describe('text ordering, which every shelf depends on', () => {
   })
 
   it('orders by bytes, so the database and JavaScript never disagree', async () => {
-    // The invariant underneath every case above, and the one a different
-    // collation breaks without breaking anything else: the sequence the
-    // database returns is the sequence a plain string comparison gives. Pure
-    // code either side of the store sorts and merges these same keys, so the
-    // two orders being the same order is not an implementation detail.
+    // The sequence the database returns must be the sequence a plain string
+    // comparison gives: pure code either side of the store sorts and merges
+    // these same keys, so the two orders being the same order is not an
+    // implementation detail.
     const keys = (await store.listRange('fiction')).map((row) => row.sort_key)
     const byBytes = [...keys].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 
@@ -795,11 +753,10 @@ describe('text ordering, which every shelf depends on', () => {
   })
 
   it('stores only the characters the fold leaves behind', async () => {
-    // Why the cases above are safe to compare byte by byte at all: an accent,
-    // an apostrophe and a full stop never reach the column. What does reach it
-    // is A-Z, 0-9, the space, the unit separator between components and the
-    // full stop in the padded series index, and this says so, because those
-    // are exactly the characters a collation gets to have an opinion about.
+    // Why the cases above are safe to compare byte by byte: an accent, an
+    // apostrophe and a full stop never reach the column. What does reach it
+    // is A-Z, 0-9, the space, the unit separator between components, and the
+    // full stop in the padded series index.
     const shelf = await store.listRange('fiction')
 
     for (const row of shelf) {
@@ -809,31 +766,18 @@ describe('text ordering, which every shelf depends on', () => {
 })
 
 /**
- * Two requests in flight at once, which is what the whole migration is for.
- *
- * This is the rehearsal docs/postgres-migration.md asks for at stage G, and
- * these are the only tests in this file that would pass for the wrong reason if
- * they were written carelessly. Each one was watched failing with its fix
- * removed before it was kept: two placements both saying "first in the range",
- * a checkout timestamp overwritten by the second tap, and a crop list with one
- * of its two slots missing.
- *
- * Nothing here is conditional on the driver. On SQLite the guarantee comes from
- * a transaction holding the one connection; on Postgres it comes from the
- * advisory lock behind `TxOptions.serialiseOn`. The assertion is the same
- * either way, which is the point: what the caller is promised does not depend
- * on which database is underneath.
+ * Nothing here is conditional on the driver. On SQLite the guarantee comes
+ * from a transaction holding the one connection; on Postgres it comes from
+ * the advisory lock behind `TxOptions.serialiseOn`. The assertion is the
+ * same either way: what the caller is promised does not depend on which
+ * database is underneath.
  */
 describe('two people scanning at once', () => {
   /**
-   * Make the pool hold more than one connection before the race starts.
-   *
-   * Without this the second caller waits for the first to give its connection
-   * back, so the two never overlap and the test cannot fail however broken the
-   * code is. All three of these passed with their fix removed until this was
-   * added, which is the whole reason it is a named function with a paragraph on
-   * it rather than a line somebody tidies away. Costs nothing on SQLite, which
-   * has one connection and serialises for real reasons.
+   * Without this the second caller waits for the first to give its
+   * connection back, so the two never overlap and the test cannot fail
+   * however broken the code is. Costs nothing on SQLite, which has one
+   * connection and serialises for real reasons.
    */
   const warmTheConnections = () =>
     Promise.all([db.get('SELECT 1'), db.get('SELECT 1'), db.get('SELECT 1')])
@@ -860,8 +804,8 @@ describe('two people scanning at once', () => {
     const named = [second.placement!.predecessor?.title, second.placement!.successor?.title]
     expect(named).toContain(second === herbert ? 'Neuromancer' : 'Dune')
 
-    // Whoever won, the shelf itself is in order. That held before the fix too:
-    // the sort keys decide it, not the placement.
+    // Whoever won, the shelf itself is in order: the sort keys decide it,
+    // not the placement.
     expect((await store.listRange('fiction')).map((row) => row.title))
       .toEqual(['Neuromancer', 'Dune'])
   })
@@ -900,8 +844,7 @@ describe('two people scanning at once', () => {
     const book = (await store.getBook(id))!
     expect(book.cropped.split(',').sort()).toEqual(['edge', 'front'])
     expect(book.front_crop).toBe('f_crop.jpg')
-    // The slot that was looked at and declined still says so, which is the
-    // state the lost update used to erase.
+    // The slot that was looked at and declined still says so.
     expect(book.edge_crop).toBe('')
   })
 })

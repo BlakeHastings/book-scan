@@ -1,20 +1,3 @@
-/**
- * The wireframe gallery.
- *
- * Reachable at `#/design` in the running app, behind a lazy import, so the
- * working app does not load these thirty-six screens until somebody asks for
- * them by name.
- *
- * The two stylesheets used to be lazy with them, and are not any more: the app
- * draws its own first screen with the design system, so `main.tsx` imports
- * them beside `styles.css` (#303). What stays out of the eager bundle is the
- * gallery itself.
- *
- * Two things this owns and no screen does: which theme is being looked at,
- * and the strip at the top that says you are in the viewer rather than in the
- * app.
- */
-
 import { useEffect, useRef, useState } from 'react'
 import { GROUPS, SCREENS } from './screens'
 import { hashFor } from './route'
@@ -32,7 +15,6 @@ export default function Gallery({
 }: {
   /** Null on the index. */
   screen: string | null
-  /** Back to the working app. */
   onLeave: () => void
 }) {
   const [theme, setTheme] = useState<Theme>(
@@ -45,14 +27,10 @@ export default function Gallery({
   }, [theme])
 
   /*
-   * The app's own stylesheet paints `body` a cold dark blue-grey, and that
-   * shows either side of the phone column on a wide screen and under an
-   * overscroll bounce on the phone itself: a warm light page with a cold dark
-   * band above it when you pull down. Found by pulling down on it.
-   *
-   * The colour is copied off whatever the tokens resolved to rather than
-   * written here, so there is still exactly one place a background is decided,
-   * and it is put back when the gallery closes.
+   * The app's own stylesheet paints `body` a cold dark blue-grey, which shows
+   * through on overscroll bounce. This copies the resolved background colour
+   * so there is still exactly one place it's decided, and restores it when
+   * the gallery closes.
    */
   useEffect(() => {
     const was = document.body.style.background

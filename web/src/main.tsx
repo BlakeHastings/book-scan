@@ -6,46 +6,18 @@ import { galleryRoute } from './design/gallery/route'
 import { wantsAnnotating } from './annotating'
 import './styles.css'
 /*
- * The design system, which the app wears on the screens that have been
- * converted to it and the gallery draws every screen with (#303). Eager, and
- * after `styles.css`: it is the app's own stylesheet now, not the gallery's.
- *
- * Every rule in the design system is `.wf` or `wf-` prefixed and no design
- * system class name appears in `styles.css`, so nothing here can be redefined
- * from over there. What crosses the other way is deliberate and there is one
- * block of it, at the foot of `styles.css`: the shelf drawing is one component
- * on two screens, one converted and one not, so its colours are scoped `.wf`
- * and the shapes are shared. That block says so and says when it goes.
- *
- * The rest of the overlap is one custom property, `--line`, which the app
- * defines on `:root` and the design system redefines on `.wf`. Inside a
- * converted screen the warm one wins by inheritance; everywhere else the app's
- * is untouched. See the header of `design/tokens.css`.
+ * Every rule in the design system is `.wf` or `wf-` prefixed and no design system class name
+ * appears in `styles.css`, so nothing here can be redefined from over there. The one deliberate
+ * exception is the shelf drawing block at the foot of `styles.css`. See the header of
+ * `design/tokens.css` for the `--line` custom property both sides redefine.
  */
 import './design/tokens.css'
 import './design/library.css'
 
-/**
- * The wireframe gallery, and the only thing that reaches it.
- *
- * Lazy on purpose. The working app is what somebody is holding a book up to,
- * and it should not carry the redesign's screens in its bundle to get there.
- * `galleryRoute` is the only part of the design work the app loads eagerly,
- * and it is twenty lines with no imports. The two stylesheets are no longer
- * part of that bargain: they are above, because the app draws with them.
- */
+/** Lazy so the working app does not carry the redesign's screens in its bundle. */
 const Gallery = lazy(() => import('./design/gallery/Gallery'))
 
-/**
- * The Agentation toolbar, for reviewing screens with a listening Claude
- * session. See `annotating.ts` for the switch and
- * `docs/process/annotating.md` for the loop.
- *
- * `import.meta.env.DEV` is a literal Vite replaces at build time, so the
- * production bundle drops this branch and never carries the package. The
- * endpoint is the `agentation-mcp` HTTP server, which listens on 4747 unless
- * told otherwise.
- */
+/** The Agentation toolbar. Vite replaces `import.meta.env.DEV` at build time, so the production bundle never carries the package. See `docs/process/annotating.md`. */
 const Annotating =
   import.meta.env.DEV && wantsAnnotating(window.location.search, window.localStorage)
     ? lazy(() =>
@@ -55,13 +27,7 @@ const Annotating =
       )
     : null
 
-/**
- * Which of the two the address bar is asking for.
- *
- * The app has no router and this does not add one: a hash is enough, the
- * server never sees it, and the phone's back button walks the gallery for
- * free because the browser already keeps a history of hashes.
- */
+/** A hash is enough: the server never sees it, and the phone's back button walks the gallery for free because the browser keeps a history of hashes. */
 function Root() {
   const [hash, setHash] = useState(() => window.location.hash)
 
@@ -72,18 +38,7 @@ function Root() {
   }, [])
 
   const route = galleryRoute(hash)
-  /*
-   * The gate is around the app and not around the gallery (#524).
-   *
-   * The app is the collection: every screen of it draws somebody's books, and
-   * every one of those rows and photographs comes from behind the gate. The
-   * gallery is a drawing. It fetches nothing, holds nobody's rows, and is
-   * reachable in the running app so the owner can walk it on a phone, which is
-   * what `docs/process/designing-a-screen.md` asks of it. What it discloses is
-   * the shape of this app's screens, which is the same thing the client's own
-   * files disclose to a stranger who loads the login page at all, and
-   * `docs/the-gate.md` weighed that trade for those files already.
-   */
+  // The gate is around the app and not around the gallery: the gallery is a drawing that fetches nothing and holds nobody's rows. See `docs/the-gate.md`.
   if (!route) {
     return (
       <GateProvider>
@@ -97,8 +52,6 @@ function Root() {
       <Gallery
         screen={route.screen}
         onLeave={() => {
-          // Drop the hash without a reload, so leaving the wireframe puts the
-          // app back on a clean URL rather than one ending in `#`.
           window.history.replaceState(null, '', window.location.pathname + window.location.search)
           setHash('')
         }}

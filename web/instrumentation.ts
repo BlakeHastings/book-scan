@@ -2,15 +2,14 @@
  * OpenTelemetry wiring for the API server.
  *
  * Loaded with `--import` before anything else so the auto-instrumentations can
- * patch http, express and the SQLite driver before those modules are required.
- * Importing this from inside server/index.ts would be too late for some of
+ * patch http, express and the SQLite driver before those modules are required;
+ * importing this from inside server/index.ts would be too late for some of
  * them.
  *
- * Aspire injects OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_EXPORTER_OTLP_PROTOCOL,
- * OTEL_EXPORTER_OTLP_HEADERS and OTEL_SERVICE_NAME into every resource it
- * manages, so there is nothing to configure here beyond obeying them. Run the
- * server outside Aspire and no endpoint is set, in which case this stays
- * dormant rather than failing or spraying connection errors.
+ * Aspire injects OTEL_EXPORTER_OTLP_ENDPOINT and related variables into every
+ * resource it manages. Run the server outside Aspire and no endpoint is set,
+ * in which case this stays dormant rather than failing or spraying connection
+ * errors.
  */
 
 import { NodeSDK, api, core, tracing } from '@opentelemetry/sdk-node'
@@ -24,12 +23,11 @@ const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT
 /**
  * Say what the far end did with the first batch of spans, then stay quiet.
  *
- * The point of exporting at all is to be able to say "the request I just made
- * produced these spans". An OTLP exporter that cannot reach its collector does
- * not crash and does not complain above info level: it retries until the batch
- * times out, drops it, and the process carries on looking healthy. That
- * silence is what let a broken pipeline pass for a working one, so the first
- * answer from the far end is stated out loud whichever way it goes.
+ * An OTLP exporter that cannot reach its collector does not crash and does
+ * not complain above info level: it retries until the batch times out, drops
+ * it, and the process carries on looking healthy. This states the first
+ * answer out loud whichever way it goes, so a broken pipeline cannot pass
+ * for a working one silently.
  */
 function announceFirstExport(
   exporter: tracing.SpanExporter,
@@ -85,18 +83,12 @@ function chosenProtocol(signal: 'TRACES' | 'METRICS'): OtlpProtocol {
 }
 
 if (!endpoint) {
-  // Not under Aspire. Do nothing at all: a dev server started by hand should
-  // not spend its time retrying an exporter that was never going to connect.
   console.log('[otel] no OTEL_EXPORTER_OTLP_ENDPOINT, telemetry disabled')
 } else {
-  // Errors only by default. A failed export is reported at info level, which
-  // is far too low to leave on, so announceFirstExport covers that case
-  // instead. This catches the rest: a malformed endpoint, a header that will
-  // not parse, an instrumentation that throws while loading.
-  //
-  // OTEL_LOG_LEVEL raises it, which is the standard variable and the thing to
-  // reach for when telemetry is misbehaving. `OTEL_LOG_LEVEL=debug` narrates
-  // every export attempt.
+  // Errors only by default: a failed export is reported at info level, which
+  // is too low to leave on, so announceFirstExport covers that case instead.
+  // OTEL_LOG_LEVEL raises this; `OTEL_LOG_LEVEL=debug` narrates every export
+  // attempt.
   api.diag.setLogger(
     {
       error: (...args: unknown[]) => console.error('[otel]', ...args),
@@ -112,24 +104,18 @@ if (!endpoint) {
   const metricsProtocol = chosenProtocol('METRICS')
 
   // The Aspire dashboard serves OTLP over HTTPS with a local development
-  // certificate that Node will not trust.
-  //
-  // Relaxing verification stays scoped to these two exporters: an agent of
-  // their own on the HTTP transport, channel credentials of their own on the
-  // gRPC one. Setting NODE_TLS_REJECT_UNAUTHORIZED would apply process-wide
-  // and per-connection, so the server's real outbound calls to openlibrary.org
-  // and googleapis.com would also stop verifying certificates. That is a
-  // genuine downgrade of production behaviour to make a local dashboard work.
+  // certificate Node will not trust. Verification is relaxed only for these
+  // two exporters rather than via NODE_TLS_REJECT_UNAUTHORIZED, so the
+  // server's real outbound calls to openlibrary.org and googleapis.com still
+  // verify certificates.
   const insecureLocal = isLoopbackHttps(endpoint)
   const httpAgentOptions = insecureLocal ? { rejectUnauthorized: false } : undefined
 
-  // Constructed before any exporter, because building the instrumentations is
-  // what installs the require hooks that patch http, express and the rest.
-  // The gRPC exporter drags in @grpc/grpc-js, which reaches for node's own
-  // modules on the way in, and whatever loads ahead of the hooks loads
-  // unpatched.
+  // Built before any exporter: constructing the instrumentations installs
+  // the require hooks that patch http and express, and whatever loads ahead
+  // of those hooks loads unpatched.
   const instrumentations = getNodeAutoInstrumentations({
-    // Noise. Every file read the OCR pipeline does would become a span.
+    // Every file read the OCR pipeline does would otherwise become a span.
     '@opentelemetry/instrumentation-fs': { enabled: false },
   })
 
@@ -173,9 +159,9 @@ if (!endpoint) {
   sdk.start()
   console.log(`[otel] exporting to ${endpoint} over ${tracesProtocol}`)
 
-  // Flush pending spans on the way out, but preserve the exit code. Forcing
-  // process.exit(0) here would turn a crashed server into a clean one and hide
-  // the failure from Aspire.
+  // Flush pending spans on the way out, but preserve the exit code: forcing
+  // process.exit(0) here would turn a crashed server into a clean one and
+  // hide the failure from Aspire.
   const shutdown = (signal: NodeJS.Signals) => {
     sdk
       .shutdown()

@@ -1,51 +1,4 @@
-/**
- * Finding a book, which is one field and no mode switch.
- *
- * ## The screen before you type is most of it
- *
- * An empty box is not a waiting state here. It is the collection, drawn as
- * covers, three across, because a cover is the fastest thing to recognise when
- * you already half know what you are after and because scrolling to a book you
- * can see is a way of finding one. Nothing about this screen is greyed out until
- * somebody types, and the field does not take the focus on arrival: a keyboard
- * that opens by itself covers two thirds of the phone with the part of the
- * screen that is doing the work.
- *
- * ## The field works out what you meant
- *
- * > We look and see whether they're putting in an ISBN. We look and see whether
- * > they're putting in the title or the author, and we fuzzy search by title and
- * > author. And we also look for tags. If the user wants to, they can put in
- * > like a pound sign and a tag, and we only show the books in that tag.
- *
- * Four readings, one box, decided by what was typed, in `lib/findQuery.ts` where
- * a test can reach it. The screen says which it chose in one quiet line under
- * the field, and only when that is not obvious from what was typed: a person who
- * types thirteen digits and gets a fuzzy title match has been failed silently,
- * and four radio buttons above the field is the alternative nobody would press.
- *
- * ## Nothing is asked for until it is worth asking
- *
- * What is typed is held for a moment before it becomes a request, because
- * somebody typing "mieville" would otherwise be eight searches. The listing
- * underneath keeps what it has while the next answer is in flight, so the screen
- * does not blink between keystrokes.
- *
- * ## The fifth reading is the book itself, and it is in the corner
- *
- * This app has two cameras. One photographs a book nobody has catalogued yet;
- * the other reads the barcode off a book that is already in the collection and
- * opens it, which is the same question this screen's field asks and the
- * fastest possible way to ask it: no typing, and no chance of typing thirteen
- * digits wrong.
- *
- * It lived in the first screen's top right and #350 gave that corner to the
- * profile icon, so it came here rather than being lost. This is where it
- * belongs anyway, by the same argument that took find off the tab bar: looking
- * for a book is something you do to what you are looking at, and this is the
- * screen for looking for a book. One press from the row above the library's
- * books, which is where finding now lives.
- */
+/** The field does not take focus on arrival: a keyboard that opens by itself would cover two thirds of the phone with the part of the screen doing the work. */
 
 import { useEffect, useState } from 'react'
 import { Button, IN_HAND } from '../design/Controls'
@@ -109,11 +62,8 @@ export function FindPane() {
   const { books, total, counts, complete, loading } = listing
   const everything = counts?.total ?? 0
 
-  /*
-   * One book in a gallery three across is one cover and two empty columns, which
-   * looks like the screen has failed rather than answered. What fills it is the
-   * question somebody asks straight afterwards: the rest of that author.
-   */
+  // A single cover in a three-across gallery leaves two empty columns, which
+  // looks broken; `rest` fills that with more by the same author.
   const one = found.kind === 'isbn' && books.length === 1 ? books[0] : undefined
 
   useEffect(() => {
@@ -161,21 +111,10 @@ export function FindPane() {
           title="Find a book"
           sub={sub()}
           onBack={() => setRoute('library')}
-          /* A glyph in a corner carries its word as its accessible name, which
-             is the pinned rule, and this one names the book rather than the
-             camera: what it does is find the one you are holding.
-
-             The sentence itself comes out of the design system since #355,
-             because the first screen has a door to this same camera again and
-             the wording is the only part of either that says which of the two
-             cameras it opens. Two of them typed out separately are two that
-             agree until one is edited.
-
-             **The glyph is `IconInHand` and not the camera** (#361). The first
-             screen's door to this camera was given a picture, and the same
-             argument applies to the picture as to the words: one camera, one
-             sentence, one glyph, wherever it is offered. The camera glyph is
-             the *other* camera's, under "Scan" in the tab bar below. */
+          // The accessible name comes from IN_HAND and names the book this
+          // camera finds, not the camera itself. IconInHand, not a camera
+          // glyph: the camera icon belongs to the other camera, under Scan in
+          // the tab bar.
           action={{ word: IN_HAND, icon: <IconInHand />, onPress: openScanner }}
         />
       }
@@ -224,10 +163,9 @@ export function FindPane() {
           </Button>
         </>
       ) : (
-        /* Still every book while a tag is being typed, because nothing has been
-           chosen yet: "it filters as you type" is a claim about what is
-           underneath, and somebody who cannot see the books cannot see them not
-           moving. */
+        // Shows every book while a tag is still being typed, since nothing
+        // has been chosen yet: somebody who cannot see the books would
+        // otherwise have no way to tell they are not moving.
         <Covers items={items} label={labelFor(found.kind, asked)} onPress={open} />
       )}
 

@@ -1,15 +1,8 @@
 /*
- * The component library: what this app is actually made of.
- *
- * Every rule here reads its colour, size, radius and shadow from
- * `tokens.css`. If you find a literal colour below it is either a mask or a
- * mistake. Everything is scoped under `.wf` for the reason that file gives.
- *
- * The order is the order of the gallery: the shell, the chrome, the shelf,
- * then the ordinary parts.
+ * Every rule here reads its colour, size, radius and shadow from `tokens.css`.
+ * A literal colour below is either a mask or a mistake. Everything is scoped
+ * under `.wf` for the reason that file gives.
  */
-
-/* --- The shell -------------------------------------------------------- */
 
 .wf {
   font-family: var(--face-ui);
@@ -18,8 +11,8 @@
   color: var(--ink);
   background: var(--paper);
   min-height: 100dvh;
-  /* A phone is 414 wide and this is never wider. A tablet gets the same
-     column centred rather than a second layout nobody has drawn. */
+  /* A phone is 414 wide and this is never wider. A tablet gets the same column
+     centred. */
   max-width: 480px;
   margin: 0 auto;
   /* The page may not scroll sideways. A shelf may, inside itself. */
@@ -31,44 +24,31 @@
 .wf *::after { box-sizing: border-box; }
 
 /*
- * The page a converted screen sits on.
- *
  * `src/styles.css` paints `html, body` a cold dark blue-grey, and that shows
  * either side of this 480px column on anything wider than a phone and under an
- * overscroll bounce on the phone itself: a warm light page with a cold dark
- * band above it when you pull down. The gallery used to copy the computed
- * colour onto `body` from JavaScript; the app puts the class on instead, and
+ * overscroll bounce on the phone itself. This is what repaints it, and
  * `tokens.css` is what gives `body` the value to read.
  */
 body.wf-page { background: var(--paper); }
 
 /* `:where` so this reset carries no specificity at all. Written as
-   `.wf button` first, which is one class plus one type, and therefore beat
-   every single-class rule below it that set a colour: the primary button came
-   out with ink lettering on wood and looked like a mistake, because it was
-   one. Found by looking at it. */
+   `.wf button` it is one class plus one type, and beats every single-class
+   rule below that sets a colour. */
 :where(.wf) button { font: inherit; color: inherit; }
 
-/* One screen: its own top bar, a scrolling body, its own tab bar. */
 .wf-screen {
   display: flex;
   flex-direction: column;
   min-height: 100dvh;
 }
 
-/* One step tighter than it was, between the cards and inside them. The owner
-   asked for the first screen to take less room and this is most of where the
-   room was going: 16px of air between every pair of cards, on a screen that
-   has five of them.
+/* One step tighter than it was, between the cards and inside them.
 
-   The bottom is the tab bar's room, kept for it (#414). The bar is fixed to
-   the glass and therefore out of flow, so nothing below reserves the space it
-   covers any more and the last card on every screen would end up underneath
-   it. `Phone` is the only thing that draws this element and it always draws
-   the bar with it, so the reservation and the thing reserved for arrive
-   together and there is no screen that gets one without the other. The safe
-   area is added here as well as inside the bar because that strip is under the
-   bar too. */
+   The bottom is the tab bar's room, kept for it. The bar is fixed to the glass
+   and therefore out of flow, so nothing below reserves the space it covers and
+   the last card on every screen would end up underneath it. The safe area is
+   added here as well as inside the bar, because that strip is under the bar
+   too. */
 .wf-screen__body {
   flex: 1;
   padding: var(--s4) var(--s4)
@@ -81,8 +61,6 @@ body.wf-page { background: var(--paper); }
 
 /* Runs the full width of the phone inside a padded body. */
 .wf-bleed { margin-inline: calc(var(--s4) * -1); }
-
-/* --- Top bar ---------------------------------------------------------- */
 
 .wf-top {
   display: grid;
@@ -135,9 +113,9 @@ body.wf-page { background: var(--paper); }
   white-space: nowrap;
 }
 
-/* A glyph now rather than a word, at the owner's request, and still the whole
-   44px square so the corner is as easy to hit as it was. Its name is on the
-   button as `aria-label`; see `Chrome.tsx`. */
+/* A glyph rather than a word, and still the whole 44px square so the corner is
+   as easy to hit. Its name is on the button as `aria-label`; see
+   `Chrome.tsx`. */
 .wf-top__action {
   width: var(--tap);
   height: var(--tap);
@@ -152,54 +130,16 @@ body.wf-page { background: var(--paper); }
 .wf-top__action:active { background: var(--paper-sunk); }
 .wf-top__action:focus-visible { outline: none; box-shadow: var(--focus); }
 
-/* --- Tab bar ----------------------------------------------------------- */
-
 /*
- * Words under the icons, always. An icon alone is a guess the reader has to
- * make every time, and this app's language is words.
+ * Words under the icons, always: an icon alone is a guess the reader has to
+ * make every time.
  *
- * ## Fixed to the glass, not sticky in the document (#414)
- *
- * > Whenever I scroll down, the bar at the bottom with Today, Library, Scan
- * > and Queue ends up scrolling up a bit for some reason, so it ends up in the
- * > middle of the screen, which is not ideal.
- *
- * It was `position: sticky; bottom: 0`, and **a sticky box stops sticking the
- * moment its containing block ends.** The containing block here is
- * `.wf-screen`, so the bar is only pinned for as long as that element is the
- * last thing in the page. Anything drawn after it inside the same scroller
- * takes the bar off the bottom of the glass by exactly that thing's height,
- * and it comes to rest partway up the screen: not gone, not pinned, floating.
- *
- * That is what the gallery does, which is where the redesign is walked on a
- * phone: `.wf-frame` above, the screen, and `.wf-next` below it. The Next
- * button is 47px, so on every screen in there the bar sat 47px off the bottom
- * from the first scroll onwards. Measured at 414x896 in both themes, on the
- * library, the first screen, a queue of forty and all six pieces of furniture:
- * 47px on every one of them.
- *
- * The working app draws nothing after `.wf-screen` today, so there the bar
- * stayed put. **That is the part worth fixing rather than the 47px**: the only
- * permanent navigation in the app was correct by an accident of what its
- * sibling list happens to contain, and one element appended after a screen,
- * anywhere, would have taken it away again.
- *
- * So the bar is `position: fixed`, which is the fourth time that has been the
- * answer here and for the fourth time for the same reason: see `.wf-corner`
- * for the round that found it (#393), and `.wf-sure` for the one that
- * generalised it (#408). `design.test.tsx` pins all four.
- *
- * Two things a fixed bar has to say that a sticky one did not.
- *
- * **How wide it is.** Out of flow, it no longer inherits the phone's column
- * from `.wf`, and left to itself it would run the width of a desktop window
- * with the screen it belongs to sitting in the middle of it. `inset-inline: 0`
- * with `margin-inline: auto` and the same 480px cap centres it on exactly the
- * column `.wf` is.
- *
- * **How tall it is.** Out of flow, it reserves nothing, so `--tabs` is the
- * height the bar keeps and the height `.wf-screen__body` keeps clear for it.
- * One number, written once, used at both ends.
+ * Fixed rather than sticky, because a sticky box stops sticking the moment its
+ * containing block ends and anything drawn after `.wf-screen` in the same
+ * scroller takes the bar off the glass. Out of flow it inherits neither the
+ * phone's column, which `inset-inline` and the 480px cap give back, nor any
+ * room of its own, which is what `--tabs` is: the height the bar keeps and the
+ * height `.wf-screen__body` keeps clear for it.
  */
 .wf-tabs {
   position: fixed;
@@ -237,8 +177,6 @@ body.wf-page { background: var(--paper); }
   letter-spacing: 0.01em;
 }
 
-/* The current tab is underlined by a short bar, which is the one place a
-   filled mark is allowed to be this small and this bright. */
 .wf-tab__mark {
   height: 3px;
   width: 18px;
@@ -246,8 +184,6 @@ body.wf-page { background: var(--paper); }
   background: transparent;
 }
 .wf-tab--on .wf-tab__mark { background: var(--link); }
-
-/* --- The shelf, which is the signature --------------------------------- */
 
 .wf-shelf { display: grid; gap: var(--s2); }
 
@@ -280,17 +216,15 @@ body.wf-page { background: var(--paper); }
   overscroll-behavior-x: contain;
   scroll-snap-type: x proximity;
   -webkit-overflow-scrolling: touch;
-  /* No padding on the scroller: the plank runs off both edges of the phone,
-     the way a plank does. The inset the run needs is on the board. */
+  /* No padding on the scroller: the plank runs off both edges of the phone.
+     The inset the run needs is on the board. */
   scroll-padding-left: var(--s4);
 }
 
 /*
  * The board. Two surfaces of one plank and no more: the 9px top face the books
- * stand on, and the front lip you see below it, which is this element's bottom
- * border. There is no pseudo-element bar under that and there must not be one,
- * because a board drawn twice is the thing that got spotted immediately the
- * first time.
+ * stand on, and the front lip below it, which is this element's bottom border.
+ * There is no pseudo-element bar under that and there must not be one.
  *
  * It runs off both edges of the phone. Inset inside the scroller's own padding
  * it read as a floating pill rather than as furniture.
@@ -311,14 +245,12 @@ body.wf-page { background: var(--paper); }
 
 /*
  * A spine, seen end on. In the real app this is a photograph the app already
- * crops, so these placeholder cloths are standing in for photography rather
- * than for chrome, which is why they are allowed to carry a hue at full
- * strength when nothing else here is.
+ * crops, so these placeholder cloths stand in for photography rather than for
+ * chrome, which is why they are allowed to carry a hue at full strength when
+ * nothing else here is.
  *
- * **Its width and height are not in this file**, and they are the only two
- * numbers about anything here that are not. They are measurements of one book
- * rather than a style: width from the page count, height either uniform or
- * estimated from the crop. `Shelf.tsx` has the arithmetic and the argument.
+ * Its width and height are not in this file. They are measurements of one book
+ * rather than a style, and `Shelf.tsx` has the arithmetic.
  */
 .wf-spine {
   position: relative;
@@ -339,18 +271,13 @@ body.wf-page { background: var(--paper); }
 .wf-spine--sky { background: var(--cloth-sky); }
 .wf-spine--wood { background: var(--cloth-wood); }
 .wf-spine--wood2 { background: var(--cloth-wood-2); }
-/* The pale cloth. Cream lettering failed to read on it in both themes, which
-   is what a cloth that does not follow the theme buys you: one fix, not two. */
+/* The pale cloth: cream lettering does not read on it, in either theme. */
 .wf-spine--sun { background: var(--cloth-sun); color: var(--cloth-ink-dark); }
 
 /*
- * A spine that is a target rather than a drawing.
- *
- * The app's shelves open a book when you press one. It is the same element with
- * the same measurements, so everything about how wide a book is drawn stays in
- * `Shelf.tsx`; what a button brings with it is a default border, a default
- * background and a font, and all three have to go or every spine on the row
- * changes size.
+ * A spine that is a target rather than a drawing. A button brings a default
+ * border, a default background and a font, and all three have to go or every
+ * spine on the row changes size.
  */
 button.wf-spine {
   border: 0;
@@ -363,20 +290,12 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 /*
  * The photograph of a spine, filling it.
  *
- * **`fill` rather than `cover`, and it is the same lie the width already tells.**
- * A real spine is about eight times as tall as it is thick and it is drawn here
- * about four times as tall as it is wide, because `Shelf.tsx` exaggerates the
- * width on purpose: at true scale a 24mm spine is 14px and 14px is narrower than
- * the type printed down it. A photograph cropped to fill that box therefore
- * loses half its length, and it loses it off both ends at once, so the first
- * letters of the title, which are the letters somebody scans a shelf for, are
- * the first thing to go: "Persuasion" read "ersuasion" and "Silent Spring" read
- * "t Spring" (#434). Fitting the whole spine into the drawn one squashes it
- * along its length by exactly the factor the width was stretched by, and shows
- * the whole title.
- *
- * **The box has to be the spine before any of that means anything**, which is
- * the rule below.
+ * `fill` rather than `cover`, and it is the same lie the width already tells.
+ * `Shelf.tsx` exaggerates the width on purpose, so a photograph cropped to fill
+ * this box loses length off both ends at once, taking the first letters of the
+ * title with them. Fitting the whole spine into the drawn one squashes it along
+ * its length by exactly the factor the width was stretched by, and shows the
+ * whole title.
  */
 .wf-spine__photo {
   display: block;
@@ -389,12 +308,10 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
  * A spine that is a photograph is the photograph, and nothing else.
  *
  * No padding, because the picture is the whole book. And no grid: `.wf-spine`
- * is a grid with `align-content: center` and one automatic row, so the row was
- * sized to the picture's own proportions and `height: 100%` on the picture
- * resolved against that row rather than against the spine. The picture came out
- * 200px tall inside a 116px book, centred, with 42px hanging off each end into
- * an `overflow: hidden`. Blocked, the height resolves against the spine, which
- * is the definite 116 `Shelf.tsx` sets, and there is nothing left to centre.
+ * is a grid with `align-content: center` and one automatic row, so
+ * `height: 100%` on the picture resolves against that row rather than against
+ * the spine. Blocked, it resolves against the definite height `Shelf.tsx`
+ * sets.
  */
 .wf-spine:has(.wf-spine__photo) { display: block; padding: 0; }
 
@@ -413,26 +330,15 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 /*
  * The book this screen is about, marked by the cat sitting on top of it.
  *
- * **It was a ring and the ring could not be saved.** An outline is painted
- * outside the element it is on, the run scrolls inside itself with
- * `overflow-y: hidden`, and a spine is the tallest thing on the board, so the
- * top of that ring was outside the scroller and cut off every time. The owner
- * saw both halves of it at once: "doesn't look very good to me with the white
- * outline [...] and isn't clipping the way that's clipping here." Any mark
- * drawn around the books is drawn outside the scroller, so the mark stands on
- * the book instead and takes its room from inside the board.
+ * Any mark drawn around the books is drawn outside the scroller and cut off:
+ * an outline paints outside its element, the run scrolls inside itself with
+ * `overflow-y: hidden`, and a spine is the tallest thing on the board. So the
+ * mark stands on the book and takes its room from inside the board. `--perch`
+ * is that room, and it comes from `Shelf.tsx` so the height of the cat and the
+ * space kept for him are one number.
  *
- * `--perch` is that room, and it comes from `Shelf.tsx` so the height of the
- * cat and the space kept for him are one number. The board grows upward by it,
- * the plank does not move, and nothing reaches past the scroller's edge in any
- * direction. He is inside the marked book's own box, so he scrolls with it
- * sideways, and he is drawn over the empty air above the books either side
- * rather than beside his own, which is what makes the first and last book in a
- * run mark exactly like one in the middle.
- *
- * The marked spine wears no class of its own, deliberately. It had one and it
- * held the ring; the spine is a photograph of a book in the real app, and every
- * treatment that could be painted on it covered part of that photograph.
+ * The marked spine wears no class of its own, deliberately: in the real app it
+ * is a photograph, and anything painted on it covers part of that photograph.
  */
 .wf-perch {
   position: relative;
@@ -451,9 +357,7 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 
 /*
  * And a mark on the plank under him, on the board's own 9px face, inside the
- * padding the board already keeps there. The cat is what you see first; this is
- * what survives him being 26px tall on a phone held at arm's length, and it
- * sits on the line the eye runs along when it reads a row of books.
+ * padding the board already keeps there.
  */
 .wf-perch::after {
   content: '';
@@ -466,8 +370,8 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   background: var(--ink);
 }
 
-/* Where a book should go. Dashed, empty, and the cat sits in it. The width is
-   the one a book of unknown thickness gets, because that is what it is. */
+/* Where a book should go. The width is the one a book of unknown thickness
+   gets, because that is what it is. */
 .wf-gap {
   width: 30px;
   height: 116px;
@@ -482,12 +386,9 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   scroll-snap-align: start;
 }
 
-/* There is no divider. A board offcut used to stand on edge here, between two
-   areas sharing one row, and the owner took the whole idea out: an area is the
-   unit, so one row is one area and the next area is the next row. See the
-   header of Shelf.tsx. */
+/* There is no divider. An area is the unit, so one row is one area and the
+   next area is the next row. */
 
-/* A bookend closes a row, and the bookend is the cat. */
 .wf-bookend {
   flex: none;
   align-self: flex-end;
@@ -496,7 +397,6 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   padding-bottom: 0;
 }
 
-/* The book being carried, hanging below the plank under its gap. */
 .wf-shelf__inhand {
   display: flex;
   gap: var(--s2);
@@ -506,11 +406,9 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   color: var(--ink-2);
 }
 
-/* --- Cards ------------------------------------------------------------- */
-
 /*
- * No coloured rail down the side. Not here, not on a variant, not ever. A
- * card that needs to say something says it in words.
+ * No coloured rail down the side. Not here, not on a variant, not ever. A card
+ * that needs to say something says it in words.
  */
 .wf-card {
   background: var(--paper-raised);
@@ -536,14 +434,6 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 
 .wf-card__head { display: grid; gap: 1px; }
 
-/*
- * The second line, under the title rather than over it.
- *
- * It was an uppercase tracked eyebrow above the title, and that is a whole
- * line of the card spent before the sentence that says something. Sentence
- * case, no tracking, the smallest size in the system: the same words in a
- * third of the room. See `Card.tsx` for why it moved.
- */
 .wf-card__kind {
   font-size: var(--size-micro);
   font-weight: 600;
@@ -569,12 +459,6 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 .wf-card__foot > * { flex: 1 1 auto; }
 
-/* `.wf-beside` was here, and it was the cat with one sentence beside him at
-   the top of the first screen. The sentence went in #361 for saying what the
-   counts under it said; the rules went with it rather than sitting here
-   unused, which is how a stylesheet fills up with drawings of things nobody
-   draws. The cat is at the end of the counts now: see `.wf-stats__cat`. */
-
 /* The one line the whole screen exists to say. Book face, because it names
    books. */
 .wf-instruction {
@@ -596,8 +480,6 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   font-size: var(--size-small);
 }
 
-/* --- Buttons ----------------------------------------------------------- */
-
 .wf-btn {
   min-height: var(--tap);
   padding: var(--s2) var(--s4);
@@ -614,8 +496,8 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   transition: transform 90ms ease-out;
 }
 .wf-btn:active { transform: translateY(1px); }
-/* Drawn and not pressable. Faded rather than greyed, so it still reads as the
-   same button: what it needs before it can be pressed is said beside it. */
+/* Faded rather than greyed, so it still reads as the same button: what it
+   needs before it can be pressed is said beside it. */
 .wf-btn:disabled { opacity: 0.45; }
 .wf-btn:disabled:active { transform: none; }
 .wf-btn:focus-visible { outline: none; box-shadow: var(--focus); }
@@ -644,13 +526,8 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 .wf-btn--block { width: 100%; }
-/* The answers to one question, stacked. The one the screen is for leads and
-   the rest follow it down the page, so a thumb reaching from the bottom edge
-   meets them in the order somebody would say them out loud. */
 .wf-answers { display: grid; gap: var(--s2); }
 .wf-btn--small { min-height: 36px; font-size: var(--size-small); padding-inline: var(--s3); }
-
-/* --- Segmented control -------------------------------------------------- */
 
 .wf-seg {
   display: grid;
@@ -664,8 +541,6 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 .wf-seg__opt {
-  /* 44, not 38. Measured in the browser rather than guessed: the row around it
-     was 44 and the button inside it was not, and the button is the target. */
   min-height: var(--tap);
   padding: 0 var(--s2);
   border: 0;
@@ -685,8 +560,6 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 .wf-seg__opt:focus-visible { outline: none; box-shadow: var(--focus); }
 
-/* --- List rows ---------------------------------------------------------- */
-
 .wf-list {
   display: grid;
   gap: 0;
@@ -697,17 +570,12 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /*
- * A list inside a card is a well in that card, not a second card. Outlined,
- * it drew a border a few pixels inside another border and read as a box in a
- * box. Seen on the queue and on the first screen.
+ * A list inside a card is a well in that card, not a second card. Outlined, it
+ * drew a border a few pixels inside another border and read as a box in a box.
  *
- * `--paper-well` rather than `--paper-sunk`: the owner read both screens and
- * named it plainly, "the background on them is pretty harsh, it's pretty
- * dark, I don't think it needs to be that dark." `--paper-sunk` is nearly the
- * page's own colour at night, so the well read as a hole cut in the card
- * rather than a shallow step down from it. This is the one place that shows,
- * so this is the one place fixed, and every card with a list in it changes
- * with it.
+ * `--paper-well` rather than `--paper-sunk`, which is nearly the page's own
+ * colour at night, so the well read as a hole cut in the card rather than a
+ * shallow step down from it.
  */
 .wf-card .wf-list {
   border-color: transparent;
@@ -731,8 +599,8 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 .wf-row:first-child { border-top: 0; }
 .wf-row:active { background: var(--paper-sunk); }
-/* Present and not pressable yet, faded exactly as much as a button in the same
-   state. Same word, same amount, so the two do not have to be told apart. */
+/* Faded exactly as much as a button in the same state, so the two do not have
+   to be told apart. */
 .wf-row:disabled { opacity: 0.45; }
 .wf-row:disabled:active { background: none; }
 
@@ -749,8 +617,6 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   box-shadow: inset -3px 0 6px rgba(0, 0, 0, 0.16);
 }
 
-/* The photograph on a row, on the same terms as the one on a cover: over the
-   cloth, filling the thumbnail, and absent for most books. */
 .wf-row__photo {
   display: block;
   width: 100%;
@@ -792,8 +658,6 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   color: var(--ink);
 }
 
-/* --- Small parts --------------------------------------------------------- */
-
 /* A word, boxed. Never a colour on its own: the word carries the meaning and
    the tint only groups them. */
 .wf-tag {
@@ -809,23 +673,18 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   color: var(--ink-2);
   white-space: nowrap;
 }
-/* The only tone. A tag that is narrowing what you are looking at right now,
-   which is a fact about the screen and not about the tag. There was a green
-   one for fiction and a blue one for non-fiction, and that was the top-level
-   split painting two tags out of twenty. */
+/* The one tone: a tag that is narrowing what you are looking at right now,
+   which is a fact about the screen and not about the tag. */
 .wf-tag--on { background: var(--sun-wash); color: var(--ink); }
 /* The second tone: a book saying it needs a person, which on the queue is the
-   one thing anybody acts on. The word is what says which of the four kinds of
-   stuck it is; this only makes it findable while scanning down a list, and
-   nothing here is ever told by the tint alone. */
+   one thing anybody acts on. The word says which of the four kinds of stuck it
+   is. */
 .wf-tag--wants { background: var(--plum-wash); color: var(--plum); }
 
 /*
  * A tag you can press, on the screens where the tags are what is being
- * changed. 36px rather than 44: this is the small-button size the system
- * already has, and it is here because a wrapping row in which every chip is
- * the full 44 stops reading as a row of words and starts reading as a stack of
- * buttons. The row wraps, so nothing here is ever a dense target grid.
+ * changed. 36px rather than 44, which is the small-button size the system
+ * already has: the row wraps, so this is never a dense grid of targets.
  */
 .wf-tag--press {
   min-height: 36px;
@@ -847,20 +706,16 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 /*
  * One book waiting to be filed: the book, its name, and its pills.
  *
- * The book takes the room it needs and the words take the rest, which is what
- * keeps a long title from squeezing the photograph. Everything in the right
- * column is one column deep and every part of it truncates, because a row that
- * grows a second line for one book makes a list of forty jump about as it
- * loads.
+ * The book takes the room it needs and the words take the rest, and every part
+ * of the right column truncates: a row that grows a second line for one book
+ * makes a list of forty jump about as it loads.
  */
 .wf-queued {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: var(--s3);
-  /* Centred against the book rather than hung from its top edge. Every row is
-     the height of a book and most carry a name, an author and two pills, so
-     top-aligning leaves a band of empty paper under the words on almost every
-     row. Found by looking at forty of them. */
+  /* Centred against the book rather than hung from its top edge: every row is
+     the height of a book and most of them are shorter than one. */
   align-items: center;
   min-width: 0;
   text-align: left;
@@ -882,7 +737,7 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 .wf-queued__title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* A row named by OCR looks different from one named by a person or a
-   catalogue, and says so in a word as well (#156). */
+   catalogue, and says so in a word as well. */
 .wf-queued__name--guess .wf-queued__title { font-weight: 400; font-style: italic; }
 .wf-queued__guess {
   flex: none;
@@ -901,18 +756,11 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* The pills sit under the name with a little more air than the name and the
-   author have between them, so they read as a row of marks rather than as a
-   third line of the title block. */
 .wf-queued .wf-tags { margin-top: 2px; gap: var(--s1); }
 
 /*
- * The card one of those sits in, in the wireframe.
- *
- * The app's is `.queue__row`, which is this plus everything the swipe needs:
- * the word revealed behind it, the sliding layer, and the undo that replaces
- * the whole row. Two wrappers, deliberately, because one of them has a gesture
- * in it and the other is a drawing. What is inside them is one component.
+ * The card one of those sits in, in the wireframe. The app's is `.queue__row`,
+ * which is this plus everything the swipe needs.
  */
 .wf-qlist { display: grid; gap: var(--s2); }
 .wf-qrow {
@@ -930,8 +778,7 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 .wf-qrow:focus-visible { outline: none; box-shadow: var(--focus); }
 
-/* A plank label, the thing you read off the shelf edge. Set like a spine
-   label on a bound volume. */
+/* A plank label, the thing you read off the shelf edge. */
 .wf-place {
   display: inline-grid;
   place-items: center;
@@ -954,31 +801,13 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /*
- * Counts on the first screen, and the one piece of type the owner named.
- *
- * They were set in the book face and he did not like them: "it needs to be
- * more rounded or something and more playful". So the number and its word are
- * both `--face-display`, which is the rounded stack, and the serif stays where
- * a reader's eye goes rather than on a tally the app is keeping about itself.
- *
- * Denser than they were, which was the other half of that feedback: the word
- * has come up under the number with nothing between them, the padding is one
- * step down, and the whole row is shorter by about a fifth. The number is
- * bigger than before regardless, because it is what the card is for.
- *
- * ## Three across and wrapping, since there are five of them (#361)
- *
- * It was a single line of auto columns, which shared the row between however
- * many counts arrived: three on the wireframe, two on an app whose carry review
- * had not answered yet, and never a hole where a tile failed to load. Five
- * counts cannot be a line at 414 wide, so the columns are fixed at three and
- * the row wraps, and the same protection survives in a different form: a
+ * Counts on the first screen. Three fixed columns that wrap rather than a line
+ * of auto columns, because five counts cannot be a line at 414 wide, and a
  * missing count closes the grid up rather than leaving a gap in it.
  *
- * The cat takes the cell after the last count, which on an ordinary day is the
- * sixth of six. He is not a tile: no well behind him, and he stands on the
- * floor of the row rather than in the middle of it, because he is sitting at
- * the end of a run of numbers the way he sits at the end of a run of books.
+ * The cat takes the cell after the last count. He is not a tile: no well
+ * behind him, and he stands on the floor of the row rather than in the middle
+ * of it.
  */
 .wf-stats {
   display: grid;
@@ -995,8 +824,7 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /* The cat who lies down is not drawn here at all: he sleeps on the things you
-   can do, which is `.wf-doors--bed` further down (#427). This row is five
-   counts, and the still bookend above on a screen that offers nothing. */
+   can do, which is `.wf-doors--bed` further down. */
 
 .wf-stat {
   display: grid;
@@ -1009,9 +837,8 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   background: var(--paper-sunk);
   min-height: var(--tap);
 }
-/* Most of them are targets now. No mark is drawn to say so, the way no mark is
-   drawn on a tag that can be pressed: the tile is the whole target and a
-   chevron on something this small is more mark than meaning. */
+/* No mark is drawn to say a tile is a target, the way none is drawn on a tag
+   that can be pressed: the tile is the whole target. */
 .wf-stat--press { cursor: pointer; }
 .wf-stat--press:active { background: var(--board); }
 .wf-stat--press:focus-visible { outline: none; box-shadow: var(--focus); }
@@ -1033,67 +860,30 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /*
- * The things you can do on the first screen, under the counts.
- *
- * **Raised paper inside a hairline, with a shadow under it**, where the counts
- * above sit in the page: the numbers are the page and the doors come off it.
- * That is the whole of what says a door is not a sixth count, and it is the
- * half the owner said was missing: "it doesn't look like a button, it doesn't
- * look like an action that they can take."
- *
- * Three parts, and the first is why the row now reads as a target at a glance:
- * a glyph on a warm chip, the sentence, and the chevron every row that goes
- * somewhere wears. The chip is board, which is the colour of a plank in both
- * themes, so the mark is warm rather than tinted with a hue that would be
- * claiming a meaning it does not have.
+ * The things you can do on the first screen, under the counts. Raised paper
+ * inside a hairline with a shadow under it, where the counts above sit in the
+ * page, which is the whole of what says a door is not a sixth count.
  *
  * It is deliberately not a filled button. The one filled button in this system
- * is the thing a screen is *for*, and this screen has two doors, neither of
- * which outranks the other.
- *
- * Full width and 56px, so the target is the row rather than the words in it.
+ * is the thing a screen is for, and neither of these doors outranks the other.
  */
 .wf-doors {
   display: grid;
   gap: var(--s2);
   /* The cat sleeps inside this block and hangs out of the top of it, so this is
-     what he is positioned against (#427). */
+     what he is positioned against. */
   position: relative;
 }
 
 /*
- * The cat asleep on top of them, which is what these buttons are to him (#427).
+ * The cat asleep on top of them. Where he lies is `-50%` and nothing measured:
+ * his belly is across the middle of the drawing's box, so pulling it up by half
+ * its own height puts his belly on whatever `top` names, and `Cat` may draw him
+ * at any size without this rule being touched.
  *
- * > This is the cat. It is supposed to be sleeping on the actions, not as part
- * > of the metrics grid.
- *
- * He was hung off the bottom of the counts with only his tail reaching down
- * here, so he read as a sixth count with a long tail. He belongs to this block
- * now, and three rules put him on it.
- *
- * **The scoot is this block's own margin.** The owner asked for the actions to
- * be scooted down and the cat to lie on them, so the room he sleeps in is made
- * by the thing he sleeps on. The counts are not told anything, do not move, and
- * draw no cat: five counts, three and two, exactly as round eight settled them.
- *
- * **Where he lies is `-50%` and nothing measured.** The `lying` pose is half cat
- * and half tail, with his belly across the middle of its box, so pulling the
- * drawing up by half its own height puts his belly on whatever `top` names. That
- * is `--s2` above the first button: he lies along its top edge, his tail leaves
- * him, crosses that gap in the open and then goes behind. Nothing here knows how
- * tall he is drawn, and `Cat` may draw him at any size without this rule being
- * touched.
- *
- * **Behind is a real occlusion rather than a gap the tail stops in.** He is
- * painted before the buttons and each of them is `position: relative`, so opaque
- * raised paper is drawn over the tail: it runs down the page, meets the top edge
- * of the first button and is gone. Checked by taking him away in a browser and
- * finding the button's own pixels unchanged, which is the only version of this
- * claim worth having.
- *
- * There is nothing to press: `pointer-events` off, so a cat lying on a door
- * cannot eat a tap meant for it. `overflow-x: clip` on `.wf` means he may hang
- * up the page but never off the side of it, which is already the rule here.
+ * He is painted before the buttons and each of them is `position: relative`, so
+ * raised paper is drawn over his tail. `pointer-events` is off, so a cat lying
+ * on a door cannot eat a tap meant for it.
  */
 .wf-doors--bed { margin-top: var(--s7); }
 .wf-doors__cat {
@@ -1119,11 +909,10 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   box-shadow: var(--lift-1);
   color: var(--ink);
   /* Painted after the cat, so the tail goes behind this rather than across its
-     face (#427). A positioned element paints over an unpositioned one whatever
-     the markup says, and the cat has to be positioned to hang out of the block,
-     so the buttons take a position of their own to win it back in source order.
-     It moves nothing: `relative` with no offsets is where the button already
-     was. */
+     face. A positioned element paints over an unpositioned one whatever the
+     markup says, and the cat has to be positioned to hang out of the block, so
+     the buttons take a position of their own to win it back in source order.
+     `relative` with no offsets moves nothing. */
   position: relative;
 }
 .wf-door:active { background: var(--paper-sunk); box-shadow: none; }
@@ -1147,7 +936,6 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   line-height: var(--lh-tight);
 }
 
-/* A field. Sunk, because you are putting something into it. */
 .wf-field { display: grid; gap: var(--s1); }
 .wf-field__label {
   font-size: var(--size-label);
@@ -1171,8 +959,8 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 .wf-field__box--empty { color: var(--ink-2); font-family: var(--face-ui); }
 
-/* The value, which is what truncates. It used to be the box, which cannot: a
-   flex container has nothing to put an ellipsis on. */
+/* The value is what truncates: a flex container has nothing to put an ellipsis
+   on. */
 .wf-field__value {
   flex: 1;
   min-width: 0;
@@ -1181,10 +969,9 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /* A field with a keyboard behind it. The box is the drawing either way, so the
-   input brings no border, no background and no size of its own: it inherits
-   the face and the colour it sits in and is the same field with a caret. 16px
-   is not a preference, it is the size below which iOS Safari zooms the page
-   the moment somebody taps into it. */
+   input brings no border, no background and no size of its own. 16px is not a
+   preference: it is the size below which iOS Safari zooms the page the moment
+   somebody taps into it. */
 .wf-field__input {
   appearance: none;
   border: 0;
@@ -1199,15 +986,12 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 .wf-field__box:focus-within { border-color: var(--ink-2); }
 
 /*
- * Another way to fill the field in, at the end of it. The target is 44 by 44,
- * because it is pressed by somebody with a book in the other hand.
+ * Another way to fill the field in, at the end of it, and the target is 44 by
+ * 44 because it is pressed by somebody with a book in the other hand.
  *
  * The box gives up its own padding on three sides to make room for it rather
  * than growing: with the padding left on, a 44px button inside a 44px minimum
- * made this field eighteen pixels taller than every other field on the screen,
- * and a stack of boxes where one is taller reads as one that is different. The
- * value keeps its inset because the value is text; the button reaches the edge
- * because a target that stops short of one is a target you can miss.
+ * made this field taller than every other field on the screen.
  */
 .wf-field__box--acts {
   padding-top: 0;
@@ -1228,8 +1012,6 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 .wf-field__act:active { color: var(--ink); }
 
-/* --- The confirmation ---------------------------------------------------- */
-
 .wf-confirm {
   display: grid;
   justify-items: center;
@@ -1247,10 +1029,8 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   line-height: var(--lh-tight);
   text-wrap: balance;
 }
-/* There is no second line under that one. The drawing of where the book went
-   is the answer to "where", and it is on the screen rather than in here. */
-
-/* --- Empty state --------------------------------------------------------- */
+/* There is no second line under that one: the drawing of where the book went
+   is the answer to "where". */
 
 .wf-empty {
   display: grid;
@@ -1262,17 +1042,13 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 .wf-empty__said { margin: 0; color: var(--ink); font-family: var(--face-book); }
 
-/* --- The camera ----------------------------------------------------------- */
-
 /*
- * The one screen with no chrome on it at all. See `Camera.tsx` for the
- * argument; what follows is the geometry.
+ * The one screen with no chrome on it at all, and what follows is the
+ * geometry of it.
  *
  * The picture is the screen. Nothing is stacked above or below it, so there is
- * no bar, no instruction and no second row of anything, and the four controls
- * are absolutely positioned on top of the photograph. That is the difference
- * between this and the first pass, where the viewfinder was one item in a
- * flex column and ended up at 40dvh with five things sharing the rest.
+ * no bar and no instruction, and the controls are absolutely positioned on top
+ * of the photograph.
  */
 
 .wf-screen--camera { background: var(--picture); }
@@ -1282,16 +1058,11 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 .wf-frame ~ .wf-screen--camera { min-height: calc(100dvh - 38px); }
 
 /*
- * A camera opened from a screen rather than routed to.
- *
- * Two of the three are the whole page already: the route table draws one
- * screen and they are it. The one that reads an ISBN into a field is opened by
- * the field, through the same `over` slot a dialog arrives in, so it has to
- * leave that screen the way a dialog does. The same fixed inset and the same
- * z-index as `.wf-sure` and `.wf-name`, and for the same reason: over the top
- * bar and the tab bar at 5, under the gallery's own frame at 20.
- *
- * The gallery never draws this. A wireframe camera is a screen you go to.
+ * A camera opened from a screen rather than routed to. The one that reads an
+ * ISBN into a field is opened by the field, through the same `over` slot a
+ * dialog arrives in, so it has to leave that screen the way a dialog does: the
+ * same fixed inset and the same z-index as `.wf-sure` and `.wf-name`, over the
+ * top bar and the tab bar at 5, under the gallery's own frame at 20.
  */
 .wf-screen--over {
   position: fixed;
@@ -1302,23 +1073,14 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 /*
  * The camera screen: the picture, the part of it you can use, and the bar.
  *
- * **Two rows rather than one box** (#584, #585). Everything this screen floats
- * on the picture used to find the bottom of the screen by counting the controls
- * it expected to be there, in a stylesheet that cannot see them: the aiming
- * frame with `bottom: 28%`, the hint with `bottom: 150px`, the two panels with
- * `bottom: 260px`. #554 answered that for the one line the design system owns by
- * putting it inside the bar, where the box holding the controls is as tall as
- * the controls it holds. This is the same answer for everything that is not a
- * row of a bar: the bar is the second row of a grid, so it takes the height its
- * own contents ask for, and `.wf-view__over` is the first row and therefore ends
- * exactly where the bar begins.
+ * Two rows rather than one box. The bar is the second row of the grid, so it is
+ * as tall as the controls it holds, and `.wf-view__over` is the first row and
+ * therefore ends exactly where the bar begins. Nothing else on this screen has
+ * to guess where the controls start.
  *
- * The picture is **not** a row. It stays absolutely positioned across the whole
- * of this box, because the owner's sentence about this screen is that as much of
- * it as possible should be the pass through from the camera feed, and a feed
- * that stopped at the bar would be a letterboxed one with the controls standing
- * on paper. The controls still float on the photograph; what changed is that
- * nothing else has to guess where they start.
+ * The picture is not a row. It stays absolutely positioned across the whole of
+ * this box, because a feed that stopped at the bar would be a letterboxed one
+ * with the controls standing on paper.
  */
 .wf-view {
   position: relative;
@@ -1329,31 +1091,21 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 
   /*
    * Where the three round targets in the corners begin, and the first line
-   * under them that is clear of all three.
-   *
-   * Said once because it was said three times, and because the aiming frame
-   * now has to know it: centred in the picture above the bar it comes up high
-   * enough to put its own top corner behind the way out. **This is a different
-   * kind of number from the one #584 took out**, and the difference is the
-   * whole of why it is allowed here. The bottom of this screen is however many
-   * controls a caller handed in, which is why no stylesheet can count it. The
-   * top is exactly one 44px target inset by a gap, in every camera there is,
-   * placed by the three rules below this file's own — so it is a fact about
-   * this file, and reading it back is not a guess.
+   * under them that is clear of all three. The aiming frame reads it too:
+   * centred in the picture above the bar it comes up high enough to put its
+   * own top corner behind the way out. It is allowed to be a number because
+   * the top is exactly one 44px target inset by a gap, in every camera there
+   * is, placed by the three rules below in this file.
    */
   --wf-corner-top: calc(var(--s3) + env(safe-area-inset-top));
   --wf-clear-top: calc(var(--wf-corner-top) + var(--tap) + var(--s3));
 }
 
-/* Standing in for the feed. A wireframe, so there is no camera access here and
-   there must not be: this screen is about where the controls go. */
+/* Standing in for the feed. There is no camera access in the gallery and there
+   must not be: this screen is about where the controls go. */
 .wf-view__picture {
   position: absolute;
   inset: 0;
-  /* Two stops of one cream at low opacity over the picture colour, rather than
-     two browns a shade apart: the first version was two values so close
-     together that the hatch was invisible and the screen read as a flat brown
-     rectangle somebody had forgotten to fill in. Found by looking at it. */
   background:
     repeating-linear-gradient(
       135deg,
@@ -1364,64 +1116,27 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /*
- * The same wireframe picture at the two ends of what a photograph can be, drawn
- * so somebody can look at the bound rather than be told it (#530).
+ * The same wireframe picture at the two ends of what a photograph can be. The
+ * camera hands this screen eight-bit sRGB, so nothing comes back lighter than
+ * white or darker than black, and a bed that survives these two survives every
+ * book.
  *
- * The camera hands this screen eight-bit sRGB, so nothing the lens is ever
- * pointed at comes back lighter than white or darker than black. That is what
- * makes "how readable is a word over a photograph" answerable at all: it is a
- * range, and the range is closed at both ends, so a bed that survives these two
- * survives every book. White is the end that fails and it is the ordinary one:
- * a paperback's page under a lamp is most of what this camera sees.
- *
- * Literals rather than tokens, and it is the one place in this file where that
- * is right. They are not a colour anything is painted in. They are the bound
- * the paint has to hold up against, and a token would make them look like a
- * choice somebody could retune.
+ * Literals rather than tokens, and the one place in this file where that is
+ * right: they are not a colour anything is painted in, they are the bound the
+ * paint has to hold up against.
  */
 .wf-view__picture--page { background: #fff; }
 .wf-view__picture--cover { background: #000; }
 
 /*
- * The photograph this camera actually takes, which is neither of those (#553).
- *
- * A page and a cover are the two *ends*, and they are the right thing to
- * measure a bed against because a bed sits under a word and a word is small.
- * A frame is not small. It is a rectangle 340 by 540 on a 414 wide phone, and
- * what is behind it is both ends at once: a book held up fills the middle of
- * the picture and the room behind it does not, so one side of that line is a
- * white page and the other side is a dark room, at the same moment, on the same
- * line.
- *
- * That is why a keyline needs a ring on both sides rather than a shadow on one,
- * and it is a thing neither `--page` nor `--cover` can show, because on a flat
- * background both sides of a line are the same colour.
- *
- * **The page is lined up with the frame and hanging out of the bottom of it**,
- * which is what aiming looks like a moment before you get it right. It runs 12%
- * to 88% across and 30% down to 85%; the frame is 12% to 88% and 14% to 72%. So
- * one picture puts every arrangement a line can meet under some part of the same
- * frame:
- *
- *   the top edge      dark on both sides, over the room
- *   the bottom edge   white on both sides, over the page
- *   the side edges    the room outside and the page inside, at once
- *
- * That is what makes the four candidates tell themselves apart rather than
- * needing a caption. `--now` disappears along the bottom edge and `--dark`
- * disappears along the top one, in the same screenshot, and neither of them
- * needed a second picture to say so.
+ * The photograph this camera actually takes, which is neither of those: a book
+ * held up puts a white page on one side of a line and a dark room on the other
+ * at the same moment, which is the case the frame's two tones exist for and the
+ * one a flat background cannot show.
  *
  * The positions are written the way `background-position` means them: a
- * percentage there is a fraction of the room the image leaves over rather than
- * of the picture, so `50%` of the remaining `24%` is the `12%` this paragraph
- * is about, and `66.7%` of the remaining `45%` is the `30%`.
- *
- * Literals for the same reason the two above are literals: they are the bound
- * the paint has to hold up against rather than a colour anything is painted in.
- * The room is not pure black, because a room is not: it is dark enough that the
- * scrim vanishes into it and light enough that a cream line reads on it, which
- * is the pair of facts the frame above is built out of.
+ * percentage is a fraction of the room the image leaves over rather than of the
+ * picture, so `50%` of the remaining `24%` is 12% across.
  */
 .wf-view__picture--held {
   background:
@@ -1430,11 +1145,8 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /*
- * The app's picture, which is a live stream rather than a drawing.
- *
- * Same place, same job. `cover` because the viewfinder is the screen: a
- * letterboxed stream would put two dark bands inside the one screen that is
- * meant to be nothing but photograph, and the crop the shutter keeps is
+ * The app's picture, which is a live stream rather than a drawing. `cover`
+ * because the viewfinder is the screen, and the crop the shutter keeps is
  * measured against the displayed box either way (`cropToSource`).
  */
 .wf-view__video {
@@ -1447,106 +1159,21 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /*
- * Where to hold the book. A shape and no words: the sentence that used to be
- * under it is the instruction banner the owner asked to lose, and the strip at
- * the bottom already says which photograph is next.
+ * Where to hold the book, and it is a shape with no words in it.
  *
- * ## It is inside the picture above the bar, and that is the fix (#584)
+ * Centred in `.wf-view__over`, which ends where the bar begins, so it cannot be
+ * behind a control on any phone and nothing here counts the controls. It is
+ * centred below `--wf-clear-top` rather than below the top of the screen,
+ * because centred in the whole region its own top corner went behind the way
+ * out. A share of the width with an aspect ratio rather than four insets, so
+ * the frame keeps a paperback's proportions on every phone; `max-height` is the
+ * only thing that takes that away, and then it gives up height, not room.
  *
- * This comment used to end "kept clear of the bottom quarter so it never sits
- * behind the controls", and the bottom quarter was `bottom: 28%`. A percentage
- * of the screen and a bar made of a 76px shutter and 44px and 36px buttons
- * cannot both be right on two phones, and they are not. Measured in the running
- * app on the gallery's `#camerapage`, which is this rule:
- *
- *   414 x 896   frame ends at 658.8, the line the camera says starts at 654.7
- *               4px of the frame behind it
- *   375 x 667   frame ends at 493.9, "Next book" starts at 474
- *               20px of the frame behind a button
- *
- * The shorter the phone, the further into the controls it reaches, because the
- * bar's height does not scale with the screen. `max(28%, <px>)` would express
- * it and would be a third number somebody has to keep in step with the shutter
- * and the buttons, which is the family of fault #554 was about.
- *
- * So it is centred in `.wf-view__over`, which ends where the bar begins. It
- * cannot be behind a control on any phone, whatever that camera's bar happens
- * to be holding, and there is no number here that anybody has to keep in step
- * with a shutter.
- *
- * **It is a shape and a share of the width rather than four insets**, and that
- * is the part that was a choice. Insets of the region would also clear
- * everything and would make the frame a different shape on every phone: 315 by
- * 616 on a tall one and 285 by 355 on a short one, out of a rule whose own
- * comment says it is "roughly the proportions of a paperback held up to a phone
- * in portrait". A 34 by 54 rectangle 76% of the width across is that sentence
- * written down. `max-height` is the only thing that ever takes it away, on a
- * phone short enough that a book-shaped frame does not fit above the controls,
- * and then it gives up the height rather than the room.
- *
- * **Centred rather than above centre, and that is a deletion.** It sat above
- * centre because "the controls occupy the lower fifth of the screen, and a
- * vertically centred rectangle runs underneath them" — which is the same
- * sentence as the 28%, one property along. The box it is centred in ends at the
- * controls, so being in the middle of it is the whole answer.
- *
- * **It is centred below the corners rather than below the top of the screen**,
- * and that was found by looking at it: centred in the whole region at 414 by
- * 896 the frame's top edge came up to y 82 and its own top left corner went
- * behind the way out, which is the defect this is about pointed at the other
- * end of the screen. `--wf-clear-top` is the first line under the three corner
- * targets and the note on `.wf-view` says why that one is allowed to be a
- * number when the bottom of the screen is not.
- *
- * The two drawings that go with this are `#framescreen` and `#framebar`, on the
- * one picture that shows what it costs. At 414 by 896 on the camera with a line
- * to say they draw a frame of the same height within 3px, which is why that pair
- * has to be walked at two sizes to say anything.
- *
- * ## Two tones, because a line cannot have a bed (#553)
- *
- * Everything else on this camera answers "readable over any photograph" by
- * painting `--picture-scrim` behind itself and writing on that (#530). A
- * 1.5px border has nothing behind it to paint, so it was cream on whatever the
- * lens happened to be pointed at, and over a white page that is **1.03 to 1**:
- * rgb(253,251,247) on rgb(255,255,255), read off the running app at 414 by 896.
- * Not nearly invisible. Invisible.
- *
- * So the line carries its own opposite. The cream keeps the border and the
- * scrim is laid as a ring on both sides of it, which makes the frame three
- * lines: dark, cream, dark. Whatever is behind it, one of the two tones is the
- * one you see. Every number here is one rendered pixel against the one beside
- * it, rather than a sum over two tokens:
- *
- *   over a white page   the scrim is 7.67 to 1, the cream 1.03
- *   over a dark room    the cream is 3.60 to 1, the scrim 1.04
- *
- * The first row is the running app at 414 by 896 with a white feed, and it is
- * `#camerapage` too. The second is the room in `#framekeyline`, which is
- * rgb(23,22,26) rather than black, because a room is not black. On the flat
- * black of `#cameracover` the cream is 3.45, which is the worst this gets and
- * still clears the threshold below.
- *
- * **A ring on both sides rather than a shadow on one, and the honest reason is
- * not the arithmetic.** One ring would pass this: over an all-white picture an
- * inset ring carries it, over an all-dark one the cream carries it, and where
- * the page ends and the room begins the cream reads against whichever of the two
- * is dark. What one ring does not do is stay the same line. It makes the frame
- * 3px thick where the tones fall its way and 1.5px where they do not, so the
- * boundary a person is lining a book up against thickens and shifts along its
- * own length as the phone moves. The second ring costs 1.5px and it means
- * nothing here has to know which side of the line the book is on — which is a
- * fact about somebody's room and not about this stylesheet. `#framekeyline` is
- * that picture, drawn so it can be looked at rather than believed.
- *
- * **Three to one and not four and a half.** This is the one thing on the camera
- * that is not a word: WCAG 1.4.11 asks 3:1 of a graphic you have to be able to
- * make out, where 1.4.3 asks 4.5:1 of text. Inheriting the text threshold here
- * would have been an argument nobody made, so it is made: the frame is not read,
- * it is aimed with.
- *
- * The candidates that were drawn and not taken are `--now`, `--dark` and
- * `--dim` below.
+ * Two tones, because a line cannot have a bed. A 1.5px border has nothing
+ * behind it to paint, so cream alone was invisible over a white page; the scrim
+ * is laid as a ring on both sides of the cream, and whatever is behind the
+ * frame one of the two tones reads. The candidates drawn and not taken are
+ * `--now`, `--dark` and `--dim` below.
  */
 .wf-view__guide {
   position: absolute;
@@ -1563,33 +1190,13 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /*
- * The spine, which is not photographed in the shape a cover is.
+ * The spine, which is not photographed in the shape a cover is. The app crops a
+ * spine photograph to the spine, so the frame is the crop: a tall thin slot, in
+ * percentages because the picture is the screen.
  *
- * The app crops a spine photograph to the spine, so the frame is the crop: a
- * tall thin slot you stand the book up inside. Percentages of the screen
- * rather than a fixed width, because the picture is the screen and the slot
- * has to stay a slot on a short phone and a long one alike. About one to five
- * at 414 by 896, which is a paperback stood on end.
- *
- * A true crop is thinner than this and it is deliberately not drawn that way:
- * the frame is what somebody aims a phone at with a book in the other hand, so
- * it has to be wide enough to get a book into at arm's length. One to five is
- * as narrow as it goes before it stops being a target.
- *
- * It goes higher and lower than the cover frame on purpose: a spine is the
- * long dimension of a book, so the thing that limits it is the height of the
- * region it is drawn in.
- *
- * **It was the worse half of #584 and the one that read as a design.** At
- * `bottom: 22%` of the screen it ended at 710.3 on the gallery's `#spine` at
- * 414 by 896 with the bar's own box beginning at 719: it cleared by 8.7px, and
- * at 375 by 667 the same rule put 10px of it behind "Done with this book".
- * Clearing by a coincidence and failing on the next phone is what a percentage
- * of the screen buys.
- *
- * It is the same answer as the rule above and only two numbers of it are
- * different: a fifth of the width rather than three quarters, and one to five
- * rather than 34 to 54. Everything about where it goes it inherits.
+ * A true crop is thinner and is deliberately not drawn that way: this is aimed
+ * at with a book in the other hand, so one to five is as narrow as it goes
+ * before it stops being a target. Everything about where it goes it inherits.
  */
 .wf-view__guide--slot {
   width: 28%;
@@ -1597,29 +1204,15 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /*
- * A frame that is a crop rather than a drawing, and therefore its caller's.
+ * A frame that is a crop rather than a drawing, and therefore its caller's. The
+ * cataloguing camera gives all four edges inline as fractions of the picture,
+ * so this takes the sizing above back off and those fractions are the only
+ * thing deciding where it lands. The paint stays, which is why such a frame
+ * wears `.wf-view__guide` at all.
  *
- * The cataloguing camera measures its own frame off `SLOT_GUIDE`, which for the
- * spine **is** the rectangle the shutter is going to keep, so all four of its
- * edges are fractions of the picture and are given inline. This takes the
- * sizing above back off so that those fractions are the only thing deciding
- * where it lands: a crop that has been centred, given a shape and clamped is a
- * rectangle that is not the one being kept, and a boundary you cannot trust is
- * worse than one you cannot see.
- *
- * The paint stays, which is the whole reason such a frame wears
- * `.wf-view__guide` at all: one keyline, drawn once, whoever decides where the
- * rectangle goes.
- *
- * **The frame that wears this has the defect above and keeps it, which is
- * #593.** At 414 by 896 the spine's crop ends at 698.9 with the line the camera
- * says running 651.7 to 688, so 36px of it is behind a caption. Moving it moves
- * what every future spine photograph keeps, so it is the owner's rather than
- * this rule's.
- *
- * **After `--slot` rather than before it, on purpose.** Both of them say what
- * shape the frame is, so whichever comes last in this file wins, and the one
- * that has to win is the one saying "somebody else already decided".
+ * After `--slot` rather than before it, on purpose: both say what shape the
+ * frame is, so the one that has to come last is the one saying somebody else
+ * already decided.
  */
 .wf-view__guide--crop,
 .wf-view__guide--screen {
@@ -1631,51 +1224,14 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /*
- * The three frames that were drawn and not taken (#553).
+ * The three frames that were drawn and not taken, so the choice above can be
+ * walked rather than argued.
  *
- * They exist so the choice above can be walked rather than argued: the gallery
- * puts each of them on the same picture, a page held up in a room, and the four
- * screens in a row are the whole of the case. `docs/process/designing-a-screen.md`
- * is why they are drawings and not a paragraph — the owner reacts to something
- * he can see, on his phone, at the size he will really use it.
- *
- * **Nothing in the app renders one of these**, and the rule in
- * `design.test.tsx` measures `.wf-view__guide` alone for that reason. Two of
- * them fail it on purpose, which is what they are for.
- *
- * `--now` is the defect: the cream line with nothing beside it, at 1.03 to 1
- * over a page. It is kept because the case for a change is half made by what
- * was there before, and a screenshot in a merged pull request is not somewhere
- * the owner walks.
- *
- * `--dark` is the answer anybody reaches for first, and it is the same defect
- * with the ends swapped: the scrim is 7.66 to 1 on a page and **1.07 on a black
- * paperback**, so it trades a frame you cannot see over a page for a frame you
- * cannot see over a cover. It is here as the drawing of why one tone is not
- * enough, whichever tone it is. #530 met the same shape in `--picture-ink-2`
- * and #451 in a literal white: fine at one end, gone at the other.
- *
- * `--dim` is the real alternative and the one worth arguing about, and drawing
- * it settled it in a way no description would have. Darkening everything
- * outside the frame says "put the book here" more plainly than any line does.
- * It also measures **within a rounding of the keyline at both ends** on the very
- * same screenshot — 7.56 against 7.44 over the page, 3.60 against 3.60 over the
- * room — and it measures the same because it *is* the same:
- * it is the outer ring with a spread of half a screen instead of 1.5px, and
- * what carries it over a dark room is still the cream border underneath. So the
- * two options are not "safe and safer". They are one answer at two prices, and
- * the price of this one is about half the picture, on the screen whose whole
- * rebuild came out of "as much space on the screen as we can should be the
- * actual pass through from the camera feed". The keyline costs 3px.
- *
- * A fourth was considered and is not drawn: four corner brackets, each bedded
- * on the scrim the way every word on this screen is. It reuses an existing
- * pattern instead of introducing one, which is the better argument, and it
- * loses on what the frame is: the app measures this rectangle off the crop it
- * is really going to keep, so it is a boundary rather than a target, and
- * corners state the corners and say nothing about the edge between them. This
- * rule's own comment already said it — a boundary you cannot see is one you
- * will get wrong.
+ * Nothing in the app renders one of these, and the rule in `design.test.tsx`
+ * measures `.wf-view__guide` alone for that reason: two of them fail it on
+ * purpose, which is what they are for. `--dim` is the real alternative and
+ * measures the same as the keyline, because it is the same outer ring with a
+ * spread of half a screen; what it costs is about half the picture.
  */
 .wf-view__guide--now { box-shadow: none; }
 .wf-view__guide--dark {
@@ -1687,25 +1243,14 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /*
- * The frame measured against the screen, which is what it was until #584.
+ * The frame measured against the screen: a fourth candidate, about where the
+ * bottom of the frame goes rather than what colour it is. It cannot be shown at
+ * one size, because both rules draw the same frame at 414 by 896 and come apart
+ * on a shorter phone.
  *
- * A fourth candidate and a different question from the three above: they are
- * about what colour the line is, this is about where the bottom of it goes.
- * It is kept for the same reason `--now` is, and the reason is stronger here
- * rather than weaker: **this one cannot be shown in a screenshot at one size.**
- * Both rules draw the same frame at 414 by 896 within a few pixels, and they
- * come apart at 375 by 667, so the only thing that settles it is walking
- * `#framescreen` and `#framebar` and then making the window shorter.
- *
- * **The insets are only half of it and the box they are percentages of is the
- * other half**, so this modifier is handed in through `Viewfinder`'s `guide`
- * slot rather than drawn in the region. That slot is a fraction of the whole
- * picture, which is what the old rule was and what the cataloguing camera's own
- * frame still has to be. Drawn in the region these numbers would mean something
- * else entirely and the drawing would prove nothing.
- *
- * It shares the reset with `--crop` above, because being four insets against
- * the picture is exactly what those two have in common.
+ * Its insets are percentages of the whole picture, so it is handed in through
+ * `Viewfinder`'s `guide` slot rather than drawn in the region, where the same
+ * numbers would mean something else.
  */
 .wf-view__guide--screen {
   inset: 14% 12% 28%;
@@ -1754,18 +1299,14 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   right: var(--s3);
 }
 
-/* Beside the way out, clear of both corners. The app puts the light here, on
-   the shot that wants it, and the camera that reads a book already in your
-   hand puts the one line saying so: it keeps no photographs, so it has no rail
-   of them to say what it is pointed at. One thing at a time either way.
+/* Beside the way out, clear of both corners. The app puts the light here, and
+   the camera that reads a book already in your hand puts the one line saying
+   so.
 
-   The `z-index` is the same 2 the two corners beside it have carried since they
-   were written, and it was missing here because nothing had ever been drawn
-   over this corner: `over` was a list of siblings after it, so document order
-   was doing the work. `.wf-view__over` is one positioned box across the whole
-   picture now, so document order would put it in front of this chip and swallow
-   a tap on the light. Saying the number is what makes the three corner controls
-   one family rather than three positions in a file. */
+   The `z-index` is the same 2 the two corners beside it carry, and it has to be
+   said: `.wf-view__over` is one positioned box across the whole picture, so
+   document order would otherwise put it in front of this chip and swallow a tap
+   on the light. */
 .wf-view__top {
   position: absolute;
   z-index: 2;
@@ -1777,34 +1318,13 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /*
- * What is in your hands, above the controls (#62).
+ * What is in your hands, above the controls. It is the one line somebody
+ * glances at between two photographs to check they are still on the same book,
+ * so it sits directly above the bar and nowhere near the shutter.
  *
- * Not in the drawing at first, because a wireframe camera has nothing in its
- * hands. It is the one line somebody glances at between two photographs to
- * check they are still on the same book, so it sits directly above the bar and
- * nowhere near the shutter.
- *
- * ## It has no place of its own any more, and that is the fix (#554)
- *
- * It was `position: absolute` with `bottom: calc(--s7 + --tap + safe-area)`, and
- * that comment said the offset "clears a shutter and nothing else, which is all
- * the cataloguing camera needs". It was wrong about the camera it named. That
- * camera's near cluster is three controls tall — a shutter, "Done with this
- * book" and "Next book" — so 92px clears the shutter and lands **24px inside**
- * the button above it, and the bar is drawn after this line, so the button won
- * every time. Measured in the running app at 414x896: this line at y 767.7 to
- * 804.0, "Done with this book" at 748.0 to 792.0. Not sometimes: always,
- * whatever the line said, since #62.
- *
- * There was a second offset below for the two cameras whose cluster is two
- * tall, and this one would have needed a third. **Three magic numbers is two
- * too many and the third would have been the tell**: the stylesheet cannot
- * count the controls, and the thing that can is the box holding them. So the
- * line is a row of `.wf-view__bar` now, above the control row, and the bar is
- * as tall as what is in it.
- *
- * `left`, `right` and `bottom` are gone with the position; the grid gives it
- * the full width of the bar, which is what those two were spelling out.
+ * A row of `.wf-view__bar` rather than an offset above it: the stylesheet
+ * cannot count the controls a caller handed in, and the box holding them can.
+ * The grid gives it the full width of the bar.
  */
 .wf-view__found {
   margin: 0;
@@ -1817,60 +1337,30 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   text-wrap: balance;
 }
 /*
- * Nothing in hand yet, said in the same place the book's name will be said.
+ * `.wf-view__found--empty` paints nothing, deliberately. The class is still
+ * emitted as the marker the browser journeys tell "nothing in hand" from "this
+ * book in hand" by (`e2e/steps/app.steps.ts`).
  *
- * **It carried `opacity: 0.75` and that is gone** (#530). Opacity on a bedded
- * word thins the bed at exactly the rate it thins the ink, so on a photograph
- * it cannot demote anything: it only takes the floor out from under it. Three
- * quarters of a 0.72 scrim is a 0.54 scrim, which is where this started.
- *
- * There is no quieter voice available here either. `--picture-ink-2` is the
- * demoted cream and it is 3.4 to 1 on this bed over a white page, so on a
- * photograph the choice is a word that can be read or a word that cannot, and
- * this is the one somebody meets first. It is already the quieter of the two
- * states by being the one with no book's name in bold in it.
- *
- * **The class is still emitted and still earns its keep**, as the marker the
- * browser journeys tell "nothing in hand" from "this book in hand" by
- * (`e2e/steps/app.steps.ts`). It paints nothing, which is the point.
+ * It carries no `opacity`: opacity on a bedded word thins the bed at exactly
+ * the rate it thins the ink, so on a photograph it takes the floor out from
+ * under the word rather than demoting it.
  */
 
 /*
- * `.wf-view__found--wide` was here and is deleted (#554).
+ * Before the camera has been allowed to start. It covers the picture because
+ * there is no picture yet, and it takes the paper rather than the dark, because
+ * it is a page with a sentence and a button on it.
  *
- * It said: "the same line where the near cluster is two controls tall and the
- * sentence is a whole one", and it was a second offset, one control taller than
- * the first. It was right about its own two cameras and it was the evidence
- * that the shape was wrong — a rule whose name is a number of controls is a
- * rule the caller has to remember to ask for, and the one camera that needed a
- * third variant was the one that never asked for either.
- *
- * The class is gone from the stylesheet and from all three callers rather than
- * left as a no-op, because a modifier that does nothing is a thing somebody
- * adds to a fourth camera expecting it to help.
- */
-
-/*
- * Before the camera has been allowed to start.
- *
- * Also not in the drawing, and for the same kind of reason: a wireframe has no
- * permission to ask for. It covers the picture because there is no picture
- * yet, and it takes the paper rather than the dark, because it is a page with
- * a sentence and a button on it rather than a photograph.
- *
- * **It covers the controls as well, and that is why `across` exists** (#585).
- * It came through `over` while `over` meant "a sibling of everything else", and
- * `over` is a box that stops at the bar now. Inside it this screen would stop
- * there too, and a person who has not granted a camera would be looking at a
- * shutter under the sentence asking for one. So it is handed to `Viewfinder`
- * through the one slot that is measured against the whole screen.
+ * It covers the controls as well, which is why it is handed to `Viewfinder`
+ * through `across` rather than through `over`: `over` is a box that stops at
+ * the bar, and a person who has not granted a camera must not be looking at a
+ * shutter under the sentence asking for one.
  */
 .wf-view__idle {
   position: absolute;
   inset: 0;
-  /* Under the way out, deliberately. It covered it, which left the one screen
-     with no tab bar on it also having no way off it until you had granted a
-     camera you may have opened by accident. Found by looking at it. */
+  /* Under the way out, deliberately: this is the one screen with no tab bar on
+     it, so covering the way out would leave no way off it. */
   z-index: 1;
   display: grid;
   align-content: center;
@@ -1896,8 +1386,6 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   word-break: break-all;
 }
 
-/* Said to anything that is not looking at pixels. A round shutter cannot
-   carry the name of the photograph it is about to take. */
 .wf-sr-only {
   position: absolute;
   width: 1px;
@@ -1911,26 +1399,13 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 
 /*
  * The bottom of the picture, darkened, so the controls have somewhere to stand.
+ * Its own element, drawn before anything that carries a word: a scrim painted
+ * over a word dims the word and its bed together, and no strength of scrim
+ * answers that, so nothing may be painted over a bed.
  *
- * **This used to be the bar's own background, and moving it out is the fix
- * rather than a tidy-up** (#530). The bar is drawn after the `over` slot, so its
- * background was painted on top of the one line that says what is in your hands,
- * and a scrim over a word dims the word and its bed together. That is not a
- * thing a stronger scrim can answer: at 0.55 the line measured 2.9 to 1 over a
- * white page where the sum for its own bed said 3.9, and taking the scrim all
- * the way to 0.85 leaves the worst point on that sentence at 4.47, still short
- * of AA. Painting less over it is the only move there is.
- *
- * So it is its own element, drawn before anything that carries a word, and it
- * is **atmosphere now and nothing else is allowed to depend on it.** It is a
- * gradient, so what it is worth depends on how far up it a thing happens to
- * sit, and that is exactly how the words under the photographs measured 3.7
- * with no bed of their own while the line above them measured 2.9 with one.
- * Every word down here beds itself.
- *
- * Its own inset rather than the bar's height, because the two no longer have to
- * agree about anything: one is where the light goes and the other is where the
- * controls go.
+ * It is atmosphere and nothing may depend on it. It is a gradient, so what it
+ * is worth depends on how far up it a thing sits, and every word down here beds
+ * itself.
  */
 .wf-view__band {
   position: absolute;
@@ -1941,23 +1416,15 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 
 /*
  * The picture you can use: everything from the top of the screen down to the
- * top of the bar (#584, #585).
+ * top of the bar. It is the only thing on this screen that knows where the
+ * controls start, and it knows it by being the row above them, so `bottom`
+ * inside here means "just above the controls" on every camera and every phone,
+ * and nothing counts anything.
  *
- * **It is the only thing on this screen that knows where the controls start,
- * and it knows it by being the row above them.** Three things used to work it
- * out with a number instead — the aiming frame at 28% of the screen, the hint
- * at 150px, the two answer panels at 260px — and every one of them was right on
- * one phone in one state. The hint was lying across "Next book" while it said
- * so. `bottom` inside here means "just above the controls" on every camera and
- * every phone, and nothing counts anything.
- *
- * It draws nothing and it is not a scrim. It is a box with a bottom edge.
- *
- * **What it deliberately does not cover is the bar**, which is why the camera
- * you have not granted and the sheet about the camera go through `across`
- * rather than through `over`. A person who has not given this app a camera must
- * not be looking at a shutter, and a modal that stops at the controls is a
- * modal with the controls outside it.
+ * It draws nothing and it is not a scrim. What it deliberately does not cover
+ * is the bar, which is why the camera you have not granted and the sheet about
+ * the camera go through `across` rather than through `over`: a modal that stops
+ * at the controls is a modal with the controls outside it.
  */
 .wf-view__over {
   position: relative;
@@ -1965,34 +1432,14 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 
 /*
  * The bottom of the screen: what this camera has to say, and then the controls.
+ * A column of rows, so an absent row costs nothing, and it grows upward because
+ * the row above is the one that gives, which is what keeps the shutter still
+ * when a line appears or goes.
  *
- * **It is a column of rows rather than one row now** (#554). It was the control
- * row itself, and the line saying what is in your hands floated above it at an
- * offset that counted controls and got the count wrong on the camera it was
- * written for. A row of a grid needs no offset at all, and an absent row costs
- * nothing: a camera with nothing to say is exactly as tall as it was.
- *
- * **And it is a row of `.wf-view` rather than pinned to its bottom edge**
- * (#584, #585). It was `position: absolute` with `bottom: 0`, which is the same
- * height in the same place and takes no room out of the box it is in — so
- * everything else on the screen had to be told, in a number, how tall it was.
- * In flow it takes its own room, and the picture above it is what is left.
- *
- * It still grows upward, because it is the last row and the row above it is the
- * one that gives. So the shutter does not move when a line appears or goes,
- * which is the property that matters, since the shutter is the one control a
- * thumb finds without looking.
- *
- * **`position: relative` is doing something and it is not positioning.** In
- * flow with no `position` at all, this whole bar paints *behind* the picture:
- * `.wf-view__picture` is an absolutely positioned earlier sibling, and every
- * positioned box paints over every in-flow one whatever the document order says.
- * Found by taking the screenshot rather than by reasoning about it — the frame
- * was where the measurements said and the shutter, the two buttons and the line
- * had simply gone, while the rail of photographs stayed because `Shots` carries
- * a stacking context of its own. `relative` with no offsets changes no geometry
- * and puts the bar back in the same layer as everything it has to be in front
- * of, in the order they are written.
+ * `position: relative` is doing something and it is not positioning. In flow
+ * with no `position` at all this whole bar paints behind `.wf-view__picture`,
+ * which is an absolutely positioned earlier sibling, because a positioned box
+ * paints over an in-flow one whatever the document order says.
  */
 .wf-view__bar {
   position: relative;
@@ -2005,10 +1452,9 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
  * The controls. The photographs at the far edge, the button at the near one,
  * and `row-reverse` is the whole of what left-handed means.
  *
- * It is its own element rather than the bar because the bar has two rows in it
- * now and only this one has a near edge. Handedness moved down here with it:
- * reversing the bar would put the line saying what is in your hands below the
- * shutter, which is not a thing anybody asked for.
+ * Its own element rather than the bar, because the bar has two rows in it and
+ * only this one has a near edge: reversing the bar would put the line saying
+ * what is in your hands below the shutter.
  */
 .wf-view__controls {
   display: flex;
@@ -2084,21 +1530,16 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 .wf-heading--flush { padding-inline: 0; }
 
-/* The last thing on a screen: one way onward, centred, and no card around it.
-   The library ended in a card summarising the furniture, and both halves of
-   that were wrong. A person who has scrolled past every shelf they own wants a
-   door, not a paragraph, so this is a door and it is the size of one. */
+/* The last thing on a screen: one way onward, centred, and no card around it. */
 .wf-under {
   display: flex;
   justify-content: center;
   padding-top: var(--s1);
 }
 
-/* --- The carry list and the plan ------------------------------------------ */
-
 /* The two ends of a carry: the area a book comes off, the word "to", and the
-   area it goes on. Never an arrow. Every arrow lives in the block this design
-   system refuses outright, and the word reads aloud where a glyph does not. */
+   area it goes on. Never an arrow: the word reads aloud where a glyph does
+   not. */
 .wf-move {
   display: inline-flex;
   align-items: center;
@@ -2107,13 +1548,6 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 .wf-move__to { font-size: var(--size-small); color: var(--ink-2); }
 
-/*
- * One trip: everything leaving one area for one other.
- *
- * The unit a person acts on, so it is the target: a whole row, the full width,
- * taller than a thumb. A list of fifty books would be fifty walks; five of
- * these is five.
- */
 .wf-trips { display: grid; gap: var(--s2); }
 
 .wf-trip {
@@ -2160,18 +1594,6 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   color: var(--ink-2);
 }
 
-/* --- The two rules a place answers to ------------------------------------- */
-
-/*
- * The books, in the order the sort rule puts them.
- *
- * This is the whole answer to "why do they read in that order", so it is drawn
- * as the books themselves rather than described. Two columns: what the ordering
- * files each one under, which is the thing that changes when the ordering does,
- * and the title, which is how somebody recognises the book. The left column is
- * fixed and tabular so the answers line up into something readable as an order
- * rather than as a list.
- */
 .wf-sample {
   display: grid;
   gap: 2px;
@@ -2182,10 +1604,8 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 /*
  * The left column takes whatever the longest answer needs and the title gives
- * way, which is the other way round from the first drawing of this. Found by
- * looking at it: at a fixed 11ch every surname on the page read "Grigson, Ja…",
- * and the column that is being ordered by is the one thing here that must not
- * be cut off, because reading down it is the whole of what the sample says.
+ * way: the column being ordered by is the one thing here that must not be cut
+ * off, because reading down it is the whole of what the sample says.
  */
 .wf-sample__book {
   display: grid;
@@ -2211,16 +1631,9 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 .wf-rule__effect { font-size: var(--size-small); color: var(--ink-2); }
 
 /*
- * The two ends of an ordering.
- *
- * A numbered stack of the three levels an ordering can be settled at stood
- * here, and it is gone: it drew the model rather than the answer, and it was
- * rejected the once the owner was asked to read it. What replaces it is the
- * fact he was looking for, which is what the books actually read like.
- *
- * Both ends carry the same weight, because neither is more the answer than the
- * other, and the word between them is quiet and is a word. There is no arrow
- * here for the reason there is none on a carry: an arrow does not read aloud.
+ * The two ends of an ordering. Both carry the same weight, because neither is
+ * more the answer than the other, and the word between them is quiet and is a
+ * word: there is no arrow here for the reason there is none on a carry.
  */
 .wf-ends {
   display: flex;
@@ -2247,14 +1660,6 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   color: var(--ink-2);
 }
 
-/*
- * A rule under a thumb.
- *
- * One block per line, and the block holds both things that can be changed about
- * it: which tag it is about and what the tag has to mean. They were two separate
- * columns in the first drawing and the two-word question wrapped to three lines
- * at 414 wide beside a long tag. Found by looking at it.
- */
 .wf-writes { display: grid; gap: var(--s2); }
 .wf-write {
   display: grid;
@@ -2278,8 +1683,7 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 .wf-write__head .wf-must__join { padding-left: 0; }
 /*
  * Named rather than an icon. Taking a line off a rule is the thing on this card
- * that cannot be undone by pressing it again, and a cross beside a tag is the
- * one target on the row nobody can read.
+ * that cannot be undone by pressing it again.
  */
 .wf-write__off {
   margin-left: auto;
@@ -2291,9 +1695,6 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   border: 0;
   text-decoration: underline;
 }
-/* Adding and removing sit on one line and do not look alike. The pill is the
-   dashed shape everything not-there-yet in this library wears; taking the rule
-   off is a named word, which is what the line inside it already uses. */
 .wf-writes__acts {
   display: flex;
   align-items: center;
@@ -2306,12 +1707,9 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 .wf-choosing { display: grid; gap: var(--s2); }
 
 /*
- * The word between two ways of belonging in one place.
- *
- * A rule between two blocks rather than a heading over the second, because what
- * it says is about the join and not about what follows it. The word sits in the
- * line so the two blocks read as alternatives at a glance, which is the whole
- * difference between this and the "and" that stacks lines inside one of them.
+ * The word between two ways of belonging in one place. A rule between two
+ * blocks rather than a heading over the second, because what it says is about
+ * the join and not about what follows it.
  */
 .wf-or {
   display: grid;
@@ -2333,8 +1731,6 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   color: var(--ink-2);
 }
 
-/* What a change comes to, as the numbers themselves. Tabular, so a column of
-   counts reads as a column of counts rather than as a paragraph. */
 .wf-would {
   display: grid;
   gap: var(--s2);
@@ -2345,9 +1741,8 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 /*
  * The number column takes whatever the longest count needs rather than a fixed
- * three characters. At `3ch` a catalogue of eleven hundred printed
- * "1147stay exactly where they are", with no gap and no column. Found by
- * looking at it against a plausible library rather than a drawn one.
+ * three characters. At `3ch` a catalogue of eleven hundred ran the count into
+ * the words beside it with no gap and no column.
  */
 .wf-would > li {
   display: grid;
@@ -2361,20 +1756,15 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   color: var(--ink);
 }
 
-/* --- The furniture, as boxes inside boxes ---------------------------------- */
-
 /*
  * A piece, with whatever is under it nested inside.
  *
- * **Nothing here draws the carpentry.** The shelf above is a board with real
- * spines on it because that screen is for finding a book in the room. These
- * screens are for saying how the collection is organised, and drawing a
- * bookcase would promise the app knows which areas share a board and how tall
- * the thing is. It knows neither. Settled by the owner on #251.
+ * Nothing here draws the carpentry. Drawing a bookcase would promise the app
+ * knows which areas share a board and how tall the thing is, and it knows
+ * neither.
  *
  * Nesting is said with a container and an indent and nothing else: no rail, no
- * tree lines, no rotating chevron. One box inside another is a relationship
- * anybody reads without being taught it.
+ * tree lines, no rotating chevron.
  */
 .wf-nest {
   border: 1px solid var(--line);
@@ -2414,7 +1804,6 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   font-size: var(--size-small);
   color: var(--ink-2);
 }
-/* The chevron sits with the words rather than on the baseline they share. */
 .wf-nest__line > svg { flex: none; align-self: center; color: var(--ink-2); }
 
 .wf-nest__body {
@@ -2423,7 +1812,6 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   padding: 0 var(--s3) var(--s3);
 }
 
-/* One area under it. */
 .wf-box {
   display: grid;
   gap: 2px;
@@ -2457,10 +1845,10 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 .wf-box__holds { font-size: var(--size-small); color: var(--ink-2); }
 
-/* A plank somebody took out that books are still standing on (#401). Dashed,
-   for the reason .wf-add below is dashed: it is the shape of a thing that is
-   not there. The difference is that this one has books on it, so it is drawn
-   at all rather than being left off the piece in silence. */
+/* A plank somebody took out that books are still standing on. Dashed, for the
+   reason `.wf-add` below is dashed: it is the shape of a thing that is not
+   there. It is drawn at all, rather than left off the piece in silence,
+   because it still has books on it. */
 .wf-box--gone {
   background: none;
   border: 1px dashed var(--line-strong);
@@ -2484,10 +1872,9 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 /* Where a piece stands, drawn as the room rather than as a number, and moved
    by moving it rather than by two buttons underneath.
 
-   A column and not a strip. Across a phone, five pieces called things like
-   "By the window" wrap, and a wrapped strip is a drag with two axes in it and
-   a gap that opens on the line above. Down the page nothing wraps, every
-   target is the full width, and the grip says where to take hold. */
+   A column and not a strip. Across a phone five pieces called things like "By
+   the window" wrap, and a wrapped strip is a drag with two axes in it and a gap
+   that opens on the line above. */
 .wf-order {
   display: grid;
   gap: var(--s1);
@@ -2507,12 +1894,8 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   border-radius: var(--r-md);
   background: var(--paper-raised);
   text-align: left;
-  /* Full ink, not the quiet grey a slot in a strip had. These are five names
-     somebody is choosing between, and reading them is the whole job. */
   color: var(--ink);
 }
-/* Picking one up: the row comes off the page under the finger. As close to
-   the drag as a still picture gets. */
 .wf-order__slot:active {
   box-shadow: var(--lift-2);
   border-color: var(--line-strong);
@@ -2521,29 +1904,16 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 /* A column that can actually be dragged, which the gallery's cannot.
  *
  * `touch-action: none` on the rows and nowhere else. Without it the browser
- * takes a vertical drag for a page scroll and the pointer events stop
- * arriving mid-gesture, which is the whole of the drag not working on a
- * phone. The cost is real and it is bounded: a scroll begun with a thumb on
- * these few rows does not scroll, and a room has a handful of pieces in it.
+ * takes a vertical drag for a page scroll and the pointer events stop arriving
+ * mid-gesture. The cost is bounded: a scroll begun with a thumb on these few
+ * rows does not scroll.
  *
- * The row under the finger follows it and the others change places around it,
- * which is the gap opening under the finger that the gallery's note said a
- * still picture could not settle. It is lifted while it is held, so the one
- * being carried is never the one you have lost track of.
- *
- * `touch-action: none` stops a drag being read as a scroll; it says nothing
- * about the drag being read as a text selection, which is #327: the labels
- * smeared blue as a finger or a pointer moved a row. `user-select: none` (and
- * its `-webkit-` spelling, for Safari) is the other half, scoped to these rows
- * and nowhere else in the app, so a title, an author or an ISBN is still
- * somebody's to select and copy everywhere but here. `-webkit-touch-callout`
- * answers the same question again on an iPhone, where a held finger opens a
- * selection callout `user-select` alone does not stop. `Order.take` in
- * `Furniture.tsx` calls `preventDefault` on the same press for the same
- * reason `touch-action` is a CSS property and not a suggestion: a property a
- * browser can race against its own gesture detection is not a fix on its
- * own, and this one is asked twice, in two different layers, rather than
- * hoped for once. */
+ * That says nothing about the drag being read as a text selection, which is
+ * what `user-select: none` and its `-webkit-` spelling are for, scoped here so
+ * text is still selectable everywhere else, and `-webkit-touch-callout` for the
+ * iPhone's held-finger callout. `Order.take` in `Furniture.tsx` calls
+ * `preventDefault` on the same press, because a property a browser can race
+ * against its own gesture detection is not a fix on its own. */
 .wf-order--live .wf-order__slot {
   touch-action: none;
   user-select: none;
@@ -2562,10 +1932,10 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   color: var(--ink-on-fill);
   box-shadow: var(--lift-1);
 }
-/* No number down the side of this. It was `fixture.position`, which is the
-   place a piece stands in a room that is allowed a gap and allowed two pieces
-   on one number, and beside four bookshelves it read one, four, five, six. See
-   `Order` in `Furniture.tsx`: the order is the information. */
+/* No number down the side of this. `fixture.position` is the place a piece
+   stands in a room, which is allowed a gap and allowed two pieces on one
+   number, so beside four bookshelves it read one, four, five, six. See `Order`
+   in `Furniture.tsx`: the order is the information. */
 .wf-order__name {
   min-width: 0;
   overflow: hidden;
@@ -2586,8 +1956,6 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
     transparent 2px 4px
   );
 }
-
-/* --- Rules ----------------------------------------------------------------- */
 
 /* Every line has to be true and there is no way to write "or", so the lines
    stack with the word between them rather than with a control that implies a
@@ -2611,7 +1979,7 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 .wf-must:active { background: var(--paper-raised); }
 .wf-must__lead { font-size: var(--size-small); color: var(--ink-2); }
 /* The tag is the answer and it has to be the thing you see. A sunk tag on a
-   sunk row was the same colour as the row it sat in. Found by looking at it. */
+   sunk row is the same colour as the row it sits in. */
 .wf-must .wf-tag {
   background: var(--paper-raised);
   border: 1px solid var(--line-strong);
@@ -2626,11 +1994,8 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   color: var(--ink-2);
 }
 
-/* Every rule that wanted one book, stacked. Named rather than an inline grid
-   on the screen that draws them, because two screens draw them. */
 .wf-claims { display: grid; gap: var(--s2); }
 
-/* A rule that wanted a book, and whether it got it. */
 .wf-claim {
   display: grid;
   gap: 2px;
@@ -2662,11 +2027,8 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 .wf-claim--won .wf-claim__mark { color: var(--ink); }
 .wf-claim__about { font-size: var(--size-small); color: var(--ink); }
 .wf-claim__why { font-size: var(--size-small); color: var(--ink-2); }
-/* The reason the winner won is the sentence this screen exists for, and at
-   night it was the dimmest thing on it. */
+/* The reason the winner won is the sentence this screen exists for. */
 .wf-claim--won .wf-claim__why { color: var(--ink); }
-
-/* --- One answer out of five ------------------------------------------------ */
 
 .wf-choice {
   display: grid;
@@ -2712,12 +2074,9 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   color: var(--ink);
 }
 
-/* --- The gallery of covers -------------------------------------------------- */
-
 /*
- * Three across, which is the count that survives 414 wide. Two draws posters
- * and four makes the printed title unreadable; both were drawn before this was
- * settled.
+ * Three across, which is the count that survives 414 wide: two draws posters
+ * and four makes the printed title unreadable.
  *
  * The art is a photograph in the app. Here it is one of the six cloths, so a
  * book is the same colour in the gallery, in a list row and on the board.
@@ -2733,18 +2092,11 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
  *
  * `align-content: start` is what keeps the names in a row on one line as the
  * eye reads across them. A tile is stretched to the height of the tallest tile
- * beside it, and a stretched grid hands that spare height to its own rows: the
- * cover survives it, because `aspect-ratio` holds the art to a book shape, so
- * all of it lands on the words. Measured at 414 wide with one tile in the row
- * carrying a line the others do not: the short tile's name grew from 15px to
- * 24px and sat 9px below the names either side of it, which reads as one book
- * in the row having been nudged downwards for no reason a person can see.
- *
- * It matters where the lines differ, which is the find results saying a place
- * and the area boards saying what a picture is. The library's own wall of
- * covers is a cover and a name on every tile since #407, so nothing there is
- * left to pull anything out of line, and this is what keeps that true rather
- * than lucky.
+ * beside it, and a stretched grid hands that spare height to its own rows; the
+ * cover survives it because `aspect-ratio` holds the art to a book shape, so
+ * all of it would otherwise land on the words. It matters where the lines
+ * differ, which is the find results saying a place and the area boards saying
+ * what a picture is.
  */
 .wf-cover {
   display: grid;
@@ -2786,13 +2138,10 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /*
- * The photograph, over the cloth rather than instead of it.
- *
- * Every one of these is a book somebody photographed or a cover the catalogue
- * downloaded, and they arrive at different times and at different shapes. The
- * cloth underneath is what is drawn until one lands and what stays visible
- * around one that does not fill the tile, so a wall of covers is a wall of
- * bound books at every moment rather than a grid of grey rectangles filling in.
+ * The photograph, over the cloth rather than instead of it. The cloth is what
+ * is drawn until one lands and what stays visible around one that does not fill
+ * the tile, so a wall of covers is a wall of bound books at every moment rather
+ * than a grid of grey rectangles filling in.
  */
 .wf-cover__photo {
   display: block;
@@ -2808,12 +2157,11 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
  * The name under the cover, one line of it, and one line of it even when there
  * is no name.
  *
- * An uncredited book is a real state and it is drawn as a cover with nothing
- * written under it, which is only honest if the nothing takes up a line. An
- * empty box is no lines tall, so that tile would come up short and the row it
- * sits in would be ragged for a fact about the book rather than about the
- * layout. `min-height` holds the line open. `em` rather than `lh` because it
- * resolves against this element's own size on every browser this runs on.
+ * An uncredited book is a real state, and an empty box is no lines tall, so
+ * that tile would come up short and the row it sits in would be ragged for a
+ * fact about the book rather than about the layout. `min-height` holds the line
+ * open, in `em` rather than `lh` because `em` resolves against this element's
+ * own size on every browser this runs on.
  */
 .wf-cover__by {
   font-size: var(--size-micro);
@@ -2832,9 +2180,6 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   color: var(--ink);
 }
 
-/* --- The one field ---------------------------------------------------------- */
-
-/* One box, and it works out what you meant. */
 .wf-search { display: grid; gap: var(--s1); }
 
 .wf-search__box {
@@ -2864,12 +2209,9 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /*
- * The same box, with somebody typing into it.
- *
- * The drawing above and this are one field: the box, the glyph and the round
- * end are the box's, and all this adds is that a real one has no chrome of its
- * own. The `search` type puts a clear button in it on some phones, which is one
- * fewer thing for this to draw.
+ * The same box, with somebody typing into it. The box, the glyph and the round
+ * end are the drawing above; all this adds is that a real one has no chrome of
+ * its own.
  */
 .wf-search__input {
   flex: 1;
@@ -2882,9 +2224,8 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   color: var(--ink);
 }
 .wf-search__input:focus { outline: none; }
-/* The browser's own clear button, which arrives in its own blue and is the one
-   thing on these screens that came from somewhere else. Nothing here is that
-   colour, so it is taken down to the ink around it. */
+/* The browser's own clear button arrives in its own blue, and nothing here is
+   that colour, so it is taken down to the ink around it. */
 .wf-search__input::-webkit-search-cancel-button {
   filter: grayscale(1) opacity(0.5);
   cursor: pointer;
@@ -2912,7 +2253,7 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 .wf-search__caret--lead { margin-left: 0; margin-right: -4px; }
 
 /* What the field decided, said only when it is not obvious from what was
-   typed. Four radio buttons nobody would press, replaced by one line. */
+   typed. */
 .wf-search__reads {
   margin: 0;
   padding-inline: var(--s3);
@@ -2920,21 +2261,14 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   color: var(--ink-2);
 }
 
-/* --- What is being shown, and the way into the tags -------------------------- */
-
 /*
  * The filter, and the way of looking at the books, on one line.
  *
- * There were two lines here: this row, and a segmented control under it
- * holding Covers, List and Spines. The second one cost 64px of every visit to
- * the three screens whose whole job is showing books, to hold a preference
- * somebody sets about as often as they rearrange the furniture.
- *
- * The filter takes what is left and the circle is fixed, so the row is the
- * same height it always was and the tags are what gives up width when there
- * are a lot of them. `min-width: 0` is what lets that happen at all: without
- * it a flex item refuses to shrink below its content and the circle goes off
- * the side of the phone.
+ * The filter takes what is left and the circle is fixed, so the row is the same
+ * height it always was and the tags are what gives up width when there are a
+ * lot of them. `min-width: 0` is what lets that happen at all: without it a
+ * flex item refuses to shrink below its content and the circle goes off the
+ * side of the phone.
  */
 .wf-filter {
   display: flex;
@@ -2948,10 +2282,9 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /*
- * What the row leads with on a screen that narrows by typing, which today is
- * the queue and its search box. It takes the room the tag row takes, so the
- * circles at the end of the row sit where they sit on the library and the two
- * rows read as one control in two places rather than as two arrangements.
+ * What the row leads with on a screen that narrows by typing. It takes the room
+ * the tag row takes, so the circles at the end sit where they sit on the
+ * library and the two rows read as one control in two places.
  */
 .wf-filter__lead {
   flex: 1;
@@ -2959,20 +2292,12 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /*
- * The circle. A full 44px target like every other one here, sitting at the end
- * of the filter row rather than out at the screen's edge: the search glyph
- * above it is allowed past the content margin because a top bar is chrome, and
- * this is on the page with the cards, so it lines up with them.
+ * The circles at the end of the filter row, and they are one skin: a find
+ * circle drawn differently from the one beside it would read as two kinds of
+ * control on one row rather than as two round targets.
  *
- * It wears the same skin as the row beside it, raised paper inside a hairline,
- * because the two are one control's worth of furniture and a filled or
- * outlined circle read as a third kind of thing.
- */
-/*
- * Two of them now, and they are one skin: find came off the top bar when the
- * corner became the portrait, and a search circle drawn differently from the
- * circle beside it would read as two kinds of control on one row rather than
- * as two round targets.
+ * A full 44px target each, at the end of the row rather than out at the
+ * screen's edge: this is on the page with the cards, so it lines up with them.
  */
 .wf-cycle,
 .wf-round {
@@ -2992,9 +2317,8 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 .wf-round:focus-visible { outline: none; box-shadow: var(--focus); }
 
 /*
- * One row, whatever somebody keeps. This is what the fiction and non-fiction
- * segmented control became: a control that cost two buttons at two tags and
- * would have cost twenty at twenty.
+ * One row, whatever somebody keeps, rather than a control with a button per
+ * tag: two buttons at two tags and twenty at twenty.
  */
 .wf-picked {
   display: flex;
@@ -3029,17 +2353,12 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 .wf-picked > svg { flex: none; color: var(--ink-2); }
 
-/* --- The tags, which are a tree and not a row -------------------------------- */
-
 /*
  * Groups that fold. Five of them shut fit on one phone screen and hold
- * twenty-two tags between them; twenty-two chips in a row do not fit and would
- * say the groups are not there, when the hierarchy is the one thing the model
- * is certain about.
+ * twenty-two tags between them, which a row of chips does not.
  *
  * The chevron does not rotate when a group opens. That is the same refusal the
- * furniture screens make: whether the children are drawn is the state, and a
- * spinning glyph is decoration standing in for something already visible.
+ * furniture screens make: whether the children are drawn is the state.
  */
 .wf-tgroup {
   border: 1px solid var(--line);
@@ -3085,7 +2404,7 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
    lines, and never the stored slug written out. */
 /* No `width: 100%`. The group's body is a grid, so a row already fills it, and
    a width of 100% plus the indent below put the nested tag 24px past the right
-   edge of its own group. Found by looking at it. */
+   edge of its own group. */
 .wf-pick {
   display: flex;
   align-items: center;
@@ -3160,8 +2479,6 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   font-variant-numeric: tabular-nums;
 }
 
-/* --- The cat -------------------------------------------------------------- */
-
 .wf-cat { display: block; }
 .wf-cat__body { fill: var(--cat); stroke: var(--cat-rim); stroke-width: 1.5; }
 .wf-cat__tail {
@@ -3171,8 +2488,7 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   stroke-linecap: round;
 }
 /* The same curve, wider and underneath, so the tail has an edge where it lies
-   on the page. Without it he loses his tail at night, which is the fault the
-   rim exists to prevent everywhere else on him. */
+   on the page. Without it he loses his tail at night. */
 .wf-cat__tail--rim { stroke: var(--cat-rim); stroke-width: 9; }
 /* The second pass over the silhouette: fill only, so the rim survives where
    the cat meets the page and disappears where he meets himself. */
@@ -3190,51 +2506,29 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   stroke-linecap: round;
 }
 /* The slits under the lids of the lying pose. Drawn on every one of them and
-   invisible until a behaviour opens them, so a still cat is a shut cat: the
-   two ellipses cover the lid curves exactly, and both are the eye colour, so
-   there is never a moment where a lid and an eye disagree. */
+   invisible until a behaviour opens them, so a still cat is a shut cat: the two
+   ellipses cover the lid curves exactly and both are the eye colour, so a lid
+   and an eye never disagree. */
 .wf-cat__peep { fill: var(--cat-eye); opacity: 0; }
-/* The long tail of the lying pose, a shade heavier than the curled one: it is
-   drawn beside a cat scaled up to be the subject, and the width that reads as
-   a tail at 40px reads as a wire at 132. Found by looking at him. */
+/* The long tail of the lying pose, a shade heavier than the curled one: the
+   width that reads as a tail at 40px reads as a wire at 132. */
 .wf-cat__sweep .wf-cat__tail { stroke-width: 7.5; }
 .wf-cat__sweep .wf-cat__tail--rim { stroke-width: 11; }
 
 /*
- * --- What he does, which is #410 -------------------------------------------
+ * A behaviour is a class on the svg and a block of rules under it. Loop or play
+ * once is `--cat-repeat` and nothing else, so `Cat` decides it once for all of
+ * them and a behaviour written later gets both answers without being told.
  *
- * A behaviour is a class on the svg and a block of rules under it. Two things
- * are worth knowing before adding a third one.
- *
- * **Loop or play once is `--cat-repeat` and nothing else.** Every behaviour
- * takes its iteration count from that property, so `Cat` decides it once for
- * all of them and a behaviour written later gets both answers without being
- * told about either.
- *
- * **What it costs, because this runs on a phone.** Two animations, both of
- * properties the compositor can handle on its own: a `transform` on one group
- * of two paths, and `opacity` plus a `transform` on two ellipses of about
- * three pixels each. No timer, no script, nothing measured per frame, and
- * nothing that changes the size or position of anything laid out, so no frame
- * of this can make the browser do layout. The moving box is the tail's, about
- * 30 by 75 CSS pixels on a phone. Both cycles are long, and the eyes are shut
- * and idle for seventeen of every nineteen seconds. The page has one cat on
- * it, and a browser stops animating a page it is not showing, so a phone in a
- * pocket pays nothing at all.
- *
- * **The timing is taste, and slow is the taste.** A tail on a two second loop
- * reads as a fault rather than as a cat; eyes that open on a beat read as a
- * warning light. So the tail rests for about half of an eleven second cycle
- * and then makes one unhurried sweep back and forth, and the eyes open once in
- * nineteen seconds and hold it for a second. Eleven and nineteen do not
- * divide, so the two never settle into a rhythm somebody could count.
+ * The timing is taste and slow is the taste. Eleven seconds and nineteen do not
+ * divide, so the tail and the eyes never settle into a rhythm.
  */
 .wf-cat--loop { --cat-repeat: infinite; }
 .wf-cat--once { --cat-repeat: 1; }
 
-/* Asleep, and alive. The tail rotates about the point where it meets him,
-   named in the drawing's own units, so the sweep pivots at his hip rather than
-   about the middle of the box. */
+/* Asleep, and alive. The tail rotates about the point where it meets him, named
+   in the drawing's own units, so the sweep pivots at his hip rather than about
+   the middle of the box. */
 .wf-cat--dozing .wf-cat__sweep {
   transform-box: view-box;
   transform-origin: 31px 42px;
@@ -3254,34 +2548,17 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   100% { transform: rotate(0deg); }
 }
 
-/* Half open and no further, which is the word he used: "slowly opening a
-   little bit and then closing". Drawn at full and squashed to a slit rather
-   than drawn as a slit, so the shape of an eye survives the squashing and the
-   lid it opens over is the same colour underneath. A cat that opened his eyes
-   the whole way here would be a cat waking up, which is a different animal
-   from the one asked for. Found by looking at both. */
+/* Half open and no further. Drawn at full and squashed to a slit rather than
+   drawn as a slit, so the shape of an eye survives the squashing and the lid it
+   opens over is the same colour underneath. */
 @keyframes wf-cat-peep {
   0%, 72% { opacity: 0; transform: scaleY(0.06); }
   79%, 84% { opacity: 1; transform: scaleY(0.5); }
   92%, 100% { opacity: 0; transform: scaleY(0.06); }
 }
 
-/* --- A book's own page ------------------------------------------------------ */
-
-/*
- * The page that answers "what do I know about this book".
- *
- * It is sections rather than cards, and that is the change the owner asked
- * for: the old screen spent most of a phone on one widget saying where the
- * book sits, and everything the catalogue holds about the book itself was a
- * single paragraph above it. A section is a heading and its content, so eight
- * of them fit down a scroll without eight outlines arguing with each other.
- */
-/* A little more air above each one than the body's own gap gives. The prose
-   that used to sit between these sections is gone, and it turned out to have
-   been doing a second job nobody asked it to: keeping them apart. Four
-   headings a thumb apart read as one list rather than as four sections.
-   Found by looking at the page with the sentences taken out. */
+/* A little more air above each one than the body's own gap gives: four headings
+   a thumb apart read as one list rather than as four sections. */
 .wf-part { display: grid; gap: var(--s2); margin-top: var(--s2); }
 .wf-part__head { display: flex; align-items: baseline; gap: var(--s2); }
 .wf-part__title {
@@ -3299,24 +2576,12 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /*
- * A book that is supposed to be moved: one line, warm, and the whole of it is
- * a target.
+ * A book that is supposed to be moved: one line, warm, and the whole of it is a
+ * target. The warmth is a wash under one hairline that goes all the way round,
+ * not a rail down one side, which is the mark this system does not draw.
  *
- * **The warmth is a wash and not a rail.** The owner asked for orange-ish, and
- * the mark this system does not draw is a coloured bar down one side of a card,
- * which he named as looking machine-made. So the hue is spread across the whole
- * of it under one hairline that goes all the way round, at the strength a wash
- * is allowed to be here: enough to catch an eye scrolling past a page of warm
- * paper, not enough to out-shout a run of real spines further down.
- *
- * **Nothing here is said by the colour.** Rendered in greyscale the wash is a
- * shade of the page, and what is left is the sentence, the glyph and the
- * chevron, which is the whole message. That is the rule this system has about
- * pills, dots and the corner action, reaching the one notice on a book screen.
- *
- * It is one line at the tap height and no taller. What it replaced was a card
- * with a title, two paragraphs and two buttons in it, on the screen a person
- * with a hundred books out of place sees more than any other.
+ * Nothing here is said by the colour: in greyscale the wash is a shade of the
+ * page, and what is left is the sentence, the glyph and the chevron.
  */
 .wf-amiss {
   display: flex;
@@ -3341,17 +2606,13 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 .wf-amiss__mark { flex: none; display: flex; color: var(--wood-2); }
 .wf-amiss__onward { flex: none; display: flex; color: var(--ink-2); }
 
-/* The book, and what it is. */
 .wf-book { display: flex; gap: var(--s3); align-items: flex-start; }
 
 /*
- * `flex: 1` rather than the default `0 1 auto`, which is half of the fault the
- * owner named: "the upper area doesn't actually fully expand to fill the
- * entire space. There's a big gap on the right side." A flex item at its
- * natural width is as wide as its longest line, so a short title or a record
- * with two facts in it stopped well short of the right edge and the row looked
- * unfinished. The other half was the rail of photographs that used to sit
- * under this, four fixed boxes ending a third of the way short. It is gone.
+ * `flex: 1` rather than the default `0 1 auto`. A flex item at its natural
+ * width is as wide as its longest line, so a short title or a record with two
+ * facts in it stopped well short of the right edge and the row looked
+ * unfinished.
  */
 .wf-book__of { flex: 1; min-width: 0; display: grid; gap: 2px; }
 .wf-book__title {
@@ -3370,26 +2631,19 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 .wf-book__fact { margin: 0; font-size: var(--size-small); color: var(--ink-2); }
 
 /*
- * The tags, under the publisher and the ISBN and beside the picture, which is
- * where the owner asked for them: "the tags should be underneath where we show
- * the publisher and the ISBN, next to the picture."
+ * The tags, under the publisher and the ISBN and beside the picture. They wrap
+ * inside this column rather than across the page, which is the point of putting
+ * them here: a chip that ran the full width would read as a row of its own.
  *
- * They wrap inside this column rather than across the page, which is the point
- * of putting them here: a chip that ran the full width would read as a row of
- * its own and be the heading back in a different shape. `.wf-voices` already
- * wraps, so this is one gap and nothing else. The column is `display: grid`
- * with a 2px gap for lines of text, and a run of chips needs more air than a
- * line of text does.
+ * The column is `display: grid` with a 2px gap for lines of text, and a run of
+ * chips needs more air than a line of text does.
  */
 .wf-book__of .wf-voices { margin-top: var(--s2); }
 
 /*
  * Every photograph of one book, and one block of rules for all of them.
- *
- * There were two blocks here, from two components of the same name, and they
- * fought: one marked absence, one marked presence, and each screen was drawn
- * by whichever rules happened to come last. `Shots.tsx` is now the only thing
- * emitting these names, so this is the only place they are defined.
+ * `Shots.tsx` is the only thing emitting these names, so this is the only place
+ * they are defined.
  */
 
 /* The rail on a book's page. Scrolls inside itself; the page does not. */
@@ -3402,18 +2656,12 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   padding-bottom: var(--s1);
 }
 /*
- * Big enough to see that a photograph is blurred, which is the whole reason
- * the review screen shows them at all.
+ * Big enough to see that a photograph is blurred, which is the whole reason the
+ * review screen shows them at all.
  *
- * Three equal columns, until the owner looked at one holding a spine:
- *
- * > Once again, the spine is gonna be thin, so it may not need to take up all
- * > that space right there.
- *
- * A third of the screen is a cover's worth of room, and what goes in it is a
- * sliver. So the row is flexible rather than equal: a cropped spine takes the
- * width a cropped spine needs and the two covers divide what is left, which
- * makes them bigger as well as making it honest.
+ * The row is flexible rather than three equal columns: a third of the screen is
+ * a cover's worth of room and what goes in it may be a sliver, so a cropped
+ * spine takes the width it needs and the two covers divide what is left.
  */
 .wf-shots--big {
   display: flex;
@@ -3445,18 +2693,15 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   display: grid;
   align-content: end;
   overflow: hidden;
-  /* So a real photograph can be laid into it. The gallery has none and is
-     unaffected: nothing is positioned against this unless there is one. */
+  /* So a real photograph can be laid into it. */
   position: relative;
 }
 
 /*
- * The photograph itself, in the app.
- *
- * `cover` rather than `contain`: this is a thumbnail of a book somebody is
- * holding, and letterboxing it inside a 46px box leaves less of the book than
- * cropping it does. The "Retake" label keeps its own stacking above it by
- * being positioned and later in the markup.
+ * The photograph itself, in the app. `cover` rather than `contain`: this is a
+ * thumbnail of a book somebody is holding, and letterboxing it inside a 46px
+ * box leaves less of the book than cropping it does. The "Retake" label keeps
+ * its own stacking above it by being positioned and later in the markup.
  */
 .wf-shot__img {
   position: absolute;
@@ -3467,25 +2712,24 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 .wf-shot__again { position: relative; }
 
-/* What has become of a photograph since it was taken. Words, under the word. */
 .wf-shot__note {
   font-size: var(--size-micro);
   line-height: 1.15;
   color: var(--ink-2);
 }
-/* The same cream, and no `opacity: 0.8` any more (#530): it thinned the bed
-   this line now has at the same rate it thinned the ink. */
+/* The same cream, and no `opacity` here: it would thin the bed this line now
+   has at the same rate it thins the ink. */
 .wf-shots--picture .wf-shot__note { color: var(--picture-ink); }
 
 /*
  * A kind nobody has taken, drawn as the empty shape of itself. The `:not` is
- * load bearing rather than tidy: a taken shot wears a cloth class, which is
- * one class, so any background set here at the same weight or higher paints
- * over the photograph. It did, on both screens, in opposite ways.
+ * load bearing rather than tidy: a taken shot wears a cloth class, which is one
+ * class, so any background set here at the same weight or higher paints over
+ * the photograph.
  *
- * Nothing behind it, so it is the page showing through a dashed outline.
- * Filled with the sunk paper it was a near-black rectangle at night and read
- * as a photograph of something dark rather than as an empty slot.
+ * Nothing behind it, so it is the page showing through a dashed outline. Filled
+ * with the sunk paper it was a near-black rectangle at night and read as a
+ * photograph of something dark rather than as an empty slot.
  */
 .wf-shot:not(.wf-shot--taken) .wf-shot__box {
   border: 1.5px dashed var(--line-strong);
@@ -3498,7 +2742,7 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 /* The one the shutter will fill next, and the only mark of its kind here. The
    `:not` is repeated so this matches the weight of the rule above it: without
-   it the empty box stayed dashed and the next shot was unmarked. */
+   it the empty box stays dashed and the next shot is unmarked. */
 .wf-shot--next:not(.wf-shot--taken) .wf-shot__box {
   border-style: solid;
   border-color: var(--ink);
@@ -3525,18 +2769,11 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 
 .wf-shot__word { font-size: var(--size-micro); font-weight: 600; line-height: 1.15; }
 
-/* On the picture rather than on paper, and smaller there for the same reason
-   the camera has no bar on it. */
 .wf-shots--picture .wf-shot { width: 46px; color: var(--picture-ink); }
 /*
- * The word under each photograph, bedded (#530).
- *
- * "Back", "Front" and "Spine" were written straight onto the picture with
- * nothing behind them at all: 1.1 to 1 over a white page on their own. They
- * measured 3.7 in the running app, and every bit of that came from the bar's
- * gradient happening to be near full strength at the very bottom of the screen.
- * That is a floor made of where a thing sits rather than of what it is painted
- * on, and the band above them is no longer allowed to be anybody's floor.
+ * The word under each photograph, bedded. Written straight onto the picture
+ * with nothing behind it, it does not read over a white page, and the band down
+ * here is atmosphere rather than anybody's floor.
  *
  * A chip the width of the word rather than a block behind the rail: this row is
  * the one place on the camera where the picture shows between the controls.
@@ -3565,11 +2802,9 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 
 /*
  * A cropped spine, sized like one. 44px is not a proportion, it is the tap
- * minimum: this thumbnail is the button that takes the photograph again, and
- * the owner kept that on purpose ("I do like the retake option"), so it cannot
- * be narrowed to the tenth of a cover a true crop would be. Against 132px of
- * height it still reads as a spine at a glance, and it gives the two covers
- * beside it half the row each instead of a third.
+ * minimum: this thumbnail is the button that takes the photograph again, so it
+ * cannot be narrowed to the tenth of a cover a true crop would be. Against
+ * 132px of height it still reads as a spine.
  */
 .wf-shots--big .wf-shot--sliver { flex: 0 0 var(--tap); }
 /* "Retake" in 44px. The big size is set for a box three times this wide. */
@@ -3579,27 +2814,20 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /* The curve of a spine, wherever one is drawn: the same cloth as the front,
-   turned away from the light. Without it a sliver is a narrow cover. Three
-   classes deep, so it beats the flat inset every taken photograph gets. */
+   turned away from the light. Three classes deep, so it beats the flat inset
+   every taken photograph gets. */
 .wf-shot--sliver.wf-shot--taken .wf-shot__box {
   box-shadow: inset -7px 0 9px rgba(0, 0, 0, 0.22);
 }
 
 /*
- * The photographs drawn as the book, at the top of a book's own page.
+ * The photographs drawn as the book. A crop of a spine is a sliver, about a
+ * tenth of the width of the front, and it stands against the front with a
+ * hairline rather than a gap so the two read as one object.
  *
- * The spine is a real photograph the app already crops, and what a crop of a
- * spine is, is a sliver: about a tenth of the width of the front on an
- * ordinary paperback, which is the proportion below. It stands against the
- * front with a hairline between them rather than a gap, so the two read as one
- * object seen slightly from the side. The front used to carry an inset shadow
- * down its binding edge to suggest exactly this; that shadow is now the spine,
- * so it says the same thing with the picture the catalogue actually holds.
- *
- * Nothing here is a second treatment of a photograph. It is `.wf-shot` and
- * `.wf-shot__box` and `.wf-shot--taken`, the same three names the rail uses,
- * because a kind nobody has photographed still has to fall out as the dashed
- * empty shape of itself and that rule is written once, above.
+ * Nothing here is a second treatment of a photograph: it is `.wf-shot`,
+ * `.wf-shot__box` and `.wf-shot--taken`, the same three names the rail uses, so
+ * an empty kind still falls out as the dashed shape of itself.
  */
 .wf-shots--book {
   /* One width, read twice: by the photograph and by the strip it scrolls in.
@@ -3624,9 +2852,6 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   width: 15px;
   border-radius: var(--r-sm) 0 0 var(--r-sm);
 }
-/* The curve of a spine is written once, above, for every screen that draws
-   one. It is what keeps the sliver and the front from reading as one flat
-   rectangle here. */
 .wf-shots--book .wf-shot--face .wf-shot__box {
   width: var(--face);
   border-radius: 2px var(--r-sm) var(--r-sm) 2px;
@@ -3636,16 +2861,15 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /*
- * The front is the top of a stack, and the stack is what a swipe goes
- * through. The card behind it shows past the right edge and is inset at both
- * ends, which is the one shape that cannot be mistaken for the spine on the
- * other side: a spine runs the full height and this deliberately does not.
+ * The front is the top of a stack, and the stack is what a swipe goes through.
+ * The card behind it shows past the right edge and is inset at both ends, which
+ * is the one shape that cannot be mistaken for the spine on the other side: a
+ * spine runs the full height and this deliberately does not.
  *
  * `left: 100%` rather than an overlap, which is not a nicety. A front nobody
  * has photographed is a dashed outline with nothing behind it, so a card lying
  * under it shows straight through and the empty slot reads as a box inside a
- * box. Found by opening the sparse screen. Nothing is ever under the front
- * now: only the part that sticks out is drawn.
+ * box. Nothing is ever under the front: only the part that sticks out is drawn.
  */
 .wf-deck { position: relative; display: block; }
 .wf-deck .wf-shot {
@@ -3659,19 +2883,15 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   scroll-snap-stop: always;
 }
 /*
- * The strip the photographs scroll in, which is a scroll container rather than
- * a drag handler and is the whole reason a swipe across the book does not
- * fight the page scrolling down it.
- *
- * The browser reads the first few pixels of a gesture, decides which axis it
- * belongs to, and hands the other axis to the page. A pointer-drag has to make
- * that decision itself from the same few pixels and gets a diagonal thumb
- * wrong. `.gallery__track` in `styles.css` is the same answer on the review
- * screen and has been since #78.
+ * The strip the photographs scroll in, a scroll container rather than a drag
+ * handler, which is the whole reason a swipe across the book does not fight the
+ * page scrolling down it: the browser reads the first few pixels of a gesture,
+ * gives one axis to the strip and the other to the page, where a pointer-drag
+ * has to guess and gets a diagonal thumb wrong.
  *
  * `contain` keeps a swipe past the last photograph from becoming the browser's
- * back gesture, and the scrollbar is hidden because this is 110 pixels wide and
- * a bar across it would be most of the bottom of the book.
+ * back gesture, and the scrollbar is hidden because a bar across 110 pixels
+ * would be most of the bottom of the book.
  */
 .wf-deck__track {
   position: relative;
@@ -3681,11 +2901,10 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
    * One picture wide, and which width that is depends on where the strip is.
    *
    * A book's page cuts both the picture and the strip from `--face`, so the
-   * distance a swipe travels and the width of a picture are the same number.
-   * A slot in a rail has no such number: it is a flex item sharing the row
-   * with the spine and the downloaded cover, so the strip is the whole of
-   * whatever the slot turned out to be. The fallback is what says that, in one
-   * place, rather than a second width rule per caller.
+   * distance a swipe travels and the width of a picture are the same number. A
+   * slot in a rail has no such number: it is a flex item sharing the row with
+   * the spine and the downloaded cover, so the strip is the whole of whatever
+   * the slot turned out to be. The fallback is what says that, in one place.
    */
   width: var(--face, 100%);
   overflow-x: auto;
@@ -3708,21 +2927,14 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /*
- * The last slot of the details screen, where two photographs share one.
- *
- * > When the catalogue image is available, you should be able to swipe on our
- * > front picture to be able to see the back picture.
- *
- * A slot rather than a fourth photograph squeezed in beside three others: with
- * a downloaded cover there are four pictures and the row has room for three, so
- * the spine, the cover and this take a third of the width each and the two
- * photographs somebody took take turns inside the third one. It is the same
- * strip a book's page swipes, at whatever width the row gives it, which is the
- * fallback on `.wf-deck__track` above.
+ * The last slot of the details screen, where two photographs share one. It is
+ * the same strip a book's page swipes, at whatever width the row gives it,
+ * which is the fallback on `.wf-deck__track` above.
  *
  * The word under each picture is inside the strip and travels with it, so what
  * is on screen names itself. That is why there is no caption on this slot: it
- * would be the same word written a second time and a second thing to keep true.
+ * would be the same word written a second time and a second thing to keep
+ * true.
  */
 .wf-shot-deck { display: grid; gap: var(--s1); min-width: 0; }
 .wf-shots--big .wf-shot-deck { flex: 1 1 0; }
@@ -3732,14 +2944,9 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
    pointing into the space beside the row. The dots directly underneath are what
    says there is another one. */
 /*
- * The same book, in a list of books (#363).
- *
- * One width and one height, overriding the two the book's own page sets, and
- * nothing else: the sliver, the curve, the hairline and the empty box are the
- * rules above. 64 by 96 is a shade over twice the area of the 46 by 62
- * thumbnail this replaced, which is what "show the books larger" asked for, and
- * it leaves five books on a 414 by 896 screen with the control and the search
- * box above them.
+ * The same book, in a list of books. One width and one height, overriding the
+ * two the book's own page sets, and nothing else: the sliver, the curve, the
+ * hairline and the empty box are the rules above.
  */
 .wf-shots--book-small {
   --face: 64px;
@@ -3764,18 +2971,13 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 
 /*
  * How many photographs there are, which of them is showing, and which kinds
- * nobody has taken.
- *
- * A filled dot is a photograph; an empty one is a kind nobody has taken yet,
- * which is the same thing the dashed box says and the reason the rail is not
- * missed. The one showing is drawn long, and it follows the swipe rather than
- * being fixed on the first.
+ * nobody has taken. A filled dot is a photograph; an empty one is a kind nobody
+ * has taken yet, which is the same thing the dashed box says.
  *
  * Each one is a button, because a swipe is undiscoverable on its own and a
  * mouse has no swipe at all. The mark is drawn by the pseudo-element so the
  * target can be far bigger than the mark: six pixels is a dot and not a thing
- * anybody hits with a thumb. `.gallery__dot` in `styles.css` is the same shape
- * for the same reason.
+ * anybody hits with a thumb.
  */
 .wf-shots__dots {
   grid-column: 1 / -1;
@@ -3807,35 +3009,21 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 
 /*
  * A picture that opens whole is a target, and it has to look like the drawing
- * it already was.
- *
- * `.wf-shot` already resets padding, border and background, because the rail's
- * photographs have been buttons since the camera had a retake. All that is left
- * is the pointer, which is what says a mouse can press it; a thumb finds out by
- * pressing.
+ * it already was. `.wf-shot` already resets padding, border and background, so
+ * all that is left is the pointer.
  */
 .wf-shots--book button.wf-shot { cursor: pointer; }
-
-/* --- One picture, whole ---------------------------------------------------- */
 
 /*
  * The full screen view a picture opens into.
  *
- * `position: fixed`, unlike `.wf-sure`, which stays absolute-inside-the-phone
- * on the argument that a wireframe of a dialog swallowing the gallery's own
- * bar is a screen nobody can leave. This has a named way out on it, a key
- * that closes it and a press anywhere that does the same, so it cannot strand
- * anybody. And a picture viewer that stopped at the bottom of a page four
- * screens tall would open somewhere nobody is looking, because a book's page
- * really is that long. `.wf-corner` and `.wf-name` made the same trade since,
- * for the same reason: see `.wf-corner` for the round that found it (#393).
+ * `position: fixed`, unlike `.wf-sure`, which stays absolute inside the phone
+ * so a wireframe dialog cannot swallow the gallery's own bar. This has a named
+ * way out, a key and a press anywhere, so it cannot strand anybody, and a
+ * viewer that stopped at the bottom of a page four screens tall would open
+ * where nobody is looking.
  *
- * Under the gallery's own frame at 20 and over everything the phone draws,
- * which is the same slot `.wf-sure` sits in.
- *
- * The ground is `--picture`, which is the camera's, because this is the one
- * other place in the app that is a photograph filling a screen. Nothing here
- * is paper, so nothing here reads paper's ink.
+ * The ground is `--picture`, the camera's, because nothing here is paper.
  */
 .wf-whole {
   position: fixed;
@@ -3851,13 +3039,12 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /* Under the gallery's bar rather than behind it, the same way the top bar of
-   every drawn screen is. The bar is how a theme is switched and how the index
-   is got back to, and it is 38 pixels. */
+   every drawn screen is. The bar is 38 pixels. */
 .wf-frame ~ .wf-screen .wf-whole { top: 38px; }
 
 /*
  * The strip, and it is the same strip: a scroll container with snap points,
- * because a swipe that turns into a tap would close the thing it was swiping.
+ * because a swipe that turned into a tap would close the thing it was swiping.
  * `.wf-deck__track` says the whole argument.
  */
 .wf-whole__track {
@@ -3915,9 +3102,7 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
  * Every one of them is filled, which is the difference between these dots and
  * the ones on a book's page. There an empty dot is a kind nobody has
  * photographed; here there are no such kinds, because a picture that does not
- * exist is not a frame this can reach. Leaving them outlined would say
- * "nothing here has been photographed" about four photographs. Found by
- * looking at it.
+ * exist is not a frame this can reach.
  */
 .wf-whole__dots .wf-dot::after {
   background: var(--picture-line);
@@ -3929,11 +3114,9 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /*
- * The named way out, and it is a word rather than a cross.
- *
- * A cross in a corner is the second target in this app drawn as a glyph with
- * nothing said, and the rule the top bar's corner already carries is that it is
- * named or it says nothing at all. This has the room for the word.
+ * The named way out, and it is a word rather than a cross. The rule the top
+ * bar's corner already carries is that a glyph is named or it says nothing at
+ * all, and this has the room for the word.
  */
 .wf-whole__away {
   min-height: var(--tap);
@@ -3948,22 +3131,13 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /*
- * A tag, drawn as firmly as whoever said it.
- *
- * There was a sentence beside each of these naming who said it, and the owner
- * cut it: "we don't need to tell them who says so right here, just show them."
- * The difference is not cut, because nothing else in this product survives
- * losing it: only a person's tag is safe from an automatic rewrite. So all of
- * it is in the drawing now, as three steps of one ladder rather than three
- * unrelated treatments.
+ * A tag, drawn as firmly as whoever said it, in three steps of one ladder:
+ * only a person's tag is safe from an automatic rewrite.
  *
  * Firmest is a person: filled and ringed in ink, the only tag on the page that
  * reads as settled. Then a catalogue's, which is the ordinary chip every other
  * screen already draws. Then this app's own guess, dashed and pale, which is
  * what a dashed edge means everywhere else here.
- *
- * They wrap across the width now instead of standing one to a line, because a
- * line each was a column of sentences and there are no sentences left.
  */
 .wf-voices { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
 .wf-voice--person {
@@ -3977,33 +3151,11 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   color: var(--ink-2);
 }
 
-/* What you can do about the section above. Never the width of the phone: see
-   `Book.tsx` for why nothing on this page is. */
+/* What you can do about the section above. Never the width of the phone. */
 .wf-actions { display: flex; flex-wrap: wrap; gap: var(--s2); }
-
-/* Where it is used to be a sentence and a date drawn over the board that says
-   the same thing, and the owner took the words: "literally the view we have
-   below that shows it. We don't need to explain it verbally with words." The
-   label that survived for a book on no bookcase is `.wf-place`, which already
-   existed. See the note where `Here` was, in Book.tsx. */
-
-/* Where it has been was a ledger of moves at the foot of a book's page, with
-   `.wf-been` and four names under it. The owner cut the section: "I think we
-   just get rid of the where it has been section." The rows it read are still
-   the app's record of where a book is; nothing draws them, so nothing here
-   styles them. See the note where `Been` was, in Book.tsx. */
-
-/* --- The stop before something irreversible -------------------------------- */
 
 /*
  * Over the screen, not over the page.
- *
- * The app's own dialog is `position: fixed`, which is right on a phone and
- * wrong here: the gallery's bar is what the theme is switched from and what
- * the way back to the index is, and a wireframe of a dialog that swallowed
- * both would be a screen nobody could leave. So the scrim is absolute inside
- * the phone screen it belongs to, and `.wf-screen--asked` is what gives it
- * something to be absolute inside.
  *
  * The two positions are `ConfirmDialog`'s and the breakpoint is its number:
  * bottom of the screen where a thumb is, centred once there is room for it to
@@ -4014,19 +3166,13 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 /*
  * Fixed to the glass, which is the third time this has been the answer.
  *
- * It was `position: absolute; inset: 0` inside `.wf-screen`, and the comment
- * above says why that was thought to be enough: the gallery's own bar stays
- * reachable, and it works because the screens it sat on are about as tall as
- * the phone. That premise died when the book's own page started asking here
- * (#387) and again when correcting an ISBN did (#408). That page is a long
- * scroll, `inset: 0` reaches the whole of it, and the card is then centred in
- * a document rather than in what somebody is looking at: pressing the camera
- * on the ISBN field, which is near the top, put the card most of a screen
- * below the fold. Found by looking at it at 414 by 896.
+ * Absolute inside `.wf-screen` reaches the whole of a document rather than the
+ * glass, so on a page several screens long the card is centred in the document
+ * rather than in what somebody is looking at: pressing the camera on the ISBN
+ * field, which is near the top, put the card most of a screen below the fold.
  *
- * `.wf-name` made this trade first and `.wf-corner` made it after #393, which
- * is the same defect on the corner sheet and has a rule in `design.test.tsx`
- * pinning it. That rule now covers all three.
+ * `.wf-name` and `.wf-corner` are fixed for the same reason, and the rule in
+ * `design.test.tsx` pins all three.
  */
 .wf-sure {
   position: fixed;
@@ -4096,18 +3242,10 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 
 /*
  * One line a change, and the labels are set smaller here than anywhere else
- * they appear.
- *
- * That is a measurement rather than a preference, and it was drawn the other
- * way first. Two labels reading "By the window · B" with a word between them
- * measure 359px at the size a label is drawn everywhere else, and there are
- * 332px across inside this well on a 414 screen, so the row wrapped: the
- * second label dropped under the first and four changes read as eight areas
- * in a column. At the label size the same row is 311px and stays whole.
- * Measured in the browser at 414 by 896, not guessed.
- *
- * The row can still wrap, on a piece named something longer than "By the
- * window", and the hairline is what keeps a pair a pair when it does.
+ * they appear: at the ordinary size two of them with a word between are wider
+ * than this well on a 414 screen, so the row wrapped and four changes read as
+ * eight areas in a column. The row can still wrap on a longer name, and the
+ * hairline is what keeps a pair a pair when it does.
  */
 .wf-sure__row {
   display: flex;
@@ -4143,28 +3281,15 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 .wf-sure__acts > * { flex: 1 1 auto; }
 
-/* --- Naming a tag --------------------------------------------------------- */
-
 /*
- * A panel from the top, and every other thing drawn over a screen here is a
- * card from the bottom.
+ * A panel from the top, where everything else drawn over a screen here is a
+ * card from the bottom. The difference is the keyboard: it takes the bottom two
+ * thirds the moment the field takes focus, so a card anchored to the bottom
+ * would be a card behind it, and what would go is the list of what the
+ * collection already means.
  *
- * The difference is the keyboard. `.wf-sure` and `.wf-corner` sit low because
- * that is where a thumb answers a question; this one is a question answered by
- * typing, and on a phone the keyboard takes the bottom two thirds the moment
- * the field takes focus. A card anchored to the bottom would be a card behind
- * the keyboard, and what would go is the list of what the collection already
- * means, which is the whole point of the screen. So the field is at the top and
- * the answers hang under it: measured at 414 by 896, the field and four answers
- * are above a keyboard.
- *
- * Fixed rather than absolute, which is the other departure and the same reason.
- * `.wf-sure` is absolute inside the screen so that the gallery's own bar stays
- * reachable, and that works because the screens it sits on are about as tall as
- * the phone. The check-the-details screen is three times that, so an absolute
- * panel would be pinned to the top of a long scroll rather than to the top of
- * what somebody is looking at. It is still under the gallery's frame at 20, so
- * the theme switch and the way back to the index are still on top of it.
+ * Fixed rather than absolute, for the reason `.wf-sure` is: the screen it opens
+ * over is three times the phone's height.
  */
 .wf-name {
   position: fixed;
@@ -4199,15 +3324,10 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /*
- * The panel's own bar does not stick, and the reason is worth the two lines.
- *
- * Every top bar in this system is sticky at the top of the page, and in the
- * gallery it is sticky 38px down so it clears the gallery's own frame. Neither
- * is true inside here: the panel is fixed and the part that scrolls is the body
- * under the bar, so there is nothing for the bar to stick to and the 38 is an
- * offset into a frame it is not in. Left alone it took the offset anyway and
- * came down over the field, hiding the top half of the box somebody is about to
- * type in. Found by looking at it at 414 by 896.
+ * The panel's own bar does not stick. The panel is fixed and the part that
+ * scrolls is the body under the bar, so there is nothing for the bar to stick
+ * to, and the gallery's 38px is an offset into a frame this bar is not in. Left
+ * alone it took the offset anyway and came down over the field.
  */
 .wf-name .wf-top { position: static; }
 
@@ -4217,12 +3337,9 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 .wf-frame ~ .wf-screen .wf-name { top: 38px; }
 
 /*
- * The offer to make one that is not there.
- *
- * Dashed, like every other thing in this system that is not there yet, and it
- * sits under the answers that are: `AddTag` at the end of a row of real tags
- * and `AddBox` under a piece of furniture make the same move, and this should
- * read as the third of them rather than as a fourth idea.
+ * The offer to make one that is not there. Dashed, like every other thing in
+ * this system that is not there yet, and it sits under the answers that are:
+ * `AddTag` and `AddBox` make the same move.
  */
 .wf-make {
   display: flex;
@@ -4251,28 +3368,13 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   color: var(--link);
 }
 
-/* --- The corner, and what it opens ---------------------------------------- */
-
 /*
- * The ring an avatar would be, with the cat in it. See `Chrome.tsx` for why
- * the sitter is a cat and not a person.
+ * The ring an avatar would be.
  *
  * 34 inside the 44px corner target, which is the ordinary proportion of an
  * avatar to the square it is tapped in, and it leaves the corner exactly as
- * easy to hit as it was when it held a search glyph.
- *
- * `place-items: end center` and the clip are the whole trick: `peeking` is
- * drawn to be cut off along its bottom edge, so standing it on the floor of a
- * round frame makes a head looking out of a portrait. Nothing was redrawn for
- * this.
- */
-/*
- * The ring in the corner.
- *
- * It held the cat, drawn to be cut off by the bottom of the frame, so it was
- * `place-items: end center` with the overflow hidden. It holds a person glyph
- * now (#350), which is a whole drawing rather than a cropped one, so it is
- * centred and the crop is kept only because the ring is round.
+ * easy to hit as it was when it held a search glyph. The crop is kept only
+ * because the ring is round.
  */
 .wf-portrait {
   width: 34px;
@@ -4287,26 +3389,13 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /*
- * The sheet the corner opens, over the screen it was opened from.
- *
- * Fixed to the viewport, not absolute inside the phone. It was absolute once,
- * on `.wf-sure`'s reasoning: the gallery's own bar is how a theme is switched
- * and how the index is got back to, and a wireframe of a menu that swallowed
- * both would be a screen nobody could leave. That argument holds for `.wf-sure`
- * because every screen it sits on is about as tall as the phone. It does not
- * hold here: the corner is drawn on the first screen and on the library (#393),
- * and a library with enough books to fill four bookcases is taller than the
- * phone by several screens. Absolute-inside-the-document put the sheet at the
- * top of all of it, which is off the top of whatever a person had scrolled to,
- * and a menu that opens off-screen is a button that looks dead: the one door
- * to fixtures and settings, doing nothing. `.wf-name` made the same trade for
- * the same reason first; see it for the longer argument.
+ * The sheet the corner opens. Fixed to the viewport, not absolute inside the
+ * document: the corner is drawn on the library, which is taller than the phone
+ * by several screens, so an absolute sheet opens off the top of whatever a
+ * person had scrolled to and the button looks dead.
  *
  * It hangs from the top right under the corner it came out of, rather than
- * rising from the bottom of the screen the way the confirmation does. A sheet
- * from the bottom is for a question you must answer; this is a menu, and a
- * menu that does not come out of the thing you pressed leaves you working out
- * what you just opened.
+ * rising from the bottom the way a question does.
  */
 .wf-corner {
   position: fixed;
@@ -4321,10 +3410,9 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   background: var(--scrim);
 }
 
-/* In the gallery, under the frame that switches the theme and gets back to
-   the index, the same trade `.wf-name` and `.wf-screen--camera` already make
-   for the same reason. The working app has no such bar, so this never fires
-   there. */
+/* In the gallery, under the frame that switches the theme and gets back to the
+   index, the same trade `.wf-name` and `.wf-screen--camera` already make. The
+   working app has no such bar, so this never fires there. */
 .wf-frame ~ .wf-screen .wf-corner { top: 38px; }
 
 /* The way out is everywhere else, which is how every menu like this closes.
@@ -4341,8 +3429,8 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   position: relative;
   width: 100%;
   max-width: 300px;
-  /* Clear of the top bar it drops out of, measured at 414 by 896 with a bar
-     carrying one line and with a bar carrying two. */
+  /* Clear of the top bar it drops out of, with a bar carrying one line and with
+     a bar carrying two. */
   margin-top: 52px;
   display: grid;
   gap: var(--s3);
@@ -4353,7 +3441,6 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   box-shadow: var(--lift-3);
 }
 
-/* Where an account menu says who you are signed in as. */
 .wf-corner__who {
   display: flex;
   align-items: center;
@@ -4402,12 +3489,10 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 .wf-corner__way svg { flex: none; margin-left: auto; color: var(--ink-2); }
 
 /*
- * Signing out (#524): the one thing on this sheet that does not open a room.
- *
- * Drawn under the ways with a rule between, no filled well and no chevron, so
- * it does not read as a third door. Not red either: `Button`'s note about the
- * danger tone applies here for the same reason, and this is reversible by
- * signing in again.
+ * Signing out: the one thing on this sheet that does not open a room. Drawn
+ * under the ways with a rule between, no filled well and no chevron, so it does
+ * not read as a third door. Not red either, because it is reversible by signing
+ * in again.
  */
 .wf-corner__out {
   display: flex;
@@ -4435,8 +3520,6 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   font-size: var(--size-label);
   color: var(--ink-2);
 }
-
-/* --- The gallery's own frame ---------------------------------------------- */
 
 /*
  * This bar is the viewer, not the app. It is deliberately plainer and
@@ -4518,20 +3601,14 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   font-size: var(--size-small);
 }
 
-/* Room to scroll it out from under the tab bar (#414).
- *
- * This button is the one thing in either the app or the gallery that is drawn
- * after a screen inside the same scroller, which is what made the tab bar come
- * unstuck and is why the bar is fixed now. Fixed means the bar covers the
- * bottom of the glass at every scroll position, including the bottom of the
- * page, so without this the way on to the next screen would sit underneath it
- * for good. Only where a tab bar is drawn: the cameras have none, and there is
- * nothing there to scroll clear of. */
+/* Room to scroll it out from under the tab bar. The bar is fixed, so it covers
+   the bottom of the glass at every scroll position, including the bottom of the
+   page, and without this the way on to the next screen would sit underneath it
+   for good. Only where a tab bar is drawn: the cameras have none. */
 .wf-screen:has(.wf-tabs) ~ .wf-next {
   margin-bottom: calc(var(--tabs) + env(safe-area-inset-bottom));
 }
 
-/* The index. */
 .wf-index { display: grid; gap: var(--s4); padding: var(--s4); }
 .wf-index__hello {
   display: grid;
@@ -4557,15 +3634,12 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   margin: 0;
 }
 
-/* --- The way in, and the waiting list ------------------------------------- */
-
 /*
- * The two screens somebody sees before the app (#524). See `Gate.tsx`.
+ * The two screens somebody sees before the app. See `Gate.tsx`.
  *
  * No top bar and no tab bar, so this is not `.wf-screen`: the frame's whole job
  * is to say where you are among four places, and a person who is not in yet has
- * none of them. What is left is one centred column, which is the arrangement
- * `.wf-screen--camera` already takes for the other screen wearing no chrome.
+ * none of them. What is left is one centred column.
  *
  * Centred rather than stacked from the top, because there are four things on
  * either of these screens and a phone-height column of air under them reads as
@@ -4593,10 +3667,9 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 
 /*
  * The line that carries the news, in the book face and balanced.
- *
  * `text-wrap: balance` matters here for the reason it does on
- * `.wf-instruction`: this is the sentence the whole screen exists to say, and
- * a two-word orphan line under it is what it looked like before.
+ * `.wf-instruction`: this is the sentence the whole screen exists to say, and a
+ * two-word orphan line under it is what it looked like before.
  */
 .wf-gate__title {
   margin: 0;
@@ -4615,12 +3688,10 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 /*
- * The card saying why a sign-in did not finish (#557).
- *
- * The column it sits in is centred and centre-aligned, which is right for one
- * title and one line under it and wrong for two sentences of explanation, so
- * the card takes the full width and reads from the start edge like every other
- * card in the app.
+ * The card saying why a sign-in did not finish. The column it sits in is
+ * centred and centre-aligned, which is right for one title and one line under
+ * it and wrong for two sentences of explanation, so the card takes the full
+ * width and reads from the start edge like every other card in the app.
  */
 .wf-gate__trouble {
   width: 100%;
@@ -4628,7 +3699,6 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   margin-top: var(--s2);
 }
 
-/* The buttons, and the quiet lines that belong with them. */
 .wf-gate__acts {
   width: 100%;
   display: grid;
@@ -4648,18 +3718,14 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 @media (prefers-reduced-motion: reduce) {
   .wf * { transition: none !important; }
   /*
-   * And the cat stops, which is #410's half of this.
-   *
-   * Every part of him goes back to the frame he is drawn in: the tail sits
-   * where the path puts it and the eyes keep the `opacity: 0` their own rule
-   * gives them, so what is left is a cat asleep. **A sleeping cat that does
-   * not move is still a sleeping cat**, which is why nothing here has to draw
-   * a different pose or say anything instead.
+   * And the cat stops. Every part of him goes back to the frame he is drawn in:
+   * the tail sits where the path puts it and the eyes keep the `opacity: 0`
+   * their own rule gives them, so what is left is a cat asleep.
    *
    * Scoped to him rather than written as `.wf * { animation: none }`, because
    * this app has animations that carry meaning: the bar draining on the undo
-   * offer in `src/styles.css` is how long is left, and it has its own answer
-   * to this query beside it.
+   * offer in `src/styles.css` is how long is left, and it has its own answer to
+   * this query beside it.
    */
   .wf-cat, .wf-cat * { animation: none !important; }
 }

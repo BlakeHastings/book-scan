@@ -1,92 +1,3 @@
-/**
- * Settings: the answers this app already holds and had nowhere to ask for.
- *
- * **Nothing on it was invented, and the shortness of it is the finding.** The
- * instruction in #329 was not to draw a page of switches, so what is here was
- * arrived at by going and looking for every answer the app already keeps, and
- * then taking off the ones that already live somewhere better.
- *
- * ## The third one arrived with a screen that wanted it (#365)
- *
- * **Which picture of a book comes first** is here for the same reason as the
- * other two rather than as an exception to them. The owner asked for the
- * downloaded cover to lead on a book's page "if possible", and then for it to
- * be settable; a switch on the book page would be asked again on every book,
- * on a page that round of work was taking things off. It is one answer about
- * every book in the house, so it is asked once here. `lib/firstPicture.ts` is
- * where it is kept and a book's page is the only thing that reads it, exactly
- * the arrangement the hand and the camera already have.
- *
- * ## The two that had no home, and both change something
- *
- * **How your books are ordered** is `collection.default_sort_strategy`, one row
- * in the schema, and its comment says why it is a fact about the collection
- * rather than a rule on every piece: "a default expressed on every fixture
- * would have to be changed on every fixture and could then disagree with
- * itself." Two screens already read it out loud. An area says it is ordered
- * "The way bookcase 2 does"; the ordering screen says that is "By the author",
- * which is what the whole library uses. That is this value, deferred to twice,
- * offered nowhere until now. Changing it here changes what those two screens
- * say and, through the placement rules, where the app thinks every book that
- * inherits belongs.
- *
- * **Which hand you hold the phone in** is the one the design system asked for
- * by name before there was a screen to put it on. `design/Camera.tsx`, on the
- * switch in the viewfinder's far corner: "In the app it belongs beside the rest
- * of the settings and this is the wireframe standing in for one." This is that
- * one, and it is the same stored answer the camera reads, in `lib/hand.ts`,
- * rather than a second copy of the question.
- *
- * ## Three orderings, not four
- *
- * The area's ordering screen offers five and this offers three. Two cannot
- * apply and each is refused by the server as well as left off here.
- * "The way the piece does" needs something above you to ask and a collection
- * has nothing; by tag orders a run by its first tag slug, which is a sensible
- * thing to ask of one area and files a whole house by an accident of the
- * vocabulary. `COLLECTION_STRATEGIES` in the domain is the list, said once.
- *
- * The drawing had by tag on it, greyed out and labelled "not ready to be
- * offered yet". It is not drawn at all here: it is not unfinished, it is not
- * for this question, and a permanently greyed row is a promise nobody will
- * keep.
- *
- * ## The card at the foot is the answer to the ring in the corner
- *
- * Somebody who taps a profile icon and works through the menu is, sooner or
- * later, looking for the account. This is where they arrive, and it says the
- * true thing plainly and once. **It offers nothing**: no sign-in, no sign-out,
- * no name, and nothing greyed out and labelled coming soon. #171 is a decision
- * nobody has made and a door drawn for it here would be this screen making it.
- *
- * ## What is not on it, and none of it is an oversight
- *
- * **The other four remembered answers.** The app persists six and four sit
- * beside the thing they change: which of the three ways the library is drawn,
- * whether a queued book shows its front or its spine, which lens the camera
- * uses, and whether the torch is lit. Collecting those here would take controls
- * off the screens they act on in order to look fuller than the app is, and the
- * last two need a live camera to mean anything.
- * **Day and night**: the app follows the phone already, both palettes are in
- * `tokens.css` under `prefers-color-scheme`, and a switch here would be a
- * control nobody asked for over a question the phone has answered.
- * **Backing up and exporting**: `docs/backup-runbook.md` is a job somebody does
- * by hand at a terminal and the server has no endpoint for either, so a button
- * would be a promise with nothing behind it.
- * **A name for the collection**: `collection.name` is a real column and no
- * screen in this app shows it, so a field for it would be a control with no
- * visible effect.
- * **Who checked a book out**: checking out records no borrower at all, and
- * `claimed_by` is a lease held by a browser rather than a person.
- * **A version**: there is no version string anywhere in the app to show.
- *
- * ## It holds no state
- *
- * Everything it draws arrives as a prop and every change leaves as a call, the
- * way `HomePane` does it, so its test can render it as markup and read what it
- * says.
- */
-
 import { Card, Said } from '../design/Card'
 import { TopBar, type TabName } from '../design/Chrome'
 import { Choice, Segmented } from '../design/Controls'
@@ -99,22 +10,11 @@ import { catalogueRoll } from '../lib/catalogueWords'
 import { orderingSaid } from '../lib/furniture'
 import { RoomFrame, Trouble } from './RoomFrame'
 
-/**
- * The orderings a whole collection may take, in the order they are offered.
- *
- * The codes are the domain's `COLLECTION_STRATEGIES` and the words are
- * `orderingSaid`, which is what the area's ordering screen says, so the two
- * screens offering the same question offer it in the same words.
- */
+/** `orderingSaid` is shared with the area's ordering screen, so both offer the same question in the same words. */
 const OFFERED: Exclude<SortStrategyCode, 'inherit' | 'tag'>[] = ['author', 'title', 'published']
 
 interface Props {
-  /**
-   * The room, for the one value on it this screen is about. Null until the read
-   * answers: drawing "By the author" over a collection that is ordered by title
-   * would be a setting showing somebody the wrong answer, which is worse than
-   * showing none.
-   */
+  /** Null until the read answers, so the setting never draws a wrong ordering. */
   room: FurnitureDto | null
   /** Which hand, read out of the same place the camera reads it from. */
   hand: Hand
@@ -127,14 +27,7 @@ interface Props {
   onOrder: (code: SortStrategyCode) => void
   onHand: (hand: Hand) => void
   onFirstPicture: (first: FirstPicture) => void
-  /**
-   * What each catalogue has been doing (#348).
-   *
-   * Null until the read answers and null if it failed, and both draw no card.
-   * The alternative, a card of noughts, would say every catalogue has been
-   * asked nothing, which is a claim rather than a silence and is the exact
-   * misreading this whole feature exists to prevent.
-   */
+  /** Null until the read answers, and null on failure. Either draws no card rather than a card of noughts, which would falsely claim every catalogue had been asked nothing. */
   lookups: LookupStandings | null
 }
 
@@ -156,16 +49,12 @@ export function SettingsPane({
           <Choice
             label="How your books are ordered"
             on={room.defaultSortStrategy}
-            /* Pressing the one that is already chosen writes nothing. It is
-               not an error and it gets no refusal: it is somebody confirming
-               what they already had. */
             onPick={(code) => {
               if (!busy && code !== room.defaultSortStrategy) onOrder(code)
             }}
             options={OFFERED.map((code) => ({
               value: code,
-              /* The second argument is what "the way it does" would name, and
-                 nothing offered here inherits, so it is never read. */
+              // Nothing offered here inherits, so orderingSaid's second argument is never read.
               word: orderingSaid(code, ''),
             }))}
           />
@@ -173,10 +62,6 @@ export function SettingsPane({
           <Said>Reading how your books are ordered.</Said>
         )}
       </div>
-      {/* Under the control rather than over it, and it is the sentence that
-          makes this a setting rather than a preference: it is the answer every
-          piece of furniture and every area gives when it has not been asked the
-          question itself. */}
       <Said>Every bookcase and every area follows this unless it says otherwise.</Said>
 
       <div>
@@ -210,39 +95,14 @@ export function SettingsPane({
           ]}
         />
       </div>
-      {/* The honest half of the answer, and it is not a caveat: most books in
-          a young collection have no downloaded cover at all, so this is what
-          the setting does on most of them. Saying it here is what keeps
-          somebody from choosing the downloaded one and deciding the setting is
-          broken on the next four books they open. */}
       <Said>
         A book with no downloaded cover opens on the photograph you took, either
         way.
       </Said>
 
-      {/*
-        Where a person finds out what the catalogues have been doing (#348).
-
-        Read-only and not a control, so the paragraph above about backing up
-        does not cover it: there is nothing here to press and nothing here
-        promises anything the server cannot do. The one act it points at, giving
-        the second catalogue a key, is done where the server runs, and the card
-        says so rather than drawing a field for a secret on a phone.
-
-        Every catalogue every time, including the ones that have done nothing,
-        which is the rule the whole issue produced: an absent entry reads as
-        "nothing to report" and means the opposite.
-      */}
       {roll && (
         <Card kind="Catalogues" title="Where your books are described from">
           <Said>{roll.said}</Said>
-          {/*
-            A label and a sentence per catalogue, which is this screen's own
-            repeating shape, rather than `List` and `Row`. A `Row` is a button
-            whether or not it is given something to do, and there is nothing to
-            open behind any of these: a press target that does nothing is worse
-            than a paragraph.
-          */}
           {roll.rows.map((one) => (
             <div key={one.source}>
               <span className="wf-field__label">{one.source}</span>

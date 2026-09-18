@@ -1,52 +1,17 @@
 /**
- * A stop before something that cannot be undone.
+ * A stop before something that cannot be undone. Ambient prose is noise, but
+ * an explanation at the moment of an irreversible decision is the whole job:
+ * nothing here is allowed onto a screen ambiently, it is drawn when somebody
+ * asks for the irreversible thing, says what will happen to their own books
+ * with the count in it, and goes away again.
  *
- * ## Why this exists on the week thirty-one sentences were deleted
+ * A one-press decision that affects many books at once also asks here even
+ * when it is reversible, since its consequence is not visible from the
+ * button; the line under the title says the work can be put back in that case.
  *
- * #262 took thirty-one sentences off these screens for explaining rather than
- * serving, and this is a component whose whole job is to explain. Both are
- * right, and the line between them is worth having written down here, beside
- * the thing that sits on the wrong side of it if nobody watches:
- *
- * **Ambient prose is noise. An explanation at the moment of an irreversible
- * decision is the entire job.** A caption saying a shelf can be tapped is
- * something a person finds out by tapping. What happens to twenty-four books
- * when an area goes is something they find out afterwards, and afterwards is
- * too late.
- *
- * So nothing here is allowed onto a screen. It is drawn when somebody asks for
- * the irreversible thing, it says what will happen to their own books with the
- * count in it, and it goes away again.
- *
- * ## And before one press decides about a great many books at once
- *
- * The carry list's "leave them where they are" is not irreversible, and it asks
- * here anyway (#402). The reason is the same one and the sentence above is the
- * general case of it: what a person cannot find out afterwards is the thing to
- * say first, and one press that answers the rules about fifty-three books is a
- * press whose consequence is not visible from the button. What it must not do is
- * dress a reversible decision as a final one, so the line under the title is
- * where it says the work can be put back.
- *
- * ## This is `ConfirmDialog`, and `ConfirmDialog` is gone
- *
- * `src/components/ConfirmDialog.tsx` was the working app's version of this
- * decision, and every decision it made is kept here: the destructive button
- * first and outlined rather than filled, the keep-it button beside it and the
- * one a thumb lands on, the press on the page around the card meaning "keep
- * it", and the pair of them going quiet while the answer is carried out. The
- * file itself went when the book's page was converted (#387), because the two
- * were the same dialog and this paragraph promised there would only ever be
- * one of them. The area screen already asked here; the book's delete asks here
- * now too.
- *
- * ## The three parts, and why the middle one is here at all
- *
- * A title that says what happens to the books, a line or two under it, and a
- * short list of what reads differently afterwards. The last is the argument
- * this component is really making: labels in this app are worked out from
- * where a thing sits, so removing one area renames every area after it, and a
- * sentence claiming that is worth less than four rows showing it.
+ * The "what reads differently afterwards" list exists because labels here are
+ * worked out from where a thing sits, so removing one area renames every area
+ * after it, and a sentence claiming that is worth less than rows showing it.
  */
 
 import type { ReactNode } from 'react'
@@ -54,22 +19,11 @@ import { Button } from './Controls'
 import { Place } from './List'
 
 /**
- * The card a screen is asked over, without the question on it.
- *
- * `Sure` is one question asked on this card and it was the only one for a
- * while, so the card was part of it. It is not any more: correcting an ISBN is
- * asked here too since #408, and that is a question with a keyboard and two
- * answers rather than a stop before something irreversible.
- *
- * Split rather than copied, because the card is a decision and not a
- * container. Where it sits is `ConfirmDialog`'s answer and its breakpoint:
- * against the bottom edge where a thumb is, centred once there is 620px of
- * height for it to be centred in. Written out twice, the second screen would
- * put its own card somewhere slightly else and nobody would notice for months.
- *
- * The screen under it stays drawn, and pressing it is the same as taking the
- * quiet way out: what somebody is being asked about is the thing they were
- * just looking at.
+ * The card a screen is asked over, without the question on it. `Sure` is one
+ * question asked on this card, but not the only one: correcting an ISBN is
+ * asked here too, with a keyboard and two answers rather than a stop before
+ * something irreversible. The screen under it stays drawn, and pressing it is
+ * the same as taking the quiet way out.
  */
 export function Asked({
   title,
@@ -86,10 +40,7 @@ export function Asked({
   children?: ReactNode
 }) {
   return (
-    /*
-     * Only the page itself: a press that started on the card is somebody
-     * reading it.
-     */
+    /* Only the page itself: a press that started on the card is somebody reading it. */
     <div
       className="wf-sure"
       role="dialog"
@@ -123,24 +74,13 @@ export function Sure({
   becomes?: { from: string; to: string }[]
   /** The word on the button that does it. Never "OK". */
   act: string
-  /**
-   * The answer is being carried out right now, so neither button is pressable.
-   *
-   * No gallery screen sets it, for the reason `Button`'s own `off` says: a
-   * wireframe answers "what does this screen offer" and the app answers "and
-   * can it be done yet", which is a fact about a request in flight. It arrived
-   * with the book's delete, where the write takes photographs off a disk and a
-   * second press would send a second delete after the first.
-   */
+  /** The answer is being carried out right now, so neither button is pressable. */
   busy?: boolean
   onAct?: () => void
   onKeep?: () => void
 }) {
   return (
-    /*
-     * Pressing the page around the card is the same answer as "Keep it", which
-     * is what `ConfirmDialog` did before this became the one dialog.
-     */
+    /* Pressing the page around the card is the same answer as "Keep it". */
     <Asked title={title} said={said} onOut={onKeep}>
       <>
         {becomes && becomes.length > 0 && (
@@ -156,10 +96,7 @@ export function Sure({
           </div>
         )}
 
-        {/* Destructive first, keep-it second, exactly as `ConfirmDialog` has
-            it. The one a thumb finds without aiming is the one that changes
-            nothing, and the red one is outlined rather than filled: a filled
-            red button invites the press it is warning about. */}
+        {/* Destructive first, keep-it second: the one a thumb finds without aiming is the one that changes nothing. */}
         <div className="wf-sure__acts">
           <Button tone="danger" off={busy} onPress={onAct}>
             {act}

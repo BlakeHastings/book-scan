@@ -1,10 +1,10 @@
 /**
  * Pure decisions about how telemetry leaves this process.
  *
- * Separate from instrumentation.ts on purpose. That file exists for its side
- * effects and has to run before anything else loads, so a test cannot import
- * it without starting an SDK. Nothing here has a side effect, so the choices
- * it makes are testable on their own.
+ * Separate from instrumentation.ts on purpose: that file has side effects and
+ * must run before anything else loads, so a test cannot import it without
+ * starting an SDK. Nothing here has a side effect, so these choices are
+ * testable on their own.
  */
 
 /** The OTLP wire protocols this server knows how to speak. */

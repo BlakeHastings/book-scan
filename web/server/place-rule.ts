@@ -1,44 +1,19 @@
 /**
  * Changing what a place allows: plan it, then apply it.
  *
- * > If they change the rule to say, in an area, I want only comic books, only
- * > books with the tag comic books and fiction, then that's what is now only
- * > allowed in that area, and we should issue moves to adjust the books to
- * > where they need to go based off these new rules.
+ * Plan computes and writes nothing. Apply writes the rule and then the `assigned`
+ * rows the rules want, only where the answer differs from where the book already
+ * is. The rule being changed is a draft on the screen until the apply, which is
+ * what makes a half-built rule safe, and it is why creating a rule and editing
+ * one are the same call.
  *
- * The two halves of one idea, in one file, for the reason `relocate-run.ts`
- * keeps its two together: **plan computes and writes nothing, and apply writes
- * the rule and then the `assigned` rows the rules want**, only where the answer
- * differs from where the book already is, which is `assignmentFor`'s job and
- * not this file's.
+ * The plan is over the whole catalogue rather than one stretch, because narrowing
+ * an area pushes books out of it to wherever else claims them and widening one
+ * pulls books in from anywhere in the room.
  *
- * ## Nothing here is written before somebody has read it
- *
- * The rule being changed is a **draft on the screen** until the apply. That is
- * not caution about the write: it is what makes a half-built rule safe. Taking
- * the last line off a rule is a state somebody passes through on the way to the
- * right one, and if that were a write, the catalogue would spend that moment
- * with an area claiming nothing and a plan nobody asked for. So the draft
- * travels with both requests and the row is touched once, at the end.
- *
- * It is also why creating a rule and editing one are the same call. A place
- * with no rule at all is a real state (a crate by the door is filled by hand),
- * and the first rule written on it changes where books belong exactly as much
- * as the tenth edit of an existing one does.
- *
- * ## Why the plan is over the whole catalogue
- *
- * `planRunMove` plans one stretch of books, because moving a stretch onto other
- * furniture cannot touch a book outside it. Changing what a place **allows**
- * can: narrowing an area pushes books out of it to wherever else claims them,
- * and widening one pulls books in from anywhere in the room. A plan that read
- * one stretch would report the leaving and miss the arriving.
- *
- * ## Nothing here moves a book
- *
- * Applying records an intention. The books move when a person carries them and
- * says so, through `PATCH /api/books/:id/location`, and what is outstanding is
- * the carry list that already exists. There is no second queue here.
+ * Nothing here moves a book. Applying records an intention, and the books move
+ * when a person carries them and says so through
+ * `PATCH /api/books/:id/location`.
  */
 
 import {
@@ -62,15 +37,6 @@ import type { Db } from './driver'
 import { FURNITURE_LOCK, holdsSaid, placeSaid, ruleName, tagLabels } from './furniture'
 import { refuse, type Refused } from './refusal'
 
-/**
- * A rule as somebody has written it on a screen, before any of it is a row.
- *
- * `tag` is a **slug**, because a slug is the identity a rule references. The
- * label is what a person read on the way to choosing it and is derived again on
- * the way back out; a rule stored against a label would stop matching the day
- * somebody renamed the tag, and every book it claimed would move with nothing
- * anywhere saying why.
- */
 export interface DraftRule {
   /** The row this already is, or null for one nobody has written yet. */
   id: number | null
@@ -81,21 +47,18 @@ export interface DraftRule {
  * One line of a draft: what it asks, of which tag, and the tag's own name where
  * the collection has not got it yet.
  *
- * **`label` is only ever set for a word nobody has used**, and it is not a
- * second identity: it is what the tag will be **called** when it is written,
- * one line above the slug it will be written under. A line quoting a tag the
+ * `label` is only ever set for a word nobody has used. A line quoting a tag the
  * collection already keeps carries no label at all, because the label is on the
  * row and reading it off the request would let a rename arrive by the back door.
- *
- * It exists because somebody preparing a shelf says what the shelf is for before
- * the books arrive (#392): "the comics should live on the bottom shelf, and only
- * comics", said in a room with no comics in it yet. The word becomes a tag at
- * the same press the rule becomes a row, so a draft nobody applies leaves
- * nothing behind.
+ * The word becomes a tag at the same press the rule becomes a row, so a draft
+ * nobody applies leaves nothing behind.
  */
 export interface DraftLine {
   operator: RuleOperator
-  /** A tag slug, which is the identity a rule references. */
+  /**
+   * A tag slug, which is the identity a rule references. A rule stored against a
+   * label would stop matching the day somebody renamed the tag.
+   */
   tag: string
   /** What to call it, for a slug the vocabulary has not got. */
   label?: string
@@ -105,22 +68,12 @@ export interface DraftLine {
  * Every rule written on one place, which is the unit that is planned and
  * written.
  *
- * **A list, because a list is how this app says "or"** (#384). The owner asked
- * for it: "it should be possible for the user to say 'this tag or that tag', as
- * well as 'this and that'." `domain/placement/rules.ts` had already said where
- * it goes, in the sentence that refuses the boolean tree: "two ways of saying a
- * thing are two rules, which a screen can build". So the two words land in two
- * different places and neither is a group inside a group:
- *
- * - **and** is another line on one rule. All of a rule's lines must hold.
- * - **or** is another rule on the same place. Both point at the same area.
- *
- * That second fact is what makes this safe rather than clever. `claim` picks one
- * winner among the rules that match a book, and when the candidates all name the
- * same place it does not matter which it picks: `entryAreaOf` answers the same
- * area, `entryAreas` gains nothing, and the book lands in the same slot. All
- * that changes is which rule's name is written as the reason. Proved rather than
- * assumed, in `domain/placement/rules.test.ts`.
+ * A list, because a list is how this app says "or". "And" is another line on one
+ * rule, and all of a rule's lines must hold; "or" is another rule on the same
+ * place, both pointing at the same area. `claim` picks one winner among the rules
+ * that match a book, and when the candidates all name the same place it does not
+ * matter which it picks: the book lands in the same slot and all that changes is
+ * which rule's name is written as the reason.
  *
  * The whole set travels together because it is one answer to one question. A
  * request that added a rule without saying what the others were could not tell
@@ -133,11 +86,8 @@ export interface RuleDraft {
 }
 
 /**
- * What changing a place's rule would do.
- *
- * `PlacementPlan` is the same shape the run move answers with, so the screens
- * that already read one need nothing new to read this. What is added is what a
- * count cannot say.
+ * What changing a place's rule would do. `PlacementPlan` is the same shape the
+ * run move answers with, so the screens that already read one need nothing new.
  */
 export interface RuleChangePlan extends PlacementPlan {
   /** The phrase the place would hold, every rule on it joined by "or". */
@@ -145,68 +95,47 @@ export interface RuleChangePlan extends PlacementPlan {
   /** What each rule would be called, worked out from its own lines. */
   names: string[]
   /**
-   * How many rules are written on this place **today**.
-   *
-   * Beside `names`, which is how many there would be, because the two together
-   * are what tells an empty draft on a place with a rule (taking the last one
-   * off, a real change) from an empty draft on a place with none (not a change
-   * at all, and #391's second half: a preview that described lines that did not
-   * exist, and then a truthful "Nothing changed" that read as work being lost).
+   * How many rules are written on this place today, beside `names`, which is how
+   * many there would be. The two together tell an empty draft on a place with a
+   * rule (taking the last one off, a real change) from an empty draft on a place
+   * with none (not a change at all).
    */
   already: number
   /** How many books in the whole catalogue any of these rules claim. */
   claiming: number
   /**
-   * True where the place has no rule today and would gain one.
-   *
-   * An area a rule points at is where a stretch of books **begins**, so giving
-   * one a rule stops it taking what overflows from the area before it. That is
-   * a consequence of the change rather than a note about it, and it is the one
-   * thing here that a count does not say.
+   * True where the place has no rule today and would gain one. An area a rule
+   * points at is where a stretch of books begins, so giving one a rule stops it
+   * taking what overflows from the area before it.
    */
   opens: boolean
   /**
    * The two stretches of books that would be left with no rule anchoring them.
-   *
-   * Taking the genre line off the rule that serves fiction is allowed: it is
-   * his room and his rules. What it also does is leave the library with nothing
-   * saying where fiction begins, and that is worth a sentence rather than a
-   * surprise.
+   * Taking the genre line off the rule that serves fiction is allowed, and it
+   * leaves the library with nothing saying where fiction begins.
    */
   losing: string[]
   /**
-   * The other places whose rules ask for books these rules also ask for.
+   * The other places whose rules ask for books these rules also ask for. Two
+   * places wanting the same books is allowed and this does not make it an error.
    *
-   * **Two places wanting the same books is allowed and this does not make it an
-   * error.** It is the arrangement #430 item 1 was written about: somebody wrote
-   * "anything tagged Non-fiction" on a second piece of furniture, `claim` went on
-   * giving every one of those books to the rule that was already there, and the
-   * plan answered "no book would have to be carried" with nothing anywhere
-   * saying why. A rule that claims nothing reads as the app being broken; a rule
-   * that claims nothing **because another place asks for the same books and is
-   * tried first** is a room somebody can reason about.
-   *
-   * `keeps` is which way the tie went, and it is the half that matters. `claim`
-   * settles it by area rules before piece rules, then priority, then id, and
-   * neither answer is a warning: keeping means this draft changes nothing for
-   * those books, and losing means the other place is about to hand them over.
+   * `keeps` is which way the tie went. `claim` settles it by area rules before
+   * piece rules, then priority, then id, and neither answer is a warning: keeping
+   * means this draft changes nothing for those books, and losing means the other
+   * place is about to hand them over.
    */
   alsoClaims: AlsoClaims[]
 }
 
-/** One other place asking for books this draft's rules ask for. */
 export interface AlsoClaims {
   /** What that place reads as: a plank for an area rule, a piece for a fixture. */
   place: string
   /** How many books both places ask for. */
   books: number
   /**
-   * How many of those that place keeps, because its rule is the one `claim`
-   * tries first.
-   *
-   * A count rather than a flag: `claim` settles a tie between two rules the same
-   * way for every book, but a third rule can win some of them, so "all of them"
-   * and "none of them" are not the only two answers this can honestly give.
+   * How many of those that place keeps, because its rule is the one `claim` tries
+   * first. A count rather than a flag: a third rule can win some of them, so "all
+   * of them" and "none of them" are not the only honest answers.
    */
   keeps: number
 }
@@ -217,24 +146,11 @@ export type AppliedRuleChange =
   | { ok: true; plan: RuleChangePlan; wrote: AssignmentReport }
   | Refused
 
-// ---------------------------------------------------------------------------
-// Reading what a person asked for
-// ---------------------------------------------------------------------------
-
 /**
- * The rules on one place, in the shape they go back in.
- *
- * **The one read in this app that speaks slugs**, and it exists because that is
- * what writing needs. Every other read answers a rule in labels and nothing but
- * labels, which `furniture.routes.test.ts` holds to by refusing `genre/` in the
- * whole of `/api/fixtures` and of `/api/books/:id/claim`. The obvious shortcut
- * was to put the identity beside the label there so an editor could hand the
- * lines straight back, and it would have quietly undone that rule on every
- * reading screen in the app.
- *
- * The alternative was to match a label against the vocabulary on the way back,
- * which works until two tags read alike, and then a rule silently starts asking
- * for a different one.
+ * The rules on one place, in the shape they go back in, and the one read in this
+ * app that speaks slugs. Every other read answers a rule in labels and nothing
+ * but labels, which `furniture.routes.test.ts` holds to by refusing `genre/` in
+ * the whole of `/api/fixtures` and of `/api/books/:id/claim`.
  */
 export async function rulesOnPlace(
   db: Db,
@@ -251,11 +167,10 @@ export async function rulesOnPlace(
 /**
  * What the collection makes of a word a rule wants to name, or the refusal.
  *
- * The whole of the decision is `nameTag`, and this only turns its four answers
- * into the one thing a route can say. **The slug is checked against the answer
- * rather than taken from the request**, so a client cannot ask for a word under
- * one heading and have it written under another, and cannot slip a second
- * spelling past the fold by spelling the slug itself.
+ * The whole of the decision is `nameTag`. The slug is checked against its answer
+ * rather than taken from the request, so a client cannot ask for a word under one
+ * heading and have it written under another, and cannot slip a second spelling
+ * past the fold by spelling the slug itself.
  */
 function naming(
   typed: string,
@@ -295,31 +210,14 @@ function naming(
  * screen can read back: the label lives on the tag row, and a line with no row
  * behind it draws as the rule's own name instead of as the word somebody chose.
  *
- * ## A word the collection has never used is named here, once
+ * A line may name a word nobody has used and carry the label to call it by. The
+ * label is not taken on trust: it goes back through `nameTag` against the
+ * vocabulary as it stands, and the only answer accepted is the one that says this
+ * is genuinely a new word and agrees with the slug asked for. Nothing is written
+ * here, and the tag becomes a row at the same moment the rule does, in
+ * `applyRuleChange`.
  *
- * It used to be refused outright, and that made preparing a shelf impossible
- * (#392): the only place in the app that could invent a tag was the review pane
- * of a book still in the queue, so "this shelf is for comics" required owning a
- * comic first. Now a line may name a word nobody has used, and it carries the
- * label to call it by.
- *
- * **This is not a second way to make a tag.** The word goes through
- * `domain/tagging/naming.ts`, which is the one rule about what a word means and
- * the one that settled the hard part: "Comic Book" and "comic books" are one
- * tag. So the label is not taken on trust. It is put back through `nameTag`
- * against the vocabulary as it stands, and the only answer that is accepted is
- * the one that says this is genuinely a new word **and** agrees with the slug
- * asked for. Every other answer is the refusal that rule already makes, in its
- * own words: something already means it, or it is one of the two genre answers,
- * or it is not a word at all.
- *
- * Nothing is written here. The tag becomes a row at the same moment the rule
- * does, in `applyRuleChange`, so a draft somebody walks away from leaves no word
- * behind in a vocabulary they never meant to add to.
- *
- * **Two identical lines collapse into one.** "Tagged Cookery and tagged
- * Cookery" is the same rule as "tagged Cookery", and keeping the second would
- * put a line on the screen that can never be the reason for anything.
+ * Two identical lines collapse into one.
  */
 export async function draftFrom(
   db: Db,
@@ -384,10 +282,6 @@ export async function draftFrom(
   return { ok: true, draft: { about, placeId, rules } }
 }
 
-// ---------------------------------------------------------------------------
-// The rule as it would be
-// ---------------------------------------------------------------------------
-
 /** The rules already written on this place, the smaller-place order first. */
 const rulesOn = (rules: readonly PlacementRule[], draft: RuleDraft): PlacementRule[] =>
   rules.filter((rule) => (draft.about === 'area'
@@ -400,15 +294,15 @@ const asConditions = (rule: DraftRule): RuleCondition[] =>
 /**
  * A whole list of rules with this place's set replaced by the draft's.
  *
- * The id of a rule that does not exist yet is one past the highest, which is not
- * a guess at what Postgres will hand out and does not have to be: within one
- * planning run an id only settles ties between rules that both claim a book, and
- * two rules on one place resolve to the same area whichever wins. The apply
- * reads the real ids back after it writes.
+ * The id of a rule that does not exist yet is one past the highest, and does not
+ * have to match what Postgres will hand out: within one planning run an id only
+ * settles ties between rules that both claim a book, and two rules on one place
+ * resolve to the same area whichever wins. The apply reads the real ids back
+ * after it writes.
  *
- * A draft naming an id that is not on this place is ignored rather than obeyed.
- * Nothing legitimate produces one, and obeying it would let a request written
- * about one area rewrite the rule of another.
+ * A draft naming an id that is not on this place is ignored rather than obeyed,
+ * because obeying it would let a request written about one area rewrite the rule
+ * of another.
  */
 function prospective(
   rules: readonly PlacementRule[],
@@ -429,9 +323,9 @@ function prospective(
       areaId: draft.about === 'area' ? draft.placeId : null,
       fixtureId: draft.about === 'fixture' ? draft.placeId : null,
       /*
-       * Last of the level it is on, which is the only honest default. Priority
-       * settles a tie between two rules about places of the same size, and a
-       * new rule has no claim to be tried before one somebody already relies on.
+       * Last of the level it is on. Priority settles a tie between two rules
+       * about places of the same size, and a new rule has no claim to be tried
+       * before one somebody already relies on.
        */
       priority: priority + at + 1,
       name: names[at]!,
@@ -471,10 +365,9 @@ async function everyBook(db: Db): Promise<PlannableBook[]> {
 }
 
 /**
- * What changing this place's rule would mean. **Writes nothing at all.**
- *
- * Also what the apply calls before it writes, so what somebody approves and what
- * gets recorded are one function rather than two that have to be kept agreeing.
+ * What changing this place's rule would mean. Writes nothing at all, and it is
+ * what the apply calls before it writes, so what somebody approves and what gets
+ * recorded are one function rather than two that have to be kept agreeing.
  */
 export async function planRuleChange(db: Db, draft: RuleDraft): Promise<PlannedRuleChange> {
   const { order, rules } = await furnitureIn(db)
@@ -488,9 +381,8 @@ export async function planRuleChange(db: Db, draft: RuleDraft): Promise<PlannedR
   /*
    * A word this draft is naming has no row yet, so the vocabulary has no label
    * for it and every sentence about the rule would fall back to the rule's own
-   * name. The draft is the only thing that knows what it is to be called until
-   * the apply writes it, so the phrase is built from the draft's own word and
-   * reads the same before the write as after it. Nothing is written here.
+   * name. The phrase is built from the draft's own word instead, and reads the
+   * same before the write as after it. Nothing is written here.
    */
   for (const rule of draft.rules) {
     for (const line of rule.conditions) {
@@ -512,9 +404,7 @@ export async function planRuleChange(db: Db, draft: RuleDraft): Promise<PlannedR
    * An area with no rule today takes what overflows from the one before it, and
    * one a rule points at does not. So this is asked of the arrangement as it
    * stands rather than of the one being proposed: it is true exactly when the
-   * place is gaining its first rule. Adding a second rule to a place that has
-   * one changes nothing about the stretch, which is the whole reason "or" is
-   * safe to say this way.
+   * place is gaining its first rule.
    */
   const opens = draft.about === 'area'
     && rulesOn(rules, draft).length === 0
@@ -542,21 +432,10 @@ export async function planRuleChange(db: Db, draft: RuleDraft): Promise<PlannedR
 /**
  * The other places that ask for books this draft asks for, and how the tie went.
  *
- * **Two places wanting one tag is allowed and nothing here makes it an error.**
- * What it is, is the one thing a count of books cannot say: #430 item 1 is
- * somebody writing "anything tagged Non-fiction" on a second piece of furniture,
- * the plan answering that no book would have to be carried, and nothing anywhere
- * mentioning that another piece already asks for the same eight books and is
- * tried first. A rule that claims nothing reads as the app being broken. A rule
- * that claims nothing because somebody else got there first is a room a person
- * can reason about.
- *
  * `claim` is asked rather than reimplemented, over the same prospective list the
- * plan is built from, so who wins here is who wins in the carry list.
- *
- * Keyed on which place it is rather than on what it reads as, because two places
- * really can read alike and folding them together by their labels is the hole
- * five defects came out of.
+ * plan is built from, so who wins here is who wins in the carry list. Keyed on
+ * which place it is rather than on what it reads as, because two places really
+ * can read alike.
  */
 function alsoClaiming(
   books: readonly PlannableBook[],
@@ -583,8 +462,7 @@ function alsoClaiming(
     }
   }
 
-  // A rule whose furniture is not standing has no name to print. It is a defect
-  // of its own and this sentence is not the place to guess one for it.
+  // A rule whose furniture is not standing has no name to print.
   return [...found.values()].filter((one) => one.place !== '')
 }
 
@@ -596,9 +474,8 @@ function alsoClaiming(
  * change, and a save landing in that window would file a book by a rule nobody
  * finished writing.
  *
- * **Safe to call twice.** The second call writes the same lines and finds every
- * book already assigned where the rules want it, so `assignmentFor` writes
- * nothing.
+ * Safe to call twice: the second call writes the same lines and finds every book
+ * already assigned where the rules want it, so `assignmentFor` writes nothing.
  */
 export async function applyRuleChange(
   db: Db,
@@ -611,11 +488,8 @@ export async function applyRuleChange(
      * again, so the plan below and every read afterwards sees one tag rather
      * than a slug with nothing behind it. `define` is `ON CONFLICT DO NOTHING`
      * and then a read, so applying the same change twice writes one row and
-     * never rewrites somebody's label.
-     *
-     * **This is where the word becomes a tag and the only place it does on this
-     * path.** It is inside the transaction that writes the rule, so a rule that
-     * fails to write leaves no word behind either.
+     * never rewrites somebody's label. It runs inside the transaction that
+     * writes the rule, so a rule that fails to write leaves no word behind.
      */
     const tags = new DrizzleTagRepository(tx)
     for (const rule of draft.rules) {
@@ -658,9 +532,8 @@ export async function applyRuleChange(
 
       /*
        * Replaced rather than reconciled. A rule's lines are a set and the order
-       * they were written in means nothing, so working out which rows to keep
-       * would be arithmetic in aid of nobody: the whole list arrives together
-       * and the whole list is what the rule now asks.
+       * they were written in means nothing: the whole list arrives together and
+       * the whole list is what the rule now asks.
        */
       await tx.run('DELETE FROM rule_condition WHERE rule_id = ?', [ruleId])
       for (const line of one.conditions) {
@@ -672,20 +545,16 @@ export async function applyRuleChange(
     }
 
     /*
-     * A rule taken off the place goes. **Half an "or" that cannot be undone
-     * would be worse than not having "or" at all**, so removing one of two rules
-     * is a real removal rather than a rule left switched off where nobody can
-     * see it.
+     * A rule taken off the place goes, rather than being left switched off where
+     * nobody can see it.
      *
      * `book_placement.rule_id` is `ON DELETE RESTRICT`, so the reference is let
      * go first. That loses a join and not an answer: `reason` on the same row
      * already carries the rule's name as it stood when the assignment was made,
-     * which is what "why is this book here" is answered with, and the live
-     * answer to that question is recomputed from the rules as they are now
-     * (`server/claim.ts`) rather than read out of the ledger. What the constraint
-     * is really protecting is `area_id`, where a cascade would erase the record
-     * of every book that ever stood on a plank somebody later removed; that one
-     * is untouched.
+     * and the live answer to "why is this book here" is recomputed from the rules
+     * as they are now (`server/claim.ts`) rather than read out of the ledger.
+     * What the constraint is really protecting is `area_id`, and that is
+     * untouched.
      */
     for (const rule of existing.values()) {
       if (kept.has(rule.id)) continue

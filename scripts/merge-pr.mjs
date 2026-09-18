@@ -1,53 +1,22 @@
 // The only sanctioned way to land a PR on the default branch.
 //
-// WHAT THIS PREVENTS
-// It used to say here that GitHub could not enforce required checks, because
-// branch protection needs a paid plan on a private repo. That was wrong twice
-// over and it was wrong for months: this repository is public (`gh repo view
-// --json visibility`), and rulesets are free on a public repository. #540 added
-// one. Since 2026-09-04 GitHub itself refuses a merge to `master` that has no
-// pull request behind it, that has one of the checks it names not green, or
-// that uses any merge method but squash. See `docs/process/working-an-issue.md`.
-// The ruleset names two of the three in `REQUIRED` below; the note there says
-// why this script being the stricter of the two is safe.
+// A green tick and a green tick against the right base are different claims.
+// GitHub computes a pull request's checks from a merge of the branch and the
+// base at that moment, so when something else lands in between, the ticks
+// describe a tree that no longer exists. The ruleset on `master` checks the
+// first claim; the second gate below checks the second, and refuses the merge
+// with an instruction to rebase.
 //
-// So this script is no longer the only thing standing between a red run and
-// `master`, and it is still the sanctioned way to land a pull request, for a
-// reason the ruleset cannot cover and the next section is entirely about: a
-// green tick and a green tick against the right base are different claims. The
-// ruleset checks the first. This checks the second, and refuses on it.
-//
-// It also refuses earlier and says why, which a 405 from the API does not, and
-// it works out its answer from data it fetches itself rather than from a
-// setting that could have been switched off without anybody noticing.
-//
-// Always squash: one issue becomes one commit on master, so `git log --oneline`
-// stays a readable list of changes rather than a wall of "fix lint" noise, and
-// reverting a change means reverting one commit.
-//
-// GREEN IS NOT ENOUGH ON ITS OWN
-// A green tick says a combination of code passed. It does not say that
-// combination is the one about to land. GitHub computes a pull request's checks
-// from a merge of the branch and the base *at that moment*, so when something
-// else lands in between, the ticks describe a tree that no longer exists.
-//
-// That is not hypothetical here. #151 put the `Db` interface under the stores
-// and #152 added a test written against better-sqlite3 directly. Neither
-// branch touched a file the other did, so nothing conflicted and GitHub called
-// both mergeable. Both merged green, within an hour of each other, and master
-// stopped compiling (#154). Every branch in flight then rebased onto a base
-// that failed, and this script refused all of them.
-//
-// So there is a second gate below: the checks must have run against the base as
-// it stands now, or the merge is refused with an instruction to rebase.
+// Always squash: one issue becomes one commit on master, so reverting a change
+// means reverting one commit.
 //
 //   node scripts/merge-pr.mjs 42
 import { execFileSync } from 'node:child_process'
 import { isInert } from './ci-scope.mjs'
 import { main as pruneWorktrees } from './prune-worktrees.mjs'
 
-// SETUP: the exact `name:` of each required CI job, as GitHub reports it in
-// the check rollup. Take them from a real run, not from the workflow file:
+// The exact `name:` of each required CI job, as GitHub reports it in the check
+// rollup. Take them from a real run, not from the workflow file:
 //   gh pr view <n> --json statusCheckRollup --jq '.statusCheckRollup[].name'
 // A name that never appears is treated as "never ran" and refuses the merge.
 // That is the safe direction, but a typo here looks like a broken script.
@@ -55,42 +24,19 @@ import { main as pruneWorktrees } from './prune-worktrees.mjs'
 // All three of these appear on every pull request, including one that changes
 // only markdown. Their jobs are never filtered out by `paths:` and never
 // skipped by a job-level `if:`: they always start, and decide inside themselves
-// whether the expensive steps are worth running (`scripts/ci-scope.mjs`). If
-// you are tempted to make a job conditional, read the top of that file first,
-// because the version of this list that refuses to merge a README change is the
-// one this comment exists to prevent.
+// whether the expensive steps are worth running (`scripts/ci-scope.mjs`). A
+// conditional job here is what makes a README change unmergeable.
 //
-// `image (build + contract)` was added by #552, six pull requests after #549
-// built it. It is the rehearsal for a version tag: it builds the image,
-// compares the contract inside it and runs the checker inside it, everything a
-// tag does except the push and the release. It was left advisory on purpose
-// until it had a run history, because #535 is what a required check that goes
-// red on every branch costs. When this line changed it had thirteen consecutive
-// successes across six unrelated pull requests and one manual dispatch, and no
-// failures. And it reported green in seven seconds on #559, which changed one
-// markdown file: that is the case that decides whether requiring it is safe at
-// all, because a required check that cannot appear on a docs change is what
-// made this repository unmergeable in #535.
-//
-// This list is now stricter than the ruleset on the default branch, which still
-// names the first two. That asymmetry is safe in this direction and only this
-// one: `scripts/guard-merge.mjs` denies every other way to land a commit, so
-// this script is the path in use, and a tighter gate on it cannot let anything
-// through that the ruleset would have stopped. Bringing the ruleset into line
-// is a repository setting and therefore the owner's, per
-// `docs/process/working-an-issue.md`.
-//
-// `no production data committed` was an entry here until #126. It was a
-// five second job billed as a whole minute, so it became the first step of
-// `web (typecheck + tests)` and also runs after a merge in `provenance.yml`.
-// The check still runs, on more commits than before; it no longer has a check
-// name of its own.
+// This list is deliberately stricter than the ruleset on the default branch,
+// which names only the first two. That asymmetry is safe in this direction and
+// only this one, because `scripts/guard-merge.mjs` denies every other way to
+// land a commit, so a tighter gate here cannot let anything through that the
+// ruleset would have stopped.
 export const REQUIRED = ['web (typecheck + tests)', 'browser journeys', 'image (build + contract)']
 
 // The compare endpoint lists at most this many files. A list at the cap may be
 // truncated, and a truncated list could hide a code change behind a wall of
-// markdown, so it is read as "cannot tell" and refuses. Same direction
-// `ci-scope.mjs` takes with its own truncation, and for the same reason.
+// markdown, so it is read as "cannot tell" and refuses.
 export const COMPARE_FILE_LIMIT = 300
 
 /**
@@ -100,27 +46,17 @@ export const COMPARE_FILE_LIMIT = 300
  * the rollup of the pull request's last commit: one entry per check run, with a
  * `conclusion` once it has finished and a `state` while it has not.
  *
- * Exported and separated from `main` so the refusals can be exercised, which
- * matters more here than the pass does. A gate is only worth what it stops, and
- * until #552 nothing in this repository ran the stopping half: the test beside
- * this file covered `judgeBase` and nothing at all read `REQUIRED`. So a name
- * could be misspelled into this list, or dropped out of it, and every test
- * would stay green.
- *
- * TWO WAYS A CHECK IS NOT GREEN, AND THEY ARE NOT THE SAME
- * A check can be **present and not green**, which is the obvious case: FAILURE,
- * CANCELLED, TIMED_OUT, SKIPPED, or still PENDING. Or it can be **absent** from
- * the rollup entirely, because its workflow never ran, which reads as a board
- * with nothing wrong on it. Absent is refused as "never ran", the safe direction:
- * "did not run" must not read as "passed". Every entry in `REQUIRED` is treated
- * identically in both directions; there is no name here that is advisory.
+ * A check can be present and not green (FAILURE, CANCELLED, TIMED_OUT, SKIPPED,
+ * or still PENDING), or absent from the rollup entirely because its workflow
+ * never ran, which reads as a board with nothing wrong on it. Absent is refused
+ * as "never ran", the safe direction: "did not run" must not read as "passed".
  *
  * NEUTRAL passes alongside SUCCESS, which is what a job that deliberately did
  * nothing reports.
  */
 export function judgeChecks(rollup) {
-  // Latest conclusion per check name; a rerun should not be judged on its first
-  // result, and the rollup lists reruns after the runs they replace.
+  // Latest conclusion per check name: the rollup lists a rerun after the run it
+  // replaces, and a rerun must not be judged on its first result.
   const latest = new Map()
   for (const check of rollup ?? []) {
     const name = check.name ?? check.context
@@ -157,40 +93,24 @@ export function judgeChecks(rollup) {
  *
  * which is the three-dot form, so it reads from the merge base forward:
  * `ahead_by` is how many commits the base branch has that this branch has never
- * seen, and `files` is what those commits changed. Verified against this
- * repository rather than assumed: comparing `f835b47...master` reports
- * `ahead_by: 2` and the 24 files #151 and #152 changed between them.
+ * seen, and `files` is what those commits changed.
  *
- * WHY THE HEAD SIDE IS NOT CHECKED
- * `statusCheckRollup` is the rollup of the pull request's last commit, so the
- * head the ticks describe is the head that would land, by construction. The
- * base side is the unknown, and nothing in the API says which base commit a
- * check run used: `pull_requests` comes back empty on this repository's
- * workflow runs and check suites (checked on run 31042629121 and suite
- * 84200985766), and `mergeStateStatus` only reports BEHIND when a rule requires
- * up-to-date branches, which this repository deliberately does not: #540 left
- * `strict_required_status_checks_policy` off in the ruleset and turned `strict`
- * off on the classic protection, for the reason argued below. So staleness is
- * derived from what the base has gained instead, which is a plain question git
- * can always answer.
+ * Only the base side is checked. `statusCheckRollup` is the rollup of the pull
+ * request's last commit, so the head the ticks describe is the head that would
+ * land, by construction. Nothing in the API says which base commit a check run
+ * used: `pull_requests` comes back empty on this repository's workflow runs and
+ * check suites, and `mergeStateStatus` only reports BEHIND when a rule requires
+ * up-to-date branches, which this repository deliberately does not.
  *
- * WHY NOT "THE EXACT TIP", AND WHY NOT SOMETHING LOOSER
- * Refusing on any movement at all is GitHub's "require branches to be up to
- * date", and it would re-run every open pull request on every merge, including
- * a merge that only edited a README. Billed minutes are finite and a refusal
- * that fires constantly gets worked around.
+ * A base commit that changed only paths `ci-scope.mjs` calls inert cannot change
+ * what any suite here proves, because CI would not have re-run a single step for
+ * it. Anything else gets a rebase, and `isInert` is shared rather than restated
+ * so the two definitions cannot drift apart.
  *
- * The tempting loose test, "do the intervening commits touch files this branch
- * touches", is worse than useless: #151 and #152 touched no file in common and
- * still broke each other, because the coupling was a type across one TypeScript
- * program. Any file-overlap rule would have waved through the exact defect this
+ * Do not weaken this to "do the intervening commits touch files this branch
+ * touches". Two branches can break each other through a type across one
+ * TypeScript program while touching no file in common, which is the defect this
  * gate exists for.
- *
- * So the line is drawn where this repository has already drawn it once. A
- * commit that changed only paths `ci-scope.mjs` calls inert cannot change what
- * any suite here proves, because CI would not have re-run a single step for it.
- * Anything else gets a rebase. Sharing `isInert` rather than restating it means
- * the two definitions cannot drift apart.
  */
 export function judgeBase(compared, base) {
   const gained = compared?.ahead_by
@@ -252,7 +172,6 @@ export function judgeBase(compared, base) {
 
 const plural = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`
 
-/** A short reason and an instruction, the shape every refusal here takes. */
 function staleMessage(base, gained, detail) {
   return (
     `its checks did not run against the current ${base}.\n\n` +
@@ -306,8 +225,8 @@ function main() {
   const checks = judgeChecks(pr.statusCheckRollup)
   if (!checks.green) refuse(checks.why)
 
-  // Green, and asked second on purpose: a red pull request needs its run fixed,
-  // and rebasing it would only produce a red run against a newer base.
+  // Asked second on purpose: a red pull request needs its run fixed, and
+  // rebasing it would only produce a red run against a newer base.
   let compared
   try {
     compared = JSON.parse(
@@ -348,13 +267,9 @@ function main() {
   }
 
   // Deleting the branch is the moment its worktree is certainly finished with,
-  // so the sweep happens here rather than being remembered. Each agent worktree
-  // carries its own node_modules; on 2026-08-07 the disk reached 1.4 GB free
-  // with eight of them and work stopped twice while they were cleared by hand.
-  //
-  // It refuses anything locked, dirty, or whose branch is still on origin, and
-  // says so per worktree. A failure here must not fail the merge: the merge has
-  // already happened, and reporting it as failed would be the worse lie.
+  // so the sweep happens here. A failure here must not fail the merge: the
+  // merge has already happened, and reporting it as failed would be the worse
+  // lie.
   try {
     pruneWorktrees()
   } catch (error) {
@@ -363,7 +278,6 @@ function main() {
 }
 
 // Only when run directly, so the test can import `judgeBase` without this
-// script trying to merge something. Compared on the entry path rather than on
-// `import.meta.url`, which needs a file:// URL dance to match on Windows. Same
-// pattern as ci-scope.mjs, and the same reason.
+// script trying to merge something. Compared on the entry path because
+// `import.meta.url` needs a file:// URL dance to match on Windows.
 if (process.argv[1]?.endsWith('merge-pr.mjs')) main()

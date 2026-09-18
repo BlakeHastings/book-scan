@@ -1,34 +1,15 @@
 name: Publish
 
-# The image and the contract, on a version tag and on nothing else (#533).
+# The image and the contract, on a version tag and on nothing else.
 #
-# WHY A TAG AND NOT A PUSH TO master
-# Two reasons, and the second is the one that decided it.
+# One immutable tag per release, spelled exactly as the git tag, plus the digest,
+# which is the only thing that actually pins a build. `docs/publishing.md`
+# argues the version scheme, the registry and the visibility.
 #
-# The image is 1.49 GB, mostly an OCR runtime that ships every platform's
-# prebuilt binaries. Building and pushing that on every commit would be unkind
-# to the runner, to the registry and to anybody pulling it.
-#
-# And a private repository deploying from a moving tag cannot say what is
-# running. `latest` answers "whatever was last built", which is not an answer
-# during an incident and is not a thing to roll back to. So this publishes one
-# immutable tag per release, spelled exactly as the git tag, and records the
-# digest, which is the only thing that actually pins a build.
-# `docs/publishing.md` argues the version scheme, the registry and the
-# visibility.
-#
-# WHAT THIS WORKFLOW MAY NOT NEED
-# No configured secret, no environment, no variable. It authenticates to GHCR
-# with the token GitHub hands every run, and it addresses the registry through
-# `github.repository`. Nothing here knows a domain, a host or a provider, and
-# nothing here requires one to exist — which is the property #533 exists to
-# protect, because the moment this repository needs the deployment to be real
-# in order to build or test, the two repositories have stopped being separable
-# and nobody will notice until somebody forks it.
-#
-# A fork gets this for free: a tag pushed on a fork publishes to that fork's own
-# namespace with that fork's own token, and the steps that assume this
-# repository's name step aside rather than fail.
+# Nothing here needs a configured secret, an environment or a variable: it
+# authenticates to GHCR with the token GitHub hands every run and addresses the
+# registry through `github.repository`. Keep it that way, so that a tag pushed
+# on a fork publishes to that fork's own namespace with that fork's own token.
 
 on:
   push:
@@ -38,7 +19,6 @@ on:
       - 'v[0-9]+.[0-9]+.[0-9]+'
       - 'v[0-9]+.[0-9]+.[0-9]+-*'
 
-# Nothing by default, and the job asks for the two it needs.
 permissions: {}
 
 jobs:
@@ -47,11 +27,7 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      # Pushing to ghcr.io as this repository. This is the whole reason GHCR was
-      # chosen over any other registry: the credential is issued to the run and
-      # expires with it, so this repository stores no registry secret at all.
       packages: write
-      # Creating the release the contract is attached to.
       contents: write
 
     steps:
@@ -61,12 +37,8 @@ jobs:
           fetch-depth: 0
 
       # A tag can be pushed at any commit, including one that never went near a
-      # pull request. Everything else in this repository's merge discipline
-      # (`scripts/merge-pr.mjs`, `scripts/guard-merge.mjs`,
-      # `scripts/check-main-provenance.mjs`) exists to stop unreviewed code
-      # reaching the default branch, and publishing an image would walk straight
-      # past all three. So: a version is a commit on the default branch, or it
-      # is not a version.
+      # pull request, so nothing is published from a commit that is not on the
+      # default branch.
       - name: This tag is on the default branch
         env:
           BRANCH: ${{ github.event.repository.default_branch }}
@@ -79,11 +51,9 @@ jobs:
           fi
           echo "$GITHUB_REF_NAME is $GITHUB_SHA, which is on $BRANCH."
 
-      # The contract is the thing being published, so it is checked before the
-      # 1.49 GB build rather than after. Both of these also run on every pull
-      # request; they run again here because a tag is a different commit from
-      # the one the pull request checked, and this is the last moment before
-      # something immutable is created.
+      # Both of these also run on every pull request. They run again here
+      # because a tag is a different commit from the one the pull request
+      # checked, and this is the last moment before something immutable exists.
       - name: The contract agrees with the code
         run: node scripts/check-deploy-contract.mjs
 
@@ -94,9 +64,8 @@ jobs:
         id: target
         run: |
           # A registry refuses a repository name with an uppercase letter in it,
-          # and this repository's owner has two. `github.repository` is
-          # `BlakeHastings/book-scan` verbatim, so this is not tidiness: without
-          # the fold, the push fails with "invalid reference format: repository
+          # and `github.repository` carries the owner's name verbatim. Without
+          # the fold the push fails with "invalid reference format: repository
           # name must be lowercase".
           image="ghcr.io/$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
           echo "image=$image" >> "$GITHUB_OUTPUT"
@@ -119,22 +88,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # No build cache, deliberately. This runs a few times a year, the layers
-      # are 1.49 GB, and GitHub's Actions cache is 10 GB for the whole
-      # repository. Caching this would evict the npm cache every pull request
-      # depends on, to save minutes on a job nobody is waiting for.
+      # No build cache, deliberately: the layers are 1.49 GB and GitHub's
+      # Actions cache is 10 GB for the whole repository, so caching this would
+      # evict the npm cache every pull request depends on.
       #
-      # The build is also the gate: the `build` stage runs `npm run build`,
-      # which typechecks, and `production-tree` runs the smoke check that loads
-      # the bundle after the prune. A tree that fails either one fails here,
-      # before the push. What it does NOT run is the test suite, which needs a
-      # Postgres; that ran on the pull request this commit came from.
-      #
-      # Since #549 that gate is no longer first met here. `image.yml` runs this
-      # same build on every pull request that touches what the image is made of,
-      # with `push: false, load: true`, so a tree that cannot build fails days
-      # before anybody tags it rather than after the tag is immutable and
-      # public.
+      # The build is itself a gate, but it does not run the test suite, which
+      # needs a Postgres. That ran on the pull request this commit came from.
       - name: Build and push
         id: build
         uses: docker/build-push-action@v6
@@ -142,42 +101,22 @@ jobs:
           context: .
           push: true
           tags: ${{ steps.target.outputs.image }}:${{ steps.target.outputs.version }}
-          # The three labels that are properties of this build rather than of
-          # the Dockerfile, which carries the rest.
+          # The labels that are properties of this build rather than of the
+          # Dockerfile, which carries the rest.
           labels: |
             org.opencontainers.image.version=${{ steps.target.outputs.version }}
             org.opencontainers.image.revision=${{ github.sha }}
 
-      # THE STEP THAT MAKES "VERSIONED WITH THE IMAGE" A FACT.
+      # This pulls back what was just pushed, by digest rather than by tag, and
+      # compares the file inside it against the file in this repository byte for
+      # byte. `.gitattributes` keeps `deploy/` at LF for that comparison.
       #
-      # The contract is only worth anything if the image a consumer pulls
-      # carries the contract that describes it. So this pulls back what was just
-      # pushed, by digest rather than by tag, and compares the file inside it
-      # against the file in this repository byte for byte. `.gitattributes`
-      # keeps `deploy/` at LF for this comparison. It also runs the checker
-      # inside the image, rather than letting it merely be present: a file that
-      # is copied in and never executed is how a shipped tool turns out to have
-      # been broken for months.
-      #
-      # **Nothing in this workflow puts the image on the runner.** The build
-      # above is `push: true` with no `load:`, on the `docker-container` driver,
-      # so what it made is in the registry and nowhere else, and the pull back is
-      # done by the script below. That is not an incidental detail: the first
-      # version of #549's script asked `docker image inspect` first, which reads
-      # the local store and does not pull, so it passed on every pull request and
-      # would have failed here — one step after an immutable public tag existed,
-      # with no release. Do not add such a precheck, and do not answer one by
-      # adding `load: true` above: loading 1.49 GB into the runner's daemon would
-      # remove the registry round trip that is half of what this step proves.
-      #
-      # Both of these used to be shell written out here, and #549 moved them
-      # into `scripts/check-image.mjs` **so that this is not their first run.**
-      # `.github/workflows/image.yml` calls the same script on every pull
-      # request that can change the image, against the image it just built and
-      # loaded, and the only thing that differs between the two callers is the
-      # ref. A second copy of these twenty lines in that workflow would have
-      # drifted from this one, and the drift would not have surfaced until a tag,
-      # which is the failure this whole change is about.
+      # Nothing in this workflow puts the image on the runner: the build above is
+      # `push: true` with no `load:`, so what it made is in the registry and
+      # nowhere else and the script pulls it back. Do not add a local
+      # `docker image inspect` precheck, which reads the local store and does not
+      # pull, and do not answer one by adding `load: true` above: the registry
+      # round trip is half of what this step proves.
       - name: The image carries this exact contract, and its checker runs
         env:
           REF: ${{ steps.target.outputs.image }}@${{ steps.build.outputs.digest }}
@@ -206,8 +145,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       # The release exists so the contract has somewhere to live that is not
-      # inside a 1.49 GB pull. A consumer's CI can fetch one small JSON file
-      # from here and check its own configuration without pulling anything.
+      # inside a 1.49 GB pull.
       - name: Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -245,8 +183,7 @@ jobs:
           anything else at start.
           EOF
           )
-          # A version with a hyphen in it is a pre-release, per semver, and
-          # GitHub should say so rather than offer it as the current release.
+          # A version with a hyphen in it is a pre-release, per semver.
           kind=()
           case "$VERSION" in *-*) kind+=(--prerelease) ;; esac
 

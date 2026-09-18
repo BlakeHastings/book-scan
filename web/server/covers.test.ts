@@ -114,10 +114,9 @@ describe('storing a cover that is really there', () => {
   })
 
   it('names two covers for the same ISBN differently, even fetched together', async () => {
-    // The bug this guards against: Date.now() alone collides when two saves
-    // land in the same millisecond, and writeFileSync overwrites in
-    // silence. Fetching them concurrently is the most direct way to try to
-    // provoke that collision.
+    // Date.now() alone collides when two saves land in the same
+    // millisecond, and writeFileSync overwrites in silence; fetching them
+    // concurrently is the most direct way to try to provoke that collision.
     const fetchImpl = serve(async () => new Response(await image(600, 900)))
 
     const [first, second] = await Promise.all([

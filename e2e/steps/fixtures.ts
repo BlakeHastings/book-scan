@@ -25,23 +25,13 @@ function fromEnvironment(name: string): string {
 
 export interface Fixtures {
   /**
-   * Nothing a step uses. It watches the page and speaks only on a red scenario.
+   * Nothing a step uses directly: it watches the page and speaks only on a
+   * red scenario.
    *
-   * ## Why a blank page had to start explaining itself (#448)
-   *
-   * A scenario that fails on `expect(locator).toBeVisible()` says the element
-   * was not there and stops. When the reason is that two of the sixty module
-   * requests behind that page were refused by the network stack, the person
-   * reading the failure is told about a heading and not about the page never
-   * having loaded, and the honest conclusions available to them are "the app is
-   * broken" and "the suite is flaky". Both are wrong and one of them ends in
-   * pressing re-run, which is the habit #448 is about.
-   *
-   * So every console error, every page error, every request the browser gave up
-   * on, **every response that came back at 400 or worse**, and the crash of a
-   * page or a whole context are collected for the length of a scenario and
-   * printed **only if that scenario fails**, with the machine's committed memory
-   * beside them. A green run says nothing new.
+   * Every console error, page error, abandoned request, response of 400 or
+   * worse, and page or context crash are collected for the scenario and
+   * printed only if it fails, alongside the machine's committed memory. A
+   * green run says nothing new.
    */
   browserTrouble: void
   /** The app's Postgres catalogue, so a scenario can start clean and look. */
@@ -55,33 +45,13 @@ export interface Fixtures {
 }
 
 /**
- * The suite arrives signed in, in both of the ways it talks to the app (#521).
+ * The suite arrives signed in, in both of the ways it talks to the app.
  *
- * Every route under `/api` is behind the gate: the browser's requests for
- * screens and photographs, and the direct `fetch(apiUrl, ...)` calls the steps
- * below use to set a scenario up without photographing forty books through the
- * camera. Both have to carry the session `global-setup.ts` obtained through
- * `GET /api/auth/dev/start`.
- *
- * ## The browser half
- *
- * A cookie put on the context, which is what a browser that had walked the
- * sign-in itself would be holding. `context` rather than `page`, so every page
- * a scenario opens has it.
- *
- * ## The `fetch` half, and why it is a wrapper rather than thirty edits
- *
- * Twenty-eight call sites across the step files write
- * `fetch(`${apiUrl}/api/...`)` directly, and adding a header to each is
- * twenty-eight chances to miss one — where missing one shows up as a scenario
- * failing for a reason that looks nothing like a missing cookie. So the header
- * is attached in one place, to requests at the api's own origin and to nothing
- * else: the catalogue stub's control plane and every other address are
- * untouched.
- *
- * This is the suite behaving like the browser beside it rather than a
- * convenience. A step that could reach the API without a session would be
- * setting scenarios up through a door the app does not have.
+ * A cookie is put on the context (not the page), so every page a scenario
+ * opens has it. `fetch` is wrapped once, rather than editing the many call
+ * sites across the step files that call it directly, and attaches the cookie
+ * only to requests at the api's own origin: the catalogue stub's control
+ * plane and every other address are untouched.
  */
 function attachTheSession(): void {
   const apiUrl = process.env.BOOKSCAN_E2E_API_URL
@@ -134,16 +104,10 @@ export const test = base.extend<Fixtures>({
       note(`request failed: ${request.failure()?.errorText ?? 'no reason given'} ${request.url()}`)
     })
     /*
-     * A request that arrived and was refused, which is the half `requestfailed`
-     * cannot see and the half that mattered here (#448).
-     *
-     * `requestfailed` fires when the network gave up. A `500` from Vite's proxy
-     * or a `401` from the gate is a perfectly successful round trip as far as
-     * the browser is concerned, `fetch` resolves, and this client turns it into
-     * a rejected promise that the first screen swallows. Without this line the
-     * scenario's whole account of a blank screen is "the browser reported no
-     * console error and no failed request", which reads as nothing having
-     * happened.
+     * A request that arrived and was refused: the half `requestfailed` cannot
+     * see. That event fires only when the network gave up; a 500 from Vite's
+     * proxy or a 401 from the gate is a successful round trip as far as the
+     * browser is concerned, and `fetch` resolves normally.
      */
     page.on('response', (response) => {
       if (response.status() < 400) return

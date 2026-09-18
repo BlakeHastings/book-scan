@@ -1,13 +1,4 @@
-/**
- * What the carry screens say, held to a claim rather than only looked at.
- *
- * Rendered as markup the way `HomePane.test.tsx` does it: this project has no
- * DOM in its test setup and none of these screens holds state.
- *
- * The design rules the gallery pins reach here too, and the ones this flow can
- * break are checked: no word out of the model on screen, the four places in the
- * tab bar, and a list that never quietly drops a book it is not carrying.
- */
+/** Rendered as markup: this project has no DOM in its test setup, and none of these screens holds state. */
 
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
@@ -18,14 +9,7 @@ import { CarryStalePane } from './CarryStalePane'
 import { TripPane } from './TripPane'
 import type { CarryTrip, CarryWork, StandingBook, TripAtAnArea } from '../lib/api'
 
-/**
- * One book as the carry wire answers it: the name, and the two pictures.
- *
- * The photographs are named after the book rather than left off, because they
- * are what somebody at a shelf matches the phone against, and a fixture with
- * none would be a fixture of the bug. `noPhoto` is the other real case, and it
- * has its own tests rather than being the default here.
- */
+/** Defaults to photographed, the common case; the no-photo case has its own tests. */
 const book = (id: number, title: string, filing: string, photographed = true) => ({
   id,
   title,
@@ -126,15 +110,6 @@ describe('the list of books to carry', () => {
     expect(words(carry())).toContain('Bryson to Didion')
   })
 
-  /**
-   * #447. `GET /api/carry` printed such a row as `4A -> 4A`, with the counts and
-   * the areas right and nothing on the screen saying the two ends are two
-   * different pieces. Somebody reading it walks to a bookcase and finds the
-   * books already on it.
-   *
-   * The stretch of authors is displaced rather than joined, because it reads as
-   * a row somebody can act on and this is not one until a piece has a name.
-   */
   it('says so on a trip whose two ends read the same', () => {
     const html = words(carry({
       work: work({ trips: [trip({ from: '4A', to: '4A', toAreaId: 41, sharedNumber: 4 })] }),
@@ -156,11 +131,6 @@ describe('the list of books to carry', () => {
     expect(carry({ work: null })).not.toContain('wf-trip')
   })
 
-  /*
-   * The plan says what it will not touch and so does this, in the same words: a
-   * list of fifty-three that had quietly dropped three pinned books would be
-   * believed, and the person would come back three books short.
-   */
   it('counts every book it is not carrying, with the reason', () => {
     const html = words(carry({
       work: work({
@@ -186,17 +156,11 @@ describe('the list of books to carry', () => {
       }),
     }))
 
-    // The day itself is `whenSaid`'s, and is checked where that is, against a
-    // fixed today rather than against the clock this run happens on.
     expect(html).toContain('You carried fifteen ')
     expect(html).toContain('Carry on at 4A')
     expect(html).toContain('Seven of the ten are on 3B already')
   })
 
-  /*
-   * Applying a plan is itself a change, so a list somebody has just made and is
-   * looking at has nothing to explain. The offer is for coming back to one.
-   */
   it('offers what changed only once there is a while-you-were-away', () => {
     const fresh = work({ changed: { left: 0, joined: 20, again: [] } })
 
@@ -231,14 +195,6 @@ describe('the list of books to carry', () => {
   })
 })
 
-/**
- * Saying no to the work, and what stays on the screen afterwards (#402).
- *
- * The state the owner was stuck in is the one at the bottom of this block: a
- * list he had decided against, with no way to say so. What these hold is that
- * the way out says plainly that nothing moves, that it can be undone, and that
- * the rule which wanted the books is still there to be changed.
- */
 describe('leaving the books where they are', () => {
   const aside = {
     fromAreaId: 40,
@@ -259,8 +215,6 @@ describe('leaving the books where they are', () => {
     expect(html).toContain('Three books stay where they are')
     expect(html).toContain('Nothing is moved and nothing is carried')
     expect(html).toContain('put this work back on the list afterwards')
-    // And says the rules are unchanged, which is the thing only he can decide
-    // about and the reason the work would otherwise come back.
     expect(html).toContain('rules that want them elsewhere are unchanged')
   })
 
@@ -277,11 +231,6 @@ describe('leaving the books where they are', () => {
     expect(html).toContain('Put them back on the list')
   })
 
-  /*
-   * Two different empty lists, and saying the wrong one is a lie about whose
-   * decision emptied it. "Every book is where the rules want it" is the rules
-   * agreeing; this is a person having answered them.
-   */
   it('does not claim the rules agree with a list somebody emptied by deciding', () => {
     const html = words(carry({ work: work({ moving: 0, trips: [], setAside: [aside] }) }))
 
@@ -306,11 +255,6 @@ describe('leaving the books where they are', () => {
 })
 
 describe('one trip, at the area the books come off', () => {
-  /**
-   * The same fact at the shelf, and above the instruction rather than under it:
-   * "Take these three off 4A" followed by "They go on 4A" is an instruction
-   * somebody would carry out and change nothing (#447).
-   */
   it('says when both ends read the same, before telling anybody to lift a book', () => {
     const html = words(attrip({ trip: atArea({ to: '4A', sharedNumber: 4 }) }))
 
@@ -351,11 +295,6 @@ describe('one trip, at the area the books come off', () => {
     expect(html).toContain('one of the three books here go')
   })
 
-  /*
-   * "Two of the two books here go to 3A" is arithmetic rather than an answer,
-   * and a mark on every book on the board answers nothing while looking like a
-   * row of cats. Both found by looking at a real trip where nothing stayed.
-   */
   it('does not answer "which of these" when the answer is all of them', () => {
     const html = attrip()
 
@@ -394,11 +333,8 @@ describe('one trip, at the area the books come off', () => {
     expect(html).toContain('rules that want these on 3A are unchanged')
   })
 
-  /*
-   * A book somebody left where it is is not a book the rules want here, and
-   * saying "already where the rules want it" about one would have the app
-   * agreeing with itself about a decision it did not make.
-   */
+  // `staying: 'left'` and `'settled'` are different: "left" means somebody
+  // decided to leave it, not that the rules already wanted it there.
   it('says a book left where it is was left, rather than calling it settled', () => {
     const html = words(attrip({
       trip: atArea({
@@ -415,16 +351,6 @@ describe('one trip, at the area the books come off', () => {
   })
 })
 
-/**
- * The books are drawn by their photographs, on every screen in this flow (#386).
- *
- * **Not decoration here.** Somebody is standing at a bookcase holding a phone up
- * against eleven spines looking for eight, so the picture is the match. They
- * were all missing, and it read as two faults rather than one: no photographs,
- * and a board that no longer looked like books at all. One cause, one seam: the
- * carry read sent no pictures, so the shared drawings had nothing to draw and
- * fell back to the cloth. These hold the panes to passing on what they are sent.
- */
 describe('a book to carry is drawn by its own picture', () => {
   const carried = (over: Partial<Parameters<typeof CarriedPane>[0]> = {}) =>
     renderToStaticMarkup(CarriedPane({
@@ -466,12 +392,6 @@ describe('a book to carry is drawn by its own picture', () => {
     expect(attrip()).toContain('class="wf-row__photo" src="/api/covers/front-1.jpg?w=160"')
   })
 
-  /*
-   * The one this must not answer by hiding the book. A book nobody has
-   * photographed is an ordinary book on an ordinary shelf, and what it wears is
-   * the dyed cloth every other view of the collection binds it in, with its name
-   * down the spine. It is drawn, it is countable, and it is a thing to fix.
-   */
   it('draws a book nobody has photographed as a book, in cloth, with its name', () => {
     const html = attrip({
       trip: atArea({
@@ -489,7 +409,6 @@ describe('a book to carry is drawn by its own picture', () => {
     const html = carried()
 
     expect(html).toContain('class="wf-spine__photo" src="/api/covers/spine-1.jpg?w=160"')
-    // The second book has none, and is still one of the two on the board.
     expect(html.match(/class="wf-spine /g) ?? []).toHaveLength(2)
     expect(html.match(/wf-spine__photo/g) ?? []).toHaveLength(1)
   })
@@ -550,11 +469,6 @@ describe('what changed while you were away', () => {
       ...over,
     }) as ReactElement)
 
-  /*
-   * The counts lead, because the first question is whether the job got bigger,
-   * and the books carried once and now to be carried again are named: nobody may
-   * find that out one book at a time standing at a shelf.
-   */
   it('leads with the size of the job and names the books to carry again', () => {
     const html = words(stale())
 

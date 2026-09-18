@@ -3,32 +3,13 @@
  * Check a deployment's configuration against `contract.json`, before anything
  * starts.
  *
- * This is the machine-readable half of #533. The contract beside this file says
- * what the server reads and what it refuses; this reads an environment and says
- * which of those a given configuration gets wrong. It is shipped inside the
- * published image at `/app/deploy/`, so the repository that deploys this can ask
- * the image itself rather than reading this repository's source:
- *
- *     docker run --rm --env-file ./its-own-env <image> \
- *       node /app/deploy/check-config.mjs
- *
- * or, without handing a container the values at all:
- *
- *     docker run --rm -v "$PWD/its-own-env:/tmp/env:ro" <image> \
- *       node /app/deploy/check-config.mjs --env-file /tmp/env
- *
- * **It prints names and never values.** Two of the variables it looks at are a
- * Postgres password and an OAuth client secret, and a checker whose output could
- * not be pasted into an issue would not be run.
+ * It prints names and never values: two of the variables it looks at are a
+ * Postgres password and an OAuth client secret.
  *
  * It has no dependencies and imports nothing from the app, so it works in the
  * runtime image, in a checkout with no `node_modules`, and in the consumer's CI.
- *
- * WHAT IT DELIBERATELY DOES NOT DO
  * It does not open a connection, resolve a hostname, or check that a mount
- * exists. Everything it knows comes from the contract and from names in an
- * environment, which is what makes it safe to run anywhere, including somewhere
- * that has no access to the deployment it is checking.
+ * exists, which is what makes it safe to run anywhere.
  */
 
 import { readFileSync } from 'node:fs'
@@ -36,17 +17,15 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const CONTRACT = fileURLToPath(new URL('./contract.json', import.meta.url))
 
-/** A variable is set if it exists and is not blank. Empty means unset everywhere in this app. */
+/** Empty means unset, everywhere in this app. */
 function set(env, name) {
   return typeof env[name] === 'string' && env[name].trim() !== ''
 }
 
 /**
- * The whole check, as a pure function, so the tests drive it rather than a process.
- *
- * Returns problems in two severities and a third list that is neither. `errors`
- * are configurations the app will refuse or that will be quietly wrong; the
- * exit code is theirs alone. `warnings` are things worth a second look.
+ * `errors` are configurations the app will refuse or that will be quietly
+ * wrong, and the exit code is theirs alone. `warnings` are worth a second look,
+ * and `notes` are neither.
  */
 export function checkConfig(env, contract, options = {}) {
   const errors = []
@@ -55,7 +34,6 @@ export function checkConfig(env, contract, options = {}) {
 
   const declared = new Map(contract.environment.map((one) => [one.name, one]))
 
-  // 1. Required, and the one refusal that is also a requirement.
   for (const entry of contract.environment) {
     if (!entry.required) continue
     if (set(env, entry.name)) continue
@@ -64,9 +42,7 @@ export function checkConfig(env, contract, options = {}) {
     )
   }
 
-  // 2. Variables the contract says a deployment must not set. Driven off the
-  //    contract's own wording rather than a second list here, so there is one
-  //    place to change when a variable changes character.
+  // Driven off the contract's own wording rather than a second list here.
   for (const entry of contract.environment) {
     const rule = entry.deployments ?? ''
     if (!rule.startsWith('must not set')) continue
@@ -78,9 +54,8 @@ export function checkConfig(env, contract, options = {}) {
     errors.push(`${entry.name} is set. It ${rule}`)
   }
 
-  // 3. The refusals the server makes at start, asked here instead. Each one is
-  //    an id in the contract, so the message a deployer gets and the behaviour
-  //    they will meet come from the same place.
+  // The refusals the server makes at start, asked here instead. Each is an id in
+  // the contract, so the message and the behaviour come from the same place.
   const refusal = (id) => contract.refusals.find((one) => one.id === id)
 
   const googleId = set(env, 'BOOKSCAN_OIDC_GOOGLE_CLIENT_ID')
@@ -93,10 +68,8 @@ export function checkConfig(env, contract, options = {}) {
   }
 
   /*
-   * Microsoft, and three names rather than two (#537). The tenant is in the set
-   * because Microsoft's issuer is scoped to one and there is deliberately no
-   * default: a deployment says which authority it admits, or the process refuses
-   * to start.
+   * Three names rather than two. The tenant is in the set because Microsoft's
+   * issuer is scoped to one and there is deliberately no default.
    */
   const microsoft = [
     'BOOKSCAN_OIDC_MICROSOFT_CLIENT_ID',
@@ -112,11 +85,8 @@ export function checkConfig(env, contract, options = {}) {
     )
   }
 
-  /*
-   * The one this file exists to catch early, because the alternative is a
-   * deployer reading "common" in every example on the internet, setting it, and
-   * meeting the refusal at start with the container already scheduled.
-   */
+  // `common` is what every example on the internet says, and the server refuses
+  // it at start.
   const tenant = (env.BOOKSCAN_OIDC_MICROSOFT_TENANT ?? '').trim().toLowerCase()
   if (tenant === 'common' || tenant === 'organizations') {
     errors.push(
@@ -134,9 +104,9 @@ export function checkConfig(env, contract, options = {}) {
     errors.push(`BOOKSCAN_DEV_SIGN_IN is set beside a real sign-in provider. ${refusal('dev-door-beside-a-real-provider').result}`)
   }
 
-  // 4. The origin, when there is one, has to be an absolute origin with a
-  //    scheme, because it is concatenated into a redirect URI. A host on its
-  //    own produces a URI no provider will accept, and the app does not check.
+  // The origin has to carry a scheme, because it is concatenated into a redirect
+  // URI. A host on its own produces a URI no provider will accept, and the app
+  // does not check.
   if (set(env, 'BOOKSCAN_PUBLIC_ORIGIN')) {
     const value = env.BOOKSCAN_PUBLIC_ORIGIN.trim()
     let parsed = null
@@ -152,15 +122,13 @@ export function checkConfig(env, contract, options = {}) {
     notes.push('No sign-in provider is configured, so nobody new can get in. Anyone already holding a session keeps it. This is a supported state and the server says so on every start.')
   }
 
-  // 5. The mount, which is the failure that does not announce itself.
   const dataMount = contract.mounts.find((one) => one.required)
   if (set(env, 'BOOKSCAN_DATA') && env.BOOKSCAN_DATA.trim() !== dataMount.path) {
     warnings.push(`BOOKSCAN_DATA is set to something other than ${dataMount.path}, which is the directory the image declares and the one this contract describes as the mount. Only do this if the mount moved with it: ${dataMount.whenMissing}`)
   }
 
-  // 6. Names that look like they were meant for this app and are not read by it.
-  //    A typo in an optional variable is otherwise completely silent: the app
-  //    starts, and the setting simply does nothing.
+  // Names that look like they were meant for this app and are not read by it. A
+  // typo in an optional variable is otherwise completely silent.
   const known = new Set(declared.keys())
   known.add('OTEL_EXPORTER_OTLP_TRACES_PROTOCOL')
   known.add('OTEL_EXPORTER_OTLP_METRICS_PROTOCOL')
@@ -170,23 +138,15 @@ export function checkConfig(env, contract, options = {}) {
     warnings.push(`${name} is set and nothing reads it. Check the spelling against the contract; an unread variable is silent, and the app will start without it doing anything.`)
   }
 
-  // 7. A port that is not a port.
   if (set(env, 'PORT') && !/^\d+$/.test(env.PORT.trim())) {
     errors.push('PORT is set to something that is not a number. Number(PORT) becomes NaN and the listen call will not do what you meant.')
   }
 
   /*
-   * 8. The bind, which is the only variable here that decides who can reach this
-   *    at all (#539).
-   *
-   *    Both halves are worth catching before a container starts. A value that is
-   *    not one of the two words is a process that will not start, and it is the
-   *    likeliest thing to get wrong, because `0.0.0.0` is what everybody types
-   *    and it is refused here on purpose: an interface address inside a
-   *    container is assigned at start and changes when the container is
-   *    replaced. And a bind that *is* open is not an error, it is a decision,
-   *    so it is said back to the deployer as the state they are in rather than
-   *    passed over in silence.
+   * The bind takes a word rather than an address, so `0.0.0.0` is refused on
+   * purpose: an interface address inside a container is assigned at start and
+   * changes when the container is replaced. A bind that is open is a decision
+   * rather than an error, so it is said back to the deployer as a note.
    */
   const bindOptions = contract.network.bindOptions
   const bindWords = Object.keys(bindOptions)
@@ -209,12 +169,9 @@ export function checkConfig(env, contract, options = {}) {
     }
   }
 
-  // 9. Things that are fine, and that a deployer should know are the state they
-  //    are in rather than find out from behaviour. Secrets only: an absent
-  //    secret is the one kind of absence that looks like working software and
-  //    is not. The sign-in pair is left out because the note above covers it in
-  //    one line rather than two, and the two the SDK reads are left out because
-  //    this app does not read them.
+  // Secrets only: an absent secret is the one kind of absence that looks like
+  // working software and is not. The sign-in names are left out because the
+  // notes above already cover them.
   const signIn = new Set([
     'BOOKSCAN_OIDC_GOOGLE_CLIENT_SECRET', 'BOOKSCAN_OIDC_GOOGLE_CLIENT_ID',
     'BOOKSCAN_OIDC_MICROSOFT_CLIENT_SECRET', 'BOOKSCAN_OIDC_MICROSOFT_CLIENT_ID',
@@ -297,23 +254,14 @@ function main(argv) {
   console.log('')
   if (result.errors.length === 0) {
     console.log('Nothing here will stop this deploying. What this cannot check is on the other side of the network:')
-    /*
-     * The bind trap is only a trap for the deployment that has the default, and
-     * that deployment is most of them (#539). One that set the variable has
-     * already been told what it chose, in the note above, so repeating "a
-     * published port reaches nothing" at it would be false.
-     */
+    // Only a trap for a deployment on the default. One that asked for `all` has
+    // already been told what it chose in the note above.
     const bind = (env[contract.network.bindVariable] ?? '').trim().toLowerCase()
     if (bind !== 'all') console.log(`  - ${contract.network.readThisFirst}`)
     console.log(`  - ${contract.mounts[0].whenMissing}`)
-    /*
-     * TLS belongs on this list rather than in a check, and the difference is the
-     * point. Nothing in here can see what is in front of the container: every
-     * correct deployment hands this server plain http, so a check would fire on
-     * all of them. It is not a check that guesses, it is the sentence a deployer
-     * needs at the moment they are wiring something up, printed exactly where
-     * the other two unknowables are.
-     */
+    // TLS belongs on this list rather than in a check: nothing here can see what
+    // is in front of the container, and every correct deployment hands this
+    // server plain http, so a check would fire on all of them.
     console.log(`  - ${contract.network.tls.whatBreaksWithoutIt}`)
     return 0
   }

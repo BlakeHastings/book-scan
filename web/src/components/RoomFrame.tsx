@@ -1,22 +1,4 @@
-/**
- * The frame every arranging screen wears, and the two things all six of them
- * have to draw the same way.
- *
- * ## The token scope
- *
- * `.wf` is where every colour, size and radius in the design system is
- * defined, so a screen drawn with these components has to sit inside one. Six
- * screens each opening their own would be six chances to forget, and the one
- * that forgot would look like the app rather than like the redesign.
- *
- * ## Trouble
- *
- * These screens are outside the app's chrome, which is where the error line
- * lives, so a refusal has to be drawn by the screen that caused it. It is a
- * quiet card carrying the server's own sentence, because the server's sentence
- * is the useful one: "Its 63 books move to other furniture first" says what to
- * do next, and "409" does not.
- */
+/** `.wf` scopes every colour, size and radius the design system defines; a screen drawn with these components must sit inside one or the tokens will not apply. */
 
 import { useEffect, useRef, type ReactElement, type ReactNode } from 'react'
 import { Card } from '../design/Card'
@@ -43,25 +25,14 @@ export function RoomFrame({
 }
 
 /**
- * What went wrong, in the words whatever refused it used.
- *
- * It scrolls itself into view, and that is not a flourish. The button that gets
- * refused most is the one at the very bottom of a piece's screen, and its
- * refusal is the sentence that says what to do instead; drawn at the top of a
- * page somebody is standing at the foot of, it is a button that did nothing.
+ * These screens sit outside the app's chrome, where the shared error line
+ * lives, so each draws its own refusal. Scrolls itself into view: the button
+ * that gets refused most is at the bottom of a long screen, so without this
+ * the refusal would render off-screen at the top.
  */
 export function Trouble({ said, onDismiss }: {
   said: string
-  /**
-   * A way to put the refusal away, where the screen underneath has one.
-   *
-   * Most refusals clear themselves the moment somebody tries the thing again,
-   * and those pass nothing here. The exceptions are the ones that arrive after
-   * whatever asked the question has already closed: a lookup that failed while
-   * the person was back on the page behind it. Those used to be dismissed by
-   * tapping the box, which is a target nothing says is a target, and this is
-   * that made into the button it always was.
-   */
+  /** Most refusals clear themselves when the thing is tried again, so most callers pass nothing here; this is only for refusals that arrive after whatever asked has already closed, such as a lookup that failed after the person navigated away. */
   onDismiss?: () => void
 }) {
   const card = useRef<HTMLDivElement>(null)

@@ -1,14 +1,6 @@
 /**
- * The rules the owner named, checked mechanically, plus the cheapest possible
- * proof that every screen in the gallery still renders.
- *
- * These are here because every one of them is the kind that gets broken by
- * somebody being helpful six months from now, in a file nobody re-reads. A
- * paragraph in a design document does not survive that; a red test does.
- *
- * Rendered as markup rather than driven in a browser, the way
- * `src/components/HomePane.test.tsx` does it: this project has no DOM in its
- * test setup and no screen here holds state.
+ * Rendered as markup rather than driven in a browser: this project has no DOM
+ * in its test setup and no screen here holds state.
  */
 
 import { readFileSync, readdirSync } from 'node:fs'
@@ -24,7 +16,6 @@ import { Shots, deckOrder, threeSlots, type Shot } from './Shots'
 
 const HERE = new URL('.', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
 
-/** Every source file of the design system, css and tsx alike. */
 function sources(dir = HERE): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name)
@@ -60,24 +51,6 @@ describe('no emoji, anywhere', () => {
   })
 })
 
-/**
- * Two components of one name, which is how a shared namespace starts.
- *
- * `Book.tsx` and `Camera.tsx` both exported `Shots`. Both emitted `.wf-shots`
- * and `.wf-shot`, so `library.css` ended up with two blocks of rules for one
- * set of names and each screen was drawn by whichever block came last. Every
- * photograph on the book page went to an empty dashed outline and the review's
- * three collapsed into one. It typechecked, it passed everything here, and it
- * was found by opening the screen.
- *
- * There is no cheap test for "these two blocks of CSS fight", because a class
- * legitimately appears in many rules and the outcome depends on the order and
- * the weight of all of them. There is a cheap test for the thing that comes
- * first: two components with one name. This is it. It would have gone red on
- * the merge that introduced the second `Shots`, before anybody opened a
- * browser, and it is not about `Shots`: the next collision is the one it is
- * really for.
- */
 describe('no two things in the library share a name', () => {
   it('is true of every name the design system exports', () => {
     const homes = new Map<string, string[]>()
@@ -110,40 +83,6 @@ describe('no coloured rail down the side of a card', () => {
   })
 })
 
-/*
- * ---------------------------------------------------------------------------
- * A word on the picture can be read whatever the lens is pointed at (#530)
- * ---------------------------------------------------------------------------
- *
- * The eleventh rule, and the first one taken from a measurement rather than
- * from a sentence the owner said. Everything the camera floats on a photograph
- * is the same cream on the same bed, and the bed was chosen against the one
- * background this gallery ever drew: a mid brown, where the cream is 13 to 1.
- * The app puts a photograph there. A book's page is white, and on white that
- * bed was **3.9 to 1**.
- *
- * `#camerapage` and `#cameracover` are that measurement made lookable-at, and
- * this is it made mechanical. What each has that the other has not is the
- * point: a number nobody can see goes stale politely, and a drawing nobody
- * recomputes goes wrong quietly.
- *
- * **What this cannot see, said rather than hoped, because it is what happened.**
- * It reads two token values and multiplies them out. It cannot tell whether the
- * bed a rule declares is the bed a person actually sees, and that was exactly
- * the second half of #530: the controls bar's own background was a gradient
- * drawn *after* the line saying what is in your hands, so that line had a 0.55
- * scrim under it and a slice of the same scrim over it, and measured 2.9 to 1
- * where this sum would have said 3.9. A scrim over a word dims the word and its
- * bed together, so no strength of scrim answers it: at 0.85 the sentence still
- * only reached 4.47. Nothing readable out of a stylesheet contains that; a
- * rendered screen does. It is `.wf-view__band` now, drawn before anything that
- * carries a word, and the rule that stands is that **nothing may be painted
- * over a bed** — which is a rule this file cannot check.
- *
- * It also cannot see a *new* word arriving on the camera with no bed at all.
- * The words under the photographs were already there when this was written, at
- * 1.1 to 1 on their own.
- */
 /** Every definition of a custom property in `tokens.css`, in file order. */
 function token(name: string): string[] {
   const css = readFileSync(join(HERE, 'tokens.css'), 'utf8')
@@ -151,27 +90,8 @@ function token(name: string): string[] {
 }
 
 /**
- * `library.css` as a list of rules, with the comments taken out.
- *
- * Comments first, because this file argues with itself in prose and every one
- * of those paragraphs quotes selectors, properties and colours that are not
- * declarations. A reader that cannot tell a rule from a sentence about a rule
- * measures the sentence.
- *
- * **It read every other rule until #553 and it now reads all of them.** The
- * pattern was `/(?:^|\})([^{}]+)\{([^}]*)\}/g`, which consumes the closing brace
- * of the rule before as well as its own, so the next match had to find another
- * `}` before it could start and the rule immediately after every match was
- * skipped. 260 of 520. The leading `\}` was never needed: `[^{}]` cannot cross a
- * brace, so a selector already begins where the rule before it ended.
- *
- * That is worth more than the fix. It was written for the second assertion in
- * the rule below, which passed its own revert — put the fade back on
- * `.wf-view__found--empty` and it goes red, and it does because that rule
- * happens to sit at an even count from the top of the file. **A check that
- * reads half of what it says it reads passes exactly the same way a whole one
- * does**, and the thing that found it was a second caller wanting a rule that
- * landed on the odd half.
+ * `library.css` as a list of rules. The comments come out first, because prose
+ * in that file quotes selectors and properties that are not declarations.
  */
 function rules(): { selector: string; body: string }[] {
   const css = readFileSync(join(HERE, 'library.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
@@ -181,11 +101,9 @@ function rules(): { selector: string; body: string }[] {
 
 describe('a word on the picture can be read whatever the lens is pointed at', () => {
   /**
-   * The two beds a word on this screen is allowed to be written on.
-   *
-   * There are two rather than one because a camera has a sheet on it as well as
-   * a picture: `--picture` is opaque and lets nothing through, and
-   * `--picture-scrim` is the one every floating control paints for itself.
+   * The two beds a word on this screen is allowed to be written on:
+   * `--picture` is opaque and lets nothing through, and `--picture-scrim` is
+   * the one every floating control paints for itself.
    */
   const BEDS = [
     { bed: '--picture-scrim', what: 'the bed under every floating control' },
@@ -195,11 +113,9 @@ describe('a word on the picture can be read whatever the lens is pointed at', ()
   it.each(BEDS)('$bed: $what', ({ bed }) => {
     const values = token(bed)
     /*
-     * One value and no second one under a dark block, which is the property
-     * being relied on rather than a coincidence, and it is the same argument
-     * `styles.test.ts` makes about `--picture-ink`: what is behind these is a
-     * photograph rather than a page, so a colour that followed the phone's
-     * theme would disappear on somebody's black paperback.
+     * One value and no second one under a dark block: what is behind these is a
+     * photograph rather than a page, so a colour that followed the phone's theme
+     * would disappear on somebody's black paperback.
      */
     expect(new Set(values).size, `${bed} changes with the theme`).toBe(1)
 
@@ -217,25 +133,14 @@ describe('a word on the picture can be read whatever the lens is pointed at', ()
   })
 
   /*
-   * The other way the floor comes out from under a word, and it happened twice
-   * in this one file: `opacity` on something that beds itself.
-   *
-   * It thins the bed at exactly the rate it thins the ink, so on a photograph
-   * it cannot demote a word, only hide it. Three quarters of a 0.72 scrim is a
-   * 0.54 scrim, which is the number this whole issue is about.
-   *
-   * **It has to follow the class rather than the rule, and getting that wrong
-   * was the first version of this test.** Neither of the two was written in the
-   * rule that painted its bed: the fade was on `.wf-view__found--empty` while
-   * the scrim was on `.wf-view__found`, and on
-   * `.wf-shots--picture .wf-shot__note` while the bed is on the rule beside it.
-   * A check that asked one rule for both would have passed over both of them,
-   * which is a check that cannot fail — worse than no check, because somebody
-   * builds on it.
+   * `opacity` on something that beds itself thins the bed at exactly the rate
+   * it thins the ink, so on a photograph it cannot demote a word, only hide it.
+   * It has to follow the class rather than the rule, because the fade and the
+   * bed are routinely written in different rules for the same element.
    *
    * `:disabled` is the one carve-out and it is WCAG's own: 1.4.3 exempts an
-   * inactive component, and a control that has faded because it cannot be
-   * pressed is saying so with the fade.
+   * inactive component, and a control faded because it cannot be pressed is
+   * saying so with the fade.
    */
   it('is not undone by fading something that beds itself', () => {
     const found = rules()
@@ -243,7 +148,6 @@ describe('a word on the picture can be read whatever the lens is pointed at', ()
     const classesIn = (selector: string): string[] =>
       [...selector.matchAll(/\.([A-Za-z][A-Za-z0-9_-]*)/g)].map((found) => found[1]!)
 
-    /** Every class that paints the scrim for itself, wherever it does it. */
     const bedded = new Set(
       found
         .filter(({ body }) => /background:\s*var\(--picture-scrim\)/.test(body))
@@ -266,50 +170,15 @@ describe('a word on the picture can be read whatever the lens is pointed at', ()
 })
 
 /*
- * ---------------------------------------------------------------------------
- * The frame you aim the book inside can be seen whatever the lens is pointed
- * at (#553)
- * ---------------------------------------------------------------------------
+ * A frame is aimed with rather than read, so the threshold here is WCAG
+ * 1.4.11's 3 to 1 and not 1.4.3's 4.5 to 1.
  *
- * The twelfth rule, and the second taken from a measurement. It is the eleventh
- * one's sibling and it is deliberately not the same rule, for two reasons that
- * are both worth saying out loud.
- *
- * **It is not text, so it is not 4.5 to 1.** WCAG 1.4.11 asks 3:1 of a graphic
- * somebody has to be able to make out; 1.4.3 asks 4.5:1 of something they have
- * to read. A frame is aimed with rather than read, and inheriting the stricter
- * number would have been a decision nobody made. This is the decision.
- *
- * **It cannot be answered with a bed, which is the whole of why #530 left it.**
- * Everything else on this camera paints `--picture-scrim` behind itself and
- * writes on that. A 1.5px border has nothing behind it, so it was cream on
- * whatever the lens was pointed at, and over a white page that is 1.03 to 1 —
- * the line's own pixels rgb(253,251,247) against rgb(255,255,255), read off the
- * running app rather than computed. So the line carries its own opposite
- * instead: a scrim ring on each side of the cream.
- *
- * **What this cannot see, said rather than hoped**, in the shape the rule above
- * set and `styles.test.ts` set before it.
- *
- * It reads colours and multiplies them out, so it cannot see **thickness**: a
- * keyline one tenth of a pixel wide computes exactly the same as this one, and
- * a person sees nothing.
- *
- * It cannot see **the picture that decides this**. Both tones are measured
- * against a flat white and a flat black, one at a time, and the photograph this
- * camera really takes is a page held up in a room, where the two sides of the
- * frame have different things behind them at the same moment. That is the case
- * the ring exists for and no reading of a stylesheet contains it. `#framenow`,
- * `#framedark`, `#framedim` and `#framekeyline` in the gallery are that case
- * drawn four times, which is the other half of this and not a duplicate of it.
- *
- * It measures **`.wf-view__guide` and nothing else**. The three modifiers
- * beside it are drawings of the candidates, two of them fail this on purpose,
- * and a rule that swept up every selector mentioning the guide would have to be
+ * It measures `.wf-view__guide` and nothing else. The three modifiers beside it
+ * are drawings of the candidates and two of them fail this on purpose, so a
+ * rule that swept up every selector mentioning the guide would have to be
  * switched off to draw the argument for itself.
  */
 describe('the frame you aim the book inside can be seen whatever the lens is pointed at', () => {
-  /** The one rule that paints it, which is the one the app renders. */
   const guide = (): { selector: string; body: string } => {
     const found = rules().find(({ selector }) => selector === '.wf-view__guide')
     expect(found, 'nothing in library.css draws .wf-view__guide any more').toBeDefined()
@@ -317,20 +186,11 @@ describe('the frame you aim the book inside can be seen whatever the lens is poi
   }
 
   /**
-   * Both sides, and this one is a decision rather than a sum.
-   *
-   * **The assertion below is not implied by the one after it, and the honest
-   * thing is to say so.** One ring passes the ratios: over an all-white picture
-   * an inset ring carries the frame, over an all-dark one the cream does, and
-   * where a page ends and a room begins the cream reads against whichever of the
-   * two is dark. What one ring costs is a line that is 3px thick where the tones
-   * fall its way and 1.5px where they do not, so the boundary somebody is lining
-   * a book up against changes weight and apparent position along its own length
-   * as the phone moves. The second ring costs 1.5px, and it buys not having to
-   * know which side of the line the book is on — which is a fact about a room.
-   *
-   * It is here rather than in a comment because "drop the redundant one" is the
-   * exact tidy-up a ratio-only rule would wave through.
+   * Not implied by the ratio check below. One ring passes the ratios, at the
+   * cost of a line 3px thick where the tones fall its way and 1.5px where they
+   * do not, so the edge somebody is lining a book up against changes weight
+   * along its own length. The second ring buys not having to know which side of
+   * the line the book is on, which is a fact about a room.
    */
   it('carries a second tone on both sides of the line', () => {
     const { body } = guide()
@@ -348,14 +208,9 @@ describe('the frame you aim the book inside can be seen whatever the lens is poi
   })
 
   /**
-   * And that one of the tones is always the one you can see.
-   *
-   * Every tone the frame is drawn in, against both ends of what a photograph
-   * can be. It is a `max` and not a `min` on purpose: a two-tone line is legible
-   * when **either** of its tones clears the threshold, which is exactly what
-   * having two of them buys. Asking both to clear it at both ends is asking for
-   * a colour that is at once light enough for black and dark enough for white,
-   * and there is not one.
+   * A `max` and not a `min` on purpose: a two-tone line is legible when either
+   * of its tones clears the threshold, and no one colour is at once light
+   * enough for black and dark enough for white.
    */
   it.each(BEHIND)('is at least 3 to 1 over rgb(%s, %s, %s)', (...behind) => {
     const { body } = guide()
@@ -372,15 +227,9 @@ describe('the frame you aim the book inside can be seen whatever the lens is poi
     ).toBeGreaterThanOrEqual(2)
 
     const ratios = tones.map((name) => {
-      /*
-       * One value and no second one under a dark block, for the reason the rule
-       * above gives about the beds and #451 gave about a literal: what is behind
-       * this frame is a photograph rather than a page, and a photograph is not a
-       * theme. A tone that followed the phone's would be chosen against the
-       * wrong thing twice over. `--picture-line` had never been asked this;
-       * `--picture-scrim` is asked twice now, here and above, and that costs
-       * nothing.
-       */
+      /* One value and no second one under a dark block: what is behind this
+         frame is a photograph rather than a page, and a photograph is not a
+         theme. */
       const values = token(name)
       expect(new Set(values).size, `${name} changes with the theme`).toBe(1)
 
@@ -401,34 +250,19 @@ describe('the shelf has one edge', () => {
   it('is true because the board draws no pseudo-element beside its border', () => {
     const css = readFileSync(join(HERE, 'library.css'), 'utf8')
 
-    // The doubling that got spotted immediately last time was a board edge
-    // plus a pseudo-element bar under it. One border, no ::before, no ::after.
     expect(css).not.toMatch(/\.wf-shelf__board\s*::?(before|after)/)
     expect(css.match(/\.wf-shelf__board\s*\{[^}]*border-bottom/)).not.toBeNull()
   })
 })
 
 /**
- * The words this codebase says to itself.
- *
- * The owner found "run" on the library screen and named the general rule
- * rather than the instance: "a run doesn't make any sense to the user, we
- * shouldn't expose that as a user translation of concepts." So the list is
- * every word `docs/shelving.md` and the schema use for something a person owns
+ * Every word `docs/shelving.md` and the schema use for something a person owns
  * or does, in the spelling the code uses rather than the one a person would.
  *
- * **Bookcase, area and book are not on it**, because those are the words a
- * person actually uses; the vocabulary note in `docs/shelving.md` is explicit
- * that an area is chosen by a person. "Shelve" is not on it either: it is what
- * you do with a book, and it is not "shelf", which is.
- *
- * **Fixture is not on it, and it is a table name.** That looks like the rule
- * being bent and it is not. The list is words the code says that a person does
- * not; the owner reached for this one himself, unprompted and twice in the
- * same breath: "they're not bookcases. They are fixtures, not bookcases", and
- * "we shouldn't be rendering the fixture that it's a part of here." A word
- * somebody uses about their own room is theirs, whatever else it also names.
- * The test is about translation, not about which strings the schema owns.
+ * Bookcase, area, book and fixture are deliberately not on it: those are the
+ * words a person actually uses about their own room, whatever else they also
+ * name. Neither is "shelve", which is what you do with a book rather than
+ * "shelf", which is on it.
  */
 const JARGON = [
   'run',
@@ -478,18 +312,10 @@ describe('no word out of the model reaches the interface', () => {
 })
 
 /**
- * A tag has two halves and a person only ever sees one of them.
- *
- * `docs/data-model.md`: "`slug` is the identity, `label` is what a person
- * reads", and the hierarchy lives in the slug, Obsidian style, so the identity
- * of the fantasy tag is the string `genre/fantasy`. That string is a key, and
- * putting a key on a screen is the same mistake as showing somebody a row id.
- * Nesting is drawn with an indent and said in words ("under Genre"); it is
- * never written out with a stroke in it.
- *
- * The pattern is deliberately about the shape rather than about a list of
- * known slugs, because the next slug is the one that gets rendered by
- * accident.
+ * A tag's `slug` is its identity and its `label` is what a person reads, and
+ * the hierarchy lives in the slug, so a slug on a screen is a row id on a
+ * screen. Matched by shape rather than against a list of known slugs, because
+ * the next slug is the one that gets rendered by accident.
  */
 const SLUG = /\b[a-z][a-z0-9]*\/[a-z][a-z0-9-]*\b/
 
@@ -503,14 +329,8 @@ describe('a tag is drawn by its label and never by its slug', () => {
 })
 
 /**
- * Find is not a place you can be.
- *
- * The owner took it out of the tab bar: "I think we should just have the find
- * system as part of the library rather than a completely separate system." It
- * is now the one action in the library's top right, and the thing that would
- * quietly undo that is somebody adding a fifth tab back. Four is the count,
- * and it is checked on the rendered markup rather than on the array, because
- * the array is not what a person taps.
+ * Four is the count, and it is checked on the rendered markup rather than on
+ * the array, because the array is not what a person taps.
  */
 describe('the tab bar has four places in it', () => {
   it('is true of every screen that draws one', () => {
@@ -542,60 +362,26 @@ describe('the one action in a corner is an icon with a name', () => {
       }
     }
 
-    // Without this the loop above passes by finding nothing, which is the way
-    // a test like this dies: the class gets renamed and it goes quiet.
+    // Without this the loop above passes by finding nothing.
     expect(found, 'no screen draws a corner action at all').toBeGreaterThan(1)
   })
 })
 
 /**
- * The corner opens onto the viewport, not onto the document (#393).
- *
- * `.wf-corner` was `position: absolute; inset: 0` inside `.wf-screen`, which
- * is right sized to whatever it is drawing rather than to the phone: the
- * library is taller than the screen the moment there is more than a shelf or
- * two of books. `inset: 0` on an absolute sheet reaches the top of *that*, so
- * opening the corner from a page somebody had scrolled down put the sheet
- * above where they were looking, off the top of the glass. The one door to
- * fixtures and settings looked like it did nothing, which is the worst
- * failure mode a button has.
- *
- * A render check does not catch this: `renderToStaticMarkup` has no layout
- * and no scroll position, so a markup assertion sees the same `<div
- * className="wf-corner">` whether the sheet lands on the icon or a screen
- * above it. What is checked here is the one line that decides which of those
- * happens: `position: fixed` pins the sheet to the glass the way `.wf-name`
- * already does for the same reason, and no amount of scrolling the page
- * underneath moves it.
+ * `renderToStaticMarkup` has no layout and no scroll position, so a markup
+ * assertion cannot tell whether a sheet lands on the glass or above where
+ * somebody is looking. What is checked instead is the one line that decides
+ * which of those happens.
  */
 describe('the corner opens onto the glass, not onto wherever the document happens to be scrolled', () => {
   /*
-   * Every sheet that opens over a screen, not only the corner.
+   * Every sheet that opens over a screen, not only the corner, because the next
+   * sheet is the one this is really for.
    *
-   * `.wf-sure` was absolute and was the same defect waiting to be found, on the
-   * argument that the screens it sat on were about as tall as the phone. The
-   * book's own page is not, and correcting its ISBN asks here since #408: the
-   * field is near the top, the card was centred in a document three screens
-   * long, and pressing the camera on it looked like it did nothing. Which is
-   * the sentence above, about a different button.
-   *
-   * So the rule is the family rather than the one member of it that has been
-   * caught, because the next sheet is the one this is really for.
-   *
-   * ## And the fourth is not a sheet at all (#414)
-   *
-   * `.wf-tabs` was `position: sticky; bottom: 0`, which is the same defect
-   * wearing a different keyword. A sticky box is pinned only while its
-   * containing block is under it, and the tab bar's containing block is
-   * `.wf-screen`, so the four places were on the glass exactly as long as
-   * nothing was drawn after the screen inside the same scroller. The gallery
-   * draws its Next button there, and the bar came to rest 47px up the phone on
-   * every screen in it.
-   *
-   * `absolute` is therefore not the only way to fail this. What the rule is
-   * about is the family of things that belong to the glass, and `sticky` puts
-   * a box back in the document's hands the moment the document is taller than
-   * whatever it happens to be nested in.
+   * `absolute` is not the only way to fail it. A sticky box is pinned only
+   * while its containing block is under it, so `sticky` puts a box back in the
+   * document's hands the moment the document is taller than whatever it is
+   * nested in.
    */
   const PINNED = ['wf-corner', 'wf-name', 'wf-sure', 'wf-tabs']
 
@@ -620,14 +406,9 @@ describe('the corner opens onto the glass, not onto wherever the document happen
   )
 
   /**
-   * And the bar that is out of flow has its room kept for it.
-   *
-   * The half of the fix a `position` assertion cannot see. A fixed bar reserves
-   * nothing, so unless something keeps the bottom of every screen clear, the
-   * last card on it goes under the bar and the change trades a floating tab bar
-   * for a button nobody can reach. `--tabs` is that number, and this is the
-   * check that both ends still read the same one: the bar keeps that height,
-   * and the body of the screen keeps that much clear.
+   * A fixed bar reserves no room, so unless something keeps the bottom of every
+   * screen clear the last card goes under it. `--tabs` is that number, and this
+   * is the check that both ends still read the same one.
    */
   it('keeps the height it now covers clear at the bottom of every screen', () => {
     const css = readFileSync(join(HERE, 'library.css'), 'utf8')
@@ -651,25 +432,9 @@ describe('the corner opens onto the glass, not onto wherever the document happen
 })
 
 /**
- * The three ways of looking at the library cost a button, not a row.
- *
- * > Instead of showing covers, list and spines as this very big thing that we
- * > can select one of three options for, can we put it to the right of the
- * > "every book" filter [...] That way you don't take up all this space for
- * > choosing between those different views.
- *
- * Two halves, and the second is the one that comes back. A segmented control
- * is the obvious thing to reach for when a fourth view turns up, or when
- * somebody decides the circle is too clever, and it is the thing that was
- * measured at 64px of every visit to a screen whose job is showing books.
- *
- * The first half is the accessibility rule the corner action already carries,
- * arriving somewhere new: this is the second target in the app drawn as a
- * glyph with no word, so it is named or it says nothing at all. Checked as the
- * general rule rather than against three known labels, because the next
- * switcher is the one it is really for.
- *
- * The filter is checked too, and deliberately: the switcher was asked to move
+ * Checked as the general rule, a glyph with a name on it, rather than against
+ * three known labels, because the next switcher is the one this is really for.
+ * The filter row is checked too, deliberately: the switcher was asked to move
  * beside that row, not to replace it.
  */
 describe('the way of looking at the books is one named button beside the filter', () => {
@@ -703,21 +468,6 @@ describe('the way of looking at the books is one named button beside the filter'
 })
 
 /**
- * Finding stayed as easy to reach as it was when it owned the corner.
- *
- * The corner became the portrait, so find moved to the row above the books,
- * and the whole risk in that trade is named in #329: "losing a corner action
- * and gaining a harder-to-find one is a downgrade dressed as a tidy-up." That
- * is not a thing that happens on the pull request that makes the trade; it is
- * a thing that happens a year later, when somebody tidies a row that has two
- * circles on it and leaves the one that draws.
- *
- * So what is pinned is the requirement rather than the drawing: **on every
- * screen that lists books there is a named target to find one, on the row
- * above them, and it is one press.** If the owner would rather it were a field,
- * or a word, or back in the corner, this goes red and is rewritten with it,
- * which is what a rule that is one round old should do.
- *
  * The name is checked and its wording is not, for the reason the corner action
  * and the view switcher are checked that way: the fault that actually arrives
  * is a glyph with nothing announcing it.
@@ -745,47 +495,14 @@ describe('finding is one press from every screen that lists books', () => {
 })
 
 /**
- * What a book's page is about, which the owner had to say twice.
- *
- * > This is the detailed view for a book. Where it is, is one part of that.
- * > It's not the whole picture. And I don't like the "where it is" widget
- * > right here. That's just taking up way too much space.
- *
- * Both halves of that are here as a check rather than as a paragraph, because
- * both are the kind of thing that comes back one helpful edit at a time: a
- * page that leads with where the book sits is the screen he rejected, and a
- * page that is a location widget with something small above it is that screen
- * wearing a different heading.
- *
  * Deliberately not a measurement of how tall the section is. Pixels are not
  * available here, and a character count of markup would fail on somebody
  * writing a longer sentence, which is not the thing being protected.
- *
- * ## What round eight changed here, and what it did not
- *
- * This used to count the page's headings and require at least four of them,
- * with "Where it is" among them. Three of those headings are gone now: the
- * tags moved up beside the picture, the actions are a row of buttons with
- * nothing over them, the board is not introduced, and the ledger of where a
- * book has been went entirely. Counting headings would now count one.
- *
- * **The rule did not move and has not been weakened.** It was never "a book
- * page has four headings"; that was a proxy for it, and the proxy is what the
- * owner's change broke. What the rule says is that the page is about the book,
- * and every piece of material this page carries about the book is now named
- * here and required to be above the place: the book itself, its facts, what it
- * is about, and what can be done with it. That is a stricter statement than a
- * count of headings, and it is stricter in the direction the rule cares about,
- * because the way back to the screen he rejected is the place climbing rather
- * than a heading going missing. Removing location material, which is all this
- * round did to this section, agrees with the rule rather than straining it.
  */
 describe('a book screen is about the book, not about where it sits', () => {
-  /* The three details screens are on this list from the round they were drawn
-     (#409), and that is the point of adding them: the notice at the top of one
-     of them is the only thing on any book screen allowed to be about where the
-     book sits, and it survives that by being an instruction. Everything under
-     it answers to the same rule the book's own page does. */
+  /* The notice at the top of one of the details screens is the only thing on a
+     book screen allowed to be about where the book sits, and it survives that
+     by being an instruction. */
   const BOOKS = ['book', 'thin', 'lone', 'details', 'amiss', 'detailsout']
 
   it('draws the book, its facts, its tags and its actions before the place', () => {
@@ -797,9 +514,8 @@ describe('a book screen is about the book, not about where it sits', () => {
       const where = markup.indexOf('aria-label="Where it is"')
       expect(where, `${id} never says where the book is`).toBeGreaterThan(-1)
 
-      /* Each one is a thing the page says about the book rather than about the
-         shelf, and each has to be above the place. Named individually so a
-         failure says which of them slipped below it. */
+      /* Named individually so a failure says which of them slipped below the
+         place. */
       const about: Record<string, string> = {
         'the book itself': 'class="wf-book"',
         'its photographs': 'wf-shots--book',
@@ -818,12 +534,9 @@ describe('a book screen is about the book, not about where it sits', () => {
 
   /*
    * The section is still named on the element even though the name is not
-   * written on the screen, and that is deliberate rather than an oversight
-   * left over from the heading. A sighted reader has the board in front of
-   * them, which is the owner's whole point; a screen reader has a run of
-   * spines and nothing saying what the run is. Taking the label off as well
-   * would be reading his "we don't need that text there" as an instruction
-   * about the accessibility tree, which it is not.
+   * written on the screen, and that is deliberate. A sighted reader has the
+   * board in front of them; a screen reader has a run of spines and nothing
+   * saying what the run is.
    */
   it('still names the place for somebody who cannot look at the drawing', () => {
     for (const id of BOOKS) {
@@ -838,34 +551,10 @@ describe('a book screen is about the book, not about where it sits', () => {
 })
 
 /**
- * Doing before knowing, which is the order of the whole page.
- *
- * > We should have the actions available to the user the moment they get to
- * > this detail view, so they can do whatever it is that they intend to do. And
- * > then if they don't intend to take action, when they scroll down they see
- * > the current shelving view, and that shows them where it is, which might be
- * > what they're here for.
- *
- * Somebody arriving at a book either wants to do something or wants to know
- * where it is, and the knowing is what they scroll to anyway. The order is
- * therefore the decision, not a layout, and it is exactly the kind of thing
- * that comes back one helpful edit at a time: where a book sits is the most
- * concrete thing on the page and it will keep trying to climb.
- *
- * Checked as the order things are drawn in rather than as a list of what each
- * one contains. It used to be checked as the order of the headings, and round
- * eight took four of the five headings off:
- *
- * > And "what you can do", we don't need that text there either. We should
- * > just enable them to take action on a book with a series of buttons. [...]
- * > And instead of "where it is", once again, we don't need that text there.
- * > Looking at this tells them where it is.
- *
- * The order he settled in round six is untouched by that and is still what is
- * pinned: what a book is about, then what you can do with it, then where it
- * sits, then the rest of the author. Only the way of reading the order off the
- * page changed, because a page with one heading on it cannot be checked by its
- * headings.
+ * The order is the decision rather than a layout: what a book is about, then
+ * what you can do with it, then where it sits, then the rest of the author.
+ * Read off the order things are drawn in rather than off the headings, because
+ * the page has one heading left on it.
  */
 describe('a book page puts what you can do above where the book sits', () => {
   const BOOKS = ['book', 'thin', 'lone', 'details', 'amiss', 'detailsout']
@@ -898,12 +587,6 @@ describe('a book page puts what you can do above where the book sits', () => {
     }
   })
 
-  /*
-   * The one heading left, and the one screen that must not have it. "More by
-   * this author" is drawn last where the catalogue has something else by them,
-   * and is not drawn at all where it has not: a heading whose only content is
-   * that there is no content is on most books in a new collection.
-   */
   it('finishes with the author, and leaves the author out where there is no more', () => {
     for (const id of ['book', 'thin']) {
       const markup = drawn(id)
@@ -927,11 +610,9 @@ describe('a book page puts what you can do above where the book sits', () => {
   })
 
   /*
-   * The four headings the owner took off, checked as words on the screen
-   * rather than as sections, because the way each of them comes back is
-   * somebody writing the sentence again somewhere slightly different. Each one
-   * was replaced by nothing: the tags read as facts, the buttons say what they
-   * do, and the board says where the book is by being looked at.
+   * Checked as words on the screen rather than as sections, because the way one
+   * of them comes back is somebody writing the sentence again somewhere
+   * slightly different.
    */
   it('writes none of the four headings he took off, in any form', () => {
     for (const id of BOOKS) {
@@ -948,11 +629,9 @@ describe('a book page puts what you can do above where the book sits', () => {
   })
 
   /*
-   * The sentence over the board went with #262's rule reaching the last place
-   * it had survived: "literally the view we have below that shows it. We don't
-   * need to explain it verbally with words." It had a class of its own, so the
-   * cheapest proof it has not been rewritten shorter is that the class is
-   * nowhere: not in a screen, not in the stylesheet waiting for one.
+   * The sentence had a class of its own, so the cheapest proof it has not been
+   * rewritten shorter is that the class is nowhere: not in a screen, and not in
+   * the stylesheet waiting for one.
    */
   it('says where the book is by drawing it, and not in a sentence over the drawing', () => {
     for (const screen of SCREENS) {
@@ -967,36 +646,10 @@ describe('a book page puts what you can do above where the book sits', () => {
 })
 
 /**
- * A book that is supposed to be moved says so in words, and is a door.
- *
- * > Instead of "moved it, there is an option", we should remove any button
- * > there, but let the user click on the needs-attention pop up to take them to
- * > the shelving step for that book [...] instead of "needs attention"
- * > explaining that it was last seen on a bookcase and now needs to be put on a
- * > different one, we can just have a message like "book is supposed to be
- * > moved" or something. A little less intense, taking up so much of the screen.
- *
- * Four ways this comes undone, and each one is a check rather than a paragraph.
- *
- * **It grows a button back.** A card with an answer along the bottom is what
- * this was, and one small button beside the sentence is how it returns. The
- * notice is one target and there is nothing inside it to aim at.
- *
- * **It grows back into a location report.** Both places are still on the
- * screen: the board draws the row with the gap in it, and the step this opens
- * names the plank on arrival. A sentence reciting them is the paragraph coming
- * back, and it is also the pinned rule about what a book screen is for being
- * strained by the one thing on the page allowed to be about where a book sits.
- *
- * **It starts telling somebody something with its colour.** He asked for
- * orange-ish and this system does not say anything with a hue: the words carry
- * the meaning and the colour is emphasis. So what is checked is that the notice
- * still reads with every class and every attribute stripped off it, which is
- * what greyscale is, and separately that no rail was painted down its side.
- *
- * **The delete starts explaining itself again.** The sentence over that button
- * went the same round, and the warning it carried is in the dialog rather than
- * gone. What must not come back is the page saying it.
+ * This system says nothing with a hue: the words carry the meaning and the
+ * colour is emphasis. So what is checked is that the notice still reads with
+ * every class and every attribute stripped off it, which is what greyscale is,
+ * and separately that no rail was painted down its side.
  */
 describe('a book supposed to be moved is told in words, and pressing it goes somewhere', () => {
   const drawn = (id: string) => {
@@ -1015,8 +668,6 @@ describe('a book supposed to be moved is told in words, and pressing it goes som
     expect(markup.match(/class="wf-amiss"/g) ?? [], 'the notice is drawn once')
       .toHaveLength(1)
     expect(noticeOn('amiss'), 'the notice is not a target at all').not.toBe('')
-    /* Nothing inside it: the one button is the notice itself. A card with an
-       answer along the bottom is exactly what this stopped being. */
     expect(
       noticeOn('amiss').match(/<button/g) ?? [],
       'the notice holds an answer of its own',
@@ -1028,8 +679,8 @@ describe('a book supposed to be moved is told in words, and pressing it goes som
 
     expect(said, 'the notice says nothing without its paint')
       .toMatch(/supposed to be moved/i)
-    /* One sentence. Two is the paragraph starting again, and the length is not
-       what is being pinned: the full stop count is. */
+    /* One sentence, and the full stop count is what pins it rather than the
+       length. */
     expect(said.match(/[.!?]/g) ?? [], 'the notice says more than one sentence')
       .toHaveLength(1)
   })
@@ -1043,8 +694,6 @@ describe('a book supposed to be moved is told in words, and pressing it goes som
       .not.toMatch(/moved it|undo the move/i)
   })
 
-  /* And it is on the one screen that is about a book being out of place. A
-     notice drawn on every book is an alarm nobody would design around. */
   it('is on no book screen that has nothing wrong with it', () => {
     for (const id of ['book', 'thin', 'lone', 'details', 'detailsout']) {
       expect(drawn(id), `${id} says a book is out of place when it is not`)
@@ -1072,26 +721,11 @@ describe('a book supposed to be moved is told in words, and pressing it goes som
 })
 
 /**
- * How the one book a screen is about is marked, which had to stop being a ring.
- *
- * > How we're highlighting the book doesn't look very good to me with the white
- * > outline that we have there. It may even be cute to put the cat on top of
- * > the edge. Something that makes it more visually apparent and isn't clipping
- * > the way that's clipping here.
- *
- * Two faults with one cause. An outline is painted outside the element it is
- * on, a run scrolls inside itself with `overflow-y: hidden`, and a spine is the
- * tallest thing on the board, so the top of that ring was outside the scroller
- * every time. **Anything drawn around the books is drawn outside the run**, so
- * the fix is not a thicker ring or a different colour: the mark stands on the
- * book and takes its room from inside the board.
- *
- * What is checked is the two halves that would bring the clipping back. The
- * ring is gone from the spine and has nowhere to be reattached, and the room
- * kept above the book is the cat's own height rather than a second number that
- * agrees with it today. Pixels are not available here, and a wrapper that
- * reserves the wrong amount of space is exactly the fault that cannot be seen
- * in markup, which is why the two numbers are one number.
+ * An outline is painted outside the element it is on, and a run scrolls inside
+ * itself, so anything drawn around the books is drawn outside the run and
+ * clipped. The mark therefore stands on the book and takes its room from inside
+ * the board, and the room kept above it is the cat's own height rather than a
+ * second number that agrees with it today.
  */
 describe('the book a screen is about is marked on itself, not ringed', () => {
   it('wraps it with the cat on top, and the cat says what he means', () => {
@@ -1131,59 +765,19 @@ describe('the book a screen is about is marked on itself, not ringed', () => {
 
     expect(css).not.toMatch(/\.wf-spine--here/)
     expect(shelf).not.toMatch(/wf-spine--here'/)
-    // Nothing on this shelf is drawn outside its own box, which is the whole
-    // of why the old mark was cut off. Every other outline in the stylesheet
-    // is `none` with a shadow instead, so this stays a one-line check.
+    // Every other outline in the stylesheet is `none` with a shadow instead, so
+    // nothing needs `outline-offset` and this stays a one-line check.
     expect(css).not.toMatch(/outline-offset/)
   })
 })
 
 /**
- * What the first screen is for, which the owner cut down to one thing.
+ * Three doors is a ceiling rather than a count, and none of them may go where a
+ * tab already goes: a room the tab bar opens is one press from here whatever
+ * this screen does, so a door to it is the camera card under another name.
  *
- * > Let's not even have the book scanning part here. Let's just have metrics,
- * > useful information. Like, for example, "six are ready to shelve" or "three
- * > books to carry".
- *
- * Two halves, and both are the kind that come back one helpful edit at a time.
- * A card offering the camera is a second door to the room the tab bar already
- * opens, and it is the one that eats the middle of the screen. A count nobody
- * can act on is decoration, and decoration is what a screen made of counts
- * fills up with.
- *
- * The second is the general one and it is checked mechanically: every count on
- * this screen is a target. The tab bar is deliberately not covered by either:
- * photographing a book is one tap away from here and from everywhere else, and
- * that is the point of taking the card off.
- *
- * ## Round eight: the counts lost their headings and gained a list of doors
- *
- * > So we get rid of the collection, and we get rid of "needs you", and instead
- * > we just have those numbers there [...] And then underneath those, we have
- * > the button for "find the book in your hand" [...] And any of the other most
- * > meaningful actions in the application.
- *
- * So this screen now has buttons on it, deliberately, and the answer to "may
- * another one be added" stopped being a flat no. What replaces the flat no is
- * the two things that made it worth having, and both are checked below rather
- * than described:
- *
- * **There are few of them.** Three is the ceiling, and it is a ceiling rather
- * than a count because the fault is a screen of buttons, which is the thing he
- * was complaining about in the first place said another way.
- *
- * **None of them goes where a tab goes.** A room the tab bar already opens is
- * one press from here whatever this screen does, so a button for it is the
- * camera card being reinvented under another name. Checked by pressing every
- * door and comparing where it lands against the tab table itself.
- *
- * ## And one of them is pinned by name, because it is a camera (#355)
- *
- * There is **exactly one** way from here to the camera you point at a book you
- * already own, its wording is `IN_HAND`, and pressing it lands on that camera.
- * The wording is checked because it is the only thing that says which of this
- * app's two cameras it is, and getting that wrong is the fault that costs
- * somebody a book catalogued twice.
+ * The wording of the one door to the camera is checked because it is the only
+ * thing that says which of this app's two cameras it opens.
  */
 describe('the first screen is counts, and every count goes somewhere', () => {
   const screen = () => {
@@ -1208,11 +802,6 @@ describe('the first screen is counts, and every count goes somewhere', () => {
     expect(words(home())).not.toMatch(/camera|photograph/i)
   })
 
-  /*
-   * The headings were the whole shape of this screen for two rounds and their
-   * class is still in the stylesheet for every other screen that uses it, so
-   * the cheapest proof they have not crept back is that this screen draws none.
-   */
   it('says the counts in one ungrouped run, with no heading over them', () => {
     const markup = home()
     const said = [...markup.matchAll(/class="wf-stat__word">([^<]+)</g)].map((one) => one[1])
@@ -1223,18 +812,6 @@ describe('the first screen is counts, and every count goes somewhere', () => {
     ])
   })
 
-  /*
-   * Where the cat is, which is a decision rather than a detail (#427).
-   *
-   * > This is the cat. It is supposed to be sleeping on the actions, not as
-   * > part of the metrics grid.
-   *
-   * He closed the counts from #361 and #410 stretched him across them, and on a
-   * phone that read as a sixth count with a long tail. He belongs to the things
-   * you can do now, and the counts are five counts. Both halves are checked,
-   * because "he moved" and "he moved and took a hole with him" are different
-   * outcomes and only one of them was asked for.
-   */
   it('sleeps on the things you can do, and leaves the counts five', () => {
     const markup = home()
 
@@ -1271,10 +848,8 @@ describe('the first screen is counts, and every count goes somewhere', () => {
   })
 
   it('is one press from the camera that reads a book you already own', () => {
-    // The measurement #355 exists to restore, taken the way that issue takes
-    // it: from this screen, with nothing opened first. A door that was named
-    // right and landed somewhere else would pass every check above and still
-    // be the regression, so what is pinned is where pressing it goes.
+    // A door that was named right and landed somewhere else would pass every
+    // check above, so what is pinned here is where pressing it goes.
     let went = ''
     const door = findIn(screen().render((to) => { went = to }), InHand)
 
@@ -1287,13 +862,10 @@ describe('the first screen is counts, and every count goes somewhere', () => {
 })
 
 /**
- * Every door on a screen, as elements that can still be pressed.
- *
- * They are the children of the one `Doors` on the screen rather than a search
- * for a component type, and that is the point: the rule is about how many
- * things this screen offers and where they go, so a door added tomorrow as some
- * other component is covered by it without anybody remembering to add a name
- * here.
+ * Every door on a screen, as elements that can still be pressed. They are the
+ * children of the one `Doors` on the screen rather than a search for a
+ * component type, so a door added as some other component is covered without
+ * anybody remembering to name it here.
  */
 function doorsOf(screen: Screen, go: Go = () => {}): ReactElement[] {
   const list = findIn(screen.render(go), Doors)
@@ -1304,12 +876,9 @@ function doorsOf(screen: Screen, go: Go = () => {}): ReactElement[] {
 }
 
 /**
- * The first element of a given kind in a drawn screen, or nothing.
- *
- * Rendered markup cannot be pressed, and what a target does is exactly the
- * part of a wireframe that markup does not carry. So a screen's own tree is
- * walked instead, which is the cheapest way to ask "and where does that one
- * go" without putting a DOM in this project's test setup.
+ * The first element of a given kind in a drawn screen, or nothing. Rendered
+ * markup cannot be pressed and this project's test setup has no DOM, so the
+ * screen's own tree is walked instead.
  */
 function findIn(node: ReactNode, kind: unknown): ReactElement | undefined {
   if (Array.isArray(node)) {
@@ -1327,22 +896,9 @@ function findIn(node: ReactNode, kind: unknown): ReactElement | undefined {
 }
 
 /**
- * One row of books is one area, and nothing splits a row.
- *
- * > A is an area itself, so it really would be bookcase one, 1A, and then
- * > underneath that would be another row that's 1B. You wouldn't have this
- * > actual physical split like you have there.
- *
- * The library drew bookcase 1 as one row labelled `1A` with a post partway
- * along it and an area either side, which says `1A` holds areas. It does not:
- * an area is the unit a person owns and the unit a book is placed in, and this
- * app has never known which areas share a plank. So a row is an area, every
- * row wears exactly one label, and the drawing that said otherwise is gone.
- *
- * Checked on the rendered markup and on the source, because there are two ways
- * back: somebody redraws the post, or somebody writes a label that names two
- * places at once. The count of boards against the count of labels is what
- * catches a third row appearing inside a second one.
+ * An area is the unit a person owns and the unit a book is placed in, and this
+ * app has never known which areas share a plank. So a row is an area, and every
+ * row wears exactly one label.
  */
 describe('one row of books is one area', () => {
   it('is true because no screen draws anything dividing a row', () => {
@@ -1373,32 +929,12 @@ describe('one row of books is one area', () => {
 })
 
 /**
- * The catalogue holds no gender, so no screen may speak as though it did.
+ * A book has a name, an alias and a filing name behind it and no field for a
+ * pronoun, so any sentence that picks one is inventing it.
  *
- * The owner found one instance and named the rule under it:
- *
- * > You have "all nine of hers". We need to change that to "theirs", because
- * > we're not gonna be able to tell if it's male or female probably for the
- * > author.
- *
- * It is structural rather than a wording preference. A book has a name, an
- * alias and a filing name behind it and there is no fourth field waiting to be
- * filled in, so any sentence that picks a pronoun is inventing one, and it is
- * wrong the first time a name does not read the way somebody assumed. There
- * were four of them, on the two book screens, and a fifth would arrive the
- * same way: one helpful edit written about one author who happens to be known.
- *
- * The only foreseeable false positive is a real book title with a pronoun in
- * it, and there is none in the gallery today. If one ever arrives, the title
- * is not the problem and neither is this check: it is worth the minute it
- * costs to say so where the exception is made.
- *
- * **Bare "he" is deliberately not on the list**, and that is the one honest
- * hole in it. The comparison screens narrate the owner's own choices back to
- * him in the app's voice, which is a different fault with a different fix
- * (#262, and not this screen's), and every form the author defect actually
- * took is here: a possessive and an object are what you reach for when you are
- * writing about somebody, and "all nine of hers" is both.
+ * Bare "he" is deliberately not on the list. The comparison screens narrate the
+ * owner's own choices back to him in the app's voice, which is a different
+ * fault with a different fix.
  */
 const GENDERED = ['him', 'his', 'himself', 'she', 'her', 'hers', 'herself']
 
@@ -1415,18 +951,6 @@ describe('nothing on a screen has a gender in it', () => {
   })
 })
 
-/**
- * A book's photographs are the book, and there is nothing underneath it.
- *
- * > We should have the spine on the left side of the book image and the book
- * > cover there [...] and then the user should be able to swipe on the front of
- * > the book to see the other pictures, rather than us show them all
- * > underneath it.
- *
- * Both halves are checked, because the rail is the half that comes back: it is
- * the obvious way to add a fourth kind of photograph to this screen, and it
- * was the arrangement here for two rounds.
- */
 describe('a book wears its photographs rather than listing them', () => {
   it('draws the spine against the front, and no rail under either', () => {
     for (const id of ['book', 'thin', 'lone']) {
@@ -1447,31 +971,6 @@ describe('a book wears its photographs rather than listing them', () => {
   })
 })
 
-/**
- * The other pictures are reachable, by a swipe and by something that is not one.
- *
- * > It should be possible to swipe on the book cover to be able to see the
- * > catalogue image, the front picture, the back picture. Right now we can't
- * > swipe on it.
- *
- * The gesture itself cannot be driven from here: this suite renders markup and
- * has no DOM to move a finger across. What it can hold is the three things the
- * gesture rests on, each of which is a way the swipe has already been lost or
- * could be lost again by somebody tidying.
- *
- * **Every photograph is in the strip**, not only the front. Drawing `deck[0]`
- * and nothing else is what this screen did for two rounds, and it is the state
- * a swipe silently degrades back to.
- *
- * **The strip is a scroll container.** That is the only reason a sideways
- * gesture and the page scrolling down do not fight: the browser picks the axis
- * and gives the other one away. Take `overflow-x` or the snapping off and the
- * pictures stop moving without anything else looking wrong.
- *
- * **The dots are buttons.** A swipe is undiscoverable and a mouse has none, so
- * a person who never swipes still reaches every photograph. They were spans
- * with a `listitem` role and no behaviour, which read the same and did nothing.
- */
 describe("a book's photographs answer to a swipe, and to somebody who does not", () => {
   const css = readFileSync(join(HERE, 'library.css'), 'utf8')
 
@@ -1509,29 +1008,15 @@ describe("a book's photographs answer to a swipe, and to somebody who does not",
       const dots = markup.match(/<button[^>]*class="wf-dot[^"]*"[^>]*>/g) ?? []
 
       expect(dots.length, `${id} draws no dot that can be pressed`).toBe(3)
-      // Every one names the photograph it goes to, and says whether there is
-      // one to go to at all.
       for (const dot of dots) expect(dot, `${id} has an unnamed dot`).toMatch(/aria-label="/)
     }
   })
 })
 
 /**
- * The picture a catalogue holds is the one a book opens on, where there is one.
- *
- * > On the book detail view, we should show the catalogue picture of the front
- * > of the book first if possible, instead of the one the user took.
- *
- * **"If possible" is the half that has to be checked.** Bringing a downloaded
- * cover to the front is three lines; bringing one to the front when there is
- * none is a book that opens on an empty dashed box with "No photograph"
- * written in it, and every book in a new collection is that book. So both
- * cases are pinned, and they are pinned on the dots, which are what name the
- * pictures in the order they are swiped through.
- *
- * The arithmetic itself is `deckOrder`, which is pure and is checked here
- * directly as well: the drawn screens prove the component reads it and these
- * prove it answers correctly for the cases no screen happens to draw.
+ * Both cases are pinned, the book with a downloaded cover and the book without
+ * one, and they are pinned on the dots, which are what name the pictures in the
+ * order a swipe reaches them.
  */
 describe('a book opens on the picture a catalogue holds, where there is one', () => {
   /** The photographs in the order the swipe reaches them, off the dots. */
@@ -1574,12 +1059,10 @@ describe('a book opens on the picture a catalogue holds, where there is one', ()
   })
 
   /*
-   * The queue row draws this same component and hands it one photograph
-   * (#363), so this ordering has to be incapable of touching it. It is, by
-   * arithmetic rather than by a caller remembering to opt out: with one
-   * picture in the deck there is nothing at an index above zero to bring to
-   * the front. Checked on the drawn row as well as on the function, because
-   * the row is where a regression would actually be seen.
+   * The queue row draws this same component and hands it one photograph, so the
+   * ordering cannot touch it: with one picture there is nothing at an index
+   * above zero to bring to the front. Checked on the drawn row as well as on
+   * the function.
    */
   it('leaves a deck of one exactly as it was, which is what a queue row has', () => {
     const only = { word: 'Front', cloth: 'moss' as const }
@@ -1604,22 +1087,10 @@ describe('a book opens on the picture a catalogue holds, where there is one', ()
 })
 
 /**
- * The details screen is three slots, and the spine leads them.
- *
- * > At the top of this screen we need to show the catalogue image if it's
- * > available. If it's not available, we don't show it. The spine should be on
- * > the far left, not on the far right. [...] When the catalogue image is
- * > available, you should be able to swipe on our front picture to be able to
- * > see the back picture.
- *
- * Three things would each undo it on their own and each is checked. The spine
- * came last because `SLOTS` is the order the camera fills them in, and that
- * list is still there and still right for the camera, so the ordering is the
- * thing a tidy-up would reunify. A downloaded cover drawn as an empty dashed
- * box is the obvious way to add a fourth kind and is what the book's own page
- * correctly does with the same kind, so the two screens differ on purpose. And
- * the swipe is only there in one of the two states, which is the sort of thing
- * that gets drawn for both because it is fewer branches.
+ * The two screens differ on purpose. A book's own page draws a kind nobody has
+ * photographed as an empty dashed box; this screen draws no frame at all for a
+ * cover nobody downloaded. `SLOTS` is still the order the camera fills the
+ * photographs in, which is why the spine leading here is pinned separately.
  */
 describe('the details screen is three slots, and the spine is the first', () => {
   const drawn = (id: string) =>
@@ -1662,11 +1133,9 @@ describe('the details screen is three slots, and the spine is the first', () => 
     )
   })
 
-  /*
-   * The arithmetic itself, for the cases no screen happens to draw. A cloth
-   * and a photograph both count as a picture, the way they do everywhere else
-   * in this component, and neither counts when there is neither.
-   */
+  /* A cloth and a photograph both count as a picture, the way they do
+     everywhere else in this component, and neither counts when there is
+     neither. */
   it('decides on the picture rather than on the caller remembering', () => {
     const spine: Shot = { word: 'Spine', sliver: true, cloth: 'moss' }
     const front: Shot = { word: 'Front', cloth: 'wood' }
@@ -1679,39 +1148,16 @@ describe('the details screen is three slots, and the spine is the first', () => 
     const none: Shot = { word: 'Downloaded', catalogue: true }
     expect(threeSlots(spine, none, ours)).toEqual({ shots: [spine, front, back] })
 
-    // A real photograph counts as much as the gallery's cloth does.
     const real: Shot = { word: 'Downloaded', catalogue: true, photo: '/api/covers/x.jpg' }
     expect(threeSlots(spine, real, ours)).toEqual({ shots: [spine, real], deck: ours })
   })
 })
 
 /**
- * A picture opens whole, and whole means the whole photograph.
- *
- * > It should be possible that if we just tap the image of the spine or of the
- * > book, that we get a full screen view of it that can be exited out of, or
- * > you can swipe on to go see any of the other images.
- *
- * The view itself cannot be opened from here: this suite renders markup and has
- * no DOM to tap. What it holds is the four things it rests on, each of which is
- * a way it has already been lost once somewhere in this app or would be lost by
- * somebody tidying.
- *
- * **A picture is a target and an empty box is not.** Blowing a dashed box with
- * "No photograph" in it up to fill a phone is the same sentence in a bigger
- * room, and a swipe that lands on one reads as nothing having happened.
- *
- * **The strip is a scroll container**, which is the only reason a swipe between
- * pictures and a tap that closes the view are two different gestures. Take the
- * snapping off and both stop working, in opposite directions.
- *
- * **The picture is not cropped.** This is the one that would go quietly: every
- * other picture of a book here is `object-fit: cover` on a crop, because a wall
- * of uncropped photographs is a wall of carpet, and the app's lightbox has
- * carried the exception since it existed.
- *
- * **There is a named way out.** A handler on a box is not something a keyboard
- * or a screen reader can find.
+ * The view cannot be opened from here, so what is held is the four things it
+ * rests on. The one that would go quietly is the crop: every other picture of a
+ * book in this app is `object-fit: cover` on a crop, because a wall of
+ * uncropped photographs is a wall of carpet, and this view is the exception.
  */
 describe('a picture opens whole, and whole is the whole photograph', () => {
   const css = readFileSync(join(HERE, 'library.css'), 'utf8')
@@ -1776,8 +1222,7 @@ describe('a picture opens whole, and whole is the whole photograph', () => {
       />,
     )
 
-    // The view is not open, so what is checked here is the door: both pictures
-    // are pressable and each says what pressing does.
+    // The view is not open, so what is checked here is the door.
     expect(targets(markup).length, 'neither picture opens anything').toBe(2)
     for (const one of targets(markup)) {
       expect(one, 'a picture says nothing about what it opens').toMatch(
@@ -1789,22 +1234,10 @@ describe('a picture opens whole, and whole is the whole photograph', () => {
 })
 
 /**
- * The queue row's drawing is unchanged, said as the exact string it draws.
- *
- * #363 gave the row the book page's own component and #374 had to prove the
- * ordering could not reach it. This round adds two more things that could:
- * a strip that a rail can now hold, and a picture that can now be pressed.
- * Neither is reachable from a row, and neither is kept out by anything the row
- * says: they are kept out by nobody asking for them.
- *
- * That is a good argument and it is the same argument that was made about the
- * ordering, so it gets the same proof, one round stronger. The row's markup is
- * pinned here in full. Anything at all that leaks into it fails, including the
- * things nobody has thought of yet, which is the whole point of a string rather
- * than a list of absences.
- *
- * **If this fails, look at what changed before changing the string.** The
- * string is the record of a decision, not a snapshot to be refreshed.
+ * The row's markup is pinned here in full, so anything at all that leaks into
+ * it fails, including the things nobody has thought of yet. If this fails, look
+ * at what changed before changing the string: it is the record of a decision,
+ * not a snapshot to be refreshed.
  */
 describe('a queue row draws exactly what it drew', () => {
   it('is byte for byte the markup it was', () => {
@@ -1831,23 +1264,8 @@ describe('a queue row draws exactly what it drew', () => {
 })
 
 /**
- * A spine is cropped to a spine, on every screen that draws or takes one.
- *
- * > In our current world, that is a cropped shot where we crop to the spine
- * > shape. [...] Whenever we're on the spine shot, it should be a cropped shot
- * > of the spine.
- *
- * and, on the review:
- *
- * > Once again, the spine is gonna be thin, so it may not need to take up all
- * > that space right there.
- *
- * One fact behind both, `sliver` on the shot, so what is checked is that every
- * screen reads it rather than that each one looks a particular way. The frame
- * changes shape only when the spine is the photograph about to be taken, which
- * is the half that would come back as a slot on every shot; and the review's
- * spine wears the same marker its cropped drawing on the book page does, which
- * is the half that would come back as a second treatment.
+ * One fact behind both screens, `sliver` on the shot, so what is checked is
+ * that each screen reads it rather than that either looks a particular way.
  */
 describe('a spine is photographed and drawn in the shape of a spine', () => {
   const drawn = (id: string) =>
@@ -1880,16 +1298,8 @@ describe('a spine is photographed and drawn in the shape of a spine', () => {
 })
 
 /**
- * Thirteen digits are read off a book, not typed by somebody holding one.
- *
- * > On the ISBN, on the right side of it, we should show like a camera icon
- * > for them to change the ISBN. They can click on that and it opens up to
- * > scan the ISBN in the back of the book, like our current flow.
- *
- * The thing that would undo it is not somebody deleting the button; it is
- * somebody adding a second field action with no accessible name, because the
- * target carries an icon and no word. So the check is the general one: every
- * action inside a field is named.
+ * The target carries an icon and no word, so the check is the general one:
+ * every action inside a field is named.
  */
 describe('a field with another way to answer it says what that way is', () => {
   it('is true of every screen that draws one, and the review draws one', () => {
@@ -1910,21 +1320,12 @@ describe('a field with another way to answer it says what that way is', () => {
 })
 
 /**
- * The one thing on a shelf that is a claim about a physical object.
- *
  * A page count is thickness, so it decides width. Height is uniform, because
- * the catalogue holds no height at all and the owner spotted that before this
- * was written.
+ * the catalogue holds no height at all.
  *
- * **This test used to say a width comes off a book or it does not get drawn**,
- * and it is now allowed one exception, on purpose rather than by being relaxed.
- * 183 of the owner's 238 books carried a page count on 2026-08-12, so a quarter
- * of a shelf has no honest width, and the fallback he chose is the median of
- * the ones that do. The exception is therefore pinned harder than the rule: it
- * is not a free number, it is `MEDIAN_PAGES` and nothing else, it sits strictly
- * inside the range real books occupy, and a shelf drawn from it varies. The way
- * this loosens is somebody picking a round number that "looks about right", and
- * the second test below is what goes red when they do.
+ * A book with no page count is drawn at `MEDIAN_PAGES` and at nothing else, and
+ * that exception is pinned harder than the rule because the way it loosens is
+ * somebody picking a round number that looks about right.
  */
 describe('a spine is only as big as the catalogue can justify', () => {
   it('is wider for a thicker book, always', () => {
@@ -1944,9 +1345,8 @@ describe('a spine is only as big as the catalogue can justify', () => {
   })
 
   it('keeps that fallback inside the range the real catalogue covers', () => {
-    // 54 and 1168 are the thinnest and thickest books he owns. A fallback
-    // outside them would be a book nobody has, which is the visibly-different
-    // width this decision rejected.
+    // 54 and 1168 are the thinnest and thickest books in the real catalogue. A
+    // fallback outside them would be a book nobody has.
     expect(spineWidth(undefined)).toBeGreaterThan(spineWidth(54))
     expect(spineWidth(undefined)).toBeLessThan(spineWidth(1168))
   })
@@ -1954,8 +1354,7 @@ describe('a spine is only as big as the catalogue can justify', () => {
   it('draws every book the same height, and offers no other answer', () => {
     const shelf = readFileSync(join(HERE, 'Shelf.tsx'), 'utf8')
 
-    // Flat tops, settled. The variant that estimated a height from the shape of
-    // a spine photograph is gone, and the way it comes back is a second prop.
+    // Flat tops. A second prop is the way a per-book height comes back.
     expect(shelf).not.toMatch(/spineHeight/)
     expect(shelf).not.toMatch(/heights/)
     expect(shelf).not.toMatch(/ratio[?:]/)
@@ -1964,13 +1363,10 @@ describe('a spine is only as big as the catalogue can justify', () => {
 })
 
 /**
- * The gallery's own books have the same holes in them the real ones do.
- *
  * A fixture where every book has a page count draws a shelf that does not
  * exist, and it would make the fallback width the one piece of this system that
- * only ever appears in a test. So `spines` leaves roughly one name in four
- * without a count, and this is here because filling them back in is a helpful
- * edit somebody would make without knowing what it hides.
+ * only ever appears in a test. Filling these counts back in is the helpful edit
+ * this guards against.
  */
 describe('a shelf in the gallery is missing the page counts a real one is', () => {
   it('leaves about a quarter of thirty books without one', () => {
@@ -2017,31 +1413,10 @@ describe('a shelf in the gallery is missing the page counts a real one is', () =
 })
 
 /**
- * The stop before an area goes, which is the one place this design system is
- * allowed to explain itself at length.
- *
- * > I think deleting an area, we should show a pop up that explains to them
- * > what's gonna happen with the books, so they can decide whether they wanna
- * > do that or not.
- *
- * Three things are checked and each one is a different way this comes back
- * wrong six months from now.
- *
- * **A dialog that talks about books in general.** "Books will be reassigned"
- * is the sentence somebody writes when they are describing the feature rather
- * than answering the question, and it is what the count is for: the owner is
- * deciding about his own twenty-four books, not about a policy. So every
- * dialog title carries a number and the word it counts.
- *
- * **A dialog whose safe answer is the easy one to miss.** The destructive
+ * Every dialog title carries a number and the word it counts, because somebody
+ * is deciding about their own books rather than about a policy. The destructive
  * button comes first and the one that changes nothing is beside it, which is
- * `ConfirmDialog`'s arrangement in the working app and is checked here rather
- * than described, because the order is the sort of thing a tidy-up reverses.
- *
- * **A way in that quietly disappears.** There was no way to remove an area
- * anywhere in the interface at all until #281, which is how this started; a
- * refactor that loses the button leaves the dialogs drawn and unreachable, and
- * the screens would still all render.
+ * `ConfirmDialog`'s arrangement in the working app.
  */
 describe('removing an area explains itself before it happens', () => {
   const drawn = (id: string) => {
@@ -2090,16 +1465,12 @@ describe('removing an area explains itself before it happens', () => {
   })
 
   /**
-   * The first area on a piece has nothing before it, and a dialog that says
-   * its books join "the area before" is promising something the app cannot do
-   * at the top of every piece of furniture in the room. The promise is made in
-   * the title, so that is where this looks, and it is checked positively as
-   * well: the title names the area they do join.
+   * The promise is made in the title, so that is where this looks, and it is
+   * checked positively as well: the title names the area the books do join.
    *
    * The body is deliberately left out of it. Saying "the area after it rather
-   * than the one before" is the sentence that makes the difference legible to
-   * somebody who has seen the ordinary dialog, and a check that forbade the
-   * words would be forbidding the explanation this issue asked for.
+   * than the one before" is what makes the difference legible, and a check that
+   * forbade the words would forbid the explanation.
    */
   it('never promises an area before the first one', () => {
     const markup = drawn('removefirst')
@@ -2116,24 +1487,10 @@ describe('removing an area explains itself before it happens', () => {
 })
 
 /**
- * A book a rule change displaced is put back by the screen a new book is put
- * back by.
- *
- * > There needs to be a flow inside the application to look at all those books
- * > that are marked as needing to be moved and be able to go through and
- * > reshelve each one [...] the same way as whenever we're initially shelving
- * > them.
- *
- * The owner has said twice that he likes the where-it-goes screen, and #291
- * asks for it rather than for a second one. `screens.tsx` obeys that
- * structurally, with one `Placing` called by both, and the way that comes apart
- * is somebody hand-building the carry version to add one thing to it: a
- * heading, a count, a button above the drawing. Then the two drift for a year.
- *
- * So this pins the shape rather than the call: the sentence naming the
- * neighbours, the area drawn with the gap in it, the book in the hand, and the
- * answer, in that order, on both. Anything that reorders or drops one of the
- * four is a second implementation whatever it is spelled as.
+ * `screens.tsx` draws both screens with one `Placing`, and this pins the shape
+ * rather than the call: the sentence naming the neighbours, the area drawn with
+ * the gap in it, the book in the hand, and the answer, in that order, on both.
+ * A hand-built second version fails however it is spelled.
  */
 describe('a carried book is placed by the screen a new book is placed by', () => {
   const marks = ['wf-instruction', 'wf-gap', 'wf-shelf__inhand', 'wf-btn--primary']
@@ -2153,21 +1510,8 @@ describe('a carried book is placed by the screen a new book is placed by', () =>
 })
 
 /**
- * A pill with no word in it is a colour, and this system does not tell anybody
- * anything with a colour.
- *
- * The rule is older than the pills: it is what the corner action, the view
- * switcher and every dot in a strip of photographs are each checked for
- * separately, and #363 is the round that made it worth stating generally. A
- * queue row is now three pills and no prose, so three facts a person acts on
- * are carried by small boxes, and the cheapest way to lose one is a helpful
- * edit that keeps a tint and drops the word inside it.
- *
- * Two of the three pills on that row are tinted for exactly one reason each,
- * and both reasons are about the screen rather than the thing: a tag narrowing
- * what you are looking at, and a book saying it needs a person. Neither is
- * allowed to be the only thing said. Checked on every screen rather than on the
- * queue, because the next pill is the one this is really for.
+ * Checked on every screen rather than on the queue, because the next pill is
+ * the one this is really for.
  */
 describe('a pill says what it is, and is never only a colour', () => {
   it('is true of every pill on every screen', () => {
@@ -2187,25 +1531,13 @@ describe('a pill says what it is, and is never only a colour', () => {
 })
 
 /**
- * A person who is not let in is offered the one thing that is theirs, and
- * nothing that pretends to be.
+ * The thing to keep out is a second button. A "try again" here would retry the
+ * request that has just answered 403, and it will answer 403 again until a
+ * decision is made in a different place, so there is exactly one thing to press
+ * on this screen and it is the way out.
  *
- * #524 is explicit about what this screen owes somebody. They have signed in,
- * proved exactly who they are, done nothing wrong, and can do nothing about it,
- * and what they can see the edge of is somebody else's collection. So the
- * screen says what happened, says the owner is the one who can change it, and
- * offers a way out.
- *
- * **The thing to keep out is a second button**, and it is the one somebody will
- * add. A "try again" here is the login loop #521 warned about with a coat of
- * paint on it: the request that would be retried is the one that has just
- * answered `403`, and it will answer `403` again until a decision is made in a
- * different place. There is exactly one thing to press on this screen and it is
- * the way out.
- *
- * The address is checked too. It is not decoration: it is what makes signing
- * out worth offering to somebody who arrived on the wrong account, and without
- * it the button is a way to lose a session for no stated reason.
+ * The address is what makes signing out worth offering to somebody who arrived
+ * on the wrong account.
  */
 describe('the screen for somebody who is signed in and not let in', () => {
   const waiting = () => {
@@ -2227,14 +1559,14 @@ describe('the screen for somebody who is signed in and not let in', () => {
   })
 
   it('says the owner is the one who lets somebody in', () => {
-    // Not "an administrator" and not "support": the whole shape of #510 is that
-    // there is one person, and a script they run, and no role anywhere.
+    // Not "an administrator" and not "support": there is one person, a script
+    // they run, and no role anywhere.
     expect(words(waiting())).toMatch(/\bowns\b/)
   })
 
   it('is not the sign-in screen wearing different words', () => {
-    // The failure this issue exists to prevent, said as a drawing: somebody
-    // holding a good session must never be offered a way to sign in again.
+    // Somebody holding a good session must never be offered a way to sign in
+    // again.
     expect(words(waiting())).not.toMatch(/Continue with/)
   })
 
@@ -2247,12 +1579,8 @@ describe('the screen for somebody who is signed in and not let in', () => {
 })
 
 /**
- * The way in draws the answer, and there is no list of providers in the client.
- *
  * `GET /api/auth/providers` says which buttons there are, which is what makes
- * adding Microsoft later a configuration change rather than a screen change.
- * The gallery draws it twice for that reason, so the claim is a thing somebody
- * can look at rather than a sentence in a comment.
+ * adding another provider a configuration change rather than a screen change.
  */
 describe('the way in', () => {
   const drawn = (id: string) => renderToStaticMarkup(
@@ -2265,9 +1593,8 @@ describe('the way in', () => {
   })
 
   it('does not tell the development door apart from any other', () => {
-    // #524: "Do not special-case it in the client; if it needs distinguishing,
-    // the server should say so." Both buttons are drawn the same way, and what
-    // separates them is the label the server sent.
+    // Both doors are drawn the same way, and what separates them is the label
+    // the server sent.
     const markup = drawn('wayintwo')
     const classes = [...markup.matchAll(/<button[^>]*class="([^"]*)"/g)].map((m) => m[1])
 

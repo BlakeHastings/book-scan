@@ -29,15 +29,11 @@ Feature: A book that belongs at the end of a full area
 
     When I review what it found
     And I confirm the details and go to shelve it
-    # Clarke and Gibson are on 1A, Le Guin is on 1B, and Herbert files after
-    # Gibson, so nothing on 1A goes after the book in hand.
     Then the shelf drawing should be labelled "1A"
     And it should tell me to put "Dune" in the gap at "1A"
-    # The screen says which of the two jobs it is offering before it is tapped.
     And the first answer should read "No room, put it on the next area"
 
     When I say there is no room on the shelf
-    # Not "take Neuromancer off the end of 1A". Neuromancer stays where it is.
     Then it should tell me the book itself goes on to "1B"
     And it should not ask me to move any other book
     And it should tell me to put "Dune" in the gap at "1B"
@@ -49,12 +45,10 @@ Feature: A book that belongs at the end of a full area
       | Dune                 |
       | The Dispossessed     |
 
-    # The one that was being asked to move for no reason.
     And the catalogue should hold "Neuromancer" recorded as:
       | location | 1A |
     And the catalogue should hold "Dune" recorded as:
       | location | 1B |
 
-    # It went where the app said, so the record and the room agree.
     And I go to the library
     And nothing should need attention

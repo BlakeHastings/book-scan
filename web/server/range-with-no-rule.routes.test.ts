@@ -1,18 +1,7 @@
 /**
- * The two screens of #479, driven over the routes they call.
- *
- * `range-with-no-rule.test.ts` beside this asks `Store` and `Shelves` directly.
- * This asks the app, because the fourth site of the issue is a route rather than
- * either of those: `POST /api/placement/preview` restates a placement in the
- * derived scheme, and it used to hand the plank the book lands on in as where
- * the range begins. Those are two questions with two answers, which is the
- * family this issue belongs to, and on a range with no run the second is `''`
- * rather than null, so the branch that says "nowhere" could not fire and the
- * screen was told "First book in non-fiction. Start at ." instead.
- *
- * `GET /api/shelves` is the other half. It read the whole run and dropped the
- * one field that says whether the run exists, so the screen had one empty
- * answer and two states behind it.
+ * `range-with-no-rule.test.ts` beside this asks `Store` and `Shelves`
+ * directly; this asks the app, through `POST /api/placement/preview` and
+ * `GET /api/shelves`, on a range with no run.
  */
 
 import type { AddressInfo } from 'node:net'
@@ -125,9 +114,8 @@ describe('the placing screen, for a range no rule serves', () => {
       'Nothing says where non-fiction begins, so there is nowhere to put this book. '
       + 'Say what belongs on a bookcase or a shelf first.',
     )
-    // The two the screen answers "it fits" with, and neither of them names a
-    // place. `derivedAreaId` was already null here; `derivedLocation` was ''
-    // and the sentence around it read "Start at ." (#479).
+    // The two fields the screen answers "it fits" with; neither of them
+    // names a place here.
     expect(body.derivedAreaId).toBeNull()
     expect(body.derivedLocation).toBe('')
     expect(body.suggestedLocation).toBe('')
@@ -149,16 +137,10 @@ describe('the placing screen, for a range no rule serves', () => {
     const { body } = await post('/api/books', draft('Ways of Seeing'))
 
     /*
-     * This one passes on the code before #479 as well, and it is here because of
-     * that rather than in spite of it. The issue's second comment says the
-     * disagreement is on the write paths, and that is why it matters more than a
-     * drawing. It turns out to have been saved by an accident: the automatic
-     * location write goes through `Shelves.areaOf`, which reads the plank the
-     * layout put the book on and asks the run for its id, and the invented
-     * `{ shelf: 1, area: 0 }` had no row in a run that does not exist. So the
-     * made-up plank reached two screens and never reached the ledger.
-     *
-     * Pinned here so the honest answer keeps the property the accident had.
+     * The automatic location write goes through `Shelves.areaOf`, which
+     * reads the plank the layout put the book on and asks the run for its
+     * id; an invented plank has no row in a run that does not exist, so the
+     * made-up plank reaches the other screens but never reaches the ledger.
      */
     expect((await store.getBook(body.id))?.location).toBe('')
   })

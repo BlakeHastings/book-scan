@@ -1,16 +1,4 @@
-/**
- * The shuffle, unwound one book at a time.
- *
- * The case that matters here is the one the owner reported in #110 and no
- * test covered: a chain several books deep where the answer on the way out is
- * no. Before the fix, a single yes at the bottom emptied the stack and handed
- * the question straight back to the book in hand, so the books in between
- * were recorded as placed without anybody having looked at them.
- *
- * The other half is #111: a frame is a question, not a fact. Nothing lands in
- * `done` until somebody says they carried the book, so a cascade abandoned
- * four deep leaves behind exactly the moves that were made.
- */
+/** A frame is a question, not a fact: nothing lands in `done` until somebody says they carried the book. */
 
 import { describe, expect, it } from 'vitest'
 import {
@@ -18,12 +6,7 @@ import {
   started, whereYouAre, type Cascade, type Done, type Frame,
 } from './cascade'
 
-/**
- * The plank ids are invented and only have to be distinct: what the stack does
- * with them is carry them back to the route that writes (#359). The labels are
- * what the drawing says, and the two are deliberately not derived from each
- * other, because that is the whole point of there being two.
- */
+/** The plank ids only have to be distinct; the labels are deliberately not derived from them. */
 const frame = (
   title: string, from: string, to: string, id = 1, kind: 'shelf' | 'area' = 'area',
 ): Frame => ({
@@ -72,7 +55,6 @@ describe('descending', () => {
     cascade = pushFrame(cascade, frame('Snow Crash', '1B', '1C', 2))
     cascade = pushFrame(cascade, frame('The Book Thief', '1C', '1D', 3))
 
-    // #111: three questions asked, no book carried, nothing to write down.
     expect(cascade.done).toEqual([])
     expect(started(cascade)).toBe(true)
   })
@@ -87,8 +69,6 @@ describe('unwinding', () => {
 
   it('hands the question back one level, not all the way to the top', () => {
     let cascade = settle(three())
-    // This is #110. It used to be null here, back at the book in hand, with
-    // the two books in between recorded as placed on nobody's say-so.
     expect(asking(cascade)?.proposal.title).toBe('Snow Crash')
     expect(depth(cascade)).toBe(2)
 
@@ -104,7 +84,6 @@ describe('unwinding', () => {
     const cascade = settle(settle(three()))
     expect(cascade.done.map((step) => step.title))
       .toEqual(['The Book Thief', 'Snow Crash'])
-    // The outermost move is still a question, so it is still not a fact.
     expect(cascade.done.some((step) => step.title === 'The Dispossessed')).toBe(false)
   })
 
@@ -113,7 +92,6 @@ describe('unwinding', () => {
     cascade = pushFrame(cascade, frame('Snow Crash', '1B', '1C', 2))
     cascade = settle(cascade)
 
-    // No on the way out. The same push the first no made, from one level up.
     cascade = pushFrame(cascade, frame('The Book Thief', '1B', '1C', 3))
     expect(asking(cascade)?.proposal.title).toBe('The Book Thief')
     expect(depth(cascade)).toBe(2)
@@ -136,7 +114,6 @@ describe('unwinding', () => {
       id: 1, title: 'The Dispossessed', authorFiling: 'Le Guin, Ursula K.',
       to: '1B', toAreaId: 2, strip: null,
     })
-    // The plank it is full of is still the one that was said to be full.
     expect(asking(cascade)?.from).toBe('1A')
     expect(asking(cascade)?.proposal.authorFiling).toBe('Le Guin, Ursula K.')
   })
@@ -180,27 +157,11 @@ describe('saying where you are', () => {
   })
 })
 
-/**
- * #149. There was a summary line above the list reading `1B → 2A → 1A` for a
- * shuffle that ran `1A → 1B → 2A`, built by deduplicating the from and to of
- * every step. It is gone, and what is tested here is the record it was drawn
- * from: every move stays in the list, in the order it was carried out, however
- * many times a plank turns up.
- */
 describe('a shuffle that comes back to a plank it already used', () => {
-  /*
-   * The shape from the issue, and not a contrived one. 1A is full, so its last
-   * book goes to 1B. 1B will not take it, so 1B's last book goes to 2A. That
-   * one is carried, the question comes back to 1A, and 1B is *still* too
-   * tight, so another book goes 1B to 2A. Then 1B takes the book from 1A and
-   * the chain closes. Three moves over three planks, and the pair 1B to 2A is
-   * walked twice.
-   */
   const revisiting = (): Cascade => {
     let cascade = pushFrame(emptyCascade, frame('The Dispossessed', '1A', '1B'))
     cascade = pushFrame(cascade, frame('Snow Crash', '1B', '2A', 2))
     cascade = settle(cascade)
-    // The same push the first no made, one level up, exactly as #110 has it.
     cascade = pushFrame(cascade, frame('The Book Thief', '1B', '2A', 3))
     cascade = settle(cascade)
     return settle(cascade)
@@ -212,9 +173,6 @@ describe('a shuffle that comes back to a plank it already used', () => {
   })
 
   it('does not collapse two moves that share a plank into one', () => {
-    // Two different books off 1B, and the person carried both. The summary
-    // deduplicated planks and so could only ever show one of them, which is
-    // the whole defect.
     const done = revisiting().done
     expect(done).toHaveLength(3)
     expect(done.map((step) => step.title))

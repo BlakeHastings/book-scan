@@ -12,11 +12,7 @@ const fixture = (id: number, position: number): Fixture =>
 const area = (id: number, fixtureId: number, position: number): Area =>
   ({ id, fixtureId, position, name: '', startsAt: '', sortStrategy: INHERIT })
 
-/**
- * Three bookcases, area ids chosen so `40` reads `4A`. Bookcase 1 has two
- * areas and the other two have three, which is the shape the non-fiction is
- * cut into in the catalogue this is drawn from.
- */
+/** Three bookcases; area ids chosen so `40` reads `4A`. Bookcase 1 has two areas, the other two have three. */
 const ORDER = new Map<number, AreaFace>(slotsInOrder(
   [fixture(1, 1), fixture(3, 3), fixture(4, 4)],
   [
@@ -50,11 +46,9 @@ const row = (
   createdAt,
 })
 
-/*
- * Every third book has no photograph, which is roughly what the catalogue looks
- * like and is the case a list must not drop: a book nobody has photographed is
- * still a book to carry. The pictures ride through this file untouched, so what
- * is checked here is that they arrive rather than what they are drawn as.
+/**
+ * Every third book has no photograph: a list must not drop a book nobody has
+ * photographed. What is checked here is that pictures arrive, not how they're drawn.
  */
 const book = (id: number): CarryableBook => ({
   id,
@@ -90,11 +84,7 @@ describe('the outstanding work, as trips', () => {
     expect(carryWork([book(1)], [row(1, 'placed', 40)], ORDER).moving).toBe(0)
   })
 
-  /*
-   * The pinned book is the one this has to get right. A pin clears the standing
-   * assignment, so it cannot fall off the list quietly: it is counted and named
-   * as skipped, which is the same promise the plan makes.
-   */
+  // A pin clears the standing assignment, so a pinned book could fall off the list quietly if not explicitly counted.
   it('counts every book it will not move, with the reason', () => {
     const books = [book(1), book(2), book(3), book(4)]
     const rows = [
@@ -115,11 +105,7 @@ describe('the outstanding work, as trips', () => {
     ])
   })
 
-  /*
-   * The ordering decision from the wireframe, which is the whole shape of the
-   * flow: the piece with most to come off it goes first even though its label
-   * sorts last, and within a piece the areas are walked in the order they stand.
-   */
+  // Ordered by how much is coming off each piece, not by label: bookcase 4 sorts last but has most to move.
   it('walks the piece with most to come off it first, then its areas in order', () => {
     const books = [1, 2, 3, 4, 5, 6].map(book)
     const rows = [
@@ -220,8 +206,7 @@ describe('what the newest run of the rules changed', () => {
     expect(work.changed).toEqual({
       joined: 2,
       left: 1,
-      // The pictures come with the name, because a person reading this list is
-      // being told to fetch a book back and has to recognise it (#386).
+      // Pictures ride along: a person is being told to fetch a book back and needs to recognise it.
       again: [{
         book: {
           id: 1,
@@ -245,11 +230,7 @@ describe('what the newest run of the rules changed', () => {
     expect(carryWork([book(1)], rows, ORDER).changed).toBeNull()
   })
 
-  /*
-   * The counts are of the change rather than of the list, and this is why: they
-   * are folded as of the run, so carrying a book afterwards does not make the
-   * change report itself as having been smaller than it was.
-   */
+  // Counted as of the run, not live: carrying a book afterwards must not shrink the reported change.
   it('counts a book that joined even once somebody has carried it', () => {
     const rows = [
       row(1, 'placed', 40), row(1, 'assigned', 30, RUN),
@@ -294,14 +275,7 @@ describe('one trip, read at the area the books come off', () => {
     expect(booksOnArea([book(1)], new Map(), rows, 40, 30)).toEqual([])
   })
 
-  /*
-   * The grouping is the narrowing that dropped them (#386). Every book that
-   * reaches a screen in this flow comes through `named`, and for a while that
-   * kept three fields and threw the pictures away, which is why every carry
-   * screen drew coloured blocks while the same components drew photographed
-   * books everywhere else. Both ends are checked because both are drawn: a book
-   * standing on a board, and a book named in a row.
-   */
+  // Both booksOnArea and carryWork are checked: both draw books, on the board and in the trip rows.
   it('carries the pictures through, on the board and in the trips', () => {
     const books = [1, 2, 3].map(book)
     const rows = [
@@ -323,13 +297,7 @@ describe('one trip, read at the area the books come off', () => {
   })
 })
 
-/**
- * Leaving books where they are, read back off the list (#402).
- *
- * The owner's state: books assigned elsewhere, some already carried, one
- * pinned, and a decision not to walk any of it. What every one of these is
- * really checking is that no book moved and that nothing was quietly forgotten.
- */
+/** What every test in this block checks: no book moves, and nothing is quietly forgotten. */
 describe('work somebody left where it is', () => {
   const rules = (bookId: number, name: string, at: number) =>
     ({ ...row(bookId, 'assigned', at), reason: name })
@@ -364,11 +332,7 @@ describe('work somebody left where it is', () => {
   })
 
   it('leaves the books somebody already carried at the other end', () => {
-    /*
-     * Partly carried is the normal case. Two of the three reached `3A` before
-     * the person stopped; withdrawing what was left must not bring them back,
-     * because a book that has been carried is a fact about the room.
-     */
+    // Partly carried is the normal case: a book already carried must not be brought back by withdrawing the rest.
     const books = [book(1), book(2), book(3)]
     const rows = [
       row(1, 'placed', 40), row(1, 'assigned', 30), row(1, 'placed', 30),
@@ -398,9 +362,7 @@ describe('work somebody left where it is', () => {
   })
 
   it('stops calling it carried, because nobody carried anything', () => {
-    // `lastCarry` reads an assignment followed by a placement landing in it. A
-    // withdrawal is neither, and a list that read one as a carry would tell
-    // somebody they had done work they had decided not to do.
+    // lastCarry looks for an assignment followed by a placement landing in it; a withdrawal is neither.
     const rows = [row(1, 'placed', 40), row(1, 'assigned', 30), row(1, 'released', null)]
 
     expect(lastCarry(rows)).toBeNull()
