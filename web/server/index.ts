@@ -78,6 +78,8 @@ import {
   editArea, editCollection, editFixture, planAreaRemoval, planFixtureRemoval,
 } from './furniture'
 import { idIn, refuse, refused } from './refusal'
+import { planReset, runReset } from './resets'
+import { isReset } from '../shared/resets'
 import { booksNoRuleClaims, claimOfBook } from './claim'
 import { areaDisagreements } from '../infrastructure/shelving/area-drift'
 import { confidentPick, hasCloseMatch, queueMatches } from '../shared/confidence'
@@ -3338,6 +3340,31 @@ export function createApp(options: CreateAppOptions): BookScanApp {
 
     const back = await putBackOnTheList(db, trip, new Date().toISOString())
     res.json({ books: back.books, work: await outstandingWork(db) })
+  }))
+
+  /** What a reset in Settings would change, with nothing written. */
+  app.get('/api/resets/:name', asyncRoute(async (req, res) => {
+    const name = req.params.name
+    if (!isReset(name)) {
+      res.status(404).json({ error: 'There is no such reset.' })
+      return
+    }
+    res.json(await planReset(db, name))
+  }))
+
+  /** A reset in Settings, refused unless the body carries its phrase as `confirm`. */
+  app.post('/api/resets/:name', asyncRoute(async (req, res) => {
+    const name = req.params.name
+    if (!isReset(name)) {
+      res.status(404).json({ error: 'There is no such reset.' })
+      return
+    }
+    const done = await runReset(db, store, name, (req.body ?? {}) as { confirm?: unknown })
+    if (!done.ok) {
+      refused(res, done)
+      return
+    }
+    res.json({ reset: done.reset, done: done.done })
   }))
 
   /**

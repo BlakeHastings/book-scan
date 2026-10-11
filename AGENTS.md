@@ -1420,6 +1420,17 @@ it. `applySchema` folds the ledger back out on every start and says whether
 `current_area_id` still agrees, which is how a missing writer is found rather
 than discovered a week later.
 
+**Beside the four are the resets on the Settings screen** (#599), which move
+every book at once: `Store.unplaceEveryBook` writes a `checked_in` row for each
+shelved book, pins included, and `Store.eraseEveryPlacement` deletes the whole
+ledger, which is the one place anything deletes from it. The third reset,
+`removeEveryPiece` in `web/infrastructure/shelving/furniture.ts`, deletes every
+fixture, area and rule and refuses while the ledger has a row. Each needs its
+own phrase, from `web/shared/resets.ts`, in the request body, and any enabled
+user may send it: that is the owner's decision, and the protection is the
+phrase rather than a role. **Never run any of them against the live catalogue**;
+that is the owner's, after a backup.
+
 **`books.location`, `books.shelved_at` and `books.checked_out_at` are gone**
 (#232). The ledger is where a book is, `current_area_id` is the projection a shelf
 is drawn from, and `withPlacements` derives the two fields the wire still carries.

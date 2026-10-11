@@ -123,7 +123,7 @@ describe('the count', () => {
     expect(before).toEqual([...OPEN_DOORS])
   })
 
-  it('has every one of the seventy-three handlers behind it', () => {
+  it('has every one of the seventy-five handlers behind it', () => {
     const stack = stackOf(app)
     const behind = stack.slice(gateAt(stack) + 1).flatMap(named)
 
@@ -131,8 +131,9 @@ describe('the count', () => {
      * If this number moves, a route was added or removed, and the question
      * to answer is which, not to edit the number until it is green.
      */
-    expect(behind).toHaveLength(73)
+    expect(behind).toHaveLength(75)
     expect(behind).toContain('POST /api/tags')
+    expect(behind).toContain('POST /api/resets/:name')
     expect(behind).toContain('DELETE /api/tags')
 
     // And every one of them is under /api, which is what makes the mount

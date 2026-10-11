@@ -50,8 +50,9 @@ import { rangeLock } from './shelves'
  * and where it went commit together.
  */
 import {
-  recordCheckedOut, recordPlaced, recordPlacedIn, withPlacements, withPlacementsOf,
-  type PlacementFields,
+  eraseLedger, recordCheckedOut, recordPlaced, recordPlacedIn, recordUnplacedAll,
+  withPlacements, withPlacementsOf,
+  type ErasureCounts, type PlacementFields, type UnplaceCounts,
 } from './placement-ledger'
 /*
  * The repository takes the same `Db` this class was handed, so a read made
@@ -625,6 +626,17 @@ export class Store {
     // a no-op cannot be mistaken for a fresh checkout.
     const [row] = await withPlacements(this.db, [{ id }])
     return { changed, checkedOutAt: row?.checked_out_at ?? null }
+  }
+
+  /** Every shelved book off every plank, pinned ones included, in one transaction. */
+  unplaceEveryBook(): Promise<UnplaceCounts> {
+    const at = new Date().toISOString()
+    return this.db.tx((tx) => recordUnplacedAll(tx, at))
+  }
+
+  /** Every placement row deleted, permanently, in one transaction. */
+  eraseEveryPlacement(): Promise<ErasureCounts> {
+    return this.db.tx((tx) => eraseLedger(tx))
   }
 
   /**

@@ -12,6 +12,10 @@
  * this file, inside its own transaction, so a placement cannot be written without
  * a row. A fifth would have to be added to `Store` beside them.
  *
+ * Beside them are the two resets in Settings, `Store.unplaceEveryBook` and
+ * `Store.eraseEveryPlacement`, which move every book at once rather than one.
+ * The second is the only thing that deletes from the ledger.
+ *
  * Two things the routes therefore refuse: a location naming furniture the
  * collection does not have, because there is nothing behind the ledger to hold
  * such a label, and an empty label, because the ledger is append only and there
@@ -20,7 +24,8 @@
 
 import { labelFor, type Area, type Fixture } from '../domain/placement/geography'
 import { faceOf } from '../infrastructure/shelving/areas'
-import { CHECKED_OUT } from '../domain/books/state'
+import { CHECKED_OUT, SHELVED } from '../domain/books/state'
+import { FOLDED } from '../infrastructure/placement/projection'
 import { areaIndex } from '../shared/layout'
 import { parseLocation, type AreaStanding } from '../shared/shelving'
 import { areaForLabel, DrizzlePlacementLedger } from '../infrastructure/placement/ledger-repository'
@@ -381,4 +386,124 @@ export async function recordCheckedOut(
     reason: 'back on the plank it came off',
     createdAt: at,
   })
+}
+
+export const UNPLACED_BY_RESET = 'taken off every shelf by the reset in Settings'
+
+/**
+ * The shelved books the unplace reset writes a row for: those whose latest row
+ * is not already `checked_in`. A book with no rows was never placed, and one
+ * already checked in has nothing to undo, so a second press writes nothing.
+ * Correlated on `books b`.
+ */
+const STILL_SOMEWHERE = `
+  FROM books b
+  JOIN LATERAL (
+    SELECT p.kind FROM book_placement p WHERE p.book_id = b.id ORDER BY p.id DESC LIMIT 1
+  ) latest ON true`
+const STILL_SOMEWHERE_WHERE = `b.state = ? AND latest.kind <> 'checked_in'`
+
+export interface UnplaceCounts {
+  /** Books standing on a plank now. */
+  books: number
+  /** Of those, the ones a person pinned. */
+  pinned: number
+  /** One per book, which is more than `books` when some had only an assignment standing. */
+  rows: number
+}
+
+export async function countUnplacing(db: Db): Promise<UnplaceCounts> {
+  const row = await db.get<UnplaceCounts>(
+    `SELECT CAST(COUNT(*) AS INTEGER) AS rows,
+            CAST(COUNT(*) FILTER (WHERE b.current_area_id IS NOT NULL) AS INTEGER) AS books,
+            CAST(COUNT(*) FILTER (WHERE folded.kind = 'pinned') AS INTEGER) AS pinned
+       ${STILL_SOMEWHERE}
+       LEFT JOIN LATERAL (${FOLDED}) folded ON true
+      WHERE ${STILL_SOMEWHERE_WHERE}`,
+    [SHELVED],
+  )
+  return { books: row?.books ?? 0, pinned: row?.pinned ?? 0, rows: row?.rows ?? 0 }
+}
+
+/**
+ * One `checked_in` row per shelved book, which the fold reads as nowhere and
+ * which drops a pin and any standing assignment with it. Checked out and
+ * withdrawn books are not `shelved` and are left alone, and no row is deleted.
+ *
+ * A move receipt for one of these books goes too, because it says the
+ * catalogue still records the book on the plank it came off.
+ *
+ * Must run inside a transaction: the lock keeps every other ledger writer out
+ * until it commits.
+ */
+export async function recordUnplacedAll(db: Db, at: string): Promise<UnplaceCounts> {
+  await db.run('LOCK TABLE book_placement IN SHARE ROW EXCLUSIVE MODE')
+  const counts = await countUnplacing(db)
+
+  const written = await db.all<{ book_id: number }>(
+    `INSERT INTO book_placement (book_id, kind, area_id, sort_key, actor, reason, created_at)
+     SELECT b.id, 'checked_in', NULL, b.sort_key, 'person', ?, ?
+       ${STILL_SOMEWHERE}
+      WHERE ${STILL_SOMEWHERE_WHERE}
+      ORDER BY b.id
+     RETURNING book_id`,
+    [UNPLACED_BY_RESET, at, SHELVED],
+  )
+  const ids = written.map((one) => Number(one.book_id))
+  if (ids.length) {
+    await db.run('UPDATE books SET current_area_id = NULL WHERE id = ANY (?::int[])', [ids])
+    await db.run('DELETE FROM outstanding_move WHERE book_id = ANY (?::int[])', [ids])
+  }
+
+  return { ...counts, rows: ids.length }
+}
+
+export interface ErasureCounts {
+  rows: number
+  /** How many books those rows are about. */
+  books: number
+  /** Books standing on a plank now. */
+  onShelves: number
+}
+
+export async function countErasing(db: Db): Promise<ErasureCounts> {
+  const ledger = await db.get<{ rows: number; books: number }>(
+    `SELECT CAST(COUNT(*) AS INTEGER) AS rows,
+            CAST(COUNT(DISTINCT book_id) AS INTEGER) AS books
+       FROM book_placement`,
+  )
+  const placed = await db.get<{ on_shelves: number }>(
+    `SELECT CAST(COUNT(*) AS INTEGER) AS on_shelves
+       FROM books WHERE current_area_id IS NOT NULL`,
+  )
+  return {
+    rows: ledger?.rows ?? 0,
+    books: ledger?.books ?? 0,
+    onShelves: placed?.on_shelves ?? 0,
+  }
+}
+
+/**
+ * Delete every row of the placement history and the projection folded from it.
+ *
+ * The one place anything deletes from `book_placement`, which is otherwise
+ * append only, and it is deliberate: it is the owner's decision, and the only
+ * way to removing the furniture, which the ledger's `ON DELETE RESTRICT`
+ * otherwise refuses. The way back is a backup.
+ *
+ * Move receipts go too, since each describes a place in a history that no
+ * longer exists. `books.state` is untouched, so a checked out book stays out
+ * and no longer says since when.
+ *
+ * Must run inside a transaction. `EXCLUSIVE` still lets the ledger be read.
+ */
+export async function eraseLedger(db: Db): Promise<ErasureCounts> {
+  await db.run('LOCK TABLE book_placement IN EXCLUSIVE MODE')
+  const counts = await countErasing(db)
+
+  await db.run('DELETE FROM book_placement')
+  await db.run('UPDATE books SET current_area_id = NULL WHERE current_area_id IS NOT NULL')
+  await db.run('DELETE FROM outstanding_move')
+
+  return counts
 }

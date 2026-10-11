@@ -450,6 +450,13 @@ genuine absence rather than a state with a name.
 Append only. One row per move. The latest row is where the book is; the rows
 behind it are where it has been.
 
+One exception, decided by the owner on 2026-10-11 (#599): the Settings screen
+can erase the whole ledger at once, behind a typed phrase, so that the room can
+be rebuilt from empty. Nothing deletes a single row, and nothing deletes any
+row without that phrase. The way back is a backup. The other two resets beside
+it append rather than delete: taking every book off its shelf writes one
+`checked_in` per shelved book, pins included.
+
 `kind` is `assigned`, `released`, `placed`, `pinned`, `checked_out`,
 `checked_in` or `withdrawn`.
 

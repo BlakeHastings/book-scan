@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { Card, Said } from '../design/Card'
 import { TopBar, type TabName } from '../design/Chrome'
 import { Choice, Segmented } from '../design/Controls'
@@ -29,10 +30,12 @@ interface Props {
   onFirstPicture: (first: FirstPicture) => void
   /** Null until the read answers, and null on failure. Either draws no card rather than a card of noughts, which would falsely claim every catalogue had been asked nothing. */
   lookups: LookupStandings | null
+  /** The resets, drawn by the screen that holds their state. */
+  resets?: ReactNode
 }
 
 export function SettingsPane({
-  room, hand, firstPicture, busy, error, tabs, lookups,
+  room, hand, firstPicture, busy, error, tabs, lookups, resets,
   onBack, onOrder, onHand, onFirstPicture,
 }: Props) {
   const top = <TopBar title="Settings" onBack={onBack} />
@@ -112,6 +115,8 @@ export function SettingsPane({
           <Said>{roll.keyed}</Said>
         </Card>
       )}
+
+      {resets}
 
       <Card kind="Nobody signs in" title="Everybody in the house shares one collection">
         <p>

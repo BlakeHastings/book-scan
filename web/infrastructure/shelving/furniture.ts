@@ -464,6 +464,58 @@ export async function removeFixtureIfUnused(db: Db, id: number): Promise<boolean
   return changes > 0
 }
 
+export interface RoomCounts {
+  /** Pieces on the floor. Retired ones go too, and are not counted, since nobody sees them. */
+  fixtures: number
+  /** Areas on a face, likewise. */
+  areas: number
+  rules: number
+  /** Placement rows still naming furniture. Anything but nought refuses the removal. */
+  history: number
+}
+
+export async function countTheRoom(db: Db): Promise<RoomCounts> {
+  const row = await db.get<RoomCounts>(
+    `SELECT
+       (SELECT CAST(COUNT(*) AS INTEGER) FROM fixture WHERE position >= 0) AS fixtures,
+       (SELECT CAST(COUNT(*) AS INTEGER) FROM area a JOIN fixture f ON f.id = a.fixture_id
+         WHERE a.position >= 0 AND f.position >= 0) AS areas,
+       (SELECT CAST(COUNT(*) AS INTEGER) FROM placement_rule) AS rules,
+       (SELECT CAST(COUNT(*) AS INTEGER) FROM book_placement) AS history`,
+  )
+  return {
+    fixtures: row?.fixtures ?? 0,
+    areas: row?.areas ?? 0,
+    rules: row?.rules ?? 0,
+    history: row?.history ?? 0,
+  }
+}
+
+/**
+ * Delete every rule, area and piece of furniture, retired ones included, so the
+ * room is rebuilt from empty. The collection row stays: it holds the house's
+ * default ordering, which is not furniture.
+ *
+ * Refuses while any placement row exists rather than erasing the history
+ * itself, so the two decisions stay two presses. The ledger's
+ * `ON DELETE RESTRICT` would refuse anyway; this says so before it gets there.
+ *
+ * Must run inside a transaction: `SHARE` keeps the ledger empty until commit.
+ */
+export async function removeEveryPiece(
+  db: Db,
+): Promise<{ ok: true; removed: RoomCounts } | { ok: false; history: number }> {
+  await db.run('LOCK TABLE book_placement IN SHARE MODE')
+  const counts = await countTheRoom(db)
+  if (counts.history > 0) return { ok: false, history: counts.history }
+
+  await db.run('DELETE FROM outstanding_move')
+  await db.run('DELETE FROM placement_rule')
+  await db.run('DELETE FROM area')
+  await db.run('DELETE FROM fixture')
+  return { ok: true, removed: counts }
+}
+
 /**
  * Take a piece off the floor without deleting it.
  *

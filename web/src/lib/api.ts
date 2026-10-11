@@ -6,6 +6,7 @@ import type { AuthState, SessionAnswer, SignInProvider } from '../../shared/auth
 import type { FailureCounts } from '../../shared/captureFailure'
 import { genreOfRange, type GenreSlug } from '../../domain/tagging/genre'
 import type { BookState } from '../../domain/books/state'
+import type { ResetName } from '../../shared/resets'
 
 /**
  * Naming boundary, recorded here because this file is the only client to
@@ -216,6 +217,19 @@ export interface BackupWatch {
   verified?: { dump: string; takenAt: string }
   /** How old `verified` is, in whole hours. */
   ageHours?: number
+}
+
+/** What each reset in Settings would change, as the server counted it. */
+export interface ResetCounts {
+  unplace: { books: number; pinned: number; rows: number }
+  history: { rows: number; books: number; onShelves: number }
+  furniture: { fixtures: number; areas: number; rules: number; history: number }
+}
+
+export interface ResetPlan<Name extends ResetName = ResetName> {
+  reset: Name
+  phrase: string
+  counts: ResetCounts[Name]
 }
 
 export interface BookRow {
@@ -1698,6 +1712,17 @@ export const api = {
     request<{ collection: { defaultSortStrategy: SortStrategyCode } }>('/api/collection', {
       method: 'PATCH',
       body: JSON.stringify({ defaultSortStrategy }),
+    }),
+
+  /** What a reset would change. Writes nothing. */
+  planReset: <Name extends ResetName>(name: Name) =>
+    request<ResetPlan<Name>>(`/api/resets/${name}`),
+
+  /** Refused by the server unless `confirm` is that reset's phrase. */
+  runReset: <Name extends ResetName>(name: Name, confirm: string) =>
+    request<{ reset: Name; done: ResetCounts[Name] }>(`/api/resets/${name}`, {
+      method: 'POST',
+      body: JSON.stringify({ confirm }),
     }),
 
   addFixture: (piece: { kind?: string; name?: string; position?: number }) =>
