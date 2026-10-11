@@ -5,6 +5,16 @@ import { coverUrl } from '../components/PlacementCard'
 import type { Shot } from '../design/Shots'
 
 /**
+ * The six columns these read, which a capture and a catalogued book both
+ * carry, so a book waiting for a plank is drawn the way a book waiting to be
+ * identified is.
+ */
+type Photographed = Pick<
+  Capture,
+  'front_image' | 'back_image' | 'edge_image' | 'front_crop' | 'back_crop' | 'edge_crop'
+>
+
+/**
  * A slot's picture: the crop where the detector found the book, the whole
  * photograph where it did not.
  *
@@ -20,12 +30,12 @@ function pictureOf(crop: string, photo: string): string {
  * The front photograph of a capture, cropped to the book where there is a
  * crop. The one seam that knows what "the front" means.
  */
-function frontOf(capture: Capture): string {
+function frontOf(capture: Photographed): string {
   return pictureOf(capture.front_crop, capture.front_image)
 }
 
 /** The spine photograph of a capture, cropped the same way. */
-function spineOf(capture: Capture): string {
+function spineOf(capture: Photographed): string {
   return pictureOf(capture.edge_crop, capture.edge_image)
 }
 
@@ -33,7 +43,7 @@ function spineOf(capture: Capture): string {
  * The back photograph, cropped the same way: a row falling back to it
  * should not be the one row showing the table it was photographed on.
  */
-function backOf(capture: Capture): string {
+function backOf(capture: Photographed): string {
   return pictureOf(capture.back_crop, capture.back_image)
 }
 
@@ -55,7 +65,7 @@ export function queueThumb(capture: Capture): string {
  * another, unlike `queueThumb`: a caller drawing the book needs the honest
  * answer of which photographs it has.
  */
-export function queuePictures(capture: Capture): {
+export function queuePictures(capture: Photographed): {
   front: string
   spine: string
   back: string
@@ -78,7 +88,7 @@ export function queuePictures(capture: Capture): {
  * Shared by the queue and the camera, so both screens draw one book the
  * same way.
  */
-export function shotsOf(capture: Capture): Shot[] {
+export function shotsOf(capture: Photographed): Shot[] {
   const pictures = queuePictures(capture)
   const face = pictures.front || pictures.back
 

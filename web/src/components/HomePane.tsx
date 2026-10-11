@@ -145,6 +145,13 @@ export function HomePane({
             ? [{ n: grouped(carrying.length), word: 'to carry', onPress: onCarry }]
             : []),
           { n: grouped(queue.failed), word: 'stuck', onPress: () => onQueue('stuck') },
+          ...(counts.unplaced > 0
+            ? [{
+                n: grouped(counts.unplaced),
+                word: 'not on a shelf',
+                onPress: () => onQueue('unplaced'),
+              }]
+            : []),
         ]}
       />
 

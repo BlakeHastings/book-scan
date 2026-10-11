@@ -2,12 +2,12 @@
 
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { MovesSoFar, ShelveView } from './ShelveView'
+import { MovesSoFar, PlankChoice, ShelveView } from './ShelveView'
 import {
   asking, confirm, emptyCascade, pushCarry, pushFrame,
   type Cascade, type Frame,
 } from '../lib/cascade'
-import type { PlacementResponse } from '../lib/api'
+import type { FixtureDto, PlacementResponse } from '../lib/api'
 
 const frame = (title: string, from: string, to: string, id = 1): Frame => ({
   // Invented and only needs to be distinct: this file is about what the list says.
@@ -173,5 +173,121 @@ describe('a book whose range nothing places', () => {
     )
     expect(html).toContain('is fiction or')
     expect(html).not.toContain('Nothing says where')
+  })
+})
+
+describe('a book no rule claims, placed by hand', () => {
+  const unclaimed = (byHand: boolean) => renderToStaticMarkup(
+    <ShelveView
+      placement={null}
+      stale={false}
+      range={null}
+      title="Ways of Seeing"
+      saving={false}
+      onShelved={() => {}}
+      onBack={() => {}}
+      cascade={emptyCascade}
+      setCascade={() => {}}
+      onRefresh={async () => {}}
+      byHand={byHand}
+    />,
+  )
+
+  it('offers the furniture for a catalogued book instead of ending in a sentence', () => {
+    const html = unclaimed(true)
+    expect(html).toContain('Put it somewhere yourself')
+    expect(html).toContain('or choose a shelf for it below')
+  })
+
+  it('offers nothing for a book not saved yet, whose insert takes no plank', () => {
+    const html = unclaimed(false)
+    expect(html).not.toContain('Put it somewhere yourself')
+    expect(html).not.toContain('choose a shelf')
+  })
+
+  const area = (id: number, label: string) => ({ id, label, name: '' })
+  const fixtures = [
+    { id: 1, label: 'Bookcase 1', name: 'Hall', areas: [area(11, '1A'), area(12, '1B')] },
+    { id: 2, label: 'Bookcase 2', name: '', areas: [] },
+  ] as unknown as FixtureDto[]
+
+  const choice = (over: Partial<Parameters<typeof PlankChoice>[0]> = {}) =>
+    PlankChoice({ title: 'Ways of Seeing', fixtures, off: false, onChosen: () => {}, ...over })
+
+  it('names every plank under the piece it is on, and no empty piece', () => {
+    const html = renderToStaticMarkup(choice())
+    expect(html).toContain('Hall')
+    expect(html).toContain('On 1A')
+    expect(html).toContain('On 1B')
+    expect(html).not.toContain('Bookcase 2')
+  })
+
+  it('hands on the plank chosen by its id', () => {
+    const chosen: number[] = []
+    const found: { onPress?: () => void; children?: unknown }[] = []
+    const walk = (node: unknown) => {
+      if (!node || typeof node !== 'object') return
+      if (Array.isArray(node)) { node.forEach(walk); return }
+      const props = (node as { props?: { onPress?: () => void; children?: unknown } }).props
+      if (props?.onPress) found.push(props)
+      walk(props?.children)
+    }
+    walk(choice({ onChosen: (id) => chosen.push(id) }))
+    found.find((one) => one.children === 'On 1B')!.onPress!()
+    expect(chosen).toEqual([12])
+  })
+
+  it('says there is nowhere yet rather than drawing an empty list', () => {
+    const html = renderToStaticMarkup(choice({ fixtures: [] }))
+    expect(html).toContain('There is no furniture to put Ways of Seeing on yet')
+    expect(html).not.toContain('<button')
+  })
+
+  it('says it is reading while the room has not answered', () => {
+    expect(renderToStaticMarkup(choice({ fixtures: null }))).toContain('Reading the room')
+  })
+})
+
+describe('a catalogued book a rule wants somewhere', () => {
+  const placement = {
+    kind: 'between',
+    range: 'fiction',
+    instruction: '',
+    suggestedLocation: '',
+    derivedLocation: '1A',
+    derivedAreaId: 1,
+    predecessor: null,
+    successor: null,
+    authorFiling: 'Herbert, Frank',
+    sortKey: 'herbert frank|dune',
+    strip: null,
+  } as unknown as PlacementResponse
+
+  const drawn = (wanted: { areaId: number; label: string } | null) => renderToStaticMarkup(
+    <ShelveView
+      placement={placement}
+      stale={false}
+      range="fiction"
+      title="Dune"
+      saving={false}
+      onShelved={() => {}}
+      onBack={() => {}}
+      cascade={emptyCascade}
+      setCascade={() => {}}
+      onRefresh={async () => {}}
+      byHand
+      wanted={wanted}
+    />,
+  )
+
+  it('offers the plank the rules name when the gap is somewhere else', () => {
+    const html = drawn({ areaId: 4, label: '4A' })
+    expect(html).toContain('The rules put it on 4A')
+    expect(html).toContain('It is on 4A, save')
+  })
+
+  it('says nothing extra when the rules and the gap agree, or no rule claims it', () => {
+    expect(drawn({ areaId: 1, label: '1A' })).not.toContain('The rules put it')
+    expect(drawn(null)).not.toContain('The rules put it')
   })
 })

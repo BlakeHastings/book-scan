@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import {
   api, captureName, deviceName, draftFromCapture,
-  type Capture, type CaptureStatus, type QueueCounts,
+  type Capture, type CaptureStatus, type Counts, type FiledBookRow, type QueueCounts,
 } from '../lib/api'
 import { newestFirst } from '../lib/queueOrder'
 import { filterQueue } from '../lib/queueSearch'
@@ -74,11 +74,13 @@ export interface QueueReturnAnchor {
   index: number
 }
 
-export type Which = 'ready' | 'processing' | 'stuck' | 'all'
+/** `unplaced` is catalogued books on no plank, which are not captures, so it matches no capture. */
+export type Which = 'ready' | 'processing' | 'stuck' | 'unplaced' | 'all'
 
 /** Every status belongs under exactly one of these three besides `all`. */
 export const SHOWING: Record<Which, (capture: Capture) => boolean> = {
   all: () => true,
+  unplaced: () => false,
   // `done` also counts as ready: it is shelved but its row has not gone yet.
   ready: (capture) => capture.status === 'ready' || capture.status === 'done',
   processing: (capture) => capture.status === 'pending',
@@ -111,6 +113,49 @@ interface Props {
    * way in; the control above the list owns the filter after that.
    */
   showing?: Which | null
+  /** Pick up a catalogued book that stands on no plank and go to the step that places it. */
+  onPlace?: (id: number) => void
+  onCatalogueCounts?: (counts: Counts) => void
+}
+
+export const UNPLACED_PAGE = 50
+
+export function showsCaptures(which: Which): boolean {
+  return which !== 'unplaced'
+}
+
+export function showsUnplaced(which: Which): boolean {
+  return which === 'all' || which === 'unplaced'
+}
+
+/** Two numbers rather than a sum, because identifying a book and shelving one are two jobs. */
+export function queueSaid(onTable: number, toShelve: number): string {
+  const table = onTable === 1 ? 'One book on the table' : `${onTable} books on the table`
+  if (toShelve <= 0) return table
+  const shelve = `${toShelve} not on a shelf yet`
+  return onTable === 0 ? shelve : `${table}, ${shelve}`
+}
+
+/** No swipe on this row: a catalogued book is not discarded from the queue. */
+export function UnplacedRow({
+  book, onPlace,
+}: { book: FiledBookRow; onPlace?: (id: number) => void }) {
+  return (
+    <div role="listitem" className="queue__row queue__row--unplaced">
+      <button
+        type="button"
+        className="queue__open wf-qrow"
+        onClick={() => onPlace?.(book.id)}
+      >
+        <Queued
+          name={book.title || `Book ${book.id}`}
+          sub={book.authors || book.isbn13}
+          shots={shotsOf(book)}
+          state="Not on a shelf"
+        />
+      </button>
+    </div>
+  )
 }
 
 /** The four pointer handlers a row needs, kept together so it takes one prop. */
@@ -220,9 +265,17 @@ export function QueueRow({
  */
 export function QueuePane({
   onOpen, onCounts, tabs, onPhotograph, returnAnchor, onReturnAnchorConsumed,
-  showing,
+  showing, onPlace, onCatalogueCounts,
 }: Props) {
   const [captures, setCaptures] = useState<Capture[]>([])
+  const [unplaced, setUnplaced] = useState<FiledBookRow[]>([])
+  /** How many of them match what is typed in the search box. */
+  const [unplacedMatching, setUnplacedMatching] = useState(0)
+  /** Null until the read answers. */
+  const [unplacedCount, setUnplacedCount] = useState<number | null>(null)
+  const [unplacedBusy, setUnplacedBusy] = useState(false)
+  /** The newest read, so an answer to an older search cannot land over it. */
+  const unplacedAsked = useRef(0)
   // Read once on mount; the control above the list owns it after that, so
   // returning via the tab bar always reopens on the whole queue.
   const [which, setWhich] = useState<Which>(showing ?? 'all')
@@ -265,6 +318,33 @@ export function QueuePane({
   useEffect(() => {
     load()
   }, [load])
+
+  const loadUnplaced = useCallback((words: string, from: number) => {
+    const asked = ++unplacedAsked.current
+    setUnplacedBusy(true)
+    return api.findBooks({
+      range: 'all',
+      placed: 'no',
+      q: words.trim() || undefined,
+      limit: UNPLACED_PAGE,
+      offset: from,
+    })
+      .then((result) => {
+        if (asked !== unplacedAsked.current) return
+        setUnplaced((current) => (from === 0 ? result.books : [...current, ...result.books]))
+        setUnplacedMatching(result.total)
+        setUnplacedCount(result.counts.unplaced)
+        onCatalogueCounts?.(result.counts)
+      })
+      .catch((caught) => setError((caught as Error).message))
+      .finally(() => { if (asked === unplacedAsked.current) setUnplacedBusy(false) })
+  }, [onCatalogueCounts])
+
+  // Searched on the server, because the page in hand is only part of the list.
+  useEffect(() => {
+    const timer = setTimeout(() => { void loadUnplaced(query, 0) }, query ? 250 : 0)
+    return () => clearTimeout(timer)
+  }, [query, loadUnplaced])
 
   // Kept in a ref rather than rebuilt each render: the window owns live
   // timers that a rebuild would strand, deleting something already undone.
@@ -491,6 +571,10 @@ export function QueuePane({
 
   const counted = (word: string, n: number) => (n > 0 ? `${word} ${n}` : word)
 
+  const toShelve = unplacedCount ?? 0
+  const capturesShown = showsCaptures(which)
+  const unplacedShown = showsUnplaced(which) && toShelve > 0
+
   return (
     <div className="wf">
       <Phone
@@ -499,13 +583,7 @@ export function QueuePane({
         top={
           <TopBar
             title="Queue"
-            sub={
-              loading
-                ? undefined
-                : captures.length === 1
-                  ? 'One book on the table'
-                  : `${captures.length} books on the table`
-            }
+            sub={loading ? undefined : queueSaid(captures.length, toShelve)}
           />
         }
       >
@@ -553,7 +631,7 @@ export function QueuePane({
       {notice && <Said>{notice}</Said>}
       {loading && <Said>Loading...</Said>}
 
-      {!loading && captures.length === 0 && (
+      {!loading && captures.length === 0 && unplacedCount === 0 && (
         <>
           <Nothing said="Even the cat couldn't find anything to knock off the table." />
           <Button tone="primary" block onPress={onPhotograph}>
@@ -562,7 +640,7 @@ export function QueuePane({
         </>
       )}
 
-      {!loading && captures.length > 0 && searching && (
+      {!loading && captures.length > 0 && capturesShown && searching && (
         <>
           <Said>
             {visible.length} of {captures.length} shown.
@@ -576,15 +654,18 @@ export function QueuePane({
         </>
       )}
 
-      {!loading && captures.length > 0 && !searching && visible.length === 0 && (
+      {!loading && captures.length > 0 && capturesShown && !searching
+        && visible.length === 0 && (
         <Said>Nothing in the queue is in that state.</Said>
       )}
 
-      {!loading && visible.length > 0 && !searching && (
+      {!loading && capturesShown && visible.length > 0 && !searching && (
         <Said>Tap a book to shelve it. Slide one left to discard it.</Said>
       )}
 
       <div className="wf-qlist" role="list" aria-label="Books on the table">
+        {/* `SHOWING.unplaced` matches no capture, so under that filter this
+            draws only a discard still being held open, whose undo must stay. */}
         {visible.map((capture) => (
           <QueueRow
             key={capture.id}
@@ -598,6 +679,45 @@ export function QueuePane({
           />
         ))}
       </div>
+
+      {/* Reached from the count on the first screen, and not a fifth segment:
+          five do not fit across a phone without cutting the words short. */}
+      {which === 'unplaced' && captures.length > 0 && (
+        <Button tone="quiet" block onPress={() => setWhich('all')}>
+          Show the whole queue
+        </Button>
+      )}
+
+      {unplacedShown && (
+        <section className="queue__group" aria-label="Not on a shelf yet">
+          <h2 className="queue__group-title">Not on a shelf yet</h2>
+          <Said>
+            {searching
+              ? `${unplacedMatching} of ${toShelve} match.`
+              : toShelve === 1
+                ? 'One book is catalogued and stands on no shelf. Tap it to put it somewhere.'
+                : `${toShelve} books are catalogued and stand on no shelf, in shelf order. `
+                  + 'Tap one to put it somewhere.'}
+          </Said>
+          <div className="wf-qlist" role="list" aria-label="Books not on a shelf yet">
+            {unplaced.map((book) => (
+              <UnplacedRow key={book.id} book={book} onPlace={onPlace} />
+            ))}
+          </div>
+          {unplaced.length < unplacedMatching && (
+            <Button
+              tone="quiet"
+              block
+              off={unplacedBusy}
+              onPress={() => { void loadUnplaced(query, unplaced.length) }}
+            >
+              {unplacedBusy
+                ? 'Just a moment'
+                : `Show ${Math.min(UNPLACED_PAGE, unplacedMatching - unplaced.length)} more`}
+            </Button>
+          )}
+        </section>
+      )}
       </Phone>
     </div>
   )

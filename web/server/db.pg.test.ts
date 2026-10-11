@@ -469,7 +469,7 @@ describe('aggregates, which come back as strings without a cast', () => {
     await store.addBook({ title: 'A', authors: ['Ann Author'], genre: FICTION_SLUG })
     const counts = await store.counts()
 
-    expect(counts).toEqual({ total: 1, fiction: 1, nonfiction: 0, checkedOut: 0 })
+    expect(counts).toEqual({ total: 1, fiction: 1, nonfiction: 0, checkedOut: 0, unplaced: 1 })
     for (const [name, value] of Object.entries(counts)) {
       expect(typeof value, name).toBe('number')
     }

@@ -631,7 +631,7 @@ describe('a book taken off the shelf', () => {
     const id = await add('Emily Bronte')
     await store.setCheckedOut(id, true)
     expect(await store.counts()).toEqual({
-      total: 2, fiction: 2, nonfiction: 0, checkedOut: 1,
+      total: 2, fiction: 2, nonfiction: 0, checkedOut: 1, unplaced: 1,
     })
   })
 })

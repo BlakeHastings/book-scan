@@ -300,7 +300,7 @@ describe('bookkeeping', () => {
     await store.addBook(draft({ title: 'B', authors: ['X Z'] }))
     await store.addBook(draft({ title: 'C', authors: ['Q R'], genre: NON_FICTION_SLUG }))
 
-    expect(await store.counts()).toEqual({ total: 3, fiction: 2, nonfiction: 1, checkedOut: 0 })
+    expect(await store.counts()).toEqual({ total: 3, fiction: 2, nonfiction: 1, checkedOut: 0, unplaced: 2 })
   })
 
   it('counts as numbers, not as strings that look like numbers', async () => {

@@ -309,6 +309,24 @@ export class Catalogue {
     return found.id
   }
 
+  /** A plank's rule for one tag, written straight into the tables: a scenario's setup rather than the rule editor under test. */
+  async ruleOnPlank(areaId: number, slug: string): Promise<void> {
+    const [rule] = await this.all<{ id: number }>(
+      `INSERT INTO placement_rule (area_id, fixture_id, priority, name, enabled)
+       VALUES ($1, NULL, 1, $2, TRUE) RETURNING id`,
+      [areaId, `a scenario's rule for ${slug}`],
+    )
+    await this.pool.query(
+      `INSERT INTO rule_condition (rule_id, field, operator, value) VALUES ($1, 'tag', 'is', $2)`,
+      [rule!.id, slug],
+    )
+  }
+
+  /** Takes back every rule `ruleOnPlank` wrote, since `reset` keeps the furniture's own rules. */
+  async dropScenarioRules(): Promise<void> {
+    await this.pool.query(`DELETE FROM placement_rule WHERE name LIKE 'a scenario''s rule for %'`)
+  }
+
   async standUpPlank(fixturePosition: number, areaPosition = 0): Promise<void> {
     const [collection] = await this.all<{ id: number }>(
       'SELECT id FROM collection ORDER BY id LIMIT 1',
