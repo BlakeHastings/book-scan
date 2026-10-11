@@ -247,7 +247,7 @@ describe('saving a book', () => {
 
     expect(status).toBe(201)
     expect(body.id).toBeGreaterThan(0)
-    expect(body.counts).toEqual({ total: 1, fiction: 1, nonfiction: 0, checkedOut: 0 })
+    expect(body.counts).toEqual({ total: 1, fiction: 1, nonfiction: 0, checkedOut: 0, unplaced: 0 })
     expect(body.placement.suggestedLocation).toBe('1A')
 
     const stored = await running.store.getBook(body.id)
@@ -285,7 +285,7 @@ describe('saving a book', () => {
     const { body: tagged } = await call(`/api/books/${body.id}/tags`)
     expect(tagged.tags.map((tag: { slug: string }) => tag.slug)).toEqual([])
 
-    expect(body.counts).toEqual({ total: 1, fiction: 0, nonfiction: 0, checkedOut: 0 })
+    expect(body.counts).toEqual({ total: 1, fiction: 0, nonfiction: 0, checkedOut: 0, unplaced: 1 })
   })
 
   it('files it the moment a person says which it is, unchanged', async () => {

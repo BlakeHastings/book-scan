@@ -24,7 +24,7 @@
  */
 
 import {
-  and, asc, desc, eq, gt, gte, lt, ne, or, sql, type SQL, type SQLWrapper,
+  and, asc, desc, eq, gt, gte, isNotNull, isNull, lt, ne, or, sql, type SQL, type SQLWrapper,
 } from 'drizzle-orm'
 import type { Db } from '../../server/driver'
 import type { FiledBookRow } from '../../server/db.pg'
@@ -32,7 +32,7 @@ import { withPhotographs, type FiledPhotographedBook } from '../../server/photog
 import { withPlacements, type PlacementFields } from '../../server/placement-ledger'
 import type { Neighbour, ShelfRange } from '../../shared/shelving'
 import { resolveIsbnPair } from '../../shared/isbn'
-import { CHECKED_OUT, type BookState } from '../../domain/books/state'
+import { CHECKED_OUT, SHELVED, type BookState } from '../../domain/books/state'
 import { build, statement } from '../db/query'
 import { tagCounts } from './tag-counts'
 import { bookPlacement, bookTag, cataloguedBooks, shelvedBooks, tag } from '../db/schema'
@@ -74,6 +74,11 @@ export interface Listing {
    * vocabulary for a column that already says it.
    */
   state?: BookState
+  /**
+   * Whether the book stands on a plank. `false` implies `shelved`, because a
+   * book that is out or withdrawn is not waiting to be placed.
+   */
+  placed?: boolean
   /** How many rows this page holds. Absent means `PAGE_LIMIT` of them. */
   limit?: number
   offset?: number
@@ -287,6 +292,7 @@ export class DrizzleBookRepository {
    */
   async counts(): Promise<{
     total: number; fiction: number; nonfiction: number; checkedOut: number
+    unplaced: number
   }> {
     const tally = (when: SQL) =>
       sql<number>`cast(sum(case when ${when} then 1 else 0 end) as integer)`
@@ -296,11 +302,16 @@ export class DrizzleBookRepository {
       fiction: tally(eq(cataloguedBooks.shelfRange, 'fiction')).as('fiction'),
       nonfiction: tally(eq(cataloguedBooks.shelfRange, 'nonfiction')).as('nonfiction'),
       checkedOut: tally(eq(cataloguedBooks.state, CHECKED_OUT)).as('checkedOut'),
+      // Must stay the predicate `placed: false` narrows a listing by.
+      unplaced: tally(and(
+        eq(cataloguedBooks.state, SHELVED),
+        isNull(cataloguedBooks.currentAreaId),
+      )!).as('unplaced'),
     }).from(cataloguedBooks))
 
     const row = await this.db.get<{
       total: number; fiction: number | null
-      nonfiction: number | null; checkedOut: number | null
+      nonfiction: number | null; checkedOut: number | null; unplaced: number | null
     }>(query.text, query.values)
 
     return {
@@ -308,6 +319,7 @@ export class DrizzleBookRepository {
       fiction: row?.fiction ?? 0,
       nonfiction: row?.nonfiction ?? 0,
       checkedOut: row?.checkedOut ?? 0,
+      unplaced: row?.unplaced ?? 0,
     }
   }
 
@@ -340,6 +352,13 @@ function conditionsFor(query: Listing): SQL | undefined {
   if (query.range) conditions.push(eq(cataloguedBooks.shelfRange, query.range))
 
   if (query.state) conditions.push(eq(cataloguedBooks.state, query.state))
+
+  if (query.placed === false) {
+    conditions.push(eq(cataloguedBooks.state, SHELVED))
+    conditions.push(isNull(cataloguedBooks.currentAreaId))
+  } else if (query.placed === true) {
+    conditions.push(isNotNull(cataloguedBooks.currentAreaId))
+  }
 
   if (query.isbn) {
     const pair = resolveIsbnPair(query.isbn)

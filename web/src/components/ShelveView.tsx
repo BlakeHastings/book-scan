@@ -1,5 +1,5 @@
-import { useState, type Dispatch, type SetStateAction } from 'react'
-import { api, type Move, type PlacementResponse } from '../lib/api'
+import { useEffect, useState, type Dispatch, type SetStateAction } from 'react'
+import { api, type AtAPlace, type FixtureDto, type Move, type PlacementResponse } from '../lib/api'
 import {
   asking, confirm, depth, pushCarry, pushFrame, repropose,
   started, whereYouAre, type Cascade, type Proposal,
@@ -47,6 +47,17 @@ interface Props {
   setCascade: Dispatch<SetStateAction<Cascade>>
   /** Re-read placement after a move, so the strip shows the shelf as it is now. */
   onRefresh: () => Promise<unknown>
+  /**
+   * Only for a catalogued book: a book not yet saved is placed by its insert,
+   * which takes no plank, so offering it a choice would write nothing.
+   */
+  byHand?: boolean
+  /**
+   * Where the rules want a catalogued book, from its claim. The run's gap above
+   * comes from sort order alone, so a plank's rule for one subject can want the
+   * book somewhere else; null when no rule claims it or nobody has asked.
+   */
+  wanted?: AtAPlace | null
 }
 
 /**
@@ -66,7 +77,8 @@ interface Props {
  */
 export function ShelveView({
   placement, stale, range, title, saving, onShelved, onBack,
-  backSaid = 'Back to book details', cascade, setCascade, onRefresh,
+  backSaid = 'Back to book details', cascade, setCascade, onRefresh, byHand = false,
+  wanted = null,
 }: Props) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -90,6 +102,8 @@ export function ShelveView({
   // which end on their own; this one does not, since nothing is coming
   // until somebody writes a rule, so it must not be drawn as a wait.
   const nowhere = placement?.kind === 'range-has-no-start'
+
+  const choosing = byHand && (range === null || nowhere)
 
   // Which book moves when the shelf is full: the server decides this from
   // the layout, and this only chooses the button's wording.
@@ -247,6 +261,23 @@ export function ShelveView({
 
       <MovesSoFar cascade={cascade} />
 
+      {wanted && !pending && !started(cascade) && wanted.areaId !== shelfAreaId && (
+        <Card title={`The rules put it on ${wanted.label}`}>
+          <Said>
+            A rule claims {title} for {wanted.label}. Put it there and say so, or
+            answer about the gap below instead.
+          </Said>
+          <Button
+            tone="primary"
+            block
+            off={saving || busy}
+            onPress={() => onShelved(wanted.areaId)}
+          >
+            {saving ? 'Saving...' : `It is on ${wanted.label}, save`}
+          </Button>
+        </Card>
+      )}
+
       {/* A hook and nothing else: `Card` has no way of being named from
           outside, and browser tests refer to this as "the question". */}
       <div className="shelve__ask">
@@ -299,7 +330,8 @@ export function ShelveView({
                   <>
                     Nothing says whether <strong>{title}</strong> is fiction or
                     non-fiction, so no rule claims it and there is no shelf to put
-                    it on. Go back and say which it is.
+                    it on. Go back and say which it is
+                    {choosing ? ', or choose a shelf for it below' : ''}.
                   </>
                 ) : nowhere ? (
                   // A different absence from the sentence above: this book has
@@ -308,7 +340,8 @@ export function ShelveView({
                     Nothing says where {range === 'fiction' ? 'fiction' : 'non-fiction'}
                     {' '}begins, so there is nowhere
                     to put <strong>{title}</strong> yet. Say what belongs on a
-                    bookcase or a shelf first, and this book has a place.
+                    bookcase or a shelf first, and this book has a place
+                    {choosing ? ', or choose a shelf for it below' : ''}.
                   </>
                 ) : known ? (
                   <>
@@ -377,10 +410,87 @@ export function ShelveView({
         </Card>
       </div>
 
+      {choosing && !pending && (
+        <ChooseAPlank
+          title={title}
+          off={saving || busy}
+          onChosen={(areaId) => onShelved(areaId)}
+        />
+      )}
+
       <Button tone="quiet" block off={saving || busy} onPress={onBack}>
         {backSaid}
       </Button>
     </>
+  )
+}
+
+function ChooseAPlank({
+  title, off, onChosen,
+}: { title: string; off: boolean; onChosen: (areaId: number) => void }) {
+  const [fixtures, setFixtures] = useState<FixtureDto[] | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let live = true
+    api.furniture()
+      .then((room) => { if (live) setFixtures(room.fixtures) })
+      .catch((caught) => { if (live) setError((caught as Error).message) })
+    return () => { live = false }
+  }, [])
+
+  return (
+    <>
+      <Trouble said={error} />
+      <PlankChoice title={title} fixtures={fixtures} off={off} onChosen={onChosen} />
+    </>
+  )
+}
+
+/** Retired planks are in `fixture.gone`, not `areas`, so they are never offered. */
+export function PlankChoice({
+  title, fixtures, off, onChosen,
+}: {
+  title: string
+  /** Null while the room is being read. */
+  fixtures: FixtureDto[] | null
+  off: boolean
+  onChosen: (areaId: number) => void
+}) {
+  const pieces = (fixtures ?? []).filter((fixture) => fixture.areas.length > 0)
+
+  return (
+    <Card title="Put it somewhere yourself">
+      {fixtures === null ? (
+        <Said>Reading the room...</Said>
+      ) : pieces.length === 0 ? (
+        <Said>
+          There is no furniture to put {title} on yet. Add a bookcase under Your
+          fixtures, then come back to this book.
+        </Said>
+      ) : (
+        <>
+          <Said>Choose the shelf you put {title} on, and it is written down there.</Said>
+          {pieces.map((fixture) => (
+            <div
+              key={fixture.id}
+              className="shelve__by-hand"
+              role="group"
+              aria-label={fixture.name || fixture.label}
+            >
+              <span className="wf-card__kind">{fixture.name || fixture.label}</span>
+              <div className="wf-answers">
+                {fixture.areas.map((area) => (
+                  <Button key={area.id} block off={off} onPress={() => onChosen(area.id)}>
+                    {`On ${area.label}`}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+    </Card>
   )
 }
 

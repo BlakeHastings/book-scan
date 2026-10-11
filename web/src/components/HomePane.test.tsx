@@ -12,7 +12,7 @@ import type {
 } from '../lib/api'
 import { noFailures } from '../../shared/captureFailure'
 
-const counts: Counts = { total: 12, fiction: 8, nonfiction: 4, checkedOut: 0 }
+const counts: Counts = { total: 12, fiction: 8, nonfiction: 4, checkedOut: 0, unplaced: 0 }
 
 function queue(over: Partial<QueueCounts> = {}): QueueCounts {
   return { pending: 0, ready: 0, failed: 0, done: 0, failures: noFailures, ...over }
@@ -241,7 +241,7 @@ describe('what the counts say', () => {
 
 describe('the numbers the drawing did not have to survive', () => {
   it('draws five zeros and a sleeping cat when there is nothing at all', () => {
-    const html = home({ counts: { total: 0, fiction: 0, nonfiction: 0, checkedOut: 0 } })
+    const html = home({ counts: { total: 0, fiction: 0, nonfiction: 0, checkedOut: 0, unplaced: 0 } })
 
     expect(said(html).length, 'the counts are not all drawn on an empty day').toBe(5)
     expect(html).toMatch(/wf-stats__cat/)
@@ -251,7 +251,7 @@ describe('the numbers the drawing did not have to survive', () => {
 
   it('stretches him out as soon as there is a book anywhere', () => {
     const table = home({
-      counts: { total: 0, fiction: 0, nonfiction: 0, checkedOut: 0 },
+      counts: { total: 0, fiction: 0, nonfiction: 0, checkedOut: 0, unplaced: 0 },
       queue: queue({ pending: 2 }),
     })
 
@@ -263,7 +263,7 @@ describe('the numbers the drawing did not have to survive', () => {
   })
 
   it('leaves him a still loaf on the evening there is nothing to lie on', () => {
-    const nothing = home({ counts: { total: 0, fiction: 0, nonfiction: 0, checkedOut: 0 } })
+    const nothing = home({ counts: { total: 0, fiction: 0, nonfiction: 0, checkedOut: 0, unplaced: 0 } })
 
     expect(nothing, 'a tail was drawn reaching behind doors that are not there')
       .not.toMatch(/wf-cat__sweep/)
@@ -280,14 +280,14 @@ describe('the numbers the drawing did not have to survive', () => {
   })
 
   it('offers no way to find a book when there is nothing to find one against', () => {
-    const empty = { total: 0, fiction: 0, nonfiction: 0, checkedOut: 0 }
+    const empty = { total: 0, fiction: 0, nonfiction: 0, checkedOut: 0, unplaced: 0 }
 
     expect(home({ counts: empty })).not.toContain('wf-door--inhand')
     expect(home({ counts: { ...empty, total: 1 } })).toContain('wf-door--inhand')
   })
 
   it('offers it for a book on the table, with nothing catalogued at all', () => {
-    const empty = { total: 0, fiction: 0, nonfiction: 0, checkedOut: 0 }
+    const empty = { total: 0, fiction: 0, nonfiction: 0, checkedOut: 0, unplaced: 0 }
 
     expect(home({ counts: empty, queue: queue({ pending: 2 }) })).toContain('wf-door--inhand')
   })
@@ -632,6 +632,15 @@ describe('what a count opens', () => {
 
   it('opens the queue on the ready ones when the ready count is pressed', () => {
     expect(pressing('ready to shelve')).toEqual(['ready'])
+  })
+
+  it('opens the queue on the books on no plank, counted apart from the captures', () => {
+    expect(pressing('not on a shelf', { counts: { ...counts, unplaced: 288 } }))
+      .toEqual(['unplaced'])
+  })
+
+  it('draws no such count while every book stands on a plank', () => {
+    expect(pressable().map((one) => one.word)).not.toContain('not on a shelf')
   })
 
   it('opens the whole queue from the tab bar, which counts nothing', () => {

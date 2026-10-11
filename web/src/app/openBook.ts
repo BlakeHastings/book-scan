@@ -38,7 +38,7 @@ export interface OpenBook {
    * screen that places a book, and this is the way to it: the same way a
    * newly scanned book and a book coming back off the table both reach it.
    */
-  readonly moveBook: (id: number) => Promise<void>
+  readonly moveBook: (id: number, from?: Origin) => Promise<void>
   readonly openCapture: (capture: Capture, anchor: QueueReturnAnchor) => void
   readonly openFromLibrary: (id: number, anchor: LibraryReturnAnchor) => void
   readonly openNeighbour: (id: number) => void
@@ -119,8 +119,8 @@ export function useOpenBook(): OpenBook {
   }
 
   /** Pick a book up and go straight to the step that places one. See `moveBook`. */
-  const moveBook = async (id: number) => {
-    if (await openBook(id)) setRoute('shelve')
+  const moveBook = async (id: number, from: Origin = 'library') => {
+    if (await openBook(id, from)) setRoute('shelve')
   }
 
   /**

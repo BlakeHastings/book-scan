@@ -318,6 +318,15 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
  * that takes the row's place. `library.css` says the same from its end.
  */
 .queue__tools { margin-bottom: 12px; }
+/* The second job on the queue: catalogued books that stand on no plank. */
+.queue__group { display: grid; gap: var(--s2); margin-top: var(--s4); }
+.queue__group-title {
+  margin: 0;
+  font-family: var(--face-book);
+  font-size: var(--size-heading);
+  font-weight: 600;
+}
+.shelve__by-hand { display: grid; gap: var(--s2); }
 
 .queue__row {
   position: relative;

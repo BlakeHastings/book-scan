@@ -27,7 +27,7 @@ describe('saying a book has moved', () => {
 
   it('and that door really is the shelving step', () => {
     expect(source('../app/openBook.ts')).toMatch(
-      /const moveBook = async \(id: number\) => \{\s*if \(await openBook\(id\)\) setRoute\('shelve'\)/,
+      /const moveBook = async \(id: number, from: Origin = 'library'\) => \{\s*if \(await openBook\(id, from\)\) setRoute\('shelve'\)/,
     )
   })
 

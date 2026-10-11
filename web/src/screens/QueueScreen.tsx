@@ -1,4 +1,7 @@
-/** The captures waiting for somebody to work out what they are. */
+/**
+ * The captures waiting for somebody to work out what they are, and the
+ * catalogued books waiting for somebody to put them on a plank.
+ */
 
 import { useEffect } from 'react'
 import { QueuePane } from '../components/QueuePane'
@@ -11,9 +14,9 @@ import { useOpenBook } from '../app/openBook'
 
 export function QueueScreen() {
   const { queueReturn, setQueueReturn, queueShowing, clearQueueShowing } = useNavigation()
-  const { setQueueCounts } = useSummary()
+  const { setQueueCounts, setCounts } = useSummary()
   const { leaveFor } = useLeaving()
-  const { openCapture } = useOpenBook()
+  const { openCapture, moveBook } = useOpenBook()
 
   usePaper()
 
@@ -39,6 +42,8 @@ export function QueueScreen() {
       onReturnAnchorConsumed={() => setQueueReturn(null)}
       // Read once by the pane, which is remounted per visit, and cleared here so the tab bar's own way in still opens the whole queue.
       showing={queueShowing}
+      onPlace={(id) => { void moveBook(id, 'queue') }}
+      onCatalogueCounts={setCounts}
     />
   )
 }

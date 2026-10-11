@@ -165,6 +165,11 @@ export interface Counts {
   fiction: number
   nonfiction: number
   checkedOut: number
+  /**
+   * Books on the shelf by state that stand on no plank: still to be put
+   * somewhere. The queue's second job, beside the captures.
+   */
+  unplaced: number
 }
 
 /** The counters and not a verdict. `server/source-watch.ts` defines each. */
@@ -317,6 +322,8 @@ export interface BookQuery {
   tags?: readonly string[]
   /** One of the three states a catalogued book is in. Absent means all of them. */
   state?: BookState
+  /** `no` is the books still to be put on a plank. Absent means either. */
+  placed?: 'yes' | 'no'
   limit?: number
   offset?: number
 }
@@ -327,6 +334,7 @@ function bookQuery(query: BookQuery): string {
   if (query.q) asked.set('q', query.q)
   if (query.isbn) asked.set('isbn', query.isbn)
   if (query.state) asked.set('state', query.state)
+  if (query.placed) asked.set('placed', query.placed)
   for (const tag of query.tags ?? []) asked.append('tag', tag)
   if (query.limit !== undefined) asked.set('limit', String(query.limit))
   if (query.offset) asked.set('offset', String(query.offset))

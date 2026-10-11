@@ -765,6 +765,7 @@ export class Store {
 
   counts(): Promise<{
     total: number; fiction: number; nonfiction: number; checkedOut: number
+    unplaced: number
   }> {
     return this.reads.counts()
   }

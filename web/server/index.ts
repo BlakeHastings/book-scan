@@ -1612,7 +1612,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * is spelled explicitly; it is the whole collection, fiction then non-fiction.
    * `tag=` may be given more than once and all of them must hold, and a tag
    * matches itself and anything under it. An absent `limit` is the largest page
-   * rather than every book: see `PAGE_LIMIT`.
+   * rather than every book: see `PAGE_LIMIT`. `placed=no` is the books on the
+   * shelf by state that stand on no plank, which is what the queue lists as the
+   * second job beside the captures, in shelf order.
    *
    * `counts` is the whole catalogue rather than this query.
    */
@@ -1645,10 +1647,17 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       return
     }
 
+    const placedAsked = String(req.query.placed ?? '')
+    if (placedAsked && placedAsked !== 'yes' && placedAsked !== 'no') {
+      res.status(400).json({ error: `"${placedAsked}" is not yes or no.` })
+      return
+    }
+
     const limit = Number(req.query.limit)
     const offset = Number(req.query.offset)
 
     const found = await store.listing({
+      placed: placedAsked ? placedAsked === 'yes' : undefined,
       range,
       words: String(req.query.q ?? ''),
       isbn: String(req.query.isbn ?? ''),

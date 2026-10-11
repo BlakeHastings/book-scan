@@ -5,11 +5,12 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type { ReactElement } from 'react'
 import {
-  canShelve, deviceOn, photoCount, QueueRow, readableAgain, SHOWING,
-  stateWord, whatItNeeds, type RowGesture, type Which,
+  canShelve, deviceOn, photoCount, queueSaid, QueueRow, readableAgain, SHOWING,
+  showsCaptures, showsUnplaced, stateWord, UnplacedRow, whatItNeeds,
+  type RowGesture, type Which,
 } from './QueuePane'
 import { shotsOf } from '../lib/queuePhoto'
-import type { Capture, CaptureStatus } from '../lib/api'
+import type { Capture, CaptureStatus, FiledBookRow } from '../lib/api'
 
 /** This screen's own source, for the two rules that are about what is not on it. */
 const PANE = readFileSync(
@@ -587,5 +588,59 @@ describe('which books the queue opens on', () => {
     expect(PANE).toMatch(/onPick=\{setWhich\}/)
     expect(PANE, 'the filter is held to what opened the screen')
       .not.toMatch(/SHOWING\[showing/)
+  })
+})
+
+describe('the books on no plank, beside the captures', () => {
+  const book = {
+    id: 41,
+    title: 'The Dispossessed',
+    authors: 'Ursula K. Le Guin',
+    isbn13: '9780060512750',
+    front_image: 'front-41.jpg',
+    back_image: '',
+    edge_image: '',
+    front_crop: '',
+    back_crop: '',
+    edge_crop: '',
+  } as unknown as FiledBookRow
+
+  it('says the two jobs as two numbers', () => {
+    expect(queueSaid(12, 288)).toBe('12 books on the table, 288 not on a shelf yet')
+    expect(queueSaid(1, 0)).toBe('One book on the table')
+    expect(queueSaid(0, 3)).toBe('3 not on a shelf yet')
+    expect(queueSaid(0, 0)).toBe('0 books on the table')
+  })
+
+  it('shows them under the whole queue and under their own filter only', () => {
+    const all: Which[] = ['all', 'ready', 'processing', 'stuck', 'unplaced']
+    expect(all.filter(showsUnplaced)).toEqual(['all', 'unplaced'])
+    expect(all.filter(showsCaptures)).toEqual(['all', 'ready', 'processing', 'stuck'])
+  })
+
+  it('counts no capture as one of them', () => {
+    expect(SHOWING.unplaced(capture())).toBe(false)
+  })
+
+  it('draws a row by its title and says it stands on no shelf', () => {
+    const html = renderToStaticMarkup(<UnplacedRow book={book} />)
+    expect(html).toContain('The Dispossessed')
+    expect(html).toContain('Ursula K. Le Guin')
+    expect(html).toContain('Not on a shelf')
+    expect(html).toContain('front-41.jpg')
+  })
+
+  it('places the book that was tapped, by its id', () => {
+    const placed: number[] = []
+    const row = UnplacedRow({ book, onPlace: (id) => placed.push(id) }) as ReactElement<{
+      children: ReactElement<{ onClick: () => void }>
+    }>
+    row.props.children.props.onClick()
+    expect(placed).toEqual([41])
+  })
+
+  it('asks the listing for them a page at a time, never the whole catalogue', () => {
+    expect(PANE).toMatch(/placed: 'no'/)
+    expect(PANE).toMatch(/limit: UNPLACED_PAGE/)
   })
 })

@@ -15,7 +15,7 @@
  * on the book that was just finished.
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '../design/Controls'
 import { Card, Confirmation } from '../design/Card'
 import { TopBar, type TabName } from '../design/Chrome'
@@ -25,7 +25,7 @@ import { Trouble } from '../components/RoomFrame'
 import { PlacementView } from '../components/ShelfStrip'
 import { rangeOfSlug } from '../../domain/tagging/genre'
 import { filingName } from '../../shared/shelving'
-import type { PlacementResponse } from '../lib/api'
+import { api, type AtAPlace, type PlacementResponse } from '../lib/api'
 import { useBookActions } from '../app/bookActions'
 import { useBookInHand } from '../app/bookInHand'
 import { useErrorBanner } from '../app/errorBanner'
@@ -66,6 +66,19 @@ export function ShelveScreen() {
   const { queueCounts } = useSummary()
 
   const [shelved, setShelved] = useState<Shelved | null>(null)
+  const [wanted, setWanted] = useState<AtAPlace | null>(null)
+
+  // A failed read leaves the run's answer as the only suggestion, which is
+  // what this screen offered before it asked.
+  useEffect(() => {
+    setWanted(null)
+    if (bookId === null) return
+    let live = true
+    api.bookClaim(bookId)
+      .then((found) => { if (live) setWanted(found.claim.wanted) })
+      .catch(() => {})
+    return () => { live = false }
+  }, [bookId])
 
   /** How many books are still on the table, or null while nobody has said. */
   const waiting = queueCounts
@@ -205,6 +218,8 @@ export function ShelveScreen() {
           cascade={cascade}
           setCascade={setCascade}
           onRefresh={refreshPlacement}
+          byHand={bookId !== null}
+          wanted={wanted}
         />
       </Phone>
     </div>
