@@ -553,6 +553,7 @@ describe('writing what belongs here', () => {
           names: ['Comic books'],
           already: 1,
           claiming: 46,
+          claimingEach: [46],
           opens: false,
           losing: [],
           alsoClaims: [],

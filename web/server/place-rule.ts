@@ -104,6 +104,14 @@ export interface RuleChangePlan extends PlacementPlan {
   /** How many books in the whole catalogue any of these rules claim. */
   claiming: number
   /**
+   * How many books each rule of the draft claims on its own, in the draft's
+   * order. `claiming` is the "or" of these, so a rule that nothing can satisfy
+   * hides inside a total that another rule makes healthy. The commonest way to
+   * write one is to put Fiction and Non-fiction as two lines of one rule, which
+   * asks for a book that is both, when what was meant was either.
+   */
+  claimingEach: number[]
+  /**
    * True where the place has no rule today and would gain one. An area a rule
    * points at is where a stretch of books begins, so giving one a rule stops it
    * taking what overflows from the area before it.
@@ -375,7 +383,19 @@ export async function planRuleChange(db: Db, draft: RuleDraft): Promise<PlannedR
   const stands = draft.about === 'area'
     ? order.some((slot) => slot.area.id === draft.placeId)
     : order.some((slot) => slot.fixture.id === draft.placeId)
-  if (!stands) return refuse(404, 'No such place.')
+  if (!stands) {
+    /*
+     * `order` is built from areas, so a piece standing with none is missing from
+     * it without being missing from the room. A rule there has nowhere to put a
+     * book, so it is refused, but with the step that comes first.
+     */
+    if (draft.about === 'fixture' && await pieceIsBare(db, draft.placeId)) {
+      return refuse(400, 'This piece has no areas on it yet, so a rule here would '
+        + 'have nowhere to put a book. Add an area to it first, then say what '
+        + 'belongs here.')
+    }
+    return refuse(404, 'No such place.')
+  }
 
   const labels = await tagLabels(db)
   /*
@@ -419,6 +439,13 @@ export async function planRuleChange(db: Db, draft: RuleDraft): Promise<PlannedR
       names,
       already: rulesOn(rules, draft).length,
       claiming: books.filter((book) => written.some((rule) => matches(rule, book))).length,
+      claimingEach: draft.rules.map((one) => {
+        const rule: PlacementRule = {
+          id: 0, areaId: null, fixtureId: null, priority: 0, name: '',
+          enabled: true, conditions: asConditions(one),
+        }
+        return books.filter((book) => matches(rule, book)).length
+      }),
       opens,
       losing: GENRE_RANGES
         .filter(({ range }) =>
@@ -427,6 +454,17 @@ export async function planRuleChange(db: Db, draft: RuleDraft): Promise<PlannedR
         .map(({ range }) => range),
     },
   }
+}
+
+/** True when this piece stands in the room and has no area on its face. */
+async function pieceIsBare(db: Db, fixtureId: number): Promise<boolean> {
+  const row = await db.get<{ id: number }>(
+    `SELECT f.id FROM fixture f
+      WHERE f.id = ? AND f.position >= 0
+        AND NOT EXISTS (SELECT 1 FROM area a WHERE a.fixture_id = f.id AND a.position >= 0)`,
+    [fixtureId],
+  )
+  return row !== undefined
 }
 
 /**

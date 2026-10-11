@@ -609,6 +609,11 @@ export interface RuleChangePlan {
   already: number
   /** How many books anywhere in the collection any of these rules claim. */
   claiming: number
+  /**
+   * How many books each rule of the draft claims on its own, in the draft's
+   * order, so a rule nothing satisfies is visible beside one that claims plenty.
+   */
+  claimingEach: number[]
   /** Whether the place gains its first rule, and so stops taking overflow. */
   opens: boolean
   /** Stretches of books that would be left with no rule anchoring them. */

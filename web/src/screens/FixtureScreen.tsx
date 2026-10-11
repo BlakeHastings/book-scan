@@ -104,12 +104,24 @@ export function FixtureScreen() {
       })
       return true
     })
+    if (!done) return
+    /*
+     * Save writes the piece and not the rule under it, and leaving would throw
+     * away a rule drafted and not yet written down. So it stays and asks for the
+     * rule's plan, which is where "Write it down" is: a rule is never written
+     * without its plan having been shown.
+     */
+    if (writing.pending) {
+      setDraft(null)
+      writing.editing?.onPlan?.()
+      return
+    }
     /*
      * The room, and not back: saving is finished with this piece, and the piece
      * it puts in order is the room's. `instead` rather than `onward` so the
      * trail is not grown by a screen that is leaving.
      */
-    if (done) instead('furniture')
+    instead('furniture')
   }
 
   const remove = async () => {

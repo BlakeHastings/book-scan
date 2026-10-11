@@ -64,6 +64,12 @@ const LEAD: Record<RuleLine['operator'], string> = {
 
 export const RETARGET_WORD = 'Move these books to another bookcase'
 
+/** The button that adds "or" to a place, named once so every sentence pointing at it agrees. */
+export const OR_WORD = 'Allow something else as well'
+
+/** The button that turns one rule's lines into one rule each, which is "or". */
+export const SPLIT_WORD = 'Let in any one of these instead'
+
 const ASKS: { value: RuleLine['operator']; word: string }[] = [
   { value: 'is', word: 'That tag' },
   { value: 'under', word: 'That and under it' },
@@ -89,6 +95,8 @@ export interface RuleChoosing {
   make?: RuleMake | null
   /** What the box made of what was typed, where that is worth a line. */
   said?: string
+  /** Why a tag somebody might look for is not on offer for this rule. */
+  note?: string
   onQuery?: (query: string) => void
   onPick?: (tag: string) => void
   onClose?: () => void
@@ -124,6 +132,8 @@ export interface RuleEditing {
   onAlso?: () => void
   /** One of them off, which must be possible or "or" is a trap. */
   onDrop?: (group: number) => void
+  /** One rule's lines as one rule each: "any of these" where it said "all of these". */
+  onSplit?: (group: number) => void
   /** The one way out that leads anywhere: see what it would do. */
   onPlan?: () => void
   onClose?: () => void
@@ -333,10 +343,16 @@ function Writing({
             </div>
           )}
 
+          {/* The way to "any of these" is offered where the "and" is said, because a second line is easily read as "or". */}
           {lines.length > 1 && (
-            <p className="wf-rule__tie">
-              A book has to be all of these at once.
-            </p>
+            <>
+              <p className="wf-rule__tie">
+                A book has to be all of these at once.
+              </p>
+              <Button tone="quiet" block onPress={() => editing.onSplit?.(group)}>
+                {SPLIT_WORD}
+              </Button>
+            </>
           )}
         </div>
       ))}
@@ -349,8 +365,22 @@ function Writing({
       )}
 
       <Button tone="secondary" block onPress={editing.onAlso}>
-        {groups.length ? 'Allow something else as well' : 'Allow something here'}
+        {groups.length ? OR_WORD : 'Allow something here'}
       </Button>
+
+      {groups.length === 1 && (
+        <p className="wf-rule__tie">
+          Add a tag narrows this: the book has to carry that tag too. {OR_WORD} widens
+          it: a book fitting either belongs here, which is how one piece takes both
+          fiction and non-fiction.
+        </p>
+      )}
+      {groups.length > 1 && (
+        <p className="wf-rule__tie">
+          A book belongs here if it fits any one of these. Within one, it has to
+          carry every tag.
+        </p>
+      )}
 
       <Reaching beaten={beaten} />
     </Card>
@@ -382,6 +412,7 @@ function Choosing({ choosing }: { choosing: RuleChoosing }) {
         onChange={choosing.onQuery}
       />
       {choosing.said && <p className="wf-rule__tie">{choosing.said}</p>}
+      {choosing.note && <p className="wf-rule__tie">{choosing.note}</p>}
       {choosing.offering.length > 0 && (
         <Tags>
           {choosing.offering.map((one) => (
@@ -407,7 +438,7 @@ function Choosing({ choosing }: { choosing: RuleChoosing }) {
         </>
       )}
 
-      {choosing.offering.length === 0 && !choosing.make && (
+      {choosing.offering.length === 0 && !choosing.make && !choosing.note && (
         <p>Nothing else of yours reads like that.</p>
       )}
 
@@ -447,6 +478,7 @@ export function WouldHappen({
   leaving = [],
   unclaimed,
   note,
+  warning,
   busy = false,
   onApply,
   onNotYet,
@@ -465,6 +497,12 @@ export function WouldHappen({
   unclaimed: number
   /** Anything else true of the change, such as an area that stops taking overflow. */
   note?: string
+  /**
+   * A rule in this change that would file nothing. It takes the headline, and
+   * writing it down stops being the primary press: "no book would have to be
+   * carried" over a rule that can never claim a book read as success.
+   */
+  warning?: string
   busy?: boolean
   onApply?: () => void
   onNotYet?: () => void
@@ -472,12 +510,14 @@ export function WouldHappen({
   return (
     <Card
       kind="What would happen"
-      title={carrying === 0
-        ? 'No book would have to be carried'
-        : `${carrying} ${carrying === 1 ? 'book' : 'books'} to carry`}
+      title={warning
+        ? 'Part of this would file nothing'
+        : carrying === 0
+          ? 'No book would have to be carried'
+          : `${carrying} ${carrying === 1 ? 'book' : 'books'} to carry`}
       foot={
         <>
-          <Button tone="primary" block off={busy} onPress={onApply}>
+          <Button tone={warning ? 'secondary' : 'primary'} block off={busy} onPress={onApply}>
             {busy ? 'Writing it down...' : 'Write it down'}
           </Button>
           <Button tone="quiet" block onPress={onNotYet}>
@@ -486,6 +526,7 @@ export function WouldHappen({
         </>
       }
     >
+      {warning && <p className="wf-would__warning">{warning}</p>}
       <p>{holds} would be what files here.</p>
       {note && <p>{note}</p>}
 

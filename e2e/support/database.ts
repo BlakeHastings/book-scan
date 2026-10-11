@@ -404,6 +404,41 @@ export class Catalogue {
     )
   }
 
+  /** The lines of every rule written on the piece with this name, one entry per rule. */
+  async rulesOnPiece(name: string): Promise<string[][]> {
+    const rows = await this.all<{ rule_id: number; value: string }>(
+      `SELECT r.id AS rule_id, c.value
+         FROM placement_rule r
+         JOIN fixture f ON f.id = r.fixture_id
+         JOIN rule_condition c ON c.rule_id = r.id
+        WHERE f.name = $1
+        ORDER BY r.id, c.value`,
+      [name],
+    )
+    const rules = new Map<number, string[]>()
+    for (const row of rows) rules.set(row.rule_id, [...(rules.get(row.rule_id) ?? []), row.value])
+    return [...rules.values()]
+  }
+
+  /**
+   * Each shelved book's title and the piece its newest assignment names, or an
+   * empty string where the rules have assigned it nowhere.
+   */
+  async assignedPieces(): Promise<{ title: string; genre: string; piece: string }[]> {
+    return this.all(
+      `SELECT b.title,
+              COALESCE((SELECT t.slug FROM book_tag bt JOIN tag t ON t.id = bt.tag_id
+                         WHERE bt.book_id = b.id AND t.slug LIKE 'genre/%' LIMIT 1), '') AS genre,
+              COALESCE((SELECT f.name FROM book_placement p
+                          JOIN area a ON a.id = p.area_id
+                          JOIN fixture f ON f.id = a.fixture_id
+                         WHERE p.book_id = b.id AND p.kind = 'assigned'
+                         ORDER BY p.id DESC LIMIT 1), '') AS piece
+         FROM shelved_books b
+        ORDER BY b.title`,
+    )
+  }
+
   /** Every tag the collection keeps, whether or not a book carries it. */
   async vocabulary(): Promise<{ slug: string; label: string }[]> {
     return this.all('SELECT slug, label FROM tag ORDER BY slug')
