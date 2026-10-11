@@ -380,6 +380,30 @@ export class Catalogue {
     )
   }
 
+  /**
+   * Pin a book on the plank it stands on. No screen writes a pin, so this
+   * writes the row the ledger would; the area is unchanged, so the projection
+   * still agrees.
+   */
+  async pin(title: string): Promise<void> {
+    const pinned = await this.pool.query(
+      `INSERT INTO book_placement (book_id, kind, area_id, sort_key, actor, reason, created_at)
+       SELECT id, 'pinned', current_area_id, sort_key, 'person', 'pinned by a scenario', $2
+         FROM books WHERE title = $1 AND current_area_id IS NOT NULL`,
+      [title, new Date().toISOString()],
+    )
+    if (pinned.rowCount !== 1) throw new Error(`"${title}" is on no plank to pin it to`)
+  }
+
+  /** Every placement row, oldest first, with the title of the book it is about. */
+  async placements(): Promise<{ id: number; title: string; kind: string; actor: string }[]> {
+    return this.all(
+      `SELECT p.id, b.title, p.kind, p.actor
+         FROM book_placement p JOIN books b ON b.id = p.book_id
+        ORDER BY p.id`,
+    )
+  }
+
   /** Every tag the collection keeps, whether or not a book carries it. */
   async vocabulary(): Promise<{ slug: string; label: string }[]> {
     return this.all('SELECT slug, label FROM tag ORDER BY slug')
