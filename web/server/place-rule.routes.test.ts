@@ -342,6 +342,96 @@ describe('planning a change to what a place allows', () => {
   })
 })
 
+/**
+ * "Or" is two rules on one place and "and" is two lines on one rule. A rule
+ * nothing satisfies hides inside the plan's total once another rule on the
+ * place claims books, so each rule is counted on its own.
+ */
+describe('a piece that takes fiction and non-fiction', () => {
+  /** A piece put up from nothing, the way the furniture screen does it. */
+  async function pieceWithAreas(areas: number): Promise<{ id: number; areas: number[] }> {
+    const made = await post('/api/fixtures', { kind: 'bookshelf' })
+    const id = made.body.fixture.id as number
+    const ids: number[] = []
+    for (let at = 0; at < areas; at += 1) {
+      ids.push((await post(`/api/fixtures/${id}/areas`, {})).body.area.id as number)
+    }
+    return { id, areas: ids }
+  }
+
+  it('counts each rule on its own, so one asking for both genres shows it claims nothing', async () => {
+    const piece = await pieceWithAreas(1)
+
+    const { status, body } = await post('/api/placement/rule/plan', {
+      about: 'fixture',
+      placeId: piece.id,
+      rules: [
+        { id: null, conditions: [{ operator: 'is', tag: COMICS.value }] },
+        {
+          id: null,
+          conditions: [
+            { operator: 'is', tag: FICTION_SLUG },
+            { operator: 'is', tag: NON_FICTION_SLUG },
+          ],
+        },
+      ],
+    })
+
+    expect(status).toBe(200)
+    // The total looks healthy, because the comics rule claims three.
+    expect(body.plan.claiming).toBe(3)
+    expect(body.plan.claimingEach).toEqual([3, 0])
+  })
+
+  it('assigns books of both genres to it when they are two rules, which is "or"', async () => {
+    // The room as it is after starting over: no other place asks for anything.
+    await db.run('UPDATE book_placement SET rule_id = NULL')
+    await db.run('DELETE FROM placement_rule')
+    const piece = await pieceWithAreas(2)
+
+    const { status, body } = await post('/api/placement/rule', {
+      about: 'fixture',
+      placeId: piece.id,
+      rules: [
+        { id: null, conditions: [{ operator: 'is', tag: FICTION_SLUG }] },
+        { id: null, conditions: [{ operator: 'is', tag: NON_FICTION_SLUG }] },
+      ],
+    })
+
+    expect(status).toBe(200)
+    expect(body.plan.claimingEach).toEqual([2, 8])
+
+    const assigned = await db.all<{ slug: string }>(
+      `SELECT DISTINCT t.slug FROM book_placement p
+         JOIN book_tag bt ON bt.book_id = p.book_id
+         JOIN tag t ON t.id = bt.tag_id
+         JOIN area a ON a.id = p.area_id
+        WHERE p.kind = 'assigned' AND a.fixture_id = ? AND t.slug LIKE 'genre/%'
+        ORDER BY t.slug`,
+      [piece.id],
+    )
+    expect(assigned.map((row) => row.slug)).toEqual([FICTION_SLUG, NON_FICTION_SLUG])
+  })
+
+  /**
+   * Adding a piece opens its screen before it has any areas, so this is the
+   * first thing somebody building a room meets.
+   */
+  it('says a bare piece needs an area first, rather than that it is not there', async () => {
+    const piece = await pieceWithAreas(0)
+
+    const { status, body } = await post('/api/placement/rule/plan', {
+      about: 'fixture',
+      placeId: piece.id,
+      rules: [{ id: null, conditions: [{ operator: 'is', tag: FICTION_SLUG }] }],
+    })
+
+    expect(status).toBe(400)
+    expect(body.error).toMatch(/no areas on it yet/)
+    expect(body.error).not.toMatch(/No such place/)
+  })
+})
+
 describe('reading the rules on a place, which is the one read that speaks slugs', () => {
   it('answers the rules in the shape they go back in', async () => {
     const piece = await nonFiction()

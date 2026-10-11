@@ -17,7 +17,7 @@ import {
   api,
   type DraftRule, type RuleChangePlan, type RuleDraftLine, type TagRow,
 } from '../lib/api'
-import { linesSaid, making, offering, slugFor } from '../lib/ruleWriting'
+import { genreRuledOut, linesSaid, making, offering, slugFor, split } from '../lib/ruleWriting'
 import type { RuleEditing } from '../design/Rules'
 
 /** Which place is being written about, which is exactly one of two things. */
@@ -39,6 +39,12 @@ export interface Writing {
   plan: RuleChangePlan | null
   /** What the write did, once it has. Null until then. */
   applied: { wrote: number; carrying: number } | null
+  /**
+   * Whether the draft says something the place does not hold yet. A page's own
+   * Save writes the page and not the rule, so this is what stops it leaving with
+   * a rule somebody wrote and never wrote down.
+   */
+  pending: boolean
   busy: boolean
   error: string
   /** The vocabulary a line can be chosen from, as the app already reads it. */
@@ -63,6 +69,7 @@ export const RESTING: Writing = {
   rules: [],
   plan: null,
   applied: null,
+  pending: false,
   busy: false,
   error: '',
   vocabulary: [],
@@ -80,6 +87,8 @@ export const RESTING: Writing = {
 export function useWriting(place: Place | null, after?: () => void): Writing {
   const [on, setOn] = useState(false)
   const [rules, setRules] = useState<DraftRule[]>([])
+  /** The rules as the place holds them, which is what `pending` compares against. */
+  const [stored, setStored] = useState<DraftRule[]>([])
   /** Which rule a tag is being chosen for, or null when none is. */
   const [choosing, setChoosing] = useState<number | null>(null)
   const [query, setQuery] = useState('')
@@ -110,6 +119,7 @@ export function useWriting(place: Place | null, after?: () => void): Writing {
    */
   const start = useCallback(() => {
     setRules([])
+    setStored([])
     setPlan(null)
     setApplied(null)
     setChoosing(null)
@@ -119,7 +129,7 @@ export function useWriting(place: Place | null, after?: () => void): Writing {
     if (!place) return
 
     api.placeRules(place.about, place.id)
-      .then((got) => setRules(got.rules))
+      .then((got) => { setRules(got.rules); setStored(got.rules) })
       .catch((caught) => setError((caught as Error).message))
   }, [place])
 
@@ -199,6 +209,7 @@ export function useWriting(place: Place | null, after?: () => void): Writing {
     const onThisRule = rules[group]?.conditions ?? []
     const namedHere = rules.flatMap((rule) => rule.conditions)
     const { make, said, slug } = making(vocabulary, query, namedHere)
+    const ruledOut = genreRuledOut(onThisRule, vocabulary)
     const put = (tag: string, label?: string) => {
       changed(group, [
         ...(rules[group]?.conditions ?? []),
@@ -216,9 +227,14 @@ export function useWriting(place: Place | null, after?: () => void): Writing {
        * legitimately name the same tag, and hiding it would make the
        * second "or" unwritable.
        */
-      offering: offering(vocabulary, query, onThisRule.map((line) => line.tag)),
+      offering: offering(
+        vocabulary,
+        query,
+        [...onThisRule.map((line) => line.tag), ...ruledOut.slugs],
+      ),
       make: make && slug ? { ...make, onPress: () => put(slug, make.name) } : null,
       said,
+      note: ruledOut.note,
       onQuery: setQuery,
       onPick: (label: string) => {
         const slugged = slugFor(vocabulary, label)
@@ -268,12 +284,22 @@ export function useWriting(place: Place | null, after?: () => void): Writing {
         setChoosing(null)
         held(rules.filter((_, at) => at !== group))
       },
+      onSplit: (group) => {
+        setChoosing(null)
+        held(split(rules, group))
+      },
       onPlan: () => { void ask() },
       onClose: stop,
     }
     : null
 
+  /*
+   * Compared as written rather than by identity: the draft is rebuilt on every
+   * edit, and taking a line off and putting it back is not a change.
+   */
+  const pending = on && JSON.stringify(rules) !== JSON.stringify(stored)
+
   return {
-    on, rules, plan, applied, busy, error, vocabulary, editing, start, stop, apply,
+    on, rules, plan, applied, pending, busy, error, vocabulary, editing, start, stop, apply,
   }
 }

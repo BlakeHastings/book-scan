@@ -10,8 +10,8 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  draftHolds, leaving, linesSaid, making, movesOf, noteOf, offering, saidRules, slugFor,
-  wroteSaid,
+  draftHolds, fileNothingSaid, genreRuledOut, leaving, linesSaid, making, movesOf, noteOf,
+  offering, saidRules, slugFor, split, wroteSaid,
 } from './ruleWriting'
 import { waitingSaid } from '../design/Rules'
 import type { RuleChangePlan, RuleDto, TagRow } from './api'
@@ -129,6 +129,7 @@ const plan = (over: Partial<RuleChangePlan> = {}): RuleChangePlan => ({
   names: ['Poetry'],
   already: 1,
   claiming: 41,
+  claimingEach: [41],
   opens: false,
   losing: [],
   alsoClaims: [],
@@ -370,5 +371,71 @@ describe('a rule waiting on a word nothing carries', () => {
   it('draws a word being named by the word, and counts it as carried by nothing', () => {
     expect(linesSaid(vocabulary, [{ operator: 'is', tag: 'subject/manga', label: 'Manga' }]))
       .toEqual([{ operator: 'is', tag: 'Manga', carried: 0 }])
+  })
+})
+
+/**
+ * Fiction and Non-fiction as two lines of one rule ask for a book that is both,
+ * when one piece taking either was meant.
+ */
+describe('"and" written where "or" was meant', () => {
+  const genres: TagRow[] = [
+    ...vocabulary,
+    tag('genre/non-fiction', 'Non-fiction', 300),
+  ]
+  const both = {
+    id: null,
+    conditions: [
+      { operator: 'is' as const, tag: 'genre/fiction' },
+      { operator: 'is' as const, tag: 'genre/non-fiction' },
+    ],
+  }
+
+  it('says a rule asking for both genres files nothing, and how to mean either', () => {
+    const said = fileNothingSaid({ claimingEach: [0] }, [both], genres)
+
+    expect(said).toMatch(/Fiction and Non-fiction, all at once/)
+    expect(said).toMatch(/no book is both/)
+    expect(said).toMatch(/Let in any one of these instead/)
+  })
+
+  /** The case the total hides: another rule on the place claims plenty. */
+  it('names which rule files nothing when another on the place claims books', () => {
+    const poetry = { id: 4, conditions: [{ operator: 'is' as const, tag: 'subject/poetry' }] }
+    const said = fileNothingSaid({ claimingEach: [41, 0] }, [poetry, both], genres)
+
+    expect(said).toMatch(/^Rule 2 asks/)
+  })
+
+  /** One line that nothing carries is a word somebody is waiting for, said elsewhere. */
+  it('says nothing about a rule that claims books, or a rule of one line', () => {
+    const one = { id: null, conditions: [{ operator: 'is' as const, tag: 'subject/poetry' }] }
+    expect(fileNothingSaid({ claimingEach: [2] }, [both], genres)).toBe('')
+    expect(fileNothingSaid({ claimingEach: [0] }, [one], genres)).toBe('')
+  })
+
+  it('turns one rule of several lines into one rule each, keeping the row', () => {
+    const rules = split([{ ...both, id: 7 }], 0)
+
+    expect(rules).toEqual([
+      { id: 7, conditions: [both.conditions[0]] },
+      { id: null, conditions: [both.conditions[1]] },
+    ])
+  })
+
+  it('does not offer the other genre as a second line, and says where "or" is', () => {
+    const fiction = [{ operator: 'is' as const, tag: 'genre/fiction' }]
+    const { slugs, note } = genreRuledOut(fiction, genres)
+
+    expect(slugs).toEqual(['genre/non-fiction'])
+    expect(note).toMatch(/no book is both Fiction and Non-fiction/)
+    expect(note).toMatch(/Allow something else as well/)
+    expect(offering(genres, '', ['genre/fiction', ...slugs]).map((one) => one.tag))
+      .not.toContain('Non-fiction')
+  })
+
+  it('rules nothing out on a rule that asks for no genre', () => {
+    expect(genreRuledOut([{ operator: 'is', tag: 'subject/poetry' }], genres))
+      .toEqual({ slugs: [], note: '' })
   })
 })

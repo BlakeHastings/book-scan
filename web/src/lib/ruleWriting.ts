@@ -10,10 +10,15 @@
 
 import { holdsSaid } from '../../domain/placement/phrasing'
 import { NAMED_UNDER, nameIn, nameTag, sameThing } from '../../domain/tagging/naming'
+import { OR_WORD, SPLIT_WORD } from '../design/Rules'
 import type { RuleLine, RuleMake, RuleOffer, RuleSaid, WouldLeave, WouldMove } from '../design/Rules'
 import type { DraftRule, RuleDraftLine, RuleChangePlan, RuleDto, SkippedBooks, TagRow } from './api'
 import { SKIP_SAID, plural } from './furniture'
 import { labelOf } from './tagTree'
+import { FICTION_SLUG, NON_FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
+
+/** The two genres. A book carries one of them at most, never both. */
+const GENRES: readonly string[] = [FICTION_SLUG, NON_FICTION_SLUG]
 
 /** How many tags the picker offers before somebody has to say more. */
 export const OFFERED = 8
@@ -290,3 +295,75 @@ export const wroteSaid = (wrote: number): string =>
   (wrote === 0
     ? 'Nothing changed about where the books belong.'
     : `${plural(wrote, 'book')} now ${wrote === 1 ? 'belongs' : 'belong'} somewhere else.`)
+
+/**
+ * The genre a rule's lines already ask for, and so the other one, which a tag
+ * added to the same rule can never usefully be.
+ *
+ * A line added to a rule is "and". A book is fiction or non-fiction and never
+ * both, so a rule asking for Fiction and then for Non-fiction claims nothing at
+ * all when what was almost certainly meant was a piece taking both. The other
+ * genre is kept out of the picker for that rule, and the picker says why and
+ * where "or" is instead.
+ */
+export function genreRuledOut(
+  lines: readonly RuleDraftLine[],
+  vocabulary: readonly TagRow[],
+): { slugs: string[]; note: string } {
+  const asked = lines.find((line) => GENRES.includes(line.tag))
+  if (!asked) return { slugs: [], note: '' }
+
+  const other = GENRES.find((slug) => slug !== asked.tag)!
+  const named = (slug: string) =>
+    vocabulary.find((tag) => tag.slug === slug)?.label ?? nameIn(slug)
+  return {
+    slugs: [other],
+    note: `${named(other)} is not offered here. A tag added to this rule has to be on `
+      + `the same book as well, and no book is both ${named(asked.tag)} and `
+      + `${named(other)}. To take both here, close this and press "${OR_WORD}".`,
+  }
+}
+
+/**
+ * What to say before writing when a rule on this place would file nothing, or
+ * the empty string.
+ *
+ * Only a rule with more than one line is spoken about. A rule of one line that
+ * nothing carries is a word somebody named and is waiting for, which
+ * `waitingSaid` already says. A rule of several lines that nothing carries is
+ * almost always "or" written as "and", and the plan's total cannot show it when
+ * another rule on the place claims books.
+ */
+export function fileNothingSaid(
+  plan: Pick<RuleChangePlan, 'claimingEach'>,
+  rules: readonly DraftRule[],
+  vocabulary: readonly TagRow[],
+): string {
+  const each = plan.claimingEach ?? []
+  const said: string[] = []
+
+  rules.forEach((rule, at) => {
+    if (rule.conditions.length < 2 || each[at] !== 0) return
+    const words = linesSaid(vocabulary, rule.conditions).map((line) => line.tag)
+    const which = rules.length > 1 ? `Rule ${at + 1} asks` : 'This asks'
+    const genres = rule.conditions.filter((line) => GENRES.includes(line.tag)).length
+    said.push(`${which} for a book tagged ${words.join(' and ')}, all at once, and `
+      + `${genres > 1 ? 'no book is both' : 'no book in the collection carries all of them'}, `
+      + `so it would file nothing here. If you meant any one of them, press "${SPLIT_WORD}".`)
+  })
+
+  return said.join(' ')
+}
+
+/** One rule's lines as one rule each, which is "any of these" instead of "all of these". */
+export function split(rules: readonly DraftRule[], group: number): DraftRule[] {
+  const rule = rules[group]
+  if (!rule || rule.conditions.length < 2) return [...rules]
+  const [first, ...rest] = rule.conditions
+  return [
+    ...rules.slice(0, group),
+    { id: rule.id, conditions: [first!] },
+    ...rest.map((line) => ({ id: null, conditions: [line] })),
+    ...rules.slice(group + 1),
+  ]
+}

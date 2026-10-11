@@ -9,7 +9,7 @@ import { Card, Confirmation } from '../design/Card'
 import { Button } from '../design/Controls'
 import { WouldHappen } from '../design/Rules'
 import type { Writing } from '../app/writing'
-import { leaving, movesOf, noteOf, wroteSaid } from '../lib/ruleWriting'
+import { fileNothingSaid, leaving, movesOf, noteOf, wroteSaid } from '../lib/ruleWriting'
 import { plural } from '../lib/furniture'
 
 export function Changing({
@@ -52,6 +52,7 @@ export function Changing({
       leaving={leaving(writing.plan.skipped)}
       unclaimed={writing.plan.unclaimed.length}
       note={noteOf(writing.plan)}
+      warning={fileNothingSaid(writing.plan, writing.rules, writing.vocabulary)}
       busy={writing.busy}
       onApply={() => { void writing.apply() }}
       onNotYet={() => writing.stop()}
