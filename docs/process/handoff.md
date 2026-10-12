@@ -78,17 +78,16 @@ evaluates.
 
 ## In flight
 
-| Issue | Who has it |
-| --- | --- |
-| #479 | an agent. A range with no rule has no start, resumed from work a session restart interrupted |
-| #584, #585 | an agent. The seam between the two camera changes, and two more things counting controls |
-| #577, #582 | an agent. The pruner's squash blind spot, and a hook payload with no working directory |
+**Topped up 2026-10-12.** Distrust this table after three merges and read `gh pr list` instead.
 
-**Twenty pull requests merged on 2026-09-07**, every one reviewed from this loop:
-#551 (#549), #555 (#530), #560 (#448), #565 (#556), #564 (#557), #569 (#552
-script half), #570 (#566), #571 (#561), #573 (#567), #575 (#562), #574 and #576
-(#558, split), #579 (#563), #580 (#572), #583 (#553), #586 (#554), plus five
-top-ups of this file. **#510 was closed on evidence**, not on its reviews.
+| Issue | Where it stands |
+| --- | --- |
+| #604 | **Epic: aggregates, repositories, command and query handlers, and a resource API at `/api/v1`.** Supersedes #169, which is closed. The owner's decisions are in the epic body. **Nothing is dispatched under it until the owner has reviewed the design page**, which he asked for in his own words: "I want to see all of that and I want to be able to give feedback on it before we implement it." The page is a private claude.ai artifact, linked in the session that made it and summarised on #604. Four read-only surveys built it and it maps all 80 current routes. When his comments are in, commit the design as `docs/architecture.md` and file the children from it. |
+| #605 | PR #608, reviewed, verified by reverting the fix (3 of 4 new tests fail), rebasing onto #607 before merge |
+| #609 | an agent. The furniture lock gap #605's builder confirmed with a concurrency test |
+| #606 | **merged as #607.** Four write tools now take `--target` and nothing else |
+
+**Six old agent worktrees hold staged changes and the pruner keeps them**: `agent-a0f53f8e`, `a1222fb2`, `a1f394c7`, `a3a02ff8`, `a9386d83`, `a652a7b9`. Inspected on 2026-10-12: every issue they belong to (#567, #577, #558, #584, #479) is closed, and 49 of their 57 staged files are byte-identical to a version already on master; the remainder are mostly deletions, which that comparison cannot match. **Residue of landed work, not stranded work.** Not swept, because sweeping is a decision and nothing is gained by making it today.
 
 ## A session restart detached three agents mid-flight, and one had uncommitted work
 
