@@ -693,6 +693,96 @@ describe('reordering the areas on a piece', () => {
   })
 })
 
+/**
+ * An area's anchor is what decides which books belong in it, so writing one
+ * moves books. Each test ends by asking both lists, because the defect this
+ * guards against is the misfile list naming books the carry list says nobody
+ * has to carry: neither health check can see that.
+ */
+describe('moving where an area starts', () => {
+  /** The last book standing in an area, which is the one a new anchor takes first. */
+  const lastIn = async (areaId: number) => (await db.get<{ id: number; sort_key: string }>(
+    'SELECT id, sort_key FROM books WHERE current_area_id = ? ORDER BY sort_key DESC LIMIT 1',
+    [areaId],
+  ))!
+
+  const bothLists = async () => ({
+    misfiled: (await get('/api/misfiles?range=nonfiction')).body.misfiles
+      .map((one: { book: { id: number } }) => one.book.id),
+    carried: (await get('/api/carry')).body.trips
+      .flatMap((trip: { books: { id: number }[] }) => trip.books.map((book) => book.id)),
+  })
+
+  it('writes down the book the new anchor took, so there is something to carry', async () => {
+    await buildWorld()
+    const [first, second] = (await nonFiction()).areas
+    const taken = await lastIn(first.id)
+    const before = await placedRows()
+
+    const edited = await patch(`/api/areas/${second.id}`, { startsAt: taken.sort_key })
+    expect(edited.status).toBe(200)
+
+    expect(await placedRows()).toEqual(before)
+    expect((await assignedRows()).map((row) => [Number(row.area_id), row.reason]))
+      .toEqual([[second.id, '4B now starts at a different book']])
+    expect(await bothLists()).toEqual({ misfiled: [taken.id], carried: [taken.id] })
+  })
+
+  it('leaves a pinned book where a person said it lives, and moves the rest', async () => {
+    await buildWorld()
+    const [first, second] = (await nonFiction()).areas
+    const [pinned, moved] = await db.all<{ id: number; sort_key: string }>(
+      'SELECT id, sort_key FROM books WHERE current_area_id = ? ORDER BY sort_key', [first.id],
+    )
+    await new DrizzlePlacementLedger(db).record({
+      bookId: pinned!.id,
+      kind: 'pinned',
+      areaId: first.id,
+      sortKey: '',
+      actor: 'person',
+      reason: 'it lives here',
+      createdAt: new Date().toISOString(),
+    })
+
+    // Both books of 4A now sort from where 4B starts.
+    expect((await patch(`/api/areas/${second.id}`, { startsAt: pinned!.sort_key })).status)
+      .toBe(200)
+
+    const ledger = new DrizzlePlacementLedger(db)
+    expect((await ledger.forBooks([pinned!.id])).map((row) => row.kind)).not.toContain('assigned')
+    expect((await ledger.forBooks([moved!.id])).at(-1)).toMatchObject({
+      kind: 'assigned', areaId: second.id,
+    })
+    expect((await get('/api/carry')).body.moving).toBe(1)
+  })
+
+  it('writes nothing for a rename, which moves no book', async () => {
+    await buildWorld()
+    const [, second] = (await nonFiction()).areas
+    const before = await everyPlacement()
+
+    expect((await patch(`/api/areas/${second.id}`, { name: 'Travel' })).status).toBe(200)
+
+    expect(await everyPlacement()).toEqual(before)
+  })
+
+  it('writes down the books a new area takes off the one in front of it', async () => {
+    await buildWorld()
+    const bookcase = await nonFiction()
+    const taken = await lastIn(bookcase.areas[0].id)
+
+    const added = await post(`/api/fixtures/${bookcase.id}/areas`, {
+      startsAt: taken.sort_key,
+      position: 1,
+    })
+    expect(added.status).toBe(201)
+
+    expect((await assignedRows()).map((row) => [Number(row.area_id), row.reason]))
+      .toEqual([[added.body.area.id, '4B was added']])
+    expect(await bothLists()).toEqual({ misfiled: [taken.id], carried: [taken.id] })
+  })
+})
+
 describe('removing an area from a bookcase that is not empty', () => {
   it('says what becomes of its books before anything happens', async () => {
     await buildWorld()
