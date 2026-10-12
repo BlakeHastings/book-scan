@@ -25,7 +25,7 @@ import {
 } from '../application/placement/assign-placements'
 import type { ShelfRange } from '../shared/shelving'
 import type { Db } from './driver'
-import { rangeLock } from './shelves'
+import { boundaryLocks } from './shelves'
 
 /** A plan, and the furniture change it is a plan of. */
 export interface RunMovePlan extends PlacementPlan {
@@ -180,10 +180,11 @@ export async function planRunMove(db: Db, range: ShelfRange, to: number): Promis
 /**
  * Move the run, and record where the rules now want every book.
  *
- * One transaction, serialised on the range: between the furniture write and
- * the assignment run, the range's rule points at planks nobody has been told
- * about yet, and a save landing in that window would place a book by half an
- * arrangement.
+ * One transaction, serialised on the range and the furniture: between the
+ * furniture write and the assignment run, the range's rule points at planks
+ * nobody has been told about yet, and a save landing in that window would place
+ * a book by half an arrangement; and the plan is read off a room that another
+ * furniture write must not change underneath it.
  *
  * Safe to call twice: the second call finds the run already on that bookcase
  * and moves no furniture, and `assignmentFor` finds every book already
@@ -218,5 +219,5 @@ export async function applyRunMove(
     })
 
     return { ok: true, plan: planned.plan, wrote }
-  }, { serialiseOn: rangeLock(range) })
+  }, { serialiseOn: boundaryLocks(range) })
 }

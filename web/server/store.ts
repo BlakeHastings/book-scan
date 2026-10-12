@@ -261,7 +261,15 @@ export class Store {
      */
     const { range } = genreStatedBy(draft)
 
-    // Nests: `Db.tx` opens a savepoint when the caller is already inside one.
+    /*
+     * Nests: `Db.tx` opens a savepoint when the caller is already inside one.
+     *
+     * The range's lock alone, although `rangeStart` reads the furniture: a save
+     * does not wait for a furniture write, so it can place a book by a room that
+     * is being rearranged. Known and deliberately left open, because taking
+     * `FURNITURE_LOCK` here makes every save queue behind every furniture edit,
+     * and that is #604's to decide. `updateBook` is the same.
+     */
     const { id, placement } = await this.db.tx(async (tx) => {
       const resolved = await this.resolveKey(draft)
       let placed: (Placement & ResolvedKey) | null = null

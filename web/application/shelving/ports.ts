@@ -180,13 +180,13 @@ export interface OutstandingMoveRepository {
  * what this port is for rather than a bare `transaction(work)`.
  *
  * See `TxOptions` in `web/server/driver.ts`, where the mechanism lives, and
- * `rangeLock` in `web/server/shelves.ts` for the one namespace in use.
+ * `boundaryLocks` in `web/server/shelves.ts` for the names taken.
  */
 export interface Transactions {
   /**
    * Run `work` atomically, and serialised against everything else working on
-   * the same range. Nothing that only reads waits for it, and work on a
-   * different range does not wait either.
+   * the same range and against every change to the furniture, since a
+   * boundary is an area. Nothing that only reads waits for it.
    */
   inRange<T>(range: ShelfRange, work: () => Promise<T>): Promise<T>
 }

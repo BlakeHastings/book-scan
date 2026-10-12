@@ -28,7 +28,7 @@ import { downloadCover, openLibraryCover, upgradeGoogleCover } from './covers'
 import { coverHash, distance } from './imagehash'
 import { cropPhotos } from './crop'
 import { CaptureQueue, type CaptureEdit, type CaptureRow } from './queue'
-import { rangeLock, Shelves, type Planks, type ShelvedBook } from './shelves'
+import { boundaryLocks, Shelves, type Planks, type ShelvedBook } from './shelves'
 import { plankLabels, tagsRulesName, type Plank, type RunPlanks } from '../infrastructure/shelving/areas'
 import { toNeighbour } from '../infrastructure/books/book-repository'
 import {
@@ -425,7 +425,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
 
   const separators = new DrizzleSeparatorRepository(db)
   const removeSeparator = new RemoveSeparatorHandler(
-    separators, new DbTransactions(db, rangeLock),
+    separators, new DbTransactions(db, boundaryLocks),
   )
   const shelves = new Shelves(db, separators, removeSeparator)
 

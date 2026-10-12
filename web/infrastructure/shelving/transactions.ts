@@ -9,7 +9,7 @@
  * and needs no lock at all. Neither of those facts is one a command handler
  * should have to hold.
  *
- * The lock name is injected rather than imported. `rangeLock` lives in
+ * The lock names are injected rather than imported. `boundaryLocks` lives in
  * `web/server/shelves.ts` beside the prose explaining the namespace, and
  * importing it here would make this file and that one a cycle. Spelling the
  * name a second time instead was the other option, and two spellings of a lock
@@ -23,7 +23,7 @@ import type { Db } from '../../server/driver'
 export class DbTransactions implements Transactions {
   constructor(
     private readonly db: Db,
-    private readonly lockName: (range: ShelfRange) => string,
+    private readonly lockName: (range: ShelfRange) => string | readonly string[],
   ) {}
 
   async inRange<T>(range: ShelfRange, work: () => Promise<T>): Promise<T> {

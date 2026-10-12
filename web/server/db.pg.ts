@@ -21,7 +21,7 @@ import {
 import { areaDisagreements, describeAreaDisagreement } from '../infrastructure/shelving/area-drift'
 import { booksNoRuleClaims } from './claim'
 import type { ShelfRange } from '../shared/shelving'
-import { bindParams, lockKey, type Db, type Params, type TxOptions } from './driver'
+import { bindParams, inLockOrder, lockKey, type Db, type Params, type TxOptions } from './driver'
 
 const { Pool } = pg
 type PoolClient = pg.PoolClient
@@ -586,7 +586,7 @@ export class PgDb implements Db {
     try {
       await client.query('BEGIN')
       try {
-        if (options?.serialiseOn) await this.lock(client, options.serialiseOn)
+        await this.lock(client, options)
         const result = await this.context.run({ client, depth: 1 }, () => work(this))
         await client.query('COMMIT')
         return result
@@ -626,7 +626,8 @@ export class PgDb implements Db {
    * one's work. `SAVEPOINT` is the spelling that means what the caller asked for.
    */
   /**
-   * Hold an exclusive lock on `name` for the length of the open transaction.
+   * Hold an exclusive lock on each name `serialiseOn` gives, for the length of
+   * the open transaction.
    *
    * `pg_advisory_xact_lock` rather than the session-scoped spelling, and the
    * difference matters on a pool: a session lock is released by the code that
@@ -639,14 +640,22 @@ export class PgDb implements Db {
    *
    * Re-entrant: a nested transaction naming the same string re-acquires a lock
    * this transaction already owns, which Postgres counts rather than blocks on.
+   * A savepoint takes its locks before `SAVEPOINT`, so rolling back to it does
+   * not release them.
+   *
+   * One statement per name and each awaited, because the order is the point:
+   * Postgres does not promise which of several calls in one `SELECT` runs first.
    */
-  private async lock(client: PoolClient, name: string): Promise<void> {
-    // The key is sent as text and cast, because a bigint has no JavaScript
-    // number that carries it and node-postgres would otherwise send a float.
-    await client.query({
-      text: 'SELECT pg_advisory_xact_lock(CAST($1 AS bigint))',
-      values: [lockKey(name).toString()],
-    })
+  private async lock(client: PoolClient, options: TxOptions | undefined): Promise<void> {
+    if (options?.serialiseOn === undefined) return
+    for (const name of inLockOrder(options.serialiseOn)) {
+      // The key is sent as text and cast, because a bigint has no JavaScript
+      // number that carries it and node-postgres would otherwise send a float.
+      await client.query({
+        text: 'SELECT pg_advisory_xact_lock(CAST($1 AS bigint))',
+        values: [lockKey(name).toString()],
+      })
+    }
   }
 
   private async savepoint<T>(
@@ -655,7 +664,7 @@ export class PgDb implements Db {
     options?: TxOptions,
   ): Promise<T> {
     const name = `bookscan_${open.depth}`
-    if (options?.serialiseOn) await this.lock(open.client, options.serialiseOn)
+    await this.lock(open.client, options)
     await open.client.query(`SAVEPOINT ${name}`)
     try {
       const result = await this.context.run(
