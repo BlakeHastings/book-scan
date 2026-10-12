@@ -24,8 +24,9 @@ Usage: npx tsx server/refile-books.ts --target '<connection>' [--apply]
   --apply   Write the recomputed columns. Without it nothing is written and the
             run only reports which books would move and where to.
 
-A book moving here is a book that has to be physically moved on the shelf afterwards,
-so read the report before running with --apply, and back the catalogue up.`
+A book moving here is a book that has to be physically moved on the shelf
+afterwards, so read the report before running with --apply, and back the
+catalogue up.`
 
 /** Seconds between printing the target and writing to it. */
 const GRACE = 5

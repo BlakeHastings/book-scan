@@ -127,12 +127,32 @@ The safety here is structural, not just a request:
   can only ever open the database the AppHost just provisioned. It never reads
   `BOOKSCAN_DATA` or a connection string from a shell.
 - **The tools that write to a catalogue will not take their target from the
-  environment.** `web/scripts/seed-world.ts` names the Postgres it writes on
-  its own command line, with `--target`, or reads `BOOKSCAN_SEED_TARGET`, and
-  refuses a target on port 5433 outright. Neither it nor
-  `server/backup-catalogue.ts` reads `ConnectionStrings__bookscan`, so the
+  app's connection.** None of them reads `ConnectionStrings__bookscan`, so the
   connection the app is running on cannot become the thing a script overwrites
-  by being in scope.
+  by being in scope. Each is told which Postgres to write on its own command
+  line, and there are eight:
+
+  | Tool | Where its target comes from |
+  | --- | --- |
+  | `web/scripts/seed-world.ts` (`npm run seed`) | `--target`, or `BOOKSCAN_SEED_TARGET`. Refuses port 5433 outright |
+  | `web/scripts/rebuild-projection.ts` (`npm run rebuild-projection`) | `--target`, or `BOOKSCAN_REBUILD_TARGET` |
+  | `web/scripts/enable-user.ts` (`npm run enable-user`) | `--target`, or `BOOKSCAN_ENABLE_TARGET` |
+  | `web/server/backup-catalogue.ts` | `--source`, or `BOOKSCAN_BACKUP_SOURCE` only when `--source-from-env` says so |
+  | `web/server/refile-books.ts`, `crop-books.ts`, `crop-captures.ts`, `rehash-covers.ts` | `--target`, and nothing else |
+
+  The last four read the app's variable until #606, which is the shape #215
+  had already been fixed once for the backup. Each variable in the first four
+  rows is named for one tool and nothing in this repository sets it;
+  `BOOKSCAN_BACKUP_SOURCE` is the one with a history, told in the backup
+  section below.
+
+  **A new tool that writes rows takes `targetIn` from
+  `web/server/write-target.ts`** and refuses to start without it.
+  `catalogueConnection()` in `web/server/db.pg.ts` is the server's and nobody
+  else's: `web/server/write-tools.test.ts` fails when any other source file
+  calls it or reads the variable, and starts each of the four with the variable
+  set and no `--target` to prove the refusal. That scan reads text, so a name
+  assembled at run time goes past it.
 
   The stage H migration tool was the third of these and was deleted by stage I
   along with the driver it read. `docs/stage-h-runbook.md` records what it did
@@ -437,7 +457,10 @@ what disagrees and writes nothing, plus `--repair` as a separate second decision
 It does not read `ConnectionStrings__bookscan`, and unlike `seed-world.ts` it does
 not refuse port 5433, because the live catalogue is the one it exists to repair.
 Running it there is the owner's, like every other write to that database.
-Agents are refused it by `scripts/guard-live-data.mjs` from inside a worktree.
+From inside a worktree `scripts/guard-live-data.mjs` refuses it when its
+`--target` names the live catalogue's address, and allows it at the worktree's
+own Postgres; it does not refuse the command by name, and a target held in a
+variable goes past it.
 Nothing repairs on start, for #485's reason: the diagnosis depended on the broken
 state surviving restarts.
 

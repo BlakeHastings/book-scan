@@ -28,6 +28,23 @@ const cases = [
   ['pwsh -File scripts/install-backup-task.ps1', WORKTREE, 'deny'],
   ['pwsh -File scripts/write-connection-file.ps1', WORKTREE, 'deny'],
 
+  // The tools that write rows are not refused by name, because an agent runs
+  // them against its own worktree's Postgres. What is refused is a target on
+  // the command line naming the live catalogue, which is why they take one.
+  ...[
+    'npx tsx server/refile-books.ts',
+    'npx tsx server/crop-books.ts',
+    'npx tsx server/crop-captures.ts',
+    'npx tsx server/rehash-covers.ts',
+    'npm run rebuild-projection --',
+    'npm run enable-user --',
+    'npm run seed -- --reset',
+  ].flatMap((tool) => [
+    [`cd web && ${tool} --target 'postgres://postgres:pw@127.0.0.1:5433/bookscan' --apply`, WORKTREE, 'deny'],
+    [`cd web && ${tool} --target "postgres://postgres:pw@localhost:5433/bookscan"`, WORKTREE, 'deny'],
+    [`cd web && ${tool} --target 'postgres://postgres:pw@localhost:62144/bookscan' --apply`, WORKTREE, 'allow'],
+  ]),
+
   ['docker exec -it book-scan-live-pg psql -U postgres bookscan', MAIN, 'allow'],
   ['pwsh -File scripts/backup-catalogue.ps1', MAIN, 'allow'],
   [`cd ${STABLE} && git pull`, MAIN, 'allow'],

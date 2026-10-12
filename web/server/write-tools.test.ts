@@ -4,8 +4,16 @@
  * set here, to a server nobody is listening on, because the defect is a tool
  * that reads it: with it unset, a tool falling back to it would refuse for the
  * wrong reason and pass.
+ *
+ * The last block is a text scan for the next tool rather than these four. It
+ * sees a call to `catalogueConnection` and a read spelled `env.` or `env['`;
+ * a variable name assembled at run time, or copied into another variable
+ * first, is invisible to it.
  */
 
+import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { join, relative } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { closeTestDatabase, openTestDatabase, testDatabaseUrl } from './testdb'
@@ -86,5 +94,31 @@ describe.each(tools)('%s', (_name, run) => {
     expect(output).toContain(new URL(testDatabaseUrl()).pathname)
     expect(output).toContain('DRY RUN')
     expect(output).not.toContain('the_app_catalogue')
+  })
+})
+
+const WEB = fileURLToPath(new URL('..', import.meta.url))
+const NOT_SOURCE = new Set(['node_modules', 'dist', 'dist-server', 'coverage'])
+
+function everySourceFile(from: string): string[] {
+  const found: string[] = []
+  for (const entry of readdirSync(from)) {
+    if (NOT_SOURCE.has(entry) || entry.startsWith('.')) continue
+    const path = join(from, entry)
+    if (statSync(path).isDirectory()) found.push(...everySourceFile(path))
+    else if (/\.(?:ts|tsx|mts|mjs)$/.test(entry) && !/\.test\.tsx?$/.test(entry)) found.push(path)
+  }
+  return found
+}
+
+describe("the app's connection variable", () => {
+  it('is read by the server and by no tool', () => {
+    const reads = /\bcatalogueConnection\s*\(|env(?:\.|\[\s*['"])ConnectionStrings__bookscan\b/
+    const readers = everySourceFile(WEB)
+      .filter((path) => reads.test(readFileSync(path, 'utf8')))
+      .map((path) => relative(WEB, path).replace(/\\/g, '/'))
+      .sort()
+
+    expect(readers).toEqual(['server/db.pg.ts', 'server/index.ts'])
   })
 })

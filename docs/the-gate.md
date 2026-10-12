@@ -667,9 +667,10 @@ Three properties carried over from `rebuild-projection.ts` deliberately:
   a connection string that happens to be in a shell must not decide what gets
   written to.
 - **It does not refuse port 5433**, because the live catalogue is the one
-  catalogue whose owner this command is about. Running it there is the owner's,
-  and `scripts/guard-live-data.mjs` refuses an agent that command from inside a
-  worktree.
+  catalogue whose owner this command is about. Running it there is the owner's.
+  From inside a worktree `scripts/guard-live-data.mjs` refuses an agent that
+  command when its `--target` names the live catalogue's address; it does not
+  refuse the command by name, and a target held in a variable goes past it.
 
 **An email that names two people is refused, with both printed, rather than
 resolved.** This is the one place in the codebase where somebody may type an
