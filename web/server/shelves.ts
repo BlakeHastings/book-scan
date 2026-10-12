@@ -15,7 +15,7 @@ import { fixtureLabel } from '../domain/placement/geography'
 import { byPrecedence, entryAreaOf, entryAreas } from '../domain/placement/rules'
 import { sharedNumberOf, type AreaFace } from '../domain/placement/carry'
 import type { LabelChange } from '../domain/placement/arrangement'
-import { relabellingWithout } from './furniture'
+import { FURNITURE_LOCK, relabellingWithout } from './furniture'
 import {
   areasForSortKeys, recordWhatMoved, whereTheRunPutsThem, type RunAnswer,
 } from './what-moved'
@@ -51,6 +51,14 @@ import {
  * why a transaction alone is not enough.
  */
 export const rangeLock = (range: ShelfRange): string => `shelf:${range}`
+
+/**
+ * What a write to a range's boundaries serialises on. A boundary is the area it
+ * opens, so moving one rewrites the furniture, and the plan it writes from is
+ * read off the furniture too: both locks are held from the first read.
+ */
+export const boundaryLocks = (range: ShelfRange): readonly string[] =>
+  [rangeLock(range), FURNITURE_LOCK]
 
 /**
  * A book row plus the camelCase key the pure layout code expects.
@@ -259,7 +267,7 @@ export class Shelves {
     private readonly db: Db,
     private readonly separators: SeparatorRepository = new DrizzleSeparatorRepository(db),
     private readonly removeSeparator: RemoveSeparatorHandler =
-      new RemoveSeparatorHandler(separators, new DbTransactions(db, rangeLock)),
+      new RemoveSeparatorHandler(separators, new DbTransactions(db, boundaryLocks)),
     private readonly outstanding: OutstandingMoveRepository =
       new DrizzleOutstandingMoveRepository(db),
   ) {}
@@ -774,7 +782,7 @@ export class Shelves {
      * the window it names: two people confirming there is no room on the same
      * shelf both pass it, and one separator gets shifted twice or two land at
      * the same position. Reading and writing the same range takes turns, so see
-     * `rangeLock`.
+     * `boundaryLocks`.
      */
     return this.db.tx(async () => {
       const plan = await this.planOverflow(range, at, kindIfNew, placing)
@@ -811,7 +819,7 @@ export class Shelves {
         // the id it was given.
         planks: await this.naming(range, step),
       }
-    }, { serialiseOn: rangeLock(range) })
+    }, { serialiseOn: boundaryLocks(range) })
   }
 
   /**
@@ -998,7 +1006,7 @@ export class Shelves {
          */
         planks: await this.naming(range, outcome.move),
       }
-    }, { serialiseOn: rangeLock(range) })
+    }, { serialiseOn: boundaryLocks(range) })
   }
 
   /**
@@ -1171,7 +1179,7 @@ export class Shelves {
            */
           moves: (await this.movesSince(range, before)).filter((move) => move.id !== bookId),
         }
-      }, { serialiseOn: rangeLock(range) })
+      }, { serialiseOn: boundaryLocks(range) })
     } catch (error) {
       if (error instanceof RetractionRefused) return { ok: false, error: error.message }
       throw error
