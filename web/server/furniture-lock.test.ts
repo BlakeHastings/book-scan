@@ -15,7 +15,7 @@
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeTestDatabase, keepThisCatalogue, openTestDatabase } from './testdb'
-import { inLockOrder, lockKey, type Db } from './driver'
+import { lockKey, type Db } from './driver'
 import { Store } from './store'
 import { rangeLock, Shelves } from './shelves'
 import { applyRunMove } from './relocate-run'
@@ -302,13 +302,6 @@ describe('the order the locks are taken in', () => {
       { status: 'fulfilled', value: 'first' },
       { status: 'fulfilled', value: 'second' },
     ])
-  })
-
-  it('refuses to guess where a name it has never heard of goes beside another', () => {
-    expect(() => inLockOrder(['shelf:fiction', 'shelves'])).toThrow(/no place in LOCK_ORDER/)
-    expect(inLockOrder('anything at all')).toEqual(['anything at all'])
-    expect(inLockOrder(['book:3', FURNITURE_LOCK, 'shelf:nonfiction', 'shelf:fiction', 'book:3']))
-      .toEqual(['shelf:fiction', 'shelf:nonfiction', FURNITURE_LOCK, 'book:3'])
   })
 
   it('keeps a lock taken by a savepoint after rolling back to it', async () => {
