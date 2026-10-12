@@ -1086,6 +1086,17 @@ reached from the overflow cascade, from the boundary move, and from taking a
 boundary move back. Removing a boundary is the same act as removing an area and
 records through `dropArea`, which has done so since #465.
 
+**Editing an area is a boundary write too, and so is adding one at an anchor.**
+An area's `startsAt` is the anchor of the boundary that opens it, so
+`PATCH /api/areas/:id` with a new `startsAt` moves every book between the old
+anchor and the new one, and `POST /api/fixtures/:id/areas` with a `startsAt`
+takes every book from there to the next boundary off the area in front. Both
+compare where the run put every book before the write against where it puts
+them after, in the same transaction, and write the difference through
+`recordWhatMoved`, as a renumber does (#605). Until then both wrote nothing, so a
+re-anchored area put books on the needs-attention list with nothing on the carry
+list, which is the same symptom #458 and #491 reported from the other doors.
+
 **Which is not a fourth thing to keep in step with the three above; it is what
 stops there being one.** The paragraph before this says the manual move and the
 automatic shuffle must not write different things down. They did: overflow wrote
