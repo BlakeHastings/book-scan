@@ -46,7 +46,7 @@ import {
 import type { Db } from './driver'
 import { withPhotographs, type PhotographFields } from './photographs'
 import { tagCounts } from '../infrastructure/books/tag-counts'
-import { recordWhatMoved, whereTheRunPutsThem } from './what-moved'
+import { recordWhatTheRoomMoved, whereEveryRunPutsThem, type RoomAnswer } from './what-moved'
 
 import { refuse, type Refused } from './refusal'
 import {
@@ -888,21 +888,8 @@ export async function editFixture(
       face.map((slot) => slot.area.id),
     )
 
-    /*
-     * Every range, not the one this piece is on. A piece has no range of its
-     * own: which run owns its planks is decided by where the rules' entries
-     * stand and where the next run begins, both read off the very numbers this
-     * write changes, so asking which range it was in before the write answers
-     * about a room that is about to stop existing. The comparison writes nothing
-     * for a range whose run did not move.
-     */
     const renumbering = position !== undefined && position !== before.position
-    const was = new Map<ShelfRange, Awaited<ReturnType<typeof whereTheRunPutsThem>>>()
-    if (renumbering) {
-      for (const { range } of GENRE_RANGES) {
-        was.set(range, await whereTheRunPutsThem(tx, range))
-      }
-    }
+    const was: RoomAnswer = renumbering ? await whereEveryRunPutsThem(tx) : new Map()
 
     await updateFixture(tx, id, {
       kind: asText(input.kind),
@@ -918,16 +905,12 @@ export async function editFixture(
      * rather than the range's, which is what every write in this file takes: a
      * renumber is a statement about the room.
      */
-    const now = new Date().toISOString()
-    for (const [range, snapshot] of was) {
-      await recordWhatMoved(
-        tx,
-        range,
-        snapshot,
-        `${fixtureLabel(asFixture(before))} was renumbered`,
-        now,
-      )
-    }
+    await recordWhatTheRoomMoved(
+      tx,
+      was,
+      `${fixtureLabel(asFixture(before))} was renumbered`,
+      new Date().toISOString(),
+    )
 
     const fixture = await describeFixture(tx, id)
     return fixture
@@ -1180,6 +1163,11 @@ export async function addAreaTo(
     // would be a half-made area if the row already existed.
     if (!anchorsAscend(grown, order)) return refuse(409, ANCHORS_OUT_OF_ORDER)
 
+    // An anchor somebody typed takes every book from it to the next boundary off
+    // the area in front, so this has to be compared even though most adds move
+    // nothing.
+    const was = await whereEveryRunPutsThem(tx)
+
     /*
      * Written on the end and then renumbered, rather than inserted at the
      * ordinal it wants: the unique index would refuse the insert while the area
@@ -1196,6 +1184,13 @@ export async function addAreaTo(
 
     const becomes = relabelling(face, face, order.map((one) => (one === 0 ? id : one)))
     await resequenceFace(tx, fixtureId, order.map((one) => (one === 0 ? id : one)))
+
+    await recordWhatTheRoomMoved(
+      tx,
+      was,
+      `${labelFor({ fixture: asFixture(fixture), area: wanted })} was added`,
+      new Date().toISOString(),
+    )
 
     const area = (await describeFixture(tx, fixtureId))?.areas.find((one) => one.id === id)
     return area
@@ -1286,6 +1281,11 @@ export async function editArea(db: Db, id: number, input: AreaInput): Promise<Ed
 
     const becomes = relabelling(face, restated, order)
 
+    // An anchor decides which sort keys land on an area, and an order on the face
+    // decides which of two areas sharing an anchor wins them, so either edit can
+    // move books.
+    const was = await whereEveryRunPutsThem(tx)
+
     await updateArea(tx, id, {
       name,
       startsAt,
@@ -1293,6 +1293,16 @@ export async function editArea(db: Db, id: number, input: AreaInput): Promise<Ed
       note: asText(input.note),
     })
     if (change?.moves.length) await resequenceFace(tx, area.fixtureId, order)
+
+    const label = labelFor({ fixture: asFixture(fixture), area })
+    await recordWhatTheRoomMoved(
+      tx,
+      was,
+      startsAt !== undefined && startsAt !== area.startsAt
+        ? `${label} now starts at a different book`
+        : `${label} was moved along ${fixtureLabel(asFixture(fixture))}`,
+      new Date().toISOString(),
+    )
 
     const described = (await describeFixture(tx, area.fixtureId))
       ?.areas.find((one) => one.id === id)

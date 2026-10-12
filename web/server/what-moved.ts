@@ -5,10 +5,12 @@
  * the write changed, decided by comparing the run's answer before against its
  * answer after. A boundary move is one write that does this; renumbering a
  * piece of furniture is another, since it can reorder or drop planks from the
- * run.
+ * run; re-anchoring, moving or adding an area is a third, since an area's
+ * anchor is what decides which sort keys land on it.
  */
 
 import { assignmentFor, standingOf, type Placement } from '../domain/placement/ledger'
+import { GENRE_RANGES } from '../domain/tagging/genre'
 import { DrizzlePlacementLedger } from '../infrastructure/placement/ledger-repository'
 import { areaOfKey, runAreasOf } from '../infrastructure/shelving/areas'
 import type { ShelfRange } from '../shared/shelving'
@@ -121,5 +123,32 @@ export async function recordWhatMoved(
       reason,
       createdAt: now,
     })
+  }
+}
+
+export type RoomAnswer = Map<ShelfRange, Map<number, RunAnswer>>
+
+/**
+ * `whereTheRunPutsThem` for every range, for a write to the furniture.
+ *
+ * Every range rather than the one the piece seems to be in: a piece has no
+ * range of its own, since which run owns a plank is read off the very
+ * positions and anchors a furniture write changes.
+ */
+export async function whereEveryRunPutsThem(db: Db): Promise<RoomAnswer> {
+  const room: RoomAnswer = new Map()
+  for (const { range } of GENRE_RANGES) room.set(range, await whereTheRunPutsThem(db, range))
+  return room
+}
+
+/** `recordWhatMoved` for every range `whereEveryRunPutsThem` answered. */
+export async function recordWhatTheRoomMoved(
+  db: Db,
+  before: RoomAnswer,
+  reason: string,
+  now: string,
+): Promise<void> {
+  for (const [range, snapshot] of before) {
+    await recordWhatMoved(db, range, snapshot, reason, now)
   }
 }
