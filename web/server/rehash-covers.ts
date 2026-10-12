@@ -1,38 +1,41 @@
 /**
  * Command line front end for rehashCovers. Run with `--help` for usage.
  *
- * Reads `ConnectionStrings__bookscan` and `BOOKSCAN_DATA` exactly as the
- * server does, so the operator gets the same catalogue and photographs here.
+ * The catalogue is `--target` and nothing else; the photographs are under
+ * `BOOKSCAN_DATA` exactly as the server reads it.
  */
 
 import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { catalogueConnection, describeConnection, openPostgres } from './db.pg'
+import { pathToFileURL } from 'node:url'
+import { describeConnection, openPostgres } from './db.pg'
 import type { Db } from './driver'
 import { Store } from './store'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { rehashCovers } from './rehash'
+import { NO_TARGET, targetIn } from './write-target'
 
 const USAGE = `Recompute the stored cover hashes with the current algorithm.
 
-Usage: npx tsx server/rehash-covers.ts [--apply] [--force]
+Usage: npx tsx server/rehash-covers.ts --target '<connection>' [--apply] [--force]
 
+  --target  The catalogue to read and write. Required, and taken from nowhere
+            else: not ConnectionStrings__bookscan, which the server runs on.
   --apply   Write the new hashes. Without it nothing is written and the run
             only reports what it would do.
   --force   Recompute hashes that are already in the current format, instead
             of skipping them.
 
-The catalogue is ConnectionStrings__bookscan and the cover images are under
-BOOKSCAN_DATA, or ./data when that is unset, both the same as the server. Back
-the catalogue up before running with --apply.`
+The cover images are under BOOKSCAN_DATA, or ./data when that is unset, the
+same as the server. Back the catalogue up before running with --apply.`
 
 /** Seconds between printing the target and writing to it. */
 const GRACE = 5
 
-function main(): Promise<number> {
-  const args = process.argv.slice(2)
-  const known = ['--apply', '--force', '--help', '-h']
-  const unknown = args.filter((arg) => !known.includes(arg))
+export function main(args: string[]): Promise<number> {
+  const known = ['--apply', '--force', '--target', '--help', '-h']
+  const unknown = args.filter((arg, index) =>
+    !known.includes(arg) && args[index - 1] !== '--target')
 
   if (unknown.length) {
     console.error(`Unrecognised argument: ${unknown.join(' ')}\n\n${USAGE}`)
@@ -46,18 +49,15 @@ function main(): Promise<number> {
   const apply = args.includes('--apply')
   const force = args.includes('--force')
 
-  // Resolved the same way web/server/index.ts resolves them, so an operator
-  // who has these exported for the server gets the same catalogue and
-  // photographs here. The covers are still files; only the rows moved.
+  // Resolved the same way web/server/index.ts resolves it, so an operator who
+  // has it exported for the server gets the same photographs here.
   const dataDir = resolve(process.env.BOOKSCAN_DATA ?? 'data')
   const coverDir = join(dataDir, 'covers')
 
-  let connection: string
-  try {
-    connection = catalogueConnection()
-  } catch (error) {
-    console.error((error as Error).message)
-    return Promise.resolve(1)
+  const connection = targetIn(args)
+  if (!connection) {
+    console.error(`${NO_TARGET}\n\n${USAGE}`)
+    return Promise.resolve(2)
   }
 
   console.log('')
@@ -141,10 +141,12 @@ async function work(
   return report.failed ? 1 : 0
 }
 
-main().then(
-  (code) => { process.exitCode = code },
-  (error: unknown) => {
-    console.error(error)
-    process.exitCode = 1
-  },
-)
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main(process.argv.slice(2)).then(
+    (code) => { process.exitCode = code },
+    (error: unknown) => {
+      console.error(error)
+      process.exitCode = 1
+    },
+  )
+}

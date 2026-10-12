@@ -632,12 +632,15 @@ catalogue is rehashed, holding an already-scanned book up to the camera
 matches nothing.
 
 ```bash
-npx tsx server/rehash-covers.ts            # dry run, writes nothing
-npx tsx server/rehash-covers.ts --apply    # write the new hashes
+npx tsx server/rehash-covers.ts --target '<connection>'            # dry run, writes nothing
+npx tsx server/rehash-covers.ts --target '<connection>' --apply    # write the new hashes
 ```
 
-It reads `ConnectionStrings__bookscan` and `BOOKSCAN_DATA` the same way the
-server does and prints both before doing anything. A dry run is the default,
+The catalogue is `--target` and nothing else: it refuses to start without one
+rather than read `ConnectionStrings__bookscan`, which is what the server runs
+on and so is in scope wherever the server is. The photographs are under
+`BOOKSCAN_DATA`, resolved the same way the server does. It prints both before
+doing anything. A dry run is the default,
 re-running it is harmless, and it can be interrupted and started again. Add
 `--force` to recompute hashes that are already current. A cover file that is
 missing or unreadable is counted, named and stepped over, leaving the hash it
@@ -678,13 +681,13 @@ Photographs taken before this shipped are left alone. There is a tool, and
 running it is the owner's decision:
 
 ```bash
-npx tsx server/crop-books.ts                 # dry run, writes nothing
-npx tsx server/crop-books.ts --apply
-npx tsx server/crop-books.ts --apply --limit 20
+npx tsx server/crop-books.ts --target '<connection>'                 # dry run, writes nothing
+npx tsx server/crop-books.ts --target '<connection>' --apply
+npx tsx server/crop-books.ts --target '<connection>' --apply --limit 20
 ```
 
-Same shape as the rehash above: it reads `BOOKSCAN_DATA` the way the server
-does, prints the directory before touching it, waits five seconds before a
+Same shape as the rehash above: the catalogue is `--target` and nothing else,
+it reads `BOOKSCAN_DATA` the way the server does, prints the directory before touching it, waits five seconds before a
 write, and is resumable because a slot it finished is recorded. `--force`
 re-examines slots already looked at, which is what to use after a change to
 the detector.
@@ -724,12 +727,13 @@ Captures photographed before this shipped are left alone. As with the books
 above, there is a tool and running it is the owner's decision:
 
 ```bash
-npx tsx server/crop-captures.ts                 # dry run, writes nothing
-npx tsx server/crop-captures.ts --apply
-npx tsx server/crop-captures.ts --apply --limit 20
+npx tsx server/crop-captures.ts --target '<connection>'                 # dry run, writes nothing
+npx tsx server/crop-captures.ts --target '<connection>' --apply
+npx tsx server/crop-captures.ts --target '<connection>' --apply --limit 20
 ```
 
-Same shape again: `BOOKSCAN_DATA` as the server resolves it, the directory
+Same shape again: the catalogue is `--target` and nothing else,
+`BOOKSCAN_DATA` as the server resolves it, the directory
 printed before anything is touched, five seconds before a write, resumable
 because a slot it finished is recorded and a hash it wrote is kept. `--force`
 re-examines slots already looked at and re-hashes fronts already hashed.
