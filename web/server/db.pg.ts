@@ -483,13 +483,13 @@ export function connectionConfig(value: string): pg.PoolConfig {
 
 /**
  * The catalogue's connection string, from the one variable it is written in.
- * `ConnectionStrings__bookscan` is the name Aspire gives it, read here so the
- * server and the maintenance scripts all find it the same way.
+ * `ConnectionStrings__bookscan` is the name Aspire gives it. The server is the
+ * only caller, and it must stay so: every tool that writes rows takes its
+ * target on its own command line (`write-target.ts`), because this variable is
+ * in scope wherever the app is.
  *
  * Nothing else is consulted. Not `DATABASE_URL`, not `PG*`: a second accepted
- * spelling here would be a way for a shell to decide what gets written to. The
- * migration and backup tools take their target on their own command lines for the
- * same reason and do not call this.
+ * spelling here would be a way for a shell to decide what gets written to.
  */
 export function catalogueConnection(): string {
   const url = process.env.ConnectionStrings__bookscan ?? ''

@@ -7,30 +7,33 @@
  * with a wrong stored key is exactly a book this reports.
  */
 
-import { catalogueConnection, describeConnection, openPostgres } from './db.pg'
+import { pathToFileURL } from 'node:url'
+import { describeConnection, openPostgres } from './db.pg'
 import type { Db } from './driver'
 import { Store } from './store'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { refileBooks } from './refile'
+import { NO_TARGET, targetIn } from './write-target'
 
 const USAGE = `Recompute the stored filing name and sort key of every catalogued book.
 
-Usage: npx tsx server/refile-books.ts [--apply]
+Usage: npx tsx server/refile-books.ts --target '<connection>' [--apply]
 
+  --target  The catalogue to read and write. Required, and taken from nowhere
+            else: not ConnectionStrings__bookscan, which the server runs on.
   --apply   Write the recomputed columns. Without it nothing is written and the
             run only reports which books would move and where to.
 
-The catalogue is ConnectionStrings__bookscan, the same as the server. A book
-moving here is a book that has to be physically moved on the shelf afterwards,
+A book moving here is a book that has to be physically moved on the shelf afterwards,
 so read the report before running with --apply, and back the catalogue up.`
 
 /** Seconds between printing the target and writing to it. */
 const GRACE = 5
 
-function main(): Promise<number> {
-  const args = process.argv.slice(2)
-  const known = ['--apply', '--help', '-h']
-  const unknown = args.filter((arg) => !known.includes(arg))
+export function main(args: string[]): Promise<number> {
+  const known = ['--apply', '--target', '--help', '-h']
+  const unknown = args.filter((arg, index) =>
+    !known.includes(arg) && args[index - 1] !== '--target')
 
   if (unknown.length) {
     console.error(`Unrecognised argument: ${unknown.join(' ')}\n\n${USAGE}`)
@@ -43,12 +46,10 @@ function main(): Promise<number> {
 
   const apply = args.includes('--apply')
 
-  let connection: string
-  try {
-    connection = catalogueConnection()
-  } catch (error) {
-    console.error((error as Error).message)
-    return Promise.resolve(1)
+  const connection = targetIn(args)
+  if (!connection) {
+    console.error(`${NO_TARGET}\n\n${USAGE}`)
+    return Promise.resolve(2)
   }
 
   console.log('')
@@ -110,10 +111,12 @@ async function work(db: Db, apply: boolean): Promise<number> {
   return 0
 }
 
-main().then(
-  (code) => { process.exitCode = code },
-  (error: unknown) => {
-    console.error(error)
-    process.exitCode = 1
-  },
-)
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main(process.argv.slice(2)).then(
+    (code) => { process.exitCode = code },
+    (error: unknown) => {
+      console.error(error)
+      process.exitCode = 1
+    },
+  )
+}

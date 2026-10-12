@@ -4,22 +4,27 @@
  * New captures are cropped and hashed by the queue worker as their
  * photographs arrive; this exists only for ones photographed before that.
  *
- * Reads `ConnectionStrings__bookscan` and `BOOKSCAN_DATA` exactly as the
- * server does. Writes new files and new columns only; no photograph is
- * opened for writing anywhere in this path.
+ * The catalogue is `--target` and nothing else; the photographs are under
+ * `BOOKSCAN_DATA` exactly as the server reads it. Writes new files and new
+ * columns only; no photograph is opened for writing anywhere in this path.
  */
 
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { catalogueConnection, describeConnection, openPostgres } from './db.pg'
+import { pathToFileURL } from 'node:url'
+import { describeConnection, openPostgres } from './db.pg'
 import type { Db } from './driver'
 import { CaptureQueue } from './queue'
 import { backfillCaptures } from './capturecrop'
+import { NO_TARGET, targetIn } from './write-target'
 
 const USAGE = `Crop queued captures to the book and hash their fronts, keeping every original.
 
-Usage: npx tsx server/crop-captures.ts [--apply] [--force] [--limit N]
+Usage: npx tsx server/crop-captures.ts --target '<connection>' [--apply] [--force] [--limit N]
 
+  --target    The catalogue to read and write. Required, and taken from
+              nowhere else: not ConnectionStrings__bookscan, which the server
+              runs on.
   --apply     Write the crops, the hashes and the rows. Without it nothing is
               written and the run only reports what it would do.
   --force     Look again at photographs already examined and re-hash fronts
@@ -28,18 +33,17 @@ Usage: npx tsx server/crop-captures.ts [--apply] [--force] [--limit N]
   --limit N   Stop after N captures. Useful for seeing what it does to a
               handful before letting it loose on the queue.
 
-The catalogue is ConnectionStrings__bookscan and the photographs are under
-BOOKSCAN_DATA, or ./data when that is unset, both the same as the server.
+The photographs are under BOOKSCAN_DATA, or ./data when that is unset, the
+same as the server.
 Originals are never written to, but back the catalogue up before --apply anyway.`
 
 /** Seconds between printing the target and writing to it. */
 const GRACE = 5
 
-function main(): Promise<number> {
-  const args = process.argv.slice(2)
-  const known = ['--apply', '--force', '--limit', '--help', '-h']
+export function main(args: string[]): Promise<number> {
+  const known = ['--apply', '--force', '--limit', '--target', '--help', '-h']
   const unknown = args.filter((arg, index) =>
-    !known.includes(arg) && args[index - 1] !== '--limit')
+    !known.includes(arg) && args[index - 1] !== '--limit' && args[index - 1] !== '--target')
 
   if (unknown.length) {
     console.error(`Unrecognised argument: ${unknown.join(' ')}\n\n${USAGE}`)
@@ -63,18 +67,15 @@ function main(): Promise<number> {
     }
   }
 
-  // Resolved the same way web/server/index.ts resolves them, so an operator
-  // who has these exported for the server gets the same catalogue and
-  // photographs here. The covers are still files; only the rows moved.
+  // Resolved the same way web/server/index.ts resolves it, so an operator who
+  // has it exported for the server gets the same photographs here.
   const dataDir = resolve(process.env.BOOKSCAN_DATA ?? 'data')
   const coverDir = join(dataDir, 'covers')
 
-  let connection: string
-  try {
-    connection = catalogueConnection()
-  } catch (error) {
-    console.error((error as Error).message)
-    return Promise.resolve(1)
+  const connection = targetIn(args)
+  if (!connection) {
+    console.error(`${NO_TARGET}\n\n${USAGE}`)
+    return Promise.resolve(2)
   }
 
   console.log('')
@@ -169,10 +170,12 @@ async function work(
   return report.failed ? 1 : 0
 }
 
-main().then(
-  (code) => { process.exitCode = code },
-  (error: unknown) => {
-    console.error(error)
-    process.exitCode = 1
-  },
-)
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main(process.argv.slice(2)).then(
+    (code) => { process.exitCode = code },
+    (error: unknown) => {
+      console.error(error)
+      process.exitCode = 1
+    },
+  )
+}
