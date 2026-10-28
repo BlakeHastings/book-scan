@@ -354,6 +354,13 @@ moments:
 3. **`scripts/guard-merge.mjs`**, a PreToolUse hook wired up in
    `.claude/settings.json`. It denies the commands above before they run.
    *Not covered:* sessions that did not load it. A net, not a guarantee.
+   **It is this repository's guard and no other's** (#596). It refuses a
+   command only when the command reaches this repository: any worktree of it,
+   or any checkout or URL naming its remotes, read from where the command lands
+   (`-C`, `--git-dir`, `--repo`, `GH_REPO`, a URL) rather than where it stands.
+   Master in another repository on the machine is not its business. Anything it
+   cannot place, including a payload with no working directory, it refuses as
+   before. Deleting this repository's master is refused too, for what it is.
    **The registration is now tracked, and it was not before.** `.claude/` is
    ignored because it holds worktrees, and the bare directory pattern took
    `settings.json` with it, so the repository shipped the script and nothing
