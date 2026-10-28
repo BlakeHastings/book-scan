@@ -143,6 +143,31 @@ export class McpConnection {
     return this.client !== undefined
   }
 
+  /** Where the approval was sent, as Settings names this client. */
+  get redirectHost(): string {
+    return new URL(this.loopback.url).host
+  }
+
+  /**
+   * The status `/mcp` answers the access token with, asked directly rather than
+   * through the SDK client, which would try to refresh or re-register on a `401`.
+   */
+  async statusOfTheToken(): Promise<number> {
+    const token = this.remembered?.saved?.access_token
+    if (!token) throw new Error('the client holds no access token to try')
+    const response = await this.fetchAsAStranger(new URL('/mcp', this.apiUrl), {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+    })
+    await response.body?.cancel()
+    return response.status
+  }
+
   /** A tool's structured answer, or the refusal it gave, thrown. */
   async call<T>(name: string, args: Record<string, unknown> = {}): Promise<T> {
     if (!this.client) throw new Error(`cannot call ${name}: the client never connected`)

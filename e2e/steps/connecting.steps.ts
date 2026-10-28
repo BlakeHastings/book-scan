@@ -116,3 +116,32 @@ Then(
 Then('the catalogue should hold no book called {string}', async ({ catalogue }, title: string) => {
   expect(await catalogue.bookByTitle(title)).toBeUndefined()
 })
+
+/** The client's row in Settings, named for the name it gave and the host its approval went to. */
+function clientRow(page: Page, mcp: McpConnection) {
+  return page.getByRole('group', { name: `${CLIENT_NAME}, through ${mcp.redirectHost}` })
+}
+
+Then('the settings should list the client beside the address it connected through', async ({ page, mcp }) => {
+  const row = clientRow(page, mcp)
+  await expect(row).toBeVisible({ timeout: BACK })
+  await expect(row.locator('.wf-connection__name')).toHaveText(CLIENT_NAME)
+  await expect(row.locator('.wf-connection__host')).toHaveText(mcp.redirectHost)
+})
+
+When('I disconnect the client and confirm', async ({ page, mcp }) => {
+  await clientRow(page, mcp).getByRole('button', { name: 'Disconnect', exact: true }).click()
+  const asked = page.getByRole('dialog', { name: new RegExp(`^Disconnect ${CLIENT_NAME}`) })
+  await expect(asked).toContainText(`It connected through ${mcp.redirectHost}.`)
+  await asked.getByRole('button', { name: 'Disconnect', exact: true }).click()
+  await expect(asked).toBeHidden({ timeout: BACK })
+})
+
+Then('the settings should no longer list the client', async ({ page, mcp }) => {
+  await expect(page.getByText(`${CLIENT_NAME} is disconnected.`)).toBeVisible({ timeout: BACK })
+  await expect(clientRow(page, mcp)).toHaveCount(0)
+})
+
+Then('the client\'s token should be refused at the connector', async ({ mcp }) => {
+  expect(await mcp.statusOfTheToken()).toBe(401)
+})
