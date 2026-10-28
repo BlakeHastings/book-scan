@@ -220,6 +220,24 @@ approved it. #171 has not decided roles, and an unused scope that looks like
 authorization is worse than none. `scopes_supported` is not advertised, so
 claude.ai requests none.
 
+### Rate limits, and whose address they count
+
+The SDK rate-limits `/authorize`, `/token`, `/register` and `/revoke` per
+`req.ip`, `/register` at twenty an hour. Behind a proxy that is the proxy's
+address unless Express is told how many hops to believe, so
+**`BOOKSCAN_PROXY_HOPS`** (`web/server/trust-proxy.ts`, `deploy/contract.json`)
+is that count: 0 by default, 2 for a CDN in front of a reverse proxy. It is a
+count and never `true`, because each proxy appends to `X-Forwarded-For` and
+only the rightmost entries were written by them; `true` reads the leftmost,
+which the client wrote. `web/server/trust-proxy.routes.test.ts` drives
+`/register` to its limit at 0, 1 and 2 hops, with and without a client sending
+the header itself.
+
+Every 60 minutes, and once at start, the server deletes the `oauth_client` rows
+older than a day that have no grant and no consent page waiting
+(`web/server/mcp/sweep.ts`), since `/register` is open and nothing else would
+ever remove them. A grant keeps its client even once revoked.
+
 ### Caching
 
 Every answer at the seven doors says `Cache-Control: no-store`: RFC 6749 requires
@@ -414,11 +432,6 @@ reach, and is the owner's to try once this is deployed.
 
 - **CIMD.** A SHOULD, and Claude Code prefers it when advertised. Needs an
   outbound fetch with SSRF limits and a cache.
-- **Registrations are never swept.** DCR registers a client per fresh
-  connection, and `/register` is open, rate-limited by the SDK to twenty an hour
-  per address. Behind a tunnel every request has one address, so that limit is
-  global, which is safe and could be tight. A sweep of clients with no grant
-  after some days belongs with it.
 - **`enable-user --sign-out` does not revoke connections.** It revokes sessions,
   which is "lost phone"; a connected client is another credential the person
   holds and arguably belongs in the same switch.

@@ -78,6 +78,8 @@ import { mountCachePolicy, mountGate, mountSignIn } from './auth/gate'
 import { describeSignIn, signInFrom, type SignInConfig } from './auth/providers'
 import { describeMcp, mountMcp } from './mcp/mount'
 import { bindFrom, describeBind } from './bind'
+import { describeProxyHops, proxyHopsFrom, trustProxySetting } from './trust-proxy'
+import { keepSweeping } from './mcp/sweep'
 import { AuthStore } from '../infrastructure/auth/auth-store'
 import { recordCredits as recordCreditsStep, settleGenre as settleGenreStep } from './book-save'
 import { historyOf, UnknownPlank } from './placement-ledger'
@@ -353,6 +355,12 @@ export interface CreateAppOptions {
    * expiry without waiting thirty days for one. Defaults to the real one.
    */
   now?: () => Date
+  /**
+   * How many proxies in front of this server to believe about the client's
+   * address. Absent is none, which is every test and every checkout. See
+   * `server/trust-proxy.ts`.
+   */
+  proxyHops?: number
 }
 
 /**
@@ -847,6 +855,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
 
   const app = express() as BookScanApp
   app.settled = settled
+  app.set('trust proxy', trustProxySetting(options.proxyHops ?? 0))
   app.use(express.json({ limit: '12mb' })) // cover stills arrive as data URLs
 
   /*
@@ -3537,6 +3546,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
 
   if (startBackgroundWork) {
     inTheBackground(queue.resumeOnStartup(), 'resuming the captures left pending at startup')
+    keepSweeping({ db, background: inTheBackground, now: options.now })
 
     // After the port is open, so a slow or unreachable cover service never
     // delays the server being usable.
@@ -3652,6 +3662,9 @@ if (isMainModule) {
    */
   const BIND = bindFrom(process.env)
 
+  // Refused at start for the same reason as `BIND`. See `server/trust-proxy.ts`.
+  const PROXY_HOPS = proxyHopsFrom(process.env)
+
   mkdirSync(COVER_DIR, { recursive: true })
 
   const bootstrap = async () => {
@@ -3665,11 +3678,13 @@ if (isMainModule) {
       backupDir: BACKUP_DIR,
       clientDir: CLIENT_BUILT ? CLIENT_DIR : undefined,
       signIn: SIGN_IN,
+      proxyHops: PROXY_HOPS,
     })
 
     const server = app.listen(PORT, BIND.address, () => {
       console.log(`[api] listening on http://${BIND.address}:${PORT}`)
       for (const line of describeBind(BIND)) console.log(line)
+      for (const line of describeProxyHops(PROXY_HOPS)) console.log(line)
       console.log(`[api] database ${label}`)
       console.log(
         BACKUP_DIR

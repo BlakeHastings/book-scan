@@ -129,7 +129,8 @@
         "whether a backup directory is watched",
         "whether it is serving a built client",
         "whether the development sign-in door is open or shut",
-        "whether the MCP connector is on, and the /mcp it answers at"
+        "whether the MCP connector is on, and the /mcp it answers at",
+        "how many proxy hops it trusts for a client's address"
       ],
       "notMultiProcessSafe": "The advisory lock covers the schema and nothing else. The capture queue, the background crop worker and the cover downloader were written for one process. Two containers can safely start; that is not a claim that two should run."
     },
@@ -177,6 +178,11 @@
       "id": "bind-that-is-not-a-word",
       "when": "BOOKSCAN_BIND is set to anything but loopback or all, an address included",
       "result": "the process throws at start, printing the value it was given and the two words it takes. It does not fall back to the default, deliberately: a deployment that asked to be reachable and silently was not would look exactly like the bind it was trying to change, which is the failure this variable exists to end."
+    },
+    {
+      "id": "proxy-hops-that-is-not-a-count",
+      "when": "BOOKSCAN_PROXY_HOPS is set to anything but a whole number, true included",
+      "result": "the process throws at start, printing the value it was given. It does not fall back to 0, because 0 behind a proxy puts every client behind the proxy's one address and nothing says so. It does not take true, because trusting every hop takes the client's address from the leftmost X-Forwarded-For entry, which the client wrote."
     }
   ],
 
@@ -226,6 +232,18 @@
       "is": "which interface the server listens on: the word `loopback` for 127.0.0.1, or the word `all` for 0.0.0.0, every interface in this container's network namespace",
       "whenAbsent": "loopback, which is what this app has always done and what every deployment that has not thought about this gets. Empty means the same as unset. Inside a container that means a published port reaches nothing and whatever fronts this app has to share the network namespace; see network.readThisFirst.",
       "note": "It is a word rather than an address on purpose, and an address is refused rather than accepted. Those two are the only answers that mean anything from inside a container: a narrower interface address is assigned by the runtime at start, is not knowable when this variable is set, and changes when the container is replaced, so a value that was right once is a container that will not start the next time. `all` is IPv4 and there is deliberately no IPv6 word until something asks for one. Setting this to `all` is the deployment saying the container's network is its boundary: the sign-in gate is then the only thing in front of the catalogue, and every start says which of the two states the process is in."
+    },
+    {
+      "name": "BOOKSCAN_PROXY_HOPS",
+      "required": false,
+      "refusesToStartWithout": false,
+      "secret": false,
+      "default": "0",
+      "defaultSetBy": "the server",
+      "readAt": "web/server/trust-proxy.ts",
+      "is": "how many proxies stand between the internet and this server, each appending to X-Forwarded-For, handed to Express as its trust proxy hop count. The client's address is then the entry that many places from the right of X-Forwarded-For, and it is what the MCP connector's rate limits on /authorize, /token, /register and /revoke count against",
+      "whenAbsent": "0: the client's address is the socket's. Right with nothing in front of the server. Behind a proxy every client then has the proxy's address and shares one rate limit, so one stranger registering twenty clients in an hour locks every MCP client out of /register for the rest of it, and express-rate-limit logs ERR_ERL_UNEXPECTED_X_FORWARDED_FOR.",
+      "note": "A count and never true. Each proxy appends the address it received the request from, so the rightmost n entries were written by the n proxies and everything to their left by the client; true takes the leftmost and lets a client choose its own address. Too high a count has the same effect, so count the proxies rather than rounding up: a CDN in front of a reverse proxy in front of this server is 2. It changes nothing about the session cookie, which is Secure on every response regardless, or about any URL this server builds, which come from BOOKSCAN_PUBLIC_ORIGIN rather than from the request."
     },
     {
       "name": "BOOKSCAN_BACKUP_DIR",
