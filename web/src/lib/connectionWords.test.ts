@@ -45,6 +45,7 @@ describe('what Settings says about a connection', () => {
     const asked = disconnectAsked(connectionSaid(one({ redirectHost: 'evil.example' }), TODAY), 1204)
     expect(asked.title).toBe('Disconnect Claude from your 1,204 books?')
     expect(asked.said).toContain('evil.example')
-    expect(disconnectAsked(connectionSaid(one(), TODAY), null).title).toBe('Disconnect Claude from your books?')
+    expect(disconnectAsked(connectionSaid(one(), TODAY), null).title).toBe('Disconnect Claude?')
+    expect(disconnectAsked(connectionSaid(one(), TODAY), 0).title).toBe('Disconnect Claude?')
   })
 })

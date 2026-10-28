@@ -62,14 +62,15 @@ export function connectionSaid(one: McpConnection, today = new Date()): Connecti
 /**
  * The question before a disconnect, with the count of what the app can reach in
  * it, since a connection reaches the whole catalogue. `books` is null before the
- * counts have been read.
+ * counts have been read, and a count of none is left unsaid rather than offered
+ * as a reason to keep it.
  */
 export function disconnectAsked(one: ConnectionSaid, books: number | null): { title: string; said: string } {
   return {
-    title: books === null
-      ? `Disconnect ${one.name} from your books?`
-      : `Disconnect ${one.name} from your ${plural(books, 'book')}?`,
-    said: `It connected through ${one.host}. It stops working at once, and can only come back by asking you again.`,
+    title: books
+      ? `Disconnect ${one.name} from your ${plural(books, 'book')}?`
+      : `Disconnect ${one.name}?`,
+    said: `It connected through ${one.host}. Everything it holds stops working at once, and it can only come back by asking you again.`,
   }
 }
 
