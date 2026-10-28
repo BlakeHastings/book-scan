@@ -6,7 +6,8 @@
  * answer after. A boundary move is one write that does this; renumbering a
  * piece of furniture is another, since it can reorder or drop planks from the
  * run; re-anchoring, moving or adding an area is a third, since an area's
- * anchor is what decides which sort keys land on it.
+ * anchor is what decides which sort keys land on it. An edit that changes a
+ * shelved book's own key or range is a fourth, for that one book.
  */
 
 import { assignmentFor, standingOf, type Placement } from '../domain/placement/ledger'
@@ -112,18 +113,56 @@ export async function recordWhatMoved(
   }
 
   for (const [id, answer] of moved) {
-    const to = assignmentFor(standingOf(history.get(id) ?? []), answer.area)
-    if (to === null) continue
-    await ledger.record({
-      bookId: id,
-      kind: 'assigned',
-      areaId: to,
-      sortKey: answer.sortKey,
-      actor: 'rules',
-      reason,
-      createdAt: now,
-    })
+    await assign(ledger, id, history.get(id) ?? [], answer, reason, now)
   }
+}
+
+/**
+ * `recordWhatMoved` for the one book an edit re-keyed or moved to another
+ * range: the plank the run gave its old range and key against the one it gives
+ * the new. Its own key is the only thing that changed, so no other book moves.
+ */
+export async function recordWhereItNowBelongs(
+  db: Db,
+  bookId: number,
+  was: { range: ShelfRange | null; sortKey: string },
+  is: { range: ShelfRange | null; sortKey: string },
+  reason: string,
+  now: string,
+): Promise<void> {
+  if (was.range === is.range && was.sortKey === is.sortKey) return
+  const shelved = await db.get<{ id: number }>('SELECT id FROM shelved_books WHERE id = ?', [bookId])
+  if (!shelved) return
+
+  const areaIn = async (at: { range: ShelfRange | null; sortKey: string }) =>
+    at.range === null ? null : (await areasForSortKeys(db, at.range, [at.sortKey]))[0] ?? null
+  const before = await areaIn(was)
+  const after = await areaIn(is)
+  if (before === after) return
+
+  const ledger = new DrizzlePlacementLedger(db)
+  await assign(ledger, bookId, await ledger.forBooks([bookId]), { sortKey: is.sortKey, area: after }, reason, now)
+}
+
+async function assign(
+  ledger: DrizzlePlacementLedger,
+  bookId: number,
+  rows: readonly Placement[],
+  answer: RunAnswer,
+  reason: string,
+  now: string,
+): Promise<void> {
+  const to = assignmentFor(standingOf(rows), answer.area)
+  if (to === null) return
+  await ledger.record({
+    bookId,
+    kind: 'assigned',
+    areaId: to,
+    sortKey: answer.sortKey,
+    actor: 'rules',
+    reason,
+    createdAt: now,
+  })
 }
 
 export type RoomAnswer = Map<ShelfRange, Map<number, RunAnswer>>

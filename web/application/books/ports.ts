@@ -79,4 +79,19 @@ export interface PlacementOnSave {
     shelvedOn: ShelvedOn,
     at: string,
   ): Promise<void>
+
+  /**
+   * Append an `assigned` row when an edit moved a shelved book to another plank
+   * of the run, so the carry list hears what the needs-attention list already
+   * derives. Compares the plank the run gave the book's old range and key with
+   * the one it gives the new; writes nothing when they are the same, or when the
+   * book is not shelved, pinned, or already assigned there. Never a `placed` row:
+   * an edit moves a book in the run and not in the room.
+   */
+  recordWhereItNowBelongs(
+    bookId: number,
+    was: { range: ShelfRange | null; sortKey: string },
+    now: { range: ShelfRange | null; sortKey: string },
+    at: string,
+  ): Promise<void>
 }

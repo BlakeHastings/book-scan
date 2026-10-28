@@ -5,6 +5,8 @@
 
 import type { CatalogueCounts } from '../application/books/read-models'
 import type { Db } from './driver'
+import { recordWhatTheRoomMoved, whereEveryRunPutsThem } from './what-moved'
+import { FURNITURE_LOCK, rangeLock } from '../application/locks'
 /*
  * Photographs are rows in `capture`, not columns on `books`. The flat
  * one-per-slot shape the wire speaks in is derived from those rows by
@@ -34,7 +36,7 @@ import { locationLabel } from '../shared/layout'
 // `shelf_ranges`. See `bandsOf`.
 import { bandOf } from '../infrastructure/shelving/areas'
 import { CHECKED_OUT, DISCARDED, SHELVED } from '../domain/books/state'
-import type { GenreSlug } from '../domain/tagging/genre'
+import { GENRE_RANGES, type GenreSlug } from '../domain/tagging/genre'
 /*
  * The placement ledger, which is where a book is: there is no `location`,
  * `shelved_at` or `checked_out_at` column left to give a second answer. Each
@@ -179,16 +181,24 @@ export class Store {
   }
 
   /**
-   * Writes the derived filing columns and nothing else. Deliberately not a
-   * writer of where a book is: recomputing a key moves no book, so it records no
-   * placement and the book stays on the needs-attention list until somebody
-   * moves it and says so.
+   * Writes the derived filing columns, and an `assigned` row for every shelved
+   * book a new key puts on another plank, in one transaction. Deliberately not
+   * a writer of where a book is: recomputing a key moves no book, so it records
+   * no placement, and the book is on the carry list until somebody moves it and
+   * says so.
    */
-  async refile(id: number, resolved: ResolvedKey): Promise<void> {
-    await this.db.run(
-      'UPDATE books SET title_filing = ?, sort_key = ? WHERE id = ?',
-      [resolved.titleFilingValue, resolved.sortKey, id],
-    )
+  async refile(keys: readonly { id: number; resolved: ResolvedKey }[], at: string): Promise<void> {
+    if (!keys.length) return
+    await this.db.tx(async (tx) => {
+      const before = await whereEveryRunPutsThem(tx)
+      for (const { id, resolved } of keys) {
+        await tx.run(
+          'UPDATE books SET title_filing = ?, sort_key = ? WHERE id = ?',
+          [resolved.titleFilingValue, resolved.sortKey, id],
+        )
+      }
+      await recordWhatTheRoomMoved(tx, before, 'its filing name was recomputed', at)
+    }, { serialiseOn: [...GENRE_RANGES.map(({ range }) => rangeLock(range)), FURNITURE_LOCK] })
   }
 
   /**
