@@ -19,7 +19,7 @@
  * ending their session, since the gate reads `enabled` on every request
  * instead of caching it. `--sign-out` is the separate decision that revokes
  * every session they hold and, in the same transaction, every MCP client they
- * have connected (#625), because a connected client is a credential too.
+ * have connected, because a connected client is a credential too.
  */
 
 import pg from 'pg'
@@ -236,9 +236,8 @@ async function main(): Promise<void> {
         ? `${person.id} is in. If they are holding a session already, their next ` +
           'request goes through; they do not have to sign in again.'
         : `${person.id} is back on the waiting list. Their next request answers ` +
-          '403, on whatever session or MCP connection they are holding, with no ' +
-          'sign-out needed. Use --sign-out as well if the credentials themselves ' +
-          'are the problem.',
+          '403, on whatever session they are holding, with no sign-out needed. ' +
+          'Use --sign-out as well if the credential itself is the problem.',
     )
   } finally {
     await pool.end()

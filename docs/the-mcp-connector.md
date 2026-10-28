@@ -253,6 +253,21 @@ gate's `private, no-cache`.
 holds. Both are behind the gate and answer only about the caller's own. A
 Settings screen over them is a follow-up.
 
+**The owner can end all of them at once**, with the script that ends sessions
+(#625):
+
+```
+npm run enable-user -- --target '<connection>' --sign-out <id|email>
+```
+
+revokes every grant the person holds, in the same transaction as their sessions,
+and prints `Revoked N MCP connection(s) for <id>`. It goes through the same one
+statement `DELETE /api/mcp/connections/:id` does (`OAuthStore.revokeGrant` and
+`revokeEveryGrantOf` share it), so there is one way a connection ends.
+`--disable` revokes nothing: `/mcp` answers a disabled person `403` on their next
+call, and the same token works again once they are let back in, the way a
+session does.
+
 ---
 
 ## The tool surface
@@ -432,9 +447,6 @@ reach, and is the owner's to try once this is deployed.
 
 - **CIMD.** A SHOULD, and Claude Code prefers it when advertised. Needs an
   outbound fetch with SSRF limits and a cache.
-- **`enable-user --sign-out` does not revoke connections.** It revokes sessions,
-  which is "lost phone"; a connected client is another credential the person
-  holds and arguably belongs in the same switch.
 - **A Settings screen** over `GET /api/mcp/connections`.
 - **Photographs over MCP.** The read tools say which photographs exist and never
   link to them, because the links need the session cookie. Image content in a
