@@ -14,7 +14,7 @@ import {
 } from 'drizzle-orm'
 import type {
   BookView, CatalogueCounts, CatalogueFilter, CatalogueReadModel, CataloguedBookView, Page,
-} from '../../application/books/ports'
+} from '../../application/books/read-models'
 import type { Db } from '../../server/driver'
 import type { BookRow, FiledBookRow } from '../../server/db.pg'
 import { withPhotographs, withPhotographsOf, type PhotographedBook } from '../../server/photographs'

@@ -1,5 +1,5 @@
-import type { CatalogueReadModel } from '../../books/ports'
-import type { BookTagView, TagReadModel } from '../ports'
+import type { CatalogueReadModel } from '../../books/read-models'
+import type { BookTagView, TagReadModel } from '../read-models'
 
 export interface TagsOfBook {
   bookId: number

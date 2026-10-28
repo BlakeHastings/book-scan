@@ -1,6 +1,6 @@
 import {
   PAGE_LIMIT, type CatalogueFilter, type CatalogueReadModel, type CataloguedBookView,
-} from '../ports'
+} from '../read-models'
 
 /** A listing, narrowed and paged. An absent `limit` is the largest page, never every book. */
 export interface ListBooks extends CatalogueFilter {

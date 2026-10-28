@@ -1,5 +1,5 @@
-import type { AuthorReadModel, CreditView } from '../../authorship/ports'
-import type { BookView, CatalogueReadModel } from '../ports'
+import type { AuthorReadModel, CreditView } from '../../authorship/read-models'
+import type { BookView, CatalogueReadModel } from '../read-models'
 
 export interface GetBook {
   id: number

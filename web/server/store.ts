@@ -3,7 +3,7 @@
  * and out of shared/shelving.ts, which stays pure.
  */
 
-import type { CatalogueCounts } from '../application/books/ports'
+import type { CatalogueCounts } from '../application/books/read-models'
 import type { Db } from './driver'
 /*
  * Photographs are rows in `capture`, not columns on `books`. The flat
@@ -67,7 +67,7 @@ import {
 export type { FiledPhotographedBook, PhotographedBook, PlacedPhotographedBook }
 export type { FiledPlacedBook }
 
-export { PAGE_LIMIT } from '../application/books/ports'
+export { PAGE_LIMIT } from '../application/books/read-models'
 
 export interface DraftBook {
   isbn13?: string

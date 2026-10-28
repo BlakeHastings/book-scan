@@ -3,7 +3,7 @@
  * counts, and the rule conditions. Nothing here writes.
  */
 
-import type { BookTagView, TagReadModel, TagView } from '../../application/tagging/ports'
+import type { BookTagView, TagReadModel, TagView } from '../../application/tagging/read-models'
 import type { TagSlug } from '../../domain/tagging/tags'
 import type { Db } from '../../server/driver'
 import { tagCounts } from '../books/tag-counts'

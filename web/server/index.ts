@@ -55,7 +55,7 @@ import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-rep
 import { authorView, DrizzleAuthorReadModel } from '../infrastructure/authorship/author-read-model'
 import { DrizzleCatalogueReadModel } from '../infrastructure/books/catalogue-read-model'
 import { DrizzleTagReadModel } from '../infrastructure/tagging/tag-read-model'
-import type { CataloguedState } from '../application/books/ports'
+import type { CataloguedState } from '../application/books/read-models'
 import { ListBooksHandler } from '../application/books/queries/list-books'
 import { CountBooksHandler } from '../application/books/queries/count-books'
 import { GetBookHandler } from '../application/books/queries/get-book'

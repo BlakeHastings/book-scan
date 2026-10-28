@@ -4,9 +4,10 @@
  * Nothing here writes.
  */
 
+import type { StoredAuthor } from '../../application/authorship/ports'
 import type {
-  AuthorReadModel, AuthorView, CreditView, StoredAuthor,
-} from '../../application/authorship/ports'
+  AuthorReadModel, AuthorView, CreditView,
+} from '../../application/authorship/read-models'
 import type { Db } from '../../server/driver'
 import { DrizzleAuthorRepository } from './author-repository'
 

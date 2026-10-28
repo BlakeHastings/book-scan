@@ -1,5 +1,5 @@
 import type { TagSlug } from '../../../domain/tagging/tags'
-import type { TagReadModel, TagView } from '../ports'
+import type { TagReadModel, TagView } from '../read-models'
 
 export interface Vocabulary {
   /** Only the tags at or under this one. */

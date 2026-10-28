@@ -1,4 +1,4 @@
-import type { AuthorReadModel, AuthorView } from '../ports'
+import type { AuthorReadModel, AuthorView } from '../read-models'
 
 /**
  * Everybody, with every name they publish under. Not paged: a collection has
