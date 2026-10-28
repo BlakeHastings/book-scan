@@ -34,7 +34,8 @@ import {
   AssignPlacementsHandler, type AssignableBook, type AssignmentReport,
 } from '../application/placement/assign-placements'
 import type { Db } from './driver'
-import { FURNITURE_LOCK, holdsSaid, placeSaid, ruleName, tagLabels } from './furniture'
+import { holdsSaid, placeSaid, ruleName, tagLabels } from './furniture'
+import { FURNITURE_LOCK } from '../application/locks'
 import { refuse, type Refused } from './refusal'
 
 export interface DraftRule {

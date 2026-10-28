@@ -21,7 +21,8 @@ import {
 import { areaDisagreements, describeAreaDisagreement } from '../infrastructure/shelving/area-drift'
 import { booksNoRuleClaims } from './claim'
 import type { ShelfRange } from '../shared/shelving'
-import { bindParams, inLockOrder, lockKey, type Db, type Params, type TxOptions } from './driver'
+import { bindParams, lockKey, type Db, type Params, type TxOptions } from './driver'
+import { inLockOrder, outOfOrder } from '../application/locks'
 
 const { Pool } = pg
 type PoolClient = pg.PoolClient
@@ -520,6 +521,12 @@ interface TxContext {
    */
   client: PoolClient
   depth: number
+  /**
+   * Every lock name the transaction holds, shared by each savepoint inside it,
+   * because an advisory lock taken in a savepoint belongs to the transaction
+   * and outlives a rollback to that savepoint.
+   */
+  held: Set<string>
 }
 
 /**
@@ -586,8 +593,9 @@ export class PgDb implements Db {
     try {
       await client.query('BEGIN')
       try {
-        await this.lock(client, options)
-        const result = await this.context.run({ client, depth: 1 }, () => work(this))
+        const held = new Set<string>()
+        await this.lock(client, held, options)
+        const result = await this.context.run({ client, depth: 1, held }, () => work(this))
         await client.query('COMMIT')
         return result
       } catch (error) {
@@ -645,16 +653,30 @@ export class PgDb implements Db {
    *
    * One statement per name and each awaited, because the order is the point:
    * Postgres does not promise which of several calls in one `SELECT` runs first.
+   *
+   * A name that comes before one already `held` is refused before anything is
+   * taken, since whoever takes the same two the right way round would deadlock
+   * against this transaction rather than queue behind it.
    */
-  private async lock(client: PoolClient, options: TxOptions | undefined): Promise<void> {
+  private async lock(
+    client: PoolClient,
+    held: Set<string>,
+    options: TxOptions | undefined,
+  ): Promise<void> {
     if (options?.serialiseOn === undefined) return
-    for (const name of inLockOrder(options.serialiseOn)) {
+    const names = inLockOrder(options.serialiseOn)
+    for (const name of names) {
+      const refusal = outOfOrder(held, name)
+      if (refusal) throw new Error(refusal)
+    }
+    for (const name of names) {
       // The key is sent as text and cast, because a bigint has no JavaScript
       // number that carries it and node-postgres would otherwise send a float.
       await client.query({
         text: 'SELECT pg_advisory_xact_lock(CAST($1 AS bigint))',
         values: [lockKey(name).toString()],
       })
+      held.add(name)
     }
   }
 
@@ -664,11 +686,11 @@ export class PgDb implements Db {
     options?: TxOptions,
   ): Promise<T> {
     const name = `bookscan_${open.depth}`
-    await this.lock(open.client, options)
+    await this.lock(open.client, open.held, options)
     await open.client.query(`SAVEPOINT ${name}`)
     try {
       const result = await this.context.run(
-        { client: open.client, depth: open.depth + 1 },
+        { client: open.client, depth: open.depth + 1, held: open.held },
         () => work(this),
       )
       await open.client.query(`RELEASE SAVEPOINT ${name}`)

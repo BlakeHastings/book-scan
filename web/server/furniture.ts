@@ -49,14 +49,13 @@ import { tagCounts } from '../infrastructure/books/tag-counts'
 import { recordWhatTheRoomMoved, whereEveryRunPutsThem, type RoomAnswer } from './what-moved'
 
 import { refuse, type Refused } from './refusal'
+import { FURNITURE_LOCK } from '../application/locks'
 import {
   CLAIMS_NOTHING, holdsSaid as phraseFor, ruleSaid, type SaidLine,
 } from '../domain/placement/phrasing'
 
 export { refuse, type Refused }
 
-/** The lock every write here takes, so two people rearranging one room queue. */
-export const FURNITURE_LOCK = 'furniture'
 
 const asFixture = (row: FixtureRow): Fixture => ({
   id: row.id,

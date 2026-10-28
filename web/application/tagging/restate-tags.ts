@@ -8,7 +8,9 @@
  */
 
 import { BookTags, type TagClaim, type TagSlug, type TagSource } from '../../domain/tagging/tags'
-import type { BookTransactions, TagRepository } from './ports'
+import { bookLock } from '../locks'
+import type { UnitOfWork } from '../ports'
+import type { TagRepository } from './ports'
 
 /** What one source says about one book, right now. */
 export interface RestateTags {
@@ -35,14 +37,14 @@ export interface RestateTags {
 export class RestateTagsHandler {
   constructor(
     private readonly tags: TagRepository,
-    private readonly transactions: BookTransactions,
+    private readonly unitOfWork: UnitOfWork,
   ) {}
 
   async handle(command: RestateTags): Promise<void> {
     const { bookId, source, claims, within, now } = command
 
-    await this.transactions.forBook(bookId, async () => {
-      // Read inside the transaction: two lookups finishing at once would otherwise each compute a retraction from a picture the other had already changed.
+    // Serialised on the book: two lookups finishing at once would otherwise each compute a retraction from a picture the other had already changed.
+    await this.unitOfWork.run(async () => {
       const current = BookTags.of(await this.tags.of(bookId))
       const { retracted, applied } = current.restatedBy(source, claims, within)
 
@@ -63,7 +65,7 @@ export class RestateTagsHandler {
           addedAt: now,
         })))
       }
-    })
+    }, { serialiseOn: [bookLock(bookId)] })
   }
 }
 

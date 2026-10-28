@@ -17,7 +17,7 @@ import { RestateTagsHandler } from '../../application/tagging/restate-tags'
 import { ApplyTagHandler, RemoveTagHandler } from '../../application/tagging/apply-tag'
 import { TagSlug } from '../../domain/tagging/tags'
 import { closeTestDatabase, openTestDatabase } from '../../server/testdb'
-import { DbBookTransactions } from './transactions'
+import { DbUnitOfWork } from '../db/unit-of-work'
 import { DrizzleTagRepository, vocabularyQuery } from './tag-repository'
 
 let db: Db
@@ -187,7 +187,7 @@ describe('what a book carries', () => {
 })
 
 describe('a lookup re-running', () => {
-  const restate = () => new RestateTagsHandler(tags, new DbBookTransactions(db))
+  const restate = () => new RestateTagsHandler(tags, new DbUnitOfWork(db))
 
   it('cannot take away a tag a person applied', async () => {
     // The one this feature exists to guarantee, at the level where it would

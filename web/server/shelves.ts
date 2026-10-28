@@ -15,7 +15,8 @@ import { fixtureLabel } from '../domain/placement/geography'
 import { byPrecedence, entryAreaOf, entryAreas } from '../domain/placement/rules'
 import { sharedNumberOf, type AreaFace } from '../domain/placement/carry'
 import type { LabelChange } from '../domain/placement/arrangement'
-import { FURNITURE_LOCK, relabellingWithout } from './furniture'
+import { relabellingWithout } from './furniture'
+import { FURNITURE_LOCK, rangeLock, type LockName } from '../application/locks'
 import {
   areasForSortKeys, recordWhatMoved, whereTheRunPutsThem, type RunAnswer,
 } from './what-moved'
@@ -45,19 +46,11 @@ import {
 } from '../shared/shelving'
 
 /**
- * Every transaction that reads a shelf range and then writes to it serialises on
- * this name. Two in flight over one range would each compute a placement from a
- * shelf the other is halfway through changing. See `TxOptions` in driver.ts for
- * why a transaction alone is not enough.
- */
-export const rangeLock = (range: ShelfRange): string => `shelf:${range}`
-
-/**
  * What a write to a range's boundaries serialises on. A boundary is the area it
  * opens, so moving one rewrites the furniture, and the plan it writes from is
  * read off the furniture too: both locks are held from the first read.
  */
-export const boundaryLocks = (range: ShelfRange): readonly string[] =>
+export const boundaryLocks = (range: ShelfRange): readonly LockName[] =>
   [rangeLock(range), FURNITURE_LOCK]
 
 /**
