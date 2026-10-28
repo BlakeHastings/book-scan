@@ -17,13 +17,13 @@ import type { Client } from '@modelcontextprotocol/sdk/client/index.js'
 
 import { removeScratchRoot, scratchRoot } from '../scratchdir'
 import { closeTestDatabase, openTestDatabase } from '../testdb'
+import { testBooks } from '../testbooks'
 import type { Db } from '../driver'
 import { createApp, type BookScanApp } from '../index'
 import { devProvider } from '../auth/providers'
 import { signedIn } from '../testauth'
 import { Store, type DraftBook } from '../store'
 import { lookupIsbn } from '../lookup'
-import { filingName } from '../../shared/shelving'
 import { PrintedName } from '../../domain/authorship/authors'
 import { TagSlug } from '../../domain/tagging/tags'
 import { FICTION_SLUG, NON_FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
@@ -60,17 +60,15 @@ async function seed(): Promise<void> {
   const authors = new DrizzleAuthorRepository(db)
   const tags = new DrizzleTagRepository(db)
   const store = new Store(db, authors)
+  const books = testBooks(db)
   const authorIds = new Map<string, number>()
 
+  /** Saved as a scan is saved, which credits the names beside the row. */
   async function shelve(over: Partial<DraftBook> & { title: string; authors: string[] }): Promise<number> {
-    const { id } = await store.addBook({ genre: FICTION_SLUG, ...over })
-    const aliases = []
+    const { id } = await books.catalogue({ genre: FICTION_SLUG, ...over })
     for (const name of over.authors) {
-      const alias = await authors.introduce(PrintedName.of(name), filingName(name))
-      authorIds.set(name, alias.authorId)
-      aliases.push(alias)
+      authorIds.set(name, (await authors.aliasFor(PrintedName.of(name)))!.authorId)
     }
-    await authors.credit(id, aliases.map((alias) => alias.id))
     return id
   }
 
@@ -88,6 +86,10 @@ async function seed(): Promise<void> {
   seeded.city = await shelve({ title: 'The City & the City', authors: ['China Miéville'] })
   seeded.kraken = await shelve({ title: 'Kraken', authors: ['China Miéville'] })
   await store.setCheckedOut(seeded.kraken, true)
+  // A save records where a book lands, so the reset in Settings is how the
+  // others come to be on no plank: everything off, then Dune back on 1A.
+  await store.unplaceEveryBook()
+  await store.setLocation(seeded.dune, '1A')
 
   await tag(seeded.dune, 'genre/fiction/space-opera', 'Space opera')
   await tag(seeded.city, 'genre/fiction/weird', 'Weird fiction')
@@ -196,8 +198,9 @@ describe('search_books', () => {
   })
 
   it('narrows by tag at or under a slug, range, state, placement, isbn and author', async () => {
+    // Every fiction book carries `genre/fiction`, since a save writes the tag.
     expect(titles(await call<Books>('search_books', { tags: ['genre/fiction'] })))
-      .toEqual(['Dune', 'The City & the City'])
+      .toEqual(['Dune', 'Children of Dune', 'The City & the City', 'Kraken'])
     expect(titles(await call<Books>('search_books', { tags: ['genre/fiction/weird'] })))
       .toEqual(['The City & the City'])
     expect(titles(await call<Books>('search_books', { range: 'nonfiction' }))).toEqual(['Sapiens'])

@@ -405,9 +405,9 @@ describe('editing a shelved book', () => {
     const { id } = await books.catalogue(draft({ title: 'Beta', authors: ['Bob Baker'], location: '1A' }))
 
     // Stated fiction, so it is filed, so there is a placement. See `rangeOf`.
-    const { placement } = await books.revise(
+    const placement = (await books.revise(
       id, draft({ title: 'Beta', authors: ['Bob Baker'], location: '1A' }),
-    )
+    )).placement!
     expect(placement.predecessor?.id).not.toBe(id)
     expect(placement.successor?.id).not.toBe(id)
     expect(placement.predecessor?.title).toBe('Alpha')

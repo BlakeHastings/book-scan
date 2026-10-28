@@ -4,7 +4,7 @@
  * so each is asked here the way such a caller would ask it: a plain object in,
  * a plain object out.
  *
- * Books are saved through `Store.addBook`, which is the save path a scan takes,
+ * Books are saved through `CatalogueBookHandler`, which is the save path a scan takes,
  * and one book is left in the queue on purpose: the catalogue's listing must
  * not see it and a lookup by id must.
  */
@@ -12,8 +12,8 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import type { Db } from '../../server/driver'
 import { closeTestDatabase, openTestDatabase } from '../../server/testdb'
+import { testBooks } from '../../server/testbooks'
 import { Store, type DraftBook } from '../../server/store'
-import { filingName } from '../../shared/shelving'
 import { PrintedName } from '../../domain/authorship/authors'
 import { TagSlug } from '../../domain/tagging/tags'
 import { FICTION_SLUG, NON_FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
@@ -35,24 +35,28 @@ import { DrizzleCatalogueReadModel } from './catalogue-read-model'
 const NOW = '2026-10-28T09:00:00.000Z'
 
 let db: Db
-let store: Store
 let authors: DrizzleAuthorRepository
 let tags: DrizzleTagRepository
 let catalogue: DrizzleCatalogueReadModel
 let tagReads: DrizzleTagReadModel
 let authorReads: DrizzleAuthorReadModel
 
-/** A book saved the way a scan saves one, with its credits written beside it. */
+/** A book saved the way a scan saves one, which writes its credits beside it. */
 async function shelve(
   over: Partial<DraftBook> & { title: string; authors: string[] },
 ): Promise<number> {
-  const { id } = await store.addBook({ genre: FICTION_SLUG, ...over })
-  const aliases = []
-  for (const name of over.authors) {
-    aliases.push(await authors.introduce(PrintedName.of(name), filingName(name)))
-  }
-  await authors.credit(id, aliases.map((alias) => alias.id))
-  return id
+  return (await testBooks(db).catalogue({ genre: FICTION_SLUG, ...over })).id
+}
+
+/**
+ * Every shelved book off its plank, then Dune put back on 1A. A save records
+ * where a book lands, so the reset in Settings is how a shelved book comes to be
+ * on no plank, and these tests want some that are.
+ */
+async function onlyDunePlaced(dune: number): Promise<void> {
+  const store = new Store(db, authors)
+  await store.unplaceEveryBook()
+  await store.setLocation(dune, '1A')
 }
 
 /** A book photographed and not identified: in `books`, not in `catalogued_books`. */
@@ -76,7 +80,6 @@ beforeEach(async () => {
   db = await openTestDatabase()
   authors = new DrizzleAuthorRepository(db)
   tags = new DrizzleTagRepository(db)
-  store = new Store(db, authors)
   catalogue = new DrizzleCatalogueReadModel(db)
   tagReads = new DrizzleTagReadModel(db)
   authorReads = new DrizzleAuthorReadModel(db)
@@ -91,6 +94,7 @@ describe('ListBooksHandler', () => {
     await shelve({ title: 'Sapiens', authors: ['Yuval Noah Harari'], genre: NON_FICTION_SLUG })
     await queued('Dune Messiah')
     await tag(dune, 'genre/fiction/space-opera', 'Space opera')
+    await onlyDunePlaced(dune)
 
     const list = new ListBooksHandler(catalogue)
 
@@ -121,9 +125,10 @@ describe('ListBooksHandler', () => {
 
 describe('CountBooksHandler', () => {
   it('counts the catalogue, not the queue', async () => {
-    await shelve({ title: 'Dune', authors: ['Frank Herbert'], location: '1A' })
+    const dune = await shelve({ title: 'Dune', authors: ['Frank Herbert'], location: '1A' })
     await shelve({ title: 'Sapiens', authors: ['Yuval Noah Harari'], genre: NON_FICTION_SLUG })
     await queued('Unknown')
+    await onlyDunePlaced(dune)
 
     expect(await new CountBooksHandler(catalogue).handle()).toEqual({
       total: 2, fiction: 1, nonfiction: 1, checkedOut: 0, unplaced: 1,

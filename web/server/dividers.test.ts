@@ -6,6 +6,7 @@
 
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeTestDatabase, openTestDatabase } from './testdb'
+import { testBooks } from './testbooks'
 import type { Db } from './driver'
 import { Shelves, type ShelvedBook } from './shelves'
 import { Store } from './store'
@@ -105,7 +106,7 @@ const fillUp = async (label: string, kind: 'area' | 'shelf') => {
  */
 async function twoBookcases() {
   for (const name of NAMES) {
-    await store.addBook({ title: name, authors: [name], genre: FICTION_SLUG })
+    await testBooks(db).catalogue({ title: name, authors: [name], genre: FICTION_SLUG })
   }
 
   for (let i = 0; i < 6; i += 1) await fillUp('1A', 'area')

@@ -17,11 +17,11 @@ import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeScratchRoot, scratchRoot } from './scratchdir'
 import { closeTestDatabase, openTestDatabase } from './testdb'
+import { testBooks } from './testbooks'
 import type { Db } from './driver'
 import { createApp, type BookScanApp } from './index'
 import { signedIn } from './testauth'
-import { Store, PAGE_LIMIT } from './store'
-import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
+import { PAGE_LIMIT } from './store'
 import { lookupIsbn } from './lookup'
 import { FICTION_SLUG, NON_FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
@@ -378,15 +378,15 @@ describe('a page of a listing, which is what makes this screen survive growing',
   })
 
   /**
-   * Seeded through `Store` rather than through the route, because five
+   * Seeded through the save handler rather than through the route, because five
    * hundred and one saves over HTTP is a minute this suite should not
    * spend to prove one `LIMIT`. It is still the whole route being asked,
    * over real HTTP, against rows a real save wrote.
    */
   it('answers one page at most when nobody asked for a page', async () => {
-    const store = new Store(db, new DrizzleAuthorRepository(db))
+    const books = testBooks(db)
     for (let n = 0; n <= PAGE_LIMIT; n += 1) {
-      await store.addBook({
+      await books.catalogue({
         title: `Book ${n}`,
         authors: [`Author ${String(n).padStart(4, '0')}`],
         genre: FICTION_SLUG,
