@@ -45,7 +45,7 @@ import {
 import { RestateTagsHandler } from '../application/tagging/restate-tags'
 import { ReidentifyBookHandler } from '../application/tagging/reidentify-book'
 import { DrizzleTagRepository } from '../infrastructure/tagging/tag-repository'
-import { DbBookTransactions } from '../infrastructure/tagging/transactions'
+import { DbUnitOfWork } from '../infrastructure/db/unit-of-work'
 import { CreditBookHandler, nameFor } from '../application/authorship/credit-book'
 import {
   FileAliasHandler, MergeAuthorsHandler,
@@ -430,11 +430,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   const shelves = new Shelves(db, separators, removeSeparator)
 
   const tags = new DrizzleTagRepository(db)
-  // One instance, because it is a lock namespace as much as a transaction: two
-  // of them are still the same advisory lock, and sharing it says so.
-  const bookTransactions = new DbBookTransactions(db)
-  const restateTags = new RestateTagsHandler(tags, bookTransactions)
-  const reidentifyBook = new ReidentifyBookHandler(tags, bookTransactions)
+  const unitOfWork = new DbUnitOfWork(db)
+  const restateTags = new RestateTagsHandler(tags, unitOfWork)
+  const reidentifyBook = new ReidentifyBookHandler(tags, unitOfWork)
   const applyTag = new ApplyTagHandler(tags)
   const removeTag = new RemoveTagHandler(tags)
   const relabelTag = new RelabelTagHandler(tags)

@@ -15,7 +15,9 @@
 
 import { GENRE, SUBJECT } from '../../domain/tagging/catalogue-claims'
 import { BookTags, type TagSlug } from '../../domain/tagging/tags'
-import type { BookTransactions, TagRepository } from './ports'
+import { bookLock } from '../locks'
+import type { UnitOfWork } from '../ports'
+import type { TagRepository } from './ports'
 
 /**
  * Prefixes: everything beneath one counts, so `subject/fiction/fantasy/epic`
@@ -31,13 +33,13 @@ export interface ReidentifyBook {
 export class ReidentifyBookHandler {
   constructor(
     private readonly tags: TagRepository,
-    private readonly transactions: BookTransactions,
+    private readonly unitOfWork: UnitOfWork,
   ) {}
 
   async handle(command: ReidentifyBook): Promise<void> {
     const { bookId } = command
 
-    await this.transactions.forBook(bookId, async () => {
+    await this.unitOfWork.run(async () => {
       const carried = BookTags.of(await this.tags.of(bookId))
 
       // Deduplicated on the slug: two sources claiming one genre are two rows but one thing to retract.
@@ -48,6 +50,6 @@ export class ReidentifyBookHandler {
 
       // No source given: every source's row goes, since these are claims about a book this row is no longer, not one source taking back its own.
       if (stale.size) await this.tags.retract(bookId, [...stale.values()])
-    })
+    }, { serialiseOn: [bookLock(bookId)] })
   }
 }

@@ -37,7 +37,7 @@ import { applyRuleChange } from './place-rule'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { DrizzleTagRepository } from '../infrastructure/tagging/tag-repository'
 import { DrizzlePlacementLedger } from '../infrastructure/placement/ledger-repository'
-import { DbBookTransactions } from '../infrastructure/tagging/transactions'
+import { DbUnitOfWork } from '../infrastructure/db/unit-of-work'
 import { RestateTagsHandler } from '../application/tagging/restate-tags'
 import { CreditBookHandler } from '../application/authorship/credit-book'
 import { FileAliasHandler } from '../application/authorship/curate-authors'
@@ -89,7 +89,7 @@ async function shelve(of: DraftBook): Promise<number> {
   const authors = new DrizzleAuthorRepository(db)
   const tags = new DrizzleTagRepository(db)
   const { id, placement } = await store.addBook(of)
-  await settleGenre(new RestateTagsHandler(tags, new DbBookTransactions(db)), tags, id, of)
+  await settleGenre(new RestateTagsHandler(tags, new DbUnitOfWork(db)), tags, id, of)
   await recordCredits(
     new CreditBookHandler(authors), authors, new FileAliasHandler(authors), id, of,
   )

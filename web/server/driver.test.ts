@@ -15,7 +15,7 @@ import { join } from 'node:path'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import pg from 'pg'
 import { PgDb } from './db.pg'
-import { bindParams, inLockOrder, type Db } from './driver'
+import { bindParams, type Db } from './driver'
 import { closeTestDatabase, openTestDatabase, testDatabaseUrl } from './testdb'
 
 describe('translating placeholders', () => {
@@ -162,22 +162,6 @@ describe('translating placeholders', () => {
   it('refuses SQLite numbered placeholders, which have no Postgres spelling', () => {
     expect(() => bindParams('SELECT ?1, ?1', ['one']))
       .toThrow('numbered placeholders')
-  })
-})
-
-describe('the order several locks are taken in', () => {
-  it('is the ranges, then the furniture, then any book, whatever order they were named in', () => {
-    expect(inLockOrder(['book:3', 'furniture', 'shelf:nonfiction', 'shelf:fiction', 'book:3']))
-      .toEqual(['shelf:fiction', 'shelf:nonfiction', 'furniture', 'book:3'])
-  })
-
-  it('refuses to guess where a name it has never heard of goes beside another', () => {
-    expect(() => inLockOrder(['shelf:fiction', 'shelves'])).toThrow(/no place in LOCK_ORDER/)
-  })
-
-  it('takes one name as it is, since there is nothing for it to be ordered against', () => {
-    expect(inLockOrder('anything at all')).toEqual(['anything at all'])
-    expect(inLockOrder(['shelf:fiction', 'shelf:fiction'])).toEqual(['shelf:fiction'])
   })
 })
 

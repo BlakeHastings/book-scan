@@ -42,7 +42,7 @@ import { genreStatedBy, type GenreSlug } from '../domain/tagging/genre'
 const QUEUED_SQL = QUEUED_STATES.map((state) => `'${state}'`).join(', ')
 // A book being filed into a range and a boundary moving inside it are the two
 // halves of one contention, so both serialise on this name.
-import { rangeLock } from './shelves'
+import { rangeLock } from '../application/locks'
 /*
  * The placement ledger, which is where a book is: there is no `location`,
  * `shelved_at` or `checked_out_at` column left to give a second answer. Each

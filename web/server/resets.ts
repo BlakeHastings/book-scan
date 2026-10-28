@@ -12,7 +12,7 @@ import { countTheRoom, removeEveryPiece, type RoomCounts } from '../infrastructu
 import { countErasing, countUnplacing, type ErasureCounts, type UnplaceCounts } from './placement-ledger'
 import type { Db } from './driver'
 import type { Store } from './store'
-import { FURNITURE_LOCK } from './furniture'
+import { FURNITURE_LOCK } from '../application/locks'
 import { refuse, type Refused } from './refusal'
 
 export type ResetPlan =

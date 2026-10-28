@@ -35,7 +35,7 @@ import { Author, PrintedName } from '../../domain/authorship/authors'
 import type { Db } from '../../server/driver'
 import { build, statement } from '../db/query'
 import { author, authorAlias, bookAuthor } from '../db/schema'
-import { bookLock } from '../tagging/transactions'
+import { bookLock } from '../../application/locks'
 
 /**
  * `nameKey`, in SQL. `[:alnum:]` rather than `A-Za-z0-9`: the ASCII class
@@ -213,10 +213,7 @@ export class DrizzleAuthorRepository implements AuthorRepository {
   /**
    * The book's credits afterwards are exactly these, in this order. Delete
    * then insert, in a transaction serialised on the book, so two saves of
-   * one book take turns rather than interleaving. The lock name is
-   * imported from `infrastructure/tagging/transactions.ts` rather than
-   * respelled here: two spellings of a lock name are two locks, and the
-   * second serialises against nothing.
+   * one book take turns rather than interleaving.
    */
   async credit(bookId: number, aliasIds: readonly number[]): Promise<void> {
     await this.db.tx(async (tx) => {

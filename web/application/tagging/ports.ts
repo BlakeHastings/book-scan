@@ -76,17 +76,3 @@ export interface TagRepository {
    */
   remove(slug: TagSlug): Promise<boolean>
 }
-
-/**
- * Restating a source's tags is a read then a write; two racing on one book
- * can each decide what the other is about to delete, so the work is
- * serialised per book.
- *
- * A separate port from `application/shelving/ports.ts`'s `Transactions`
- * (which serialises on a shelf range): one lock namespace covering both would
- * serialise against nothing.
- */
-export interface BookTransactions {
-  /** Run `work` atomically, and serialised against other work on this book. */
-  forBook<T>(bookId: number, work: () => Promise<T>): Promise<T>
-}

@@ -37,7 +37,7 @@ import {
 import { recordCredits, settleGenre } from '../server/book-save'
 import { RestateTagsHandler } from '../application/tagging/restate-tags'
 import { DrizzleTagRepository } from '../infrastructure/tagging/tag-repository'
-import { DbBookTransactions } from '../infrastructure/tagging/transactions'
+import { DbUnitOfWork } from '../infrastructure/db/unit-of-work'
 import { CreditBookHandler } from '../application/authorship/credit-book'
 import { FileAliasHandler } from '../application/authorship/curate-authors'
 
@@ -456,7 +456,7 @@ async function main(): Promise<void> {
   // it for.
   const tagsRepo = new DrizzleTagRepository(db)
   const deps: SaveDeps = {
-    restateTags: new RestateTagsHandler(tagsRepo, new DbBookTransactions(db)),
+    restateTags: new RestateTagsHandler(tagsRepo, new DbUnitOfWork(db)),
     tags: tagsRepo,
     creditBook: new CreditBookHandler(authorsRepo),
     authors: authorsRepo,

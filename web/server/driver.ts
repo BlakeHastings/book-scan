@@ -26,43 +26,17 @@ export interface TxOptions {
    * The name is the thing being read and then written, not the statement: two
    * books being filed into the fiction range contend, a book going into fiction
    * and a book going into nonfiction do not, and nothing that only reads waits
-   * for either. See `rangeLock` in shelves.ts and `FURNITURE_LOCK` in
-   * furniture.ts.
+   * for either. The names are built in `application/locks.ts`.
    *
    * Several names are taken in `inLockOrder`, never in the order given, so two
-   * callers naming the same pair cannot each hold the half the other wants.
+   * callers naming the same pair cannot each hold the half the other wants. A
+   * nested transaction naming a lock that comes before one the transaction
+   * already holds is refused with an error rather than taken.
    *
    * Held for the length of the transaction and released only by commit or
    * rollback, never by this code.
    */
   serialiseOn?: string | readonly string[]
-}
-
-/**
- * Which lock is taken before which, by the namespace a name starts with and
- * then by its spelling: `shelf:fiction`, `shelf:nonfiction`, `furniture`, then
- * any `book:`. A transaction that already holds one of these and opens a nested
- * one naming an earlier one has broken the order, and nothing here can see it.
- */
-const LOCK_ORDER = ['shelf:', 'furniture', 'book:'] as const
-
-/**
- * The names `serialiseOn` asked for, once each, in the order they are taken.
- * A name in no namespace above is refused rather than guessed a place, because
- * where it goes is a decision about every other lock.
- */
-export function inLockOrder(names: string | readonly string[]): string[] {
-  const wanted = [...new Set(typeof names === 'string' ? [names] : names)]
-  if (wanted.length < 2) return wanted
-
-  const rank = (name: string): number => {
-    const at = LOCK_ORDER.findIndex((prefix) => name.startsWith(prefix))
-    if (at === -1) {
-      throw new Error(`${name} has no place in LOCK_ORDER, so it cannot be taken beside another lock`)
-    }
-    return at
-  }
-  return wanted.sort((a, b) => rank(a) - rank(b) || (a < b ? -1 : a > b ? 1 : 0))
 }
 
 export interface Db {
