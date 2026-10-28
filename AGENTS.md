@@ -1133,6 +1133,15 @@ always runs, always reports, no `paths:` filter, no job-level `if:` — and its
 name is deliberately in `ci.yml` and nowhere else. Promoting it means adding it
 to `REQUIRED` in `scripts/merge-pr.mjs`, on a run history, as its own change.
 
+**Since #581 the same job also compiles `apphost.mts`**, which `aspire start`
+transpiles without checking exactly as Playwright does the suite. It needs the
+modules under `.aspire/modules/`, which are generated per AppHost and ignored by
+git, so the job installs the pinned Aspire CLI and runs `aspire restore`: the
+code generation half of a start, with no dashboard, container or resource. To
+run it by hand from the repository root, `aspire restore` then `npm run
+typecheck`. It went into this job rather than its own so that it, too, reports
+from its first run without gating anything.
+
 The scan-data check that used to be a third name, `no production data
 committed`, is now the first step of `web (typecheck + tests)` and also runs
 after every merge in `provenance.yml`. It was a five second job, and GitHub

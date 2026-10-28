@@ -41,6 +41,14 @@ test('anything that can change what CI itself does is not inert', () => {
   assert.equal(isInert('.gitignore'), false)
   assert.equal(isInert('apphost.mts'), false)
   assert.equal(isInert('aspire.config.json'), false)
+  assert.equal(isInert('tsconfig.apphost.json'), false)
+})
+
+// `e2e (typecheck)` also compiles the AppHost (#581), and that step is only
+// worth anything if a change to the AppHost alone is enough to run it.
+test('an AppHost-only change forces the full run', () => {
+  assert.equal(classify(['apphost.mts']).docsOnly, false)
+  assert.equal(classify(['tsconfig.apphost.json', 'docs/process/review.md']).docsOnly, false)
 })
 
 test('a path that merely mentions docs is not the docs tree', () => {

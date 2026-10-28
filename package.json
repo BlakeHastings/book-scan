@@ -11,6 +11,7 @@
     "aspire:start": "aspire run",
     "aspire:build": "tsc -p tsconfig.apphost.json",
     "aspire:dev": "tsc --watch -p tsconfig.apphost.json",
+    "typecheck": "tsc -p tsconfig.apphost.json --noEmit",
     "lint": "npm run aspire:lint",
     "predev": "npm run aspire:lint",
     "dev": "npm run aspire:start",

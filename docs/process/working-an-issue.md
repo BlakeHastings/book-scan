@@ -220,7 +220,8 @@ and a job-level `if:` reports SKIPPED, and the merge gate refuses both, which
 would make a README change unmergeable.
 
 A fourth name is on the board and does not gate: `e2e (typecheck)`, added by
-#563 because Playwright never typechecks the suite it runs. It is built in the
+#563 because Playwright never typechecks the suite it runs, and since #581 it
+compiles the AppHost too, which `aspire start` never checks. It is built in the
 same always-run, always-report shape so that it *can* be required later, and it
 is advisory until it has a run history, for the reason the next paragraph gives
 about the third one.

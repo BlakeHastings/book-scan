@@ -15,7 +15,8 @@ CI runs exactly these. If they are red, the work is not ready for review.
   nothing ran until #563: Playwright transpiles TypeScript without checking it,
   so the one suite that gates every pull request was the one tree here reaching
   master untyped. **Advisory, not required**, on the #549/#552 ordering — it
-  reports on every pull request and is not in `REQUIRED`
+  reports on every pull request and is not in `REQUIRED`. Since #581 the same
+  job compiles `apphost.mts`, which `aspire start` transpiles without checking
 - no scan data committed (`scripts/check-no-scan-data.sh`)
 - the merge guard and the CI scope rules behave (`scripts/guard-merge.test.mjs`,
   `scripts/ci-scope.test.mjs`)

@@ -30,6 +30,9 @@ is advisory and is marked as such below. Between them they cover:
   in `REQUIRED` in `scripts/merge-pr.mjs` and not in the ruleset, deliberately,
   on the ordering #549 and #552 set after #535. A reviewer should still read it,
   because red here means the suite that proves everything else is itself broken.
+  Since #581 it also compiles `apphost.mts` against the modules `aspire restore`
+  generates, so a red here can equally mean the file that sets every checkout's
+  data directory and connection does not compile. The step name says which.
 
 `no production data committed` used to be a third check with a job of its own.
 It took five seconds and GitHub bills a job rounded up to a whole minute, so it
