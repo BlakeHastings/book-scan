@@ -1411,10 +1411,22 @@ second one.** `?range=` still means one run and still means fiction when absent;
 of which must hold, matching at or under the slug), `limit=` and `offset=` are
 the narrowings the library and the find screen ask for. The answer carries
 `total`, which is what the query matched, beside `counts`, which is still the
-whole catalogue. `Store.listing` is the SQL and `Store.listRange` is untouched.
-If you need books narrowed some other way, widen that one method rather than
-writing a second listing: a screen showing books should not have to know which
-route answers its particular question.
+whole catalogue. The route maps the query string onto `ListBooksHandler`
+(`web/application/books/queries/list-books.ts`), whose SQL is
+`DrizzleCatalogueReadModel.list`, and `Store.listRange` is untouched. If you
+need books narrowed some other way, widen that one filter rather than writing a
+second listing: a screen showing books should not have to know which route
+answers its particular question, and neither should an MCP tool.
+
+**The catalogue's reads are query handlers** (#614). Every one in
+`web/application/{books,tagging,authorship}/queries/` reads through a read-model
+port in that context's `read-models.ts` and nothing else, and `npm run
+lint:layers` fails a query that imports a repository port, a command handler or
+an aggregate's module. The read models are kept out of `ports.ts` so that rule
+can be a path. `Store.getBook`, `Store.findByIsbn` and `Store.counts` survive
+for the write routes, the queue and the tests that call them, and each is now
+one line handing the question to `DrizzleCatalogueReadModel`, so there is one
+statement per question.
 
 **`checked_out_at` is still what the client reads and it is not a column** (#232).
 `books.state` says which books are out, `Store.setCheckedOut` compares and sets it
@@ -1560,7 +1572,7 @@ catalogue. Do not add one.
   with a Postgres stack trace in the log (#332, `docs/api-review.md` finding 2).
   A malformed id is the same clean 404 as an id nothing has.
 - **A listing route answers a page, and an absent `limit` is the largest page
-  rather than every row.** `Store.PAGE_LIMIT` is both, defined once, so the two
+  rather than every row.** `PAGE_LIMIT` (`web/application/books/read-models.ts`) is both, defined once, so the two
   cannot drift. An unbounded response must never be what somebody gets for
   forgetting a parameter (#332, finding 4). Some routes legitimately answer
   everything: the capture queue is what a person is working through and the
