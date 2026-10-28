@@ -316,11 +316,19 @@ than a list, so this section cannot drift without the suite going red.
 
 | | |
 | --- | --- |
-| Hand-declared handlers **behind** the gate | **73** |
+| Hand-declared handlers under `/api` **behind** the gate | **78** |
 | Static mounts **behind** the gate | **1** (the photographs) |
-| **Total behind the gate** | **74** |
+| **Total behind the gate** | **79** |
 | Handlers registered **above** the gate, and therefore open | **5** |
 | Mounts **outside `/api`**, and therefore open | **2**, and only when a client has been built: `express.static` over `web/dist` and the single-page fallback |
+| The MCP connector's doors **outside `/api`** | **7**, and only when `BOOKSCAN_PUBLIC_ORIGIN` is set: six open, `/mcp` behind a bearer token. See the section after this one |
+
+**The first row said 73 until #613 and the suite said 75.** Two routes had
+landed under the gate without this table moving, #599's
+`POST /api/resets/:name` among them, which is exactly the drift the sentence above says cannot
+happen: the suite was right and this page was not. #613 added three more, all
+under `/api/mcp` (the consent answer, the connections list and disconnecting
+one), and the row is now the number the suite asserts.
 
 The last row is the one to read carefully, because those two are not "in front
 of the gate" in the stack — they are registered below it, and they are open
@@ -357,6 +365,9 @@ the answer would take:
 Six and seven are one decision and are the login screen. They are absent in a
 development checkout and in every test, where Vite serves the client instead.
 
+8. the MCP connector's six open doors and `/mcp`, **when a public origin is
+   configured**, listed in the next section.
+
 **And two things outside this count, said here so nobody reads the count as
 covering them.** Both were established by `docs/auth-surface.md` and neither is
 changed by this issue:
@@ -369,6 +380,51 @@ changed by this issue:
   app and gating it are the same decision* — and it belongs to #471.
 - **The Aspire dashboard**, which is development tooling, a different process,
   and not part of any deployment this repository describes.
+
+---
+
+## The MCP connector's doors, which are outside `/api` on purpose (#613)
+
+An MCP client such as claude.ai finds and signs into this server the way the
+MCP authorization specification says, and the specification puts every one of
+those paths at the root: `/.well-known/...` by RFC 8414 and RFC 9728, and the
+endpoints wherever the metadata says. A client that is not signed in has to
+reach all of them, so none of them can be behind a gate that answers a stranger
+`401`. They are therefore **outside `/api`**, which is the line the gate is
+drawn on, and each is a deliberate, listed door.
+
+| Door | Why it is open |
+| --- | --- |
+| `GET /.well-known/oauth-authorization-server` | Where a client learns the endpoints below. Says nothing about anybody. |
+| `GET /.well-known/oauth-protected-resource/mcp` | Where a client that was refused at `/mcp` learns who issues tokens for it. |
+| `GET\|POST /authorize` | The browser half. Open because a person not yet signed in arrives here; what it draws depends on the session cookie, and it issues nothing. A code is issued only by the consent answer below, which is behind the gate. |
+| `POST /token` | Exchanges a code (with its PKCE verifier) or a refresh token. Guarded by what it is handed rather than by who is asking. |
+| `POST /register` | Dynamic client registration, which claude.ai uses. Registering grants nothing: a client is a program, and only a person who is enabled can approve one. Rate-limited by the SDK. |
+| `POST /revoke` | RFC 7009. Guarded by the token being revoked. |
+| `POST\|GET\|DELETE /mcp` | **Not open.** Behind a bearer token, read from `Authorization` and nothing else, so a session cookie here is a stranger's request; then `enabled` is read off `user` on every request, exactly as the gate reads it, and a person who is not let in is answered `403` with the gate's `waiting`. |
+
+**And three routes under `/api/mcp`, behind the gate like everything else
+there**: the consent page's answer, a person's list of connected clients, and
+disconnecting one. The approval being an ordinary gated route is the point: the
+only thing that can turn an authorization request into a code is somebody the
+gate admits, posting from the session the consent page was drawn for.
+
+**How the suite keeps this honest.** `gate.routes.test.ts` now places every
+layer in the router stack in one of three places: under `/api` (behind the gate
+and counted above), on every path (middleware that answers nothing, named one by
+one), or on a path of its own. A layer in the third place that is not one of
+`MCP_DOORS` in `web/server/mcp/mount.ts` fails the suite, and the file shows it
+noticing by adding an unlisted route and mount to an app of its own. The same
+file asserts that with no public origin none of the seven is mounted.
+
+**`/api` does not accept a bearer token, and `/mcp` does not accept a cookie.**
+Both are asserted in `web/server/mcp/connector.routes.test.ts`. The first keeps
+this change from widening who can reach the seventy-eight; the second is what
+stops a page on another site driving tools with somebody's cookie.
+
+Every answer at those doors says `Cache-Control: no-store`, which RFC 6749
+requires of a token response and which the rest carry for the reason #566 gave.
+`docs/the-mcp-connector.md` is the whole argument, with the research behind it.
 
 ---
 

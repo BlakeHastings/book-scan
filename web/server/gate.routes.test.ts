@@ -29,6 +29,7 @@ import { PgDb } from './db.pg'
 import { createApp, type BookScanApp } from './index'
 import { signedIn } from './testauth'
 import { OPEN_DOORS } from './auth/gate'
+import { MCP_API_ROUTES, MCP_DOORS } from './mcp/mount'
 import { SESSION_COOKIE } from '../shared/auth'
 
 let pool: pg.Pool
@@ -38,6 +39,12 @@ let coverDir: string
 let app: BookScanApp
 let server: Server
 let baseUrl: string
+
+/**
+ * A public origin, so the MCP connector's doors outside `/api` are mounted and
+ * counted. No provider: nothing here signs in through a door.
+ */
+const CONNECTOR_ON = { providers: [], publicOrigin: 'https://books.example' }
 
 /** A known photograph on disk, so a request for one is a request for a file. */
 const COVER = 'gate-521-known.jpg'
@@ -58,7 +65,7 @@ beforeEach(async () => {
     await sharp({ create: { width: 800, height: 1200, channels: 3, background: '#333' } })
       .jpeg().toBuffer(),
   )
-  app = createApp({ db, coverDir, startBackgroundWork: false })
+  app = createApp({ db, coverDir, startBackgroundWork: false, signIn: CONNECTOR_ON })
   server = app.listen(0)
   await new Promise<void>((resolve) => server.once('listening', resolve))
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
@@ -86,6 +93,9 @@ afterAll(async () => {
 interface Layer {
   name: string
   route?: { path: string; methods: Record<string, boolean> }
+  handle: { length: number }
+  regexp: RegExp
+  match(path: string): boolean
 }
 
 function stackOf(built: express.Express): Layer[] {
@@ -123,23 +133,19 @@ describe('the count', () => {
     expect(before).toEqual([...OPEN_DOORS])
   })
 
-  it('has every one of the seventy-five handlers behind it', () => {
+  it('has every one of the seventy-eight handlers under /api behind it', () => {
     const stack = stackOf(app)
-    const behind = stack.slice(gateAt(stack) + 1).flatMap(named)
+    const behind = stack.slice(gateAt(stack) + 1).filter(underApi).flatMap(named)
 
     /*
      * If this number moves, a route was added or removed, and the question
      * to answer is which, not to edit the number until it is green.
      */
-    expect(behind).toHaveLength(75)
+    expect(behind).toHaveLength(78)
     expect(behind).toContain('POST /api/tags')
     expect(behind).toContain('POST /api/resets/:name')
     expect(behind).toContain('DELETE /api/tags')
-
-    // And every one of them is under /api, which is what makes the mount
-    // above cover them. A handler registered on any other path would be
-    // reachable without a session and this is what would say so.
-    for (const door of behind) expect(door, door).toMatch(/^[A-Z]+ \/api(\/|$)/)
+    for (const route of MCP_API_ROUTES) expect(behind).toContain(route)
   })
 
   it('has the photographs behind it, mount and all', () => {
@@ -172,6 +178,109 @@ describe('the count', () => {
     expect(notRoutes).toEqual(['query', 'expressInit', 'jsonParser', 'apiCache'])
   })
 
+})
+
+/*
+ * Outside `/api`, where the gate does not reach.
+ *
+ * Every layer in the stack is put in one of three places by asking it whether
+ * it would answer a path, which is Express's own `Layer.match` and so sees
+ * routes and mounts alike: under `/api` (behind the gate, counted above), on
+ * every path (middleware that answers nothing and is named one by one), or on
+ * a path of its own outside `/api`. A layer in the third place that is not one
+ * of the connector's listed doors is a door nobody argued for, and fails.
+ */
+const PROBE_API = '/api/a-path-nobody-registered'
+const PROBE_ANYWHERE = '/a-path-nobody-registered'
+
+/**
+ * A route says its path. A mount does not, so it is read off the expression
+ * Express compiled the mount path into, which for `/api` and `/api/covers`
+ * begins `^\/api\/` and for `/apiary` does not. Internal, like `_router`.
+ */
+function underApi(layer: Layer): boolean {
+  if (layer.route) return /^\/api(\/|$)/.test(layer.route.path)
+  return layer.regexp.source.startsWith('^\\/api\\/')
+}
+
+function everywhere(layer: Layer): boolean {
+  return !layer.route && layer.match(PROBE_API) && layer.match(PROBE_ANYWHERE)
+}
+
+/** The layers on a path of their own outside `/api`, by which listed door each is. */
+function outsideApi(stack: Layer[]): { listed: string[]; unlisted: string[] } {
+  const listed: string[] = []
+  const unlisted: string[] = []
+  for (const layer of stack) {
+    if (underApi(layer) || everywhere(layer)) continue
+    const door = MCP_DOORS.find((one) => layer.match(one.path))
+    const methods = door?.door.split(' ')[0]?.split('|') ?? []
+    const routeOk = named(layer).every((said) => methods.includes(said.split(' ')[0] ?? ''))
+    if (door && routeOk) listed.push(door.door)
+    else unlisted.push(layer.route ? named(layer).join(', ') : `${layer.name} (a mount)`)
+  }
+  return { listed, unlisted }
+}
+
+/**
+ * What may sit on every path. Express's own two, the body parser and the error
+ * handler, and, when a client has been built, the client's own files and the
+ * single-page fallback, which are the login screen.
+ */
+function onEveryPath(stack: Layer[]): string[] {
+  return stack.filter(everywhere)
+    .map((layer) => (layer.handle.length === 4 ? `${layer.name} (error handler)` : layer.name))
+}
+
+describe('outside /api', () => {
+  it('has only the connector\'s listed doors on a path of their own, every one of them', () => {
+    const { listed, unlisted } = outsideApi(stackOf(app))
+
+    expect(unlisted).toEqual([])
+    expect([...new Set(listed)]).toEqual(MCP_DOORS.map((one) => one.door))
+  })
+
+  it('has nothing on every path but the parser and the error handler', () => {
+    expect(onEveryPath(stackOf(app))).toEqual([
+      'query', 'expressInit', 'jsonParser', '<anonymous> (error handler)',
+    ])
+  })
+
+  it('has the client and its fallback on every path once one is built, and nothing else', () => {
+    const clientDir = mkdtempSync(join(scratch, 'client-'))
+    writeFileSync(join(clientDir, 'index.html'), '<!doctype html>')
+    const built = createApp({ db, coverDir, startBackgroundWork: false, signIn: CONNECTOR_ON, clientDir })
+
+    expect(onEveryPath(stackOf(built))).toEqual([
+      'query', 'expressInit', 'jsonParser', 'serveStatic', 'clientFallback', '<anonymous> (error handler)',
+    ])
+    expect(outsideApi(stackOf(built)).unlisted).toEqual([])
+    rmSync(clientDir, { recursive: true, force: true })
+  })
+
+  /*
+   * The check above is only worth having if it notices, so it is shown
+   * noticing: a route added anywhere outside `/api` is named as unlisted.
+   */
+  it('names a door added outside /api that nobody listed', () => {
+    const extra = createApp({ db, coverDir, startBackgroundWork: false, signIn: CONNECTOR_ON })
+    extra.get('/an-unlisted-door', (_req, res) => { res.send('hello') })
+    extra.use('/an-unlisted-mount', function unlistedMount(_req, res) { res.send('hello') })
+
+    expect(outsideApi(stackOf(extra)).unlisted).toEqual(['GET /an-unlisted-door', 'unlistedMount (a mount)'])
+  })
+
+  it('mounts none of the connector\'s doors when there is no public origin to name them with', () => {
+    const off = createApp({ db, coverDir, startBackgroundWork: false })
+    expect(outsideApi(stackOf(off))).toEqual({ listed: [], unlisted: [] })
+  })
+
+  it('mounts none of them on a plain http origin that is not this machine', () => {
+    const plain = createApp({
+      db, coverDir, startBackgroundWork: false, signIn: { providers: [], publicOrigin: 'http://books.example' },
+    })
+    expect(outsideApi(stackOf(plain))).toEqual({ listed: [], unlisted: [] })
+  })
 })
 
 describe('the three states, asked rather than read', () => {

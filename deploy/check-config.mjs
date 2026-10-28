@@ -118,6 +118,15 @@ export function checkConfig(env, contract, options = {}) {
     if (parsed && parsed.protocol !== 'https:' && parsed.hostname !== 'localhost' && parsed.hostname !== '127.0.0.1') {
       errors.push(`BOOKSCAN_PUBLIC_ORIGIN is not https. ${contract.network.tls.why}`)
     }
+    // It is also the MCP connector's OAuth issuer, and RFC 8414 forbids an
+    // issuer a query or a fragment. A path would put the issuer somewhere the
+    // connector's endpoints, which are mounted at the root, are not.
+    if (parsed && (parsed.pathname.replace(/\/+$/, '') !== '' || parsed.search || parsed.hash)) {
+      errors.push('BOOKSCAN_PUBLIC_ORIGIN has a path, a query or a fragment. It is an origin, scheme and host only: it is the MCP connector\'s OAuth issuer, its /mcp is resolved against it, and so are the sign-in redirect URIs.')
+    }
+    if (parsed) {
+      notes.push(`The MCP connector is on: ${new URL('/mcp', parsed).href}, with its own OAuth authorization server at this origin. docs/the-mcp-connector.md.`)
+    }
   } else if (!hasRealProvider) {
     notes.push('No sign-in provider is configured, so nobody new can get in. Anyone already holding a session keeps it. This is a supported state and the server says so on every start.')
   }
