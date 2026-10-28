@@ -450,7 +450,7 @@ Two interactions that do exist and need stating:
 
 - **Deleting a book deletes its readings, and this needs a guard.** See below.
 - **Re-identifying a book keeps its readings, and this is a deliberate departure
-  from the tag rule.** `web/application/tagging/reidentify-book.ts` strips tags
+  from the tag rule.** `Book.reidentify` (`web/domain/books/book.ts`) strips tags
   about the *work* when somebody corrects an ISBN, on the grounds that "this row
   is a different book". Readings survive it anyway, for an asymmetry: a stale
   genre tag causes an **action**, because it files a book on the wrong bookcase,

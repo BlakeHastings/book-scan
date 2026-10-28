@@ -45,7 +45,9 @@ import { ApplyTagHandler } from '../application/tagging/commands/apply-tag'
 import { RemoveTagHandler } from '../application/tagging/commands/remove-tag'
 import { DrizzleBookRepository } from '../infrastructure/books/book-repository'
 import { RestateTagsHandler } from '../application/tagging/restate-tags'
-import { ReidentifyBookHandler } from '../application/tagging/reidentify-book'
+import type { BookSave } from '../application/books/commands/saving'
+import { ReviseBookHandler } from '../application/books/commands/revise-book'
+import { DrizzlePlacementOnSave } from '../infrastructure/books/placement-on-save'
 import { DrizzleTagRepository } from '../infrastructure/tagging/tag-repository'
 import { DbUnitOfWork } from '../infrastructure/db/unit-of-work'
 import { CreditBookHandler, nameFor } from '../application/authorship/credit-book'
@@ -150,32 +152,11 @@ function asDraft(body: Record<string, unknown>): DraftBook {
   }
 }
 
-/**
- * The one ISBN a row names, or '' when it names none.
- *
- * Resolved rather than compared as stored, so the ten and thirteen digit forms
- * of one book are one identity. The fallback to the bare digits is for the row
- * a failed relookup leaves behind: "not a valid ISBN" is still an identity
- * somebody's tags were about.
- */
-function identityOf(row: { isbn13?: string; isbn10?: string }): string {
-  const named = row.isbn13 || row.isbn10 || ''
-  const pair = resolveIsbnPair(named)
-  return pair.isbn13 || pair.isbn10 || normaliseIsbn(named)
-}
-
-/**
- * Whether a save is correcting which book a row is, rather than editing the
- * book it already is. A row that named no ISBN cannot have carried anything
- * about a different book, so filling one in is an identification rather than a
- * correction and takes nothing away.
- */
-function namesADifferentBook(
-  before: { isbn13: string; isbn10: string },
-  draft: DraftBook,
-): boolean {
-  const was = identityOf(before)
-  return was !== '' && was !== identityOf(draft)
+/** A draft as the book commands take it. */
+function bookSaveOf(draft: DraftBook): BookSave {
+  const { genre, authorFilingOverride, location: _location, frontImage: _front,
+    backImage: _back, edgeImage: _edge, ...description } = draft
+  return { description, genre, authorFilingOverride }
 }
 
 /**
@@ -475,10 +456,11 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   const tags = new DrizzleTagRepository(db)
   const unitOfWork = new DbUnitOfWork(db)
   const restateTags = new RestateTagsHandler(tags, unitOfWork)
-  const reidentifyBook = new ReidentifyBookHandler(tags, unitOfWork)
   const books = new DrizzleBookRepository(db)
   const applyTag = new ApplyTagHandler(books, tags, unitOfWork)
   const removeTag = new RemoveTagHandler(books, unitOfWork)
+  const placementOnSave = new DrizzlePlacementOnSave(db, (range, id) => shelves.areaOf(range, id))
+  const reviseBook = new ReviseBookHandler(books, authors, tags, placementOnSave, unitOfWork)
   const relabelTag = new RelabelTagHandler(tags)
   const defineTag = new DefineTagHandler(tags)
   /* The rules are read per request rather than once, because a rule naming a
@@ -2042,8 +2024,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     const id = idIn(req.params.id, res, 'No such book.')
     if (id === null) return
 
-    const before = await store.getBook(id)
-    if (!before) {
+    if (!(await store.getBook(id))) {
       res.status(404).json({ error: 'No such book.' })
       return
     }
@@ -2055,23 +2036,25 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     }
 
     /*
-     * The one place a book stops being the book it was. Changing the ISBN is the
-     * person telling the app this row is a different book, so what was on record
-     * about the old one is withdrawn here, before the new record is written over
-     * the top of it. `ReidentifyBookHandler` carries the reasoning.
-     *
-     * It runs before the genre is settled, and that ordering is load bearing:
-     * the old book's genre tag has to be off the row before the new one is read
-     * back, or a corrected book would file under what it used to be.
+     * The handler withdraws what was on record about the old book when the ISBN
+     * names a different one, before the genre is settled. See `Book.revise`.
      */
-    if (namesADifferentBook(before, draft)) await reidentifyBook.handle({ bookId: id })
+    const revised = await reviseBook.handle({
+      bookId: id,
+      ...bookSaveOf(draft),
+      location: draft.location,
+      now: new Date().toISOString(),
+    })
+    if (!revised) {
+      res.status(404).json({ error: 'No such book.' })
+      return
+    }
 
-    const placement = await store.updateBook(id, draft, await settleGenre(id, draft))
-    await recordCredits(id, draft)
+    const { placement, filing } = revised
     res.json({
       id,
       // Null when no genre tag claims the book. See `POST /api/books`.
-      placement: placement && await inDerivedScheme(placement.range, placement),
+      placement: placement && await inDerivedScheme(placement.range, { ...placement, ...filing }),
       counts: await store.counts(),
     })
   }))

@@ -367,7 +367,7 @@ about the *work* goes, whoever said it: what a person answered was about the boo
 the row used to be, and is not about anything now. Tags about the *copy* stay,
 because the object in the house did not change. The boundary is a list of
 namespaces, `genre` and `subject` today, in
-`web/application/tagging/reidentify-book.ts`, and a new tag kind joins it if a
+`ABOUT_THE_WORK` in `web/domain/books/book.ts`, and a new tag kind joins it if a
 tag under it would be wrong about a different book. Settled in #194, which was
 the defect of leaving both `genre/fiction` and `genre/non-fiction` on a corrected
 book.
