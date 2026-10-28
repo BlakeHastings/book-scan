@@ -302,7 +302,27 @@ and no longer read. It also holds the facts a deployer trips over to the files
 that decide them. The bind, its two words and its default go to
 `web/server/bind.ts` and to the listen call they feed; the port and the mount to
 the `Dockerfile`; the Postgres major to `postgres-version.json`. So the contract
-cannot quietly describe a system that has moved. This project has
+cannot quietly describe a system that has moved.
+
+**A deployment's Postgres has to provide pgvector**, since #660. Migration 0033
+runs `CREATE EXTENSION IF NOT EXISTS vector` for the cover embeddings, and the
+image's start-up migration is where that runs, so a server without the extension
+is a container that exits before it listens. It is in the contract as
+`dependencies.postgres.extensions`, with the version floor, the version tested,
+the privilege it needs and what happens without it. The contract check holds that
+list to the migrations both ways: a migration that creates an extension the
+contract does not name fails CI, and so does a contract naming one nothing
+creates. `check-config.mjs` cannot see the server, so it does not check this; it
+says it on every run, as a note and as the last line of a clean run, beside TLS,
+which is the other thing on the far side of the network.
+
+**This is the major bump the table above describes**: the deployer has to do
+something. The official `postgres` image does not carry pgvector, so a deployment
+running it changes image, to `pgvector/pgvector` at the same major (the image
+`postgres-version.json` names), or turns the extension on in a managed service.
+pgvector is not a trusted extension, so the role that creates it has to be a
+superuser or one the managed service lets create it; a deployment whose app role
+cannot creates it once beforehand and the migration's `IF NOT EXISTS` finds it. This project has
 found a guard that never loaded, a check whose only reader was a log line, and a
 build CI never ran; **a contract nobody verifies is the same shape**, and it
 would fail in the one place where the failure lands on somebody else.

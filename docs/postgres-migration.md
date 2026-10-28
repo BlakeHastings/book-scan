@@ -1431,6 +1431,17 @@ concurrency.
    is pinned; a managed service applies its own minor updates without asking, so
    pinning a minor would be proving a version nobody runs.
 
+   **The image changed at #660 and the major did not.** The schema needs the
+   `vector` extension, so `postgres-version.json` names
+   `pgvector/pgvector:0.8.7-pg18-trixie`: pgvector's build of the official
+   image, pinned to a pgvector release and the major, the minor still floating.
+   `-trixie` because `postgres:18` is trixie and pgvector's unsuffixed `pg18`
+   tags are bookworm, an older glibc. Postgres records the glibc collation
+   version in every database, so a volume initialised on one and opened on the
+   other reports a collation version mismatch, and the sort order behind it is
+   not guaranteed to be the same. Same `PGDATA`, same
+   18.6 on the day it was checked.
+
    **Standardising down on 17 would have been actively worse**, which was not
    obvious until it was tried. The `postgres:18` image moved `PGDATA` from
    `/var/lib/postgresql/data` to `/var/lib/postgresql/18/docker`. Aspire mounts
