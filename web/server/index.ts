@@ -64,6 +64,7 @@ import { filesOf } from './photographs'
 import { PAGE_LIMIT, Store, type DraftBook } from './store'
 import { mountCachePolicy, mountGate, mountSignIn } from './auth/gate'
 import { describeSignIn, signInFrom, type SignInConfig } from './auth/providers'
+import { describeMcp, mountMcp } from './mcp/mount'
 import { bindFrom, describeBind } from './bind'
 import { AuthStore } from '../infrastructure/auth/auth-store'
 import { recordCredits as recordCreditsStep, settleGenre as settleGenreStep } from './book-save'
@@ -844,6 +845,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   mountCachePolicy(app)
   mountSignIn(app, signInDeps)
   mountGate(app, signInDeps)
+  // The MCP connector: its OAuth doors and `/mcp` outside `/api`, its consent
+  // answer and connections list under it. See `server/mcp/mount.ts`.
+  mountMcp(app, { db, auth: signInDeps.store, signIn: signInConfig, now: options.now })
 
   /**
    * How long a photograph may be held, and by whom. One string, both doors, and
@@ -3499,7 +3503,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
      * GET and HEAD only. A POST to a path nothing answers is a mistake, and
      * handing it an HTML page instead of a 404 hides it.
      */
-    app.use((req: express.Request, res: express.Response, next: express.NextFunction) => {
+    app.use(function clientFallback(req: express.Request, res: express.Response, next: express.NextFunction) {
       if (req.method !== 'GET' && req.method !== 'HEAD') return next()
       // The header goes through sendFile's own options rather than res.set:
       // `send` writes its own Cache-Control as it streams, and applies these
@@ -3704,6 +3708,7 @@ if (isMainModule) {
             + 'In development the Vite dev server serves it and proxies /api here.',
       )
       for (const line of describeSignIn(SIGN_IN)) console.log(line)
+      for (const line of describeMcp(SIGN_IN)) console.log(line)
       // Whether there is a key, never the key. See server/secrets.ts.
       console.log(
         googleBooksKeyConfigured()
