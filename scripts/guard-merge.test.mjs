@@ -5,48 +5,81 @@
 // anything at all, including the exact text of a blocked command, and the guard
 // must not care.
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const GUARD = join(dirname(fileURLToPath(import.meta.url)), 'guard-merge.mjs')
+// The guard decides "this repository" from the checkout it was loaded from, so
+// the copy under test lives in a fixture repository standing in for book-scan,
+// with clones, a worktree and an unrelated repository around it.
+const SOURCE = join(dirname(fileURLToPath(import.meta.url)), 'guard-merge.mjs')
+const fixtureRoot = realpathSync(mkdtempSync(join(tmpdir(), 'guard-merge-')))
 
-// Fixtures for the branch-dependent rules. A bare `git push` and a `git merge`
-// are dangerous or harmless depending on the branch of the checkout the command
-// runs in, not of whatever checkout this test happens to run from.
-const fixtureRoot = mkdtempSync(join(tmpdir(), 'guard-merge-'))
-const onFeature = join(fixtureRoot, 'feature-worktree')
-const onMaster = join(fixtureRoot, 'master-worktree')
+const git = (dir, ...args) =>
+  execFileSync(
+    'git',
+    ['-C', dir, '-c', 'user.email=guard-merge-test@example.com', '-c', 'user.name=guard-merge-test', ...args],
+    { stdio: ['ignore', 'pipe', 'ignore'] },
+  )
+
 // `git rev-parse --abbrev-ref HEAD` fails on an unborn branch (no commit yet),
 // so each fixture needs one empty commit before the guard can ask it anything.
-function initFixture(dir, branch) {
+function initFixture(dir, branch, origin) {
   execFileSync('git', ['init', '-q', '-b', branch, dir])
-  execFileSync('git', [
-    '-C',
-    dir,
-    '-c',
-    'user.email=guard-merge-test@example.com',
-    '-c',
-    'user.name=guard-merge-test',
-    'commit',
-    '--allow-empty',
-    '-q',
-    '-m',
-    'init',
-  ])
+  git(dir, 'commit', '--allow-empty', '-q', '-m', 'init')
+  if (origin) git(dir, 'remote', 'add', 'origin', origin)
 }
-initFixture(onFeature, 'work/293-cd-detection')
-initFixture(onMaster, 'master')
 
-// Where a command with no `cd` in it is taken to run. This directory is on a
+const guarded = join(fixtureRoot, 'book-scan')
+initFixture(guarded, 'master', 'git@github.com:example/guarded.git')
+mkdirSync(join(guarded, 'scripts'))
+const GUARD = join(guarded, 'scripts', 'guard-merge.mjs')
+copyFileSync(SOURCE, GUARD)
+
+// An agent's worktree of it, where the harness puts one.
+const worktree = join(guarded, '.claude', 'worktrees', 'agent-x')
+git(guarded, 'worktree', 'add', '-q', '-b', 'agent-x', worktree)
+
+// Separate clones of the same repository, spelling its URL another way. A
+// bare `git push` and a `git merge` are dangerous or harmless depending on the
+// branch of the checkout the command runs in, not of whatever checkout this
+// test happens to run from.
+const onFeature = join(fixtureRoot, 'feature-clone')
+const onMaster = join(fixtureRoot, 'master-clone')
+initFixture(onFeature, 'work/293-cd-detection', 'https://github.com/Example/guarded')
+initFixture(onMaster, 'master', 'https://github.com/Example/guarded')
+
+// Another repository on the same machine, with its own remote: the one #596
+// was met in.
+const elsewhereRemote = join(fixtureRoot, 'elsewhere.git')
+execFileSync('git', ['init', '-q', '--bare', elsewhereRemote])
+const elsewhere = join(fixtureRoot, 'elsewhere')
+initFixture(elsewhere, 'master', elsewhereRemote)
+
+// A directory that is no repository at all.
+const nowhere = join(fixtureRoot, 'not-a-repo')
+mkdirSync(nowhere)
+
+// A guarded repository with no remote, whose worktree is on master. Nothing but
+// the shared git directory can tell the guard that worktree is its own.
+const unpublished = join(fixtureRoot, 'unpublished')
+initFixture(unpublished, 'trunk')
+mkdirSync(join(unpublished, 'scripts'))
+const UNPUBLISHED_GUARD = join(unpublished, 'scripts', 'guard-merge.mjs')
+copyFileSync(SOURCE, UNPUBLISHED_GUARD)
+const unpublishedWorktree = join(unpublished, '.claude', 'worktrees', 'agent-y')
+git(unpublished, 'worktree', 'add', '-q', '-b', 'master', unpublishedWorktree)
+
+// Where a command with no `cd` in it is taken to run. This is a clone on a
 // feature branch, so a case that is denied is denied for what it says rather
 // than for where it stands.
 const ANYWHERE = onFeature
 
-function decide(command, cwd = ANYWHERE) {
-  const output = execFileSync('node', [GUARD], {
-    input: JSON.stringify({ tool_input: { command }, cwd }),
+function decide(command, cwd = ANYWHERE, guard = GUARD) {
+  const payload = cwd === null ? { tool_input: { command } } : { tool_input: { command }, cwd }
+  const output = execFileSync('node', [guard], {
+    input: JSON.stringify(payload),
     encoding: 'utf8',
   })
   if (!output.trim()) return { denied: false, reason: '' }
@@ -62,14 +95,14 @@ const cases = [
   ['gh   pr   merge   42', 'deny'],
   ['gh pr "merge" 42', 'deny'],
   ['gh pr me"rge" 42', 'deny'],
-  ['gh --repo o/r pr merge 42', 'deny'],
-  ['gh -R o/r pr merge', 'deny'],
+  ['gh --repo example/guarded pr merge 42', 'deny'],
+  ['gh -R Example/Guarded pr merge', 'deny'],
   ['/usr/bin/gh pr merge 42', 'deny'],
   ['\\gh pr merge 42', 'deny'],
 
-  ['gh api --method PUT repos/o/r/pulls/42/merge', 'deny'],
+  ['gh api --method PUT repos/example/guarded/pulls/42/merge', 'deny'],
   ['gh api repos/{owner}/{repo}/pulls/1/merge -f merge_method=squash', 'deny'],
-  ['gh api -X PUT "repos/o/r/pulls/9/merge"', 'deny'],
+  ['gh api -X PUT "repos/example/guarded/pulls/9/merge"', 'deny'],
 
   ['git push origin master', 'deny'],
   ['git push origin HEAD:master', 'deny'],
@@ -225,6 +258,87 @@ const cases = [
   // and the guard sees `$b`. Pinned as an allow so a later change that appears
   // to close it has to change this line and say why.
   ['for b in master; do git push origin $b; done', 'allow'],
+
+  // Another repository is not this guard's business, whatever it calls its
+  // branches. The first is the command #596 quotes.
+  ['git push origin --delete master', 'allow', elsewhere],
+  ['git push origin :master', 'allow', elsewhere],
+  ['git push -d origin master', 'allow', elsewhere],
+  ['git push origin HEAD:master', 'allow', elsewhere],
+  ['git push --force origin master', 'allow', elsewhere],
+  ['git push', 'allow', elsewhere],
+  ['git merge feature', 'allow', elsewhere],
+  ['gh pr merge 23 --squash', 'allow', elsewhere],
+  ['gh api --method PUT repos/{owner}/{repo}/pulls/1/merge', 'allow', elsewhere],
+  [`cd "${elsewhere}" && git push origin --delete master`, 'allow', worktree],
+  [`git -C "${elsewhere}" push origin HEAD:master`, 'allow', worktree],
+  // Named outright, another repository is another repository from in here too.
+  ['gh --repo someone/else pr merge 23', 'allow'],
+  ['gh pr merge https://github.com/someone/else/pull/23', 'allow'],
+  ['gh api --method PUT repos/someone/else/pulls/23/merge', 'allow'],
+  [`git push "${elsewhereRemote}" HEAD:master`, 'allow'],
+
+  // Deleting this repository's master is refused, from anywhere it is reached.
+  ['git push origin --delete master', 'deny'],
+  ['git push -d origin master', 'deny'],
+  ['git push origin +:master', 'deny'],
+  ['git push origin --delete master', 'deny', worktree],
+  ['git push origin --delete old-feature', 'allow', worktree],
+  ['git push origin :old-feature', 'allow'],
+  ['git push --dry-run origin --delete master', 'allow'],
+
+  // Standing somewhere else is not a way out of this repository.
+  [`git -C "${guarded}" push origin HEAD:master`, 'deny', elsewhere],
+  [`git -C .. -C book-scan push origin HEAD:master`, 'deny', elsewhere],
+  [`cd "${guarded}" && git push origin --delete master`, 'deny', elsewhere],
+  [`cd "${elsewhere}" && git -C "${worktree}" push origin HEAD:master`, 'deny', onFeature],
+  [`git --git-dir="${guarded}/.git" push origin HEAD:master`, 'deny', elsewhere],
+  [`GIT_DIR="${guarded}/.git" git push origin HEAD:master`, 'deny', elsewhere],
+  ['git push git@github.com:example/guarded.git HEAD:master', 'deny', elsewhere],
+  ['git push https://github.com/EXAMPLE/guarded/ HEAD:master', 'deny', elsewhere],
+  ['git -c url.https://github.com/.insteadOf=hub: push hub:example/guarded HEAD:master', 'deny', elsewhere],
+  [`git push "${guarded}" HEAD:master`, 'deny', elsewhere],
+  [`git push "${worktree}" HEAD:master`, 'deny', elsewhere],
+  ['gh --repo example/guarded pr merge 5', 'deny', elsewhere],
+  ['gh pr merge https://github.com/example/guarded/pull/5', 'deny', elsewhere],
+  ['GH_REPO=example/guarded gh pr merge 5', 'deny', elsewhere],
+  ['export GH_REPO=example/guarded; gh pr merge 5', 'deny', elsewhere],
+  ['GH_REPO=example/guarded gh api -X PUT repos/{owner}/{repo}/pulls/5/merge', 'deny', elsewhere],
+  ['gh api -X PUT repos/example/guarded/pulls/5/merge', 'deny', elsewhere],
+  ['GH_REPO=example/guarded bash -c "gh pr merge 5"', 'deny', elsewhere],
+  // The guard asks where a remote points before the line runs, so a line that
+  // repoints one first cannot be answered by asking.
+  ['git remote set-url origin git@github.com:example/guarded.git && git push origin HEAD:master', 'deny', elsewhere],
+  ['git remote add up https://github.com/example/guarded && git push up :master', 'deny', elsewhere],
+  ['git config remote.origin.pushurl git@github.com:example/guarded.git; git push origin HEAD:master', 'deny', elsewhere],
+  ['gh repo set-default example/guarded && gh pr merge 5', 'deny', elsewhere],
+  ['git remote -v && git push origin HEAD:master', 'allow', elsewhere],
+
+  // A worktree of this repository is this repository.
+  ['git push origin HEAD:master', 'deny', worktree],
+  ['gh pr merge 5', 'deny', worktree],
+  ['git push origin HEAD', 'allow', worktree],
+  ['git push -u origin agent-x', 'allow', worktree],
+  // And so is its primary checkout, which is on master.
+  ['git push', 'deny', guarded],
+  ['git merge agent-x', 'deny', guarded],
+
+  // A directory that is no repository says nothing about where a command lands,
+  // so the command is treated as this repository's.
+  ['gh pr merge 5', 'deny', nowhere],
+  ['git push origin --delete master', 'deny', nowhere],
+  ['npm run build', 'allow', nowhere],
+
+  // No working directory at all is a command the guard cannot place: the same
+  // answer as a directory that is no repository, for every rule.
+  ['gh pr merge 42 --squash', 'deny', null],
+  ['git push origin --delete master', 'deny', null],
+  ['git push', 'deny', null],
+  ['git merge feature', 'deny', null],
+  ['cd ../elsewhere && git push origin :master', 'deny', null],
+  [`cd "${elsewhere}" && git push origin --delete master`, 'allow', null],
+  ['npm run build', 'allow', null],
+  ['git push origin HEAD', 'allow', null],
 ]
 
 let failed = 0
@@ -235,7 +349,7 @@ const fail = (message) => {
 
 try {
   for (const [command, expected, cwd] of cases) {
-    const { denied } = decide(command, cwd ?? ANYWHERE)
+    const { denied } = decide(command, cwd === undefined ? ANYWHERE : cwd)
     const actual = denied ? 'deny' : 'allow'
     if (actual !== expected) {
       fail(`expected ${expected}, got ${actual}:  ${JSON.stringify(command)}`)
@@ -245,18 +359,16 @@ try {
   const malformed = execFileSync('node', [GUARD], { input: 'not json', encoding: 'utf8' })
   if (malformed.trim() !== '') fail('a malformed payload produced a decision')
 
-  // `cwd` here only ever resolves a `cd` inside a command line, and every rule
-  // denies from anywhere, so a payload missing the field is judged exactly as
-  // one carrying it.
-  const withoutCwd = (command) => {
-    const output = execFileSync('node', [GUARD], {
-      input: JSON.stringify({ tool_input: { command } }),
-      encoding: 'utf8',
-    })
-    return output.trim() !== ''
+  if (!decide('git merge feature', unpublishedWorktree, UNPUBLISHED_GUARD).denied) {
+    fail('a worktree of a repository with no remote was not recognised as that repository')
   }
-  if (!withoutCwd('gh pr merge 42 --squash')) fail('a payload with no cwd allowed a merge')
-  if (withoutCwd('npm run build')) fail('a payload with no cwd denied ordinary work')
+  if (decide('git merge feature', elsewhere, UNPUBLISHED_GUARD).denied) {
+    fail('a repository with no remote claimed an unrelated one as its own')
+  }
+
+  // A deletion is refused for what it is, not as though it wrote code.
+  const deletion = decide('git push origin --delete master').reason
+  if (!/deletes master/.test(deletion)) fail(`deleting master was refused for the wrong reason: ${deletion}`)
 
   if (!decide(`node ${GUARD} --probe`).denied) {
     fail('the guard does not refuse the probe at its own path')
