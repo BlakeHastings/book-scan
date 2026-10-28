@@ -6,7 +6,7 @@
 
 import type { BackgroundWork } from '../application/books/ports'
 import {
-  CatalogueBookHandler, type CatalogueBook,
+  CatalogueBookHandler, type CatalogueBook, type IfCatalogued,
 } from '../application/books/commands/catalogue-book'
 import type { BookSave } from '../application/books/commands/saving'
 import type { CatalogueRecord } from '../application/lookup/read-models'
@@ -67,9 +67,13 @@ export function bookSaveOf(draft: DraftBook): BookSave {
 
 /**
  * The save of a draft at the shelf. A location in the draft is a plank somebody
- * named; without one the book is where it lands.
+ * named; without one the book is where it lands. `ifCatalogued` is the caller's
+ * to say, and is kept as the literal it was given so a caller that asked for a
+ * copy is answered one.
  */
-export function catalogueCommandOf(draft: DraftBook, now: string, scanId?: number): CatalogueBook {
+export function catalogueCommandOf<If extends IfCatalogued>(
+  draft: DraftBook, now: string, ifCatalogued: If, scanId?: number,
+): CatalogueBook & { ifCatalogued: If } {
   const label = draft.location?.trim()
   return {
     ...bookSaveOf(draft),
@@ -77,6 +81,7 @@ export function catalogueCommandOf(draft: DraftBook, now: string, scanId?: numbe
     photographs: { front: draft.frontImage, back: draft.backImage, edge: draft.edgeImage },
     shelvedOn: label ? { label } : 'where-it-lands',
     now,
+    ifCatalogued,
   }
 }
 

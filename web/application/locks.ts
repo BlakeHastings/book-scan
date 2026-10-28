@@ -7,6 +7,7 @@
  * serialises against nothing, so every name is built here and nowhere else.
  */
 
+import { resolveIsbnPair } from '../shared/isbn'
 import type { ShelfRange } from '../shared/shelving'
 
 /** A lock name built by one of the functions below, and only by them. */
@@ -18,6 +19,17 @@ export type LockName = string & { readonly lockName: unique symbol }
  * take turns for no reason anybody could find.
  */
 export const bookLock = (bookId: number): LockName => `book:${bookId}` as LockName
+
+/**
+ * Asking whether a book with this ISBN is catalogued and then cataloguing one.
+ * Built from the resolved thirteen digit form, so the ten and thirteen digit
+ * spellings of one book are one lock; null for a value that is no ISBN, which
+ * has nothing to contend on.
+ */
+export const isbnLock = (isbn: string): LockName | null => {
+  const { isbn13 } = resolveIsbnPair(isbn)
+  return isbn13 ? `isbn:${isbn13}` as LockName : null
+}
 
 /** Reading a shelf range and then writing to it. */
 export const rangeLock = (range: ShelfRange): LockName => `shelf:${range}` as LockName
@@ -35,12 +47,17 @@ export const boundaryLocks = (range: ShelfRange): readonly LockName[] =>
 
 /**
  * Which lock is taken before which, by the namespace a name starts with and then
- * by its spelling: any `book:`, then `shelf:fiction`, `shelf:nonfiction`, then
- * `furniture`. A book comes first because a unit of work on a book only learns
- * its range once the genre is settled, and the furniture comes last because
- * nothing that holds it takes either of the others.
+ * by its spelling: any `isbn:`, any `book:`, then `shelf:fiction`,
+ * `shelf:nonfiction`, then `furniture`.
+ *
+ * An ISBN comes first because a new book has no id to lock until its row is
+ * written, so the number is the only thing two saves of it can meet on, and it
+ * is known before anything is read: a save out of the queue names it beside
+ * the scan's `book:` at the start. A book comes before a range because a unit
+ * of work on a book only learns its range once the genre is settled, and the
+ * furniture comes last because nothing that holds it takes either of the others.
  */
-const LOCK_ORDER = ['book:', 'shelf:', 'furniture'] as const
+const LOCK_ORDER = ['isbn:', 'book:', 'shelf:', 'furniture'] as const
 
 function rank(name: string): number {
   const at = LOCK_ORDER.findIndex((prefix) => name.startsWith(prefix))
@@ -78,7 +95,7 @@ export function outOfOrder(held: Iterable<string>, next: string): string | undef
   }
   for (const name of held) {
     if (compareLocks(next, name) < 0) {
-      return `${next} cannot be taken while holding ${name}: the order is book, shelf, furniture`
+      return `${next} cannot be taken while holding ${name}: the order is isbn, book, shelf, furniture`
     }
   }
   return undefined

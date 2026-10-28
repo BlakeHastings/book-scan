@@ -113,11 +113,15 @@ export function registerWriteTools(
     if (!pair.isbn13) return refuse(NOT_AN_ISBN(args.isbn))
 
     const { record, duplicateOf } = await queries.lookupIsbn.handle({ isbn: args.isbn })
-    if (duplicateOf) {
-      const book = await describeBook(queries, duplicateOf.id)
-      if (!book) throw new Error(`book ${duplicateOf.id} was found by its ISBN and cannot be read back`)
+    const existing = async (id: number) => {
+      const book = await describeBook(queries, id)
+      if (!book) throw new Error(`book ${id} was found by its ISBN and cannot be read back`)
       return answer({ added: false, record_from: 'existing', book, goes_between: null, notes: record.notes })
     }
+    // Answered here without a lock, since a book already catalogued stays so; a
+    // book catalogued after this read is found again by the handler, under the
+    // number's lock (#637).
+    if (duplicateOf) return existing(duplicateOf.id)
 
     const given = args.title?.trim()
     let draft: DraftBook
@@ -150,7 +154,9 @@ export function registerWriteTools(
     if (args.notes !== undefined) draft.notes = args.notes
     if (args.files_under?.trim()) draft.authorFilingOverride = args.files_under.trim()
 
-    const { id, placement } = await commands.catalogueBook.handle(catalogueCommandOf(draft, now()))
+    const saved = await commands.catalogueBook.handle(catalogueCommandOf(draft, now(), 'answer-it'))
+    if (!saved.added) return existing(saved.id)
+    const { id, placement } = saved
     const book = await describeBook(queries, id)
     if (!book) throw new Error(`book ${id} was catalogued and cannot be read back`)
     return answer({

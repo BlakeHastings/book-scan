@@ -22,6 +22,13 @@ export interface BookRepository {
 
   /** Write what the book says changed since it was loaded. */
   save(book: Book): Promise<void>
+
+  /**
+   * The oldest catalogued book carrying this ISBN in either form, or null. Read
+   * on the unit of work, so under that number's lock it sees every save of the
+   * number that committed before the lock was granted.
+   */
+  cataloguedWith(isbn13: string): Promise<number | null>
 }
 
 /** The photograph files a save carries, by slot. A slot left out says nothing. */

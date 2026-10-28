@@ -1546,7 +1546,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
      * the commit and are not waited for.
      */
     const { id, placement, filing } = await catalogueBook.handle(
-      catalogueCommandOf(draft, new Date().toISOString(), capture?.id),
+      // A copy is added even when the ISBN is already catalogued: the review
+      // pane has said "Saving adds a second copy", and somebody can own two.
+      catalogueCommandOf(draft, new Date().toISOString(), 'add-a-copy', capture?.id),
     )
 
     res.status(201).json({
