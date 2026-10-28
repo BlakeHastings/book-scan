@@ -1495,8 +1495,8 @@ export const api = {
     }),
 
   /**
-   * Where a book has been, newest first. Read only: the four statements that
-   * write a placement are all on the server.
+   * Where a book has been, newest first. Read only: the three statements that
+   * move a book, and the Settings resets beside them, are all on the server.
    */
   placements: (id: number) =>
     request<{ been: Been[]; total: number }>(`/api/books/${id}/placements`),
