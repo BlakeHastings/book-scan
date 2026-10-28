@@ -1445,6 +1445,14 @@ for the write routes, the queue and the tests that call them, and each is now
 one line handing the question to `DrizzleCatalogueReadModel`, so there is one
 statement per question.
 
+**The queue's two reads are query handlers too** (#645): `ListQueueHandler` and
+`CountQueueHandler` in `web/application/capture/queries/`, over a
+`QueueReadModel` whose one implementation is `CaptureQueue` itself, so the SQL
+did not move. `GET /api/captures` and the MCP tools `list_queue` and
+`collection_summary` call the same two, which is what makes the first screen and
+a connected Claude say the same numbers; `server/mcp/queue-tool.routes.test.ts`
+asserts it. Every other queue route still calls `CaptureQueue` directly.
+
 **`checked_out_at` is still what the client reads and it is not a column** (#232).
 `books.state` says which books are out, `Store.setCheckedOut` compares and sets it
 in one statement, and the moment a book left is the `created_at` of the

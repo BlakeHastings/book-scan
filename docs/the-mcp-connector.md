@@ -539,7 +539,8 @@ tool answers is `web/server/mcp/answers.ts`.
 | --- | --- | --- |
 | `search_books` | `ListBooksHandler` | One page of short book records, filtered by words, ISBN, tags, range, author, state and placement |
 | `get_book` | `GetBookHandler`, `TagsOfBookHandler` | One book in any state, queued included: record, place, tags, credits, which photographs exist |
-| `collection_summary` | `CountBooksHandler` | The counts the first screen shows |
+| `collection_summary` | `CountBooksHandler`, `CountQueueHandler` | The counts the first screen shows: the catalogue's, and the queue's as `ready_to_shelve`, `stuck` and `being_read` beside them, never inside `total` |
+| `list_queue` | `ListQueueHandler` | The scanning queue, paged and optionally narrowed by status, in the first screen's words. Reads only, and says a queued book is finished in the app by the person holding it, never by `add_book` |
 | `list_tags` | `VocabularyHandler` | The vocabulary, or the part under one slug, with rolled-up counts |
 | `list_authors` | `ListAuthorsHandler` | People, each with every name they publish under, paged and optionally narrowed by name |
 | `get_author_books` | `BooksByAuthorHandler` | One person and every book crediting them, in any state, paged |
@@ -559,6 +560,14 @@ calls the same handler.
 
 `search_books` filters by author, so `CatalogueFilter` gained `authorId`: the
 one listing was widened rather than a second one written, as AGENTS.md asks.
+
+`list_queue` reads the same list `GET /api/captures` answers, through the same
+handler, and leaves out who holds a book (`claimed_by`, `claimed_at`), who last
+edited it, the raw drafts and every filename. A claim is somebody at a phone
+mid-task, and no tool acts on the queue, so there is nothing a model could do
+with it. Its `title` and `authors` are what a person typed over what the lookup
+found, field by field, which is the rule the queue screen draws by; `title_guess`
+stays apart because it is the camera's reading, never a title.
 
 ### What was read, and what it changed
 

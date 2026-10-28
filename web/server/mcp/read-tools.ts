@@ -19,6 +19,11 @@ import type { ListAuthorsHandler } from '../../application/authorship/queries/li
 import type { BooksByAuthorHandler } from '../../application/authorship/queries/books-by-author'
 import type { AuthorView } from '../../application/authorship/read-models'
 import type { LookupIsbnHandler } from '../../application/lookup/queries/lookup-isbn'
+import type { ListQueueHandler } from '../../application/capture/queries/list-queue'
+import type { CountQueueHandler } from '../../application/capture/queries/count-queue'
+import type { CaptureStatus, QueueCounts, QueuedBookView } from '../../application/capture/read-models'
+import { FAILURE_LABEL, failureOf } from '../../shared/captureFailure'
+import { editsOn } from '../queue'
 import { BOOK_STATES, CATALOGUED_STATES } from '../../domain/books/state'
 import { TagSlug } from '../../domain/tagging/tags'
 import { resolveIsbnPair } from '../../shared/isbn'
@@ -34,6 +39,8 @@ export interface CatalogueQueries {
   listAuthors: ListAuthorsHandler
   booksByAuthor: BooksByAuthorHandler
   lookupIsbn: LookupIsbnHandler
+  listQueue: ListQueueHandler
+  countQueue: CountQueueHandler
 }
 
 /**
@@ -192,6 +199,97 @@ function authorOf(author: AuthorView): z.infer<typeof authorEntry> {
   }
 }
 
+/**
+ * The queue's statuses in the first screen's words. `done` is not here: a book
+ * that is done has left the queue, and the queue never lists one.
+ */
+const QUEUE_WORD = {
+  pending: 'being_read',
+  ready: 'ready_to_shelve',
+  failed: 'stuck',
+} as const satisfies Record<Exclude<CaptureStatus, 'done'>, string>
+
+type QueueWord = (typeof QUEUE_WORD)[keyof typeof QUEUE_WORD]
+const QUEUE_WORDS = Object.values(QUEUE_WORD) as [QueueWord, ...QueueWord[]]
+
+/**
+ * Finishing a queued book is a person holding it. Said by both tools that show
+ * the queue, so a model that has seen either tells the person rather than
+ * reaching for add_book, which would catalogue a second copy beside the queued one.
+ */
+const FINISHED_IN_THE_APP =
+  'A queued book is confirmed and shelved only in the book-scan app, by a person with the book in ' +
+  'hand checking the photographs and the record; no tool here does it. Do not call add_book with a ' +
+  'queued book\'s ISBN: that catalogues a second copy and leaves the queued one where it is. Tell the ' +
+  'person to finish it from the queue in the app instead.'
+
+const queueCounts = {
+  ready_to_shelve: z.number().int()
+    .describe('In the scanning queue, identified, waiting for a person to confirm and shelve it. Not catalogued yet.'),
+  stuck: z.number().int()
+    .describe('In the scanning queue, and its photographs did not lead to a record. Not catalogued yet.'),
+  being_read: z.number().int()
+    .describe('In the scanning queue, photographs not read yet. Not catalogued yet.'),
+}
+
+function queueCountsOf(counts: QueueCounts): { [K in keyof typeof queueCounts]: number } {
+  return { ready_to_shelve: counts.ready, stuck: counts.failed, being_read: counts.pending }
+}
+
+const queuedBook = z.object({
+  book_id: z.number().int().describe('For get_book.'),
+  status: z.enum(QUEUE_WORDS),
+  title: z.string()
+    .describe('The title a catalogue found or a person typed in; empty when neither has said.'),
+  title_guess: z.string()
+    .describe('What the camera read off the cover. A machine\'s guess, never a confirmed title.'),
+  authors: z.string().describe('The names a catalogue found or a person typed in, joined with ", ".'),
+  isbn13: z.string().describe('The ISBN read off the book or typed in; empty when there is none yet.'),
+  stuck_because: z.string().nullable()
+    .describe('For a stuck book, what it needs, in the app\'s words; null otherwise.'),
+  scanned_at: z.string().describe('When the first photograph arrived.'),
+  photographs: z.array(z.enum(PHOTOGRAPH_KINDS))
+    .describe('Which photographs are on record. The images themselves are only shown in the app.'),
+})
+
+/** What the worker's lookup found, or null. Only the fields a queued book's name is made of. */
+function lookedUp(book: QueuedBookView): { title: string; authors: string[] } | null {
+  try {
+    const found = JSON.parse(book.draft_json || 'null') as
+      { found?: boolean; title?: string; authors?: string[] } | null
+    return found?.found ? { title: found.title ?? '', authors: found.authors ?? [] } : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * A queued book as `list_queue` answers it. What a person typed outranks what
+ * a catalogue found, field by field, which is the rule the queue screen draws
+ * by. Who holds the book and since when are left out on purpose: a claim is
+ * somebody at a phone mid-task, and nothing a model could do with it helps them.
+ */
+function queuedOf(book: QueuedBookView & { status: Exclude<CaptureStatus, 'done'> }): z.infer<typeof queuedBook> {
+  const stated = editsOn(book)
+  const found = lookedUp(book)
+  return {
+    book_id: book.id,
+    status: QUEUE_WORD[book.status],
+    title: (stated.title ?? found?.title ?? '').trim(),
+    title_guess: book.title_guess.trim(),
+    authors: (stated.authors ?? found?.authors ?? []).join(', '),
+    isbn13: stated.isbn13 ?? book.isbn13,
+    stuck_because: book.status === 'failed' ? FAILURE_LABEL[failureOf(book)] : null,
+    scanned_at: book.created_at,
+    photographs: PHOTOGRAPH_KINDS.filter((kind) => book[`${kind}_image`] !== ''),
+  }
+}
+
+/** The queue lists `queued_books` only, so a `done` row here would be a defect upstream. */
+function isQueued(book: QueuedBookView): book is QueuedBookView & { status: Exclude<CaptureStatus, 'done'> } {
+  return book.status !== 'done'
+}
+
 export function registerReadTools(server: McpServer, queries: CatalogueQueries): void {
   server.registerTool('search_books', {
     title: 'Search books',
@@ -199,7 +297,7 @@ export function registerReadTools(server: McpServer, queries: CatalogueQueries):
       'Searches the catalogued books (shelved, checked out or withdrawn) and answers one page of short ' +
       'records, fiction then non-fiction, each in shelf order. Every filter is optional and they combine: ' +
       'with none, it pages through the whole collection. Books still waiting in the scanning queue are ' +
-      'not catalogued and are not searched. Call get_book with a book_id for tags, credits and the rest; ' +
+      'not catalogued and are not searched; list_queue lists them. Call get_book with a book_id for tags, credits and the rest; ' +
       'list_tags for the tag slugs; list_authors for an author_id.',
     inputSchema: {
       words: z.string().max(200).optional()
@@ -268,13 +366,17 @@ export function registerReadTools(server: McpServer, queries: CatalogueQueries):
     title: 'Collection summary',
     description:
       'How many books the catalogue holds, how many are fiction and non-fiction, how many are checked ' +
-      'out, and how many are shelved with no known place. Cheap; call it before paging through search_books.',
+      'out, and how many are shelved with no known place; and, apart from those, how many are still in ' +
+      'the scanning queue with no shelf yet, in the words the app\'s first screen uses: ready to shelve, ' +
+      'stuck, and being read. Queued books are not in total. Cheap; call it before paging through ' +
+      'search_books or list_queue. ' + FINISHED_IN_THE_APP,
     outputSchema: {
-      total: z.number().int().describe('Shelved, checked out and withdrawn together.'),
+      total: z.number().int().describe('Shelved, checked out and withdrawn together. Queued books are not counted.'),
       fiction: z.number().int(),
       nonfiction: z.number().int(),
       checked_out: z.number().int(),
       unplaced: z.number().int().describe('Shelved, and nobody has said which plank. search_books with placed false lists them.'),
+      ...queueCounts,
     },
     annotations: READ,
   }, async (extra) => {
@@ -286,7 +388,33 @@ export function registerReadTools(server: McpServer, queries: CatalogueQueries):
       nonfiction: counts.nonfiction,
       checked_out: counts.checkedOut,
       unplaced: counts.unplaced,
+      ...queueCountsOf(await queries.countQueue.handle()),
     })
+  })
+
+  server.registerTool('list_queue', {
+    title: 'List the scanning queue',
+    description:
+      'The books in the scanning queue: photographed with the app\'s camera and not catalogued yet, so ' +
+      'search_books does not find them and none has a shelf. Oldest scan first, one page at a time. ' +
+      'status says which of the app\'s first-screen counts each is in: "ready_to_shelve" (identified, ' +
+      'waiting for a person to confirm it), "stuck" (stuck_because says what it needs) or "being_read" ' +
+      '(photographs not read yet). Reads only. ' + FINISHED_IN_THE_APP +
+      ' get_book with a book_id shows one queued book in full.',
+    inputSchema: {
+      status: z.enum(QUEUE_WORDS).optional().describe('Only books with this status. Omit for the whole queue.'),
+      ...pageInput,
+    },
+    outputSchema: { ...pageOutput, books: z.array(queuedBook) },
+    annotations: READ,
+  }, async (args, extra) => {
+    actingFor(extra.authInfo)
+    const limit = args.limit ?? DEFAULT_PAGE
+    const offset = args.offset ?? 0
+    const queued = (await queries.listQueue.handle()).filter(isQueued).map(queuedOf)
+    const matching = args.status ? queued.filter((book) => book.status === args.status) : queued
+    const page = matching.slice(offset, offset + limit)
+    return answer({ ...paged(matching.length, offset, limit, page.length), books: page })
   })
 
   server.registerTool('list_tags', {

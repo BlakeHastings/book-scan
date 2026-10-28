@@ -64,6 +64,8 @@ import { ListAuthorsHandler } from '../application/authorship/queries/list-autho
 import { BooksByAuthorHandler } from '../application/authorship/queries/books-by-author'
 import { CreditsOfBookHandler } from '../application/authorship/queries/credits-of-book'
 import { LookupIsbnHandler } from '../application/lookup/queries/lookup-isbn'
+import { ListQueueHandler } from '../application/capture/queries/list-queue'
+import { CountQueueHandler } from '../application/capture/queries/count-queue'
 import { claimsFrom } from '../domain/tagging/catalogue-claims'
 import {
   asConfidence, genreStatedBy, statedGenre,
@@ -799,6 +801,8 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     // capture's ISBN whether or not anything looked it up.
     (isbn) => store.findByIsbn(isbn),
   )
+  const listQueue = new ListQueueHandler(queue)
+  const countQueue = new CountQueueHandler(queue)
 
   /**
    * Remove photo files that nothing points at any more.
@@ -863,7 +867,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     now: options.now,
     queries: {
       listBooks, countBooks, getBook, tagsOfBook, vocabulary, listAuthors, booksByAuthor,
-      lookupIsbn: lookUpIsbn,
+      lookupIsbn: lookUpIsbn, listQueue, countQueue,
     },
     commands: { catalogueBook, reviseBook, applyTag, removeTag },
     clientDocuments: options.clientDocuments,
@@ -1079,8 +1083,8 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * and only where background work is on at all.
    */
   app.get('/api/captures', asyncRoute(async (_req, res) => {
-    const captures = await queue.list()
-    const counts = await queue.counts()
+    const captures = await listQueue.handle()
+    const counts = await countQueue.handle()
     if (startBackgroundWork && counts.pending > 0) queue.wake()
     res.json({ captures, counts, reading: queue.reading })
   }))

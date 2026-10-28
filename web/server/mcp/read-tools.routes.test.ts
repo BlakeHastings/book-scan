@@ -157,12 +157,12 @@ describe('the tool list', () => {
   it('lists every read tool, each annotated read-only with an input and an output schema', async () => {
     const listed = (await client.listTools()).tools
     expect(listed.map((tool) => tool.name).sort()).toEqual([
-      'add_book', 'collection_summary', 'get_author_books', 'get_book', 'list_authors', 'list_tags',
-      'lookup_isbn', 'search_books', 'tag_book', 'untag_book', 'update_book', 'whoami',
+      'add_book', 'collection_summary', 'get_author_books', 'get_book', 'list_authors', 'list_queue',
+      'list_tags', 'lookup_isbn', 'search_books', 'tag_book', 'untag_book', 'update_book', 'whoami',
     ])
     // The write tools are write-tools.routes.test.ts's.
     const tools = listed.filter((tool) => tool.annotations?.readOnlyHint)
-    expect(tools).toHaveLength(8)
+    expect(tools).toHaveLength(9)
     for (const tool of tools) {
       expect(tool.annotations?.readOnlyHint, tool.name).toBe(true)
       expect(tool.inputSchema.type, tool.name).toBe('object')
@@ -264,9 +264,10 @@ describe('get_book', () => {
 })
 
 describe('collection_summary', () => {
-  it('counts the catalogue and not the queue', async () => {
+  it('counts the catalogue, and the queue apart from it', async () => {
     expect(await call('collection_summary')).toEqual({
       total: 5, fiction: 4, nonfiction: 1, checked_out: 1, unplaced: 3,
+      ready_to_shelve: 0, stuck: 0, being_read: 1,
     })
   })
 })
