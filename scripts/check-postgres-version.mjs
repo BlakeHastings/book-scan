@@ -17,11 +17,24 @@ const expected = `${source.image}:${source.tag}`
 
 const problems = []
 
-// Every `image: postgres:...` in the workflow has to be the one version, and
-// there has to be at least one: a check that passes because it found nothing
-// proves nothing.
+// The major is a field of its own because the tag is no longer only a major. The
+// two have to agree, or the contract and the image would describe different
+// servers.
+if (!Number.isInteger(source.major)) {
+  problems.push('postgres-version.json has no whole-number "major"')
+} else if (!new RegExp(`(^|-)pg${source.major}(-|$)`).test(source.tag)) {
+  problems.push(`postgres-version.json says major ${source.major} and its tag ${source.tag} does not say pg${source.major}`)
+}
+if (source.pgvector && !source.tag.startsWith(`${source.pgvector}-`)) {
+  problems.push(`postgres-version.json says pgvector ${source.pgvector} and its tag ${source.tag} does not start with it`)
+}
+
+// Every Postgres service image in the workflow has to be the one image, and there
+// has to be at least one: a check that passes because it found nothing proves
+// nothing. Matched on either name, so a workflow that went back to the plain
+// postgres image is caught rather than skipped.
 const workflow = readFileSync(join(root, '.github', 'workflows', 'ci.yml'), 'utf8')
-const images = [...workflow.matchAll(/^\s*image:\s*(postgres:\S+)\s*$/gm)].map((m) => m[1])
+const images = [...workflow.matchAll(/^\s*image:\s*((?:postgres|pgvector\/pgvector):\S+)\s*$/gm)].map((m) => m[1])
 
 if (images.length === 0) {
   problems.push('.github/workflows/ci.yml names no postgres image, so this check proves nothing')

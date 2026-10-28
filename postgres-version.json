@@ -1,5 +1,8 @@
 {
-  "image": "postgres",
-  "tag": "18",
-  "why": "The one place the Postgres major version is written. Read at run time by apphost.mts and by web/server/pgcontainer.ts, and checked against .github/workflows/ci.yml by scripts/check-postgres-version.mjs. See the Postgres version section of AGENTS.md before changing it: this is a decision about what the suite proves, not a dependency to refresh."
+  "image": "pgvector/pgvector",
+  "tag": "0.8.7-pg18-trixie",
+  "major": 18,
+  "pgvector": "0.8.7",
+  "why": "The one place the Postgres major version, and the image that carries it, is written. Read at run time by apphost.mts and by web/server/pgcontainer.ts, and checked against .github/workflows/ci.yml and deploy/contract.json by scripts/check-postgres-version.mjs and scripts/check-deploy-contract.mjs. See the Postgres version section of AGENTS.md before changing it: this is a decision about what the suite proves, not a dependency to refresh.",
+  "whyThisImage": "pgvector's own build of the official postgres image, because migration 0033 needs the vector extension. The tag pins the pgvector release and the Postgres major and floats the Postgres minor, which is what the official postgres:18 tag did before. It names trixie deliberately: postgres:18 is Debian trixie, and pgvector's unsuffixed pg18 tags are bookworm, a different glibc and therefore different linguistic collations under every volume a checkout already has."
 }

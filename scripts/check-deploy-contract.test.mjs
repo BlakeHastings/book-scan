@@ -15,6 +15,7 @@ import {
   compare,
   envNamesIn,
   factProblems,
+  migrationsText,
   siteSpecificProblems,
   withoutComments,
   NOT_A_DEPLOYMENT_SURFACE,
@@ -108,6 +109,7 @@ const has = (name, lines, fragment) => {
     serverIndex: readFileSync(join(root, 'web', 'server', 'index.ts'), 'utf8'),
     serverBind: readFileSync(join(root, 'web', 'server', 'bind.ts'), 'utf8'),
     postgres: JSON.parse(readFileSync(join(root, 'postgres-version.json'), 'utf8')),
+    migrations: migrationsText(),
   }
   check('the tree as it stands agrees with the contract', factProblems(good).length, 0)
 
@@ -153,8 +155,23 @@ const has = (name, lines, fragment) => {
   )
   has(
     'a Postgres major that moved',
-    factProblems({ ...good, postgres: { tag: '19' } }),
+    factProblems({ ...good, postgres: { ...good.postgres, major: 19 } }),
     'the contract says Postgres 18, postgres-version.json says 19',
+  )
+  has(
+    'a migration that creates an extension the contract never mentions',
+    factProblems({ ...good, migrations: `${good.migrations}\nCREATE EXTENSION IF NOT EXISTS pg_trgm;` }),
+    'creates the extension pg_trgm, and the contract does not tell a deployer to provide it',
+  )
+  has(
+    'a contract that still asks for an extension nothing creates',
+    factProblems({ ...good, migrations: good.migrations.replace(/CREATE EXTENSION IF NOT EXISTS vector;?/g, '') }),
+    'asks a deployer for the extension vector, and no migration creates it',
+  )
+  has(
+    'a pgvector release that moved in postgres-version.json and not in the contract',
+    factProblems({ ...good, postgres: { ...good.postgres, pgvector: '0.9.0' } }),
+    'postgres-version.json pins 0.9.0',
   )
   has(
     'an entrypoint that moved',
@@ -209,6 +226,11 @@ const has = (name, lines, fragment) => {
   const errors = (env) => checkConfig(env, contract).errors
 
   check('a correct deployment is passed', errors(ok).length, 0)
+
+  // The server's extensions cannot be seen from here, so a correct deployment is
+  // told what it needs rather than warned.
+  has('a deployment is told the catalogue needs pgvector', checkConfig(ok, contract).notes, 'must provide the vector extension')
+  check('and that is not a warning', checkConfig(ok, contract).warnings.length, 0)
 
   has('no connection string', errors({}), 'ConnectionStrings__bookscan is not set')
   has('an empty connection string counts as absent', errors({ ...ok, ConnectionStrings__bookscan: '  ' }), 'ConnectionStrings__bookscan is not set')

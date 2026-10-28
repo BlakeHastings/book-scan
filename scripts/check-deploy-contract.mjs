@@ -4,8 +4,9 @@
 //
 // It also holds the facts a deployer trips over to the files that decide them:
 // the port and the mount to the Dockerfile, the bind to `web/server/bind.ts`
-// and the listen call it feeds, and the Postgres major to
-// `postgres-version.json`.
+// and the listen call it feeds, the Postgres major and the pgvector release to
+// `postgres-version.json`, and the extensions a deployment must provide to the
+// migrations that create them.
 
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -125,7 +126,7 @@ export function compare(read, declared) {
   return problems
 }
 
-export function factProblems({ contract, dockerfile, serverIndex, serverBind, postgres }) {
+export function factProblems({ contract, dockerfile, serverIndex, serverBind, postgres, migrations }) {
   const problems = []
   const say = (claim, ok) => { if (!ok) problems.push(claim) }
 
@@ -194,9 +195,32 @@ export function factProblems({ contract, dockerfile, serverIndex, serverBind, po
     contract.image.healthcheck === null && !/^HEALTHCHECK\b/m.test(dockerfile),
   )
   say(
-    `the contract says Postgres ${contract.dependencies.postgres.major}, postgres-version.json says ${postgres.tag}`,
-    String(contract.dependencies.postgres.major) === String(postgres.tag),
+    `the contract says Postgres ${contract.dependencies.postgres.major}, postgres-version.json says ${postgres.major}`,
+    String(contract.dependencies.postgres.major) === String(postgres.major),
   )
+
+  /*
+   * An extension a migration creates is one a deployment has to provide, so
+   * the two lists have to be the same list. Read from the migrations rather
+   * than from the schema, because the migration is what runs on a deployer's
+   * server.
+   */
+  const declared = (contract.dependencies.postgres.extensions ?? []).map((one) => one.name)
+  const created = [...migrations.matchAll(/CREATE EXTENSION (?:IF NOT EXISTS )?"?([A-Za-z0-9_]+)"?/gi)]
+    .map((m) => m[1])
+  for (const name of new Set(created)) {
+    say(`a migration creates the extension ${name}, and the contract does not tell a deployer to provide it`, declared.includes(name))
+  }
+  for (const name of declared) {
+    say(`the contract asks a deployer for the extension ${name}, and no migration creates it`, created.includes(name))
+  }
+  const vector = contract.dependencies.postgres.extensions?.find((one) => one.name === 'vector')
+  if (vector) {
+    say(
+      `the contract says pgvector ${vector.tested} is tested, postgres-version.json pins ${postgres.pgvector}`,
+      vector.tested === postgres.pgvector,
+    )
+  }
   say(
     'the contract names a registry repository that is not lowercase, which a registry will refuse',
     contract.image.repository === contract.image.repository.toLowerCase(),
@@ -235,6 +259,16 @@ export function siteSpecificProblems(contract, allowedHosts) {
   return problems
 }
 
+/** Every migration's SQL, as one string, which is what a deployer's server runs. */
+export function migrationsText() {
+  const folder = join(root, 'web', 'infrastructure', 'db', 'migrations')
+  return readdirSync(folder)
+    .filter((name) => name.endsWith('.sql'))
+    .sort()
+    .map((name) => readFileSync(join(folder, name), 'utf8'))
+    .join('\n')
+}
+
 function main() {
   const contract = JSON.parse(readFileSync(join(root, 'deploy', 'contract.json'), 'utf8'))
 
@@ -258,6 +292,7 @@ function main() {
       serverIndex: readFileSync(join(root, 'web', 'server', 'index.ts'), 'utf8'),
       serverBind: readFileSync(join(root, 'web', 'server', 'bind.ts'), 'utf8'),
       postgres: JSON.parse(readFileSync(join(root, 'postgres-version.json'), 'utf8')),
+      migrations: migrationsText(),
     }),
     ...siteSpecificProblems(contract, [
       ...contract.dependencies.outboundHttps.hosts.map((one) => one.host),
@@ -285,7 +320,7 @@ function main() {
 
   console.log(
     `deploy/contract.json holds: ${contract.environment.length} variables declared, ` +
-    `${read.size} read in ${SCANNED.length} scanned paths, the port, bind, mount and Postgres major all agree.`,
+    `${read.size} read in ${SCANNED.length} scanned paths, the port, bind, mount, Postgres major and extensions all agree.`,
   )
 }
 

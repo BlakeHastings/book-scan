@@ -211,6 +211,19 @@ export function checkConfig(env, contract, options = {}) {
     notes.push(`${entry.name} is not set. ${entry.whenAbsent}`)
   }
 
+  /*
+   * The server's extensions are on the other side of the network, so this can
+   * only say what is needed, on every run, rather than check it. Said as a note
+   * and not a warning: a warning on every correct configuration is a warning
+   * nobody reads.
+   */
+  for (const extension of contract.dependencies.postgres.extensions ?? []) {
+    notes.push(
+      `The Postgres behind ConnectionStrings__bookscan must provide the ${extension.name} extension ` +
+      `(${extension.project} ${extension.atLeast} or later). ${extension.privilege}`,
+    )
+  }
+
   return { errors, warnings, notes }
 }
 
@@ -290,6 +303,9 @@ function main(argv) {
     // is in front of the container, and every correct deployment hands this
     // server plain http, so a check would fire on all of them.
     console.log(`  - ${contract.network.tls.whatBreaksWithoutIt}`)
+    for (const extension of contract.dependencies.postgres.extensions ?? []) {
+      console.log(`  - Postgres must provide the ${extension.name} extension. ${extension.withoutIt}`)
+    }
     return 0
   }
 
