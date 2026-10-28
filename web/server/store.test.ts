@@ -11,6 +11,7 @@ import { SEP, type ShelfRange } from '../shared/shelving'
 import { photographTaken, recordCrop } from './photographs'
 import { UnknownPlank } from './placement-ledger'
 import { Store, type DraftBook } from './store'
+import { testBooks, type TestBooks } from './testbooks'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { DrizzleSeparatorRepository } from '../infrastructure/shelving/separator-repository'
 import { PrintedName } from '../domain/authorship/authors'
@@ -23,6 +24,7 @@ function draft(over: Partial<DraftBook> & { title: string; authors: string[] }):
 }
 
 let store: Store
+let books: TestBooks
 let db: Db
 
 /**
@@ -53,10 +55,9 @@ async function splitFiction(...kinds: SeparatorKind[]): Promise<void> {
 }
 
 /**
- * The range a draft's own genre files it into, used for placement and edits
- * in this file. There is no tagging layer here, so for a book carrying no
- * other genre the draft's own claim is the same answer `Book.stateGenre` would
- * reach.
+ * The range a draft's own genre files it into, which `placementFor` asks about.
+ * For a book carrying no other genre the draft's own claim is the same answer
+ * `Book.stateGenre` reaches when the book is saved.
  */
 const rangeOf = (of: DraftBook): ShelfRange => {
   const { range } = genreStatedBy(of)
@@ -67,12 +68,10 @@ const rangeOf = (of: DraftBook): ShelfRange => {
 const placementFor = (of: DraftBook, excludeId?: number) =>
   store.placementFor(of, rangeOf(of), excludeId)
 
-const updateBook = (id: number, of: DraftBook) =>
-  store.updateBook(id, of, rangeOf(of))
-
 beforeEach(async () => {
   db = await openTestDatabase()
   store = new Store(db, new DrizzleAuthorRepository(db))
+  books = testBooks(db)
 })
 
 afterAll(closeTestDatabase)
@@ -87,7 +86,7 @@ describe('placement as books arrive one at a time', () => {
   })
 
   it('sends non-fiction to shelf 4, independent of fiction', async () => {
-    await store.addBook(draft({ title: 'Dune', authors: ['Frank Herbert'], location: '1A' }))
+    await books.catalogue(draft({ title: 'Dune', authors: ['Frank Herbert'], location: '1A' }))
 
     const placement = await placementFor(
       draft({ title: 'Sapiens', authors: ['Yuval Noah Harari'], genre: NON_FICTION_SLUG }),
@@ -100,8 +99,8 @@ describe('placement as books arrive one at a time', () => {
   })
 
   it('names both neighbours once there is something either side', async () => {
-    await store.addBook(draft({ title: 'Dune', authors: ['Frank Herbert'], location: '1A' }))
-    await store.addBook(draft({ title: 'Neuromancer', authors: ['William Gibson'], location: '1A' }))
+    await books.catalogue(draft({ title: 'Dune', authors: ['Frank Herbert'], location: '1A' }))
+    await books.catalogue(draft({ title: 'Neuromancer', authors: ['William Gibson'], location: '1A' }))
 
     // Gibson < Haldeman < Herbert.
     const placement = await placementFor(
@@ -117,8 +116,8 @@ describe('placement as books arrive one at a time', () => {
 
   it('reports the boundary when the neighbours are on different shelves', async () => {
     await splitFiction('area', 'area', 'shelf')
-    await store.addBook(draft({ title: 'Neuromancer', authors: ['William Gibson'], location: '1C' }))
-    await store.addBook(draft({ title: 'Dune', authors: ['Frank Herbert'], location: '2A' }))
+    await books.catalogue(draft({ title: 'Neuromancer', authors: ['William Gibson'], location: '1C' }))
+    await books.catalogue(draft({ title: 'Dune', authors: ['Frank Herbert'], location: '2A' }))
 
     const placement = await placementFor(
       draft({ title: 'The Forever War', authors: ['Joe Haldeman'] }),
@@ -130,10 +129,10 @@ describe('placement as books arrive one at a time', () => {
 
   it('keeps a series in reading order ahead of the standalones', async () => {
     await splitFiction('shelf', 'shelf')
-    await store.addBook(draft({
+    await books.catalogue(draft({
       title: 'Good Omens', authors: ['Terry Pratchett'], location: '3A',
     }))
-    await store.addBook(draft({
+    await books.catalogue(draft({
       title: 'The Colour of Magic', authors: ['Terry Pratchett'],
       seriesName: 'Discworld', seriesIndex: 1, location: '3A',
     }))
@@ -196,8 +195,8 @@ describe('a name somebody has filed by hand', () => {
 
   it('applies it to placement, moving the book on the shelf', async () => {
     await splitFiction('area')
-    await store.addBook(draft({ title: 'A', authors: ['Ann Foster'], location: '1A' }))
-    await store.addBook(draft({ title: 'B', authors: ['Zoe Nash'], location: '1B' }))
+    await books.catalogue(draft({ title: 'A', authors: ['Ann Foster'], location: '1A' }))
+    await books.catalogue(draft({ title: 'B', authors: ['Zoe Nash'], location: '1B' }))
 
     await fileAs('Gabriel García Márquez', 'García Márquez, Gabriel')
     const placement = await placementFor(
@@ -233,8 +232,8 @@ describe('a name written in a script with no A-Z in it', () => {
 
   it('lands among the shelved books instead of ahead of all of them', async () => {
     await splitFiction('shelf', 'area', 'area')
-    await store.addBook(draft({ title: 'Persuasion', authors: ['Jane Austen'], location: '1A' }))
-    await store.addBook(draft({ title: 'The Book Thief', authors: ['Markus Zusak'], location: '2C' }))
+    await books.catalogue(draft({ title: 'Persuasion', authors: ['Jane Austen'], location: '1A' }))
+    await books.catalogue(draft({ title: 'The Book Thief', authors: ['Markus Zusak'], location: '2C' }))
 
     const placement = await placementFor(
       draft({ title: 'Crime and Punishment', authors: ['Фёдор Достоевский'] }),
@@ -266,8 +265,8 @@ describe('a name written in a script with no A-Z in it', () => {
     // block rather than merged into one entry, which the space rule puts
     // before Smithson.
     await splitFiction('area')
-    await store.addBook(draft({ title: 'A', authors: ['Ann Smith'], location: '1A' }))
-    await store.addBook(draft({ title: 'B', authors: ['Ada Smithson'], location: '1B' }))
+    await books.catalogue(draft({ title: 'A', authors: ['Ann Smith'], location: '1A' }))
+    await books.catalogue(draft({ title: 'B', authors: ['Ada Smithson'], location: '1B' }))
 
     const placement = await placementFor(
       draft({ title: 'C', authors: ['Иван Smith'] }),
@@ -279,7 +278,7 @@ describe('a name written in a script with no A-Z in it', () => {
 
 describe('bookkeeping', () => {
   it('stores authors positionally so the filing author is unambiguous', async () => {
-    const { id } = await store.addBook(
+    const { id } = await books.catalogue(
       draft({ title: 'Good Omens', authors: ['Terry Pratchett', 'Neil Gaiman'] }),
     )
     const row = (await store.listRange('fiction')).find((b) => b.id === id)
@@ -295,12 +294,14 @@ describe('bookkeeping', () => {
   it('counts by range, and does not pretend a book can be unshelved', async () => {
     // Every catalogued book has a derived shelf, whether or not anybody has ever
     // said where it physically is, so there is nothing to count as unshelved.
-    // Two of these were never placed and still count normally.
-    await store.addBook(draft({ title: 'A', authors: ['X Y'], location: '1A' }))
-    await store.addBook(draft({ title: 'B', authors: ['X Z'] }))
-    await store.addBook(draft({ title: 'C', authors: ['Q R'], genre: NON_FICTION_SLUG }))
+    // Two of these named no plank. A save at the shelf records where such a book
+    // lands, so neither waits to be placed; `unplaced.routes.test.ts` counts the
+    // ones that do, which only a reset leaves behind.
+    await books.catalogue(draft({ title: 'A', authors: ['X Y'], location: '1A' }))
+    await books.catalogue(draft({ title: 'B', authors: ['X Z'] }))
+    await books.catalogue(draft({ title: 'C', authors: ['Q R'], genre: NON_FICTION_SLUG }))
 
-    expect(await store.counts()).toEqual({ total: 3, fiction: 2, nonfiction: 1, checkedOut: 0, unplaced: 2 })
+    expect(await store.counts()).toEqual({ total: 3, fiction: 2, nonfiction: 1, checkedOut: 0, unplaced: 0 })
   })
 
   it('counts as numbers, not as strings that look like numbers', async () => {
@@ -308,7 +309,7 @@ describe('bookkeeping', () => {
     // narrow them hands back strings instead. A total of "3" renders exactly
     // like 3 everywhere it is shown and behaves nothing like it in arithmetic,
     // so the CASTs that stop that are asserted rather than assumed.
-    await store.addBook(draft({ title: 'A', authors: ['X Y'] }))
+    await books.catalogue(draft({ title: 'A', authors: ['X Y'] }))
     const counts = await store.counts()
 
     expect(typeof counts.total).toBe('number')
@@ -324,10 +325,10 @@ describe('bookkeeping', () => {
     // knows nothing about it, so recording it nowhere would throw that away and
     // leave misfile detection with nothing to reconcile.
     await splitFiction('shelf', 'area', 'area')
-    const { id } = await store.addBook(
+    const { id } = await books.catalogue(
       draft({ title: 'Alpha', authors: ['Ann Author'], location: '2C' }),
     )
-    await updateBook(id, draft({ title: 'Alpha', authors: ['Ann Author'] }))
+    await books.revise(id, draft({ title: 'Alpha', authors: ['Ann Author'] }))
     expect((await store.getBook(id))?.location).toBe('2C')
   })
 })
@@ -339,7 +340,7 @@ describe('bookkeeping', () => {
 describe('recording where a book physically is', () => {
   it('records the plank a person names', async () => {
     await splitFiction('area')
-    const { id } = await store.addBook(
+    const { id } = await books.catalogue(
       draft({ title: 'X', authors: ['Ann Author'], location: '1A' }),
     )
 
@@ -349,7 +350,7 @@ describe('recording where a book physically is', () => {
   })
 
   it('refuses a label naming a plank the collection does not have', async () => {
-    const { id } = await store.addBook(
+    const { id } = await books.catalogue(
       draft({ title: 'X', authors: ['Ann Author'], location: '1A' }),
     )
 
@@ -366,10 +367,10 @@ describe('recording where a book physically is', () => {
 
 describe('editing a shelved book', () => {
   it('updates in place rather than adding a second copy', async () => {
-    const { id } = await store.addBook(
+    const { id } = await books.catalogue(
       draft({ title: 'Dark Angel', authors: ['V.C. Andrews'], location: '1A' }),
     )
-    await updateBook(id, draft({ title: 'Dune', authors: ['Frank Herbert'], location: '1A' }))
+    await books.revise(id, draft({ title: 'Dune', authors: ['Frank Herbert'], location: '1A' }))
 
     expect((await store.counts()).total).toBe(1)
     expect((await store.getBook(id))?.title).toBe('Dune')
@@ -378,10 +379,10 @@ describe('editing a shelved book', () => {
   it('moves the book when the author changes', async () => {
     // The sort key has to be rebuilt, or the row keeps its old shelf position
     // and the ordering quietly breaks.
-    const { id } = await store.addBook(draft({ title: 'X', authors: ['Zoe Zulu'] }))
+    const { id } = await books.catalogue(draft({ title: 'X', authors: ['Zoe Zulu'] }))
     const before = (await store.getBook(id))!.sort_key
 
-    await updateBook(id, draft({ title: 'X', authors: ['Ann Author'] }))
+    await books.revise(id, draft({ title: 'X', authors: ['Ann Author'] }))
     const after = (await store.getBook(id))!
 
     expect(after.sort_key).not.toBe(before)
@@ -390,40 +391,40 @@ describe('editing a shelved book', () => {
   })
 
   it('moves the book between ranges when the fiction flag flips', async () => {
-    const { id } = await store.addBook(draft({ title: 'X', authors: ['Ann Author'] }))
+    const { id } = await books.catalogue(draft({ title: 'X', authors: ['Ann Author'] }))
     expect((await store.getBook(id))?.shelf_range).toBe('fiction')
 
-    await updateBook(id, draft({ title: 'X', authors: ['Ann Author'], genre: NON_FICTION_SLUG }))
+    await books.revise(id, draft({ title: 'X', authors: ['Ann Author'], genre: NON_FICTION_SLUG }))
     expect((await store.getBook(id))?.shelf_range).toBe('nonfiction')
     expect(await store.listRange('fiction')).toHaveLength(0)
     expect(await store.listRange('nonfiction')).toHaveLength(1)
   })
 
   it('does not report the edited book as its own neighbour', async () => {
-    await store.addBook(draft({ title: 'Alpha', authors: ['Ann Author'], location: '1A' }))
-    const { id } = await store.addBook(draft({ title: 'Beta', authors: ['Bob Baker'], location: '1A' }))
+    await books.catalogue(draft({ title: 'Alpha', authors: ['Ann Author'], location: '1A' }))
+    const { id } = await books.catalogue(draft({ title: 'Beta', authors: ['Bob Baker'], location: '1A' }))
 
     // Stated fiction, so it is filed, so there is a placement. See `rangeOf`.
-    const placement = (await updateBook(
+    const { placement } = await books.revise(
       id, draft({ title: 'Beta', authors: ['Bob Baker'], location: '1A' }),
-    ))!
+    )
     expect(placement.predecessor?.id).not.toBe(id)
     expect(placement.successor?.id).not.toBe(id)
     expect(placement.predecessor?.title).toBe('Alpha')
   })
 
   it('replaces the author list rather than appending to it', async () => {
-    const { id } = await store.addBook(
+    const { id } = await books.catalogue(
       draft({ title: 'X', authors: ['Ann Author', 'Bob Baker'] }),
     )
-    await updateBook(id, draft({ title: 'X', authors: ['Cal Church'] }))
+    await books.revise(id, draft({ title: 'X', authors: ['Cal Church'] }))
     expect((await store.getBook(id))?.authors).toBe('Cal Church')
     expect((await store.getBook(id))?.sort_key.split(SEP)[0]).toBe('CHURCH CAL')
   })
 
   it('fills in both ISBN forms on an edit, as on an insert', async () => {
-    const { id } = await store.addBook(draft({ title: 'X', authors: ['Ann Author'] }))
-    await updateBook(id, draft({
+    const { id } = await books.catalogue(draft({ title: 'X', authors: ['Ann Author'] }))
+    await books.revise(id, draft({
       title: 'Dune', authors: ['Frank Herbert'], isbn13: '9780441013593',
     }))
     expect((await store.getBook(id))?.isbn10).toBe('0441013597')
@@ -436,7 +437,7 @@ describe('checking a book out and back in', () => {
   })
 
   it('records the moment a book comes off the shelf', async () => {
-    const { id } = await store.addBook(draft({ title: 'X', authors: ['Ann Author'] }))
+    const { id } = await books.catalogue(draft({ title: 'X', authors: ['Ann Author'] }))
 
     const result = await store.setCheckedOut(id, true)
 
@@ -446,7 +447,7 @@ describe('checking a book out and back in', () => {
   })
 
   it('does not overwrite the original time when an already-out book is checked out again', async () => {
-    const { id } = await store.addBook(draft({ title: 'X', authors: ['Ann Author'] }))
+    const { id } = await books.catalogue(draft({ title: 'X', authors: ['Ann Author'] }))
     const first = await store.setCheckedOut(id, true)
 
     // A minute later, someone taps the same book a second time. Without the
@@ -461,7 +462,7 @@ describe('checking a book out and back in', () => {
   })
 
   it('checks a book back in, clearing the timestamp', async () => {
-    const { id } = await store.addBook(draft({ title: 'X', authors: ['Ann Author'] }))
+    const { id } = await books.catalogue(draft({ title: 'X', authors: ['Ann Author'] }))
     await store.setCheckedOut(id, true)
 
     const result = await store.setCheckedOut(id, false)
@@ -475,7 +476,7 @@ describe('checking a book out and back in', () => {
     // The ledger is append only, so coming back has to be written down, and
     // what is written is where the book actually was rather than where the
     // rules would send it.
-    const { id } = await store.addBook(
+    const { id } = await books.catalogue(
       draft({ title: 'X', authors: ['Ann Author'], location: '1A' }),
     )
 
@@ -488,7 +489,7 @@ describe('checking a book out and back in', () => {
   })
 
   it('treats checking in a book that is already on the shelf as a no-op', async () => {
-    const { id } = await store.addBook(draft({ title: 'X', authors: ['Ann Author'] }))
+    const { id } = await books.catalogue(draft({ title: 'X', authors: ['Ann Author'] }))
 
     const result = await store.setCheckedOut(id, false)
 
@@ -505,7 +506,7 @@ describe('checking a book out and back in', () => {
 
 describe('setCrop', () => {
   it('records the crop without disturbing the photograph', async () => {
-    const { id } = await store.addBook(
+    const { id } = await books.catalogue(
       draft({ title: 'X', authors: ['Ann Author'], frontImage: 'front.jpg' }),
     )
 
@@ -517,7 +518,7 @@ describe('setCrop', () => {
   })
 
   it('marks a slot examined even when no book was found in it', async () => {
-    const { id } = await store.addBook(
+    const { id } = await books.catalogue(
       draft({ title: 'X', authors: ['Ann Author'], frontImage: 'front.jpg' }),
     )
 
@@ -530,7 +531,7 @@ describe('setCrop', () => {
   })
 
   it('adds each slot to the list rather than replacing it', async () => {
-    const { id } = await store.addBook(draft({
+    const { id } = await books.catalogue(draft({
       title: 'X', authors: ['Ann Author'],
       frontImage: 'front.jpg', edgeImage: 'edge.jpg',
     }))
@@ -548,7 +549,7 @@ describe('setCrop', () => {
      * is not a photograph. There is nowhere to record examining a photograph
      * that does not exist.
      */
-    const { id } = await store.addBook(draft({ title: 'X', authors: ['Ann Author'] }))
+    const { id } = await books.catalogue(draft({ title: 'X', authors: ['Ann Author'] }))
 
     await store.setCrop(id, 'front', '')
 
@@ -558,8 +559,8 @@ describe('setCrop', () => {
 
 describe('photographed', () => {
   it('lists only the books that have a photo to crop', async () => {
-    await store.addBook(draft({ title: 'No Photos', authors: ['Ann Author'] }))
-    const { id } = await store.addBook(
+    await books.catalogue(draft({ title: 'No Photos', authors: ['Ann Author'] }))
+    const { id } = await books.catalogue(
       draft({ title: 'Has One', authors: ['Ann Author'], edgeImage: 'edge.jpg' }),
     )
 
@@ -575,7 +576,7 @@ describe('imageInUse', () => {
   })
 
   it('counts a crop as in use, so tidying orphans cannot delete one', async () => {
-    const { id } = await store.addBook(
+    const { id } = await books.catalogue(
       draft({ title: 'X', authors: ['Ann Author'], frontImage: 'front.jpg' }),
     )
     await store.setCrop(id, 'front', 'front_crop.jpg')
@@ -584,7 +585,7 @@ describe('imageInUse', () => {
   })
 
   it("checks all four of a book's image columns, not just the front photo", async () => {
-    const { id } = await store.addBook(
+    const { id } = await books.catalogue(
       draft({
         title: 'X',
         authors: ['Ann Author'],
@@ -654,7 +655,7 @@ describe('imageInUse', () => {
     // The case `deleteOrphanedImages` exists for. Two scans of one book name
     // one file, and deleting on the discarded one's behalf must not take the
     // shelved one's picture with it.
-    await store.addBook(
+    await books.catalogue(
       draft({ title: 'X', authors: ['Ann Author'], backImage: 'shared.jpg' }),
     )
     const created = await db.get<{ id: number }>(
@@ -708,7 +709,7 @@ describe('text ordering, which every shelf depends on', () => {
   ]
 
   beforeEach(async () => {
-    for (const book of FIXTURE) await store.addBook(draft(book))
+    for (const book of FIXTURE) await books.catalogue(draft(book))
   })
 
   it('returns the shelf in the one order the model says it is in', async () => {
@@ -788,8 +789,8 @@ describe('two people scanning at once', () => {
     // Gibson sorts before Herbert, so whichever of these commits first, the
     // other has a neighbour and cannot be the first book in the range.
     const [gibson, herbert] = await Promise.all([
-      store.addBook(draft({ title: 'Neuromancer', authors: ['William Gibson'] })),
-      store.addBook(draft({ title: 'Dune', authors: ['Frank Herbert'] })),
+      books.catalogue(draft({ title: 'Neuromancer', authors: ['William Gibson'] })),
+      books.catalogue(draft({ title: 'Dune', authors: ['Frank Herbert'] })),
     ])
 
     const kinds = [gibson.placement!.kind, herbert.placement!.kind]
@@ -811,7 +812,7 @@ describe('two people scanning at once', () => {
   })
 
   it('keeps the moment a book left when two checkouts arrive together', async () => {
-    const { id } = await store.addBook(draft({ title: 'X', authors: ['Ann Author'] }))
+    const { id } = await books.catalogue(draft({ title: 'X', authors: ['Ann Author'] }))
     await warmTheConnections()
 
     const [first, second] = await Promise.all([
@@ -831,7 +832,7 @@ describe('two people scanning at once', () => {
   })
 
   it('keeps both slots when two crop passes finish at the same time', async () => {
-    const { id } = await store.addBook(
+    const { id } = await books.catalogue(
       draft({ title: 'X', authors: ['Ann Author'], frontImage: 'f.jpg', edgeImage: 'e.jpg' }),
     )
     await warmTheConnections()
