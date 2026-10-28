@@ -101,7 +101,15 @@ function summaryOf(book: BookView): BookSummary {
 
 const PHOTOGRAPH_KINDS = ['front', 'back', 'edge', 'cover'] as const
 
-const bookDetail = bookSummary.extend({
+export const tagEntry = z.object({
+  slug: z.string(),
+  label: z.string(),
+  source: z.enum(['person', 'catalogue', 'guess'])
+    .describe('"person" is somebody saying so; "catalogue" and "guess" are this app inferring it.'),
+  confidence: z.enum(['high', 'medium', 'weak', 'unknown']),
+})
+
+export const bookDetail = bookSummary.extend({
   isbn10: z.string(),
   publisher: z.string(),
   pages: z.string(),
@@ -119,13 +127,46 @@ const bookDetail = bookSummary.extend({
     name: z.string(),
     files_under: z.string().describe('The name the shelves sort this credit by.'),
   })),
-  tags: z.array(z.object({
-    slug: z.string(),
-    label: z.string(),
-    source: z.enum(['person', 'catalogue', 'guess']),
-    confidence: z.enum(['high', 'medium', 'weak', 'unknown']),
-  })),
+  tags: z.array(tagEntry),
 })
+
+export type BookDetail = z.infer<typeof bookDetail>
+type TagEntry = z.infer<typeof tagEntry>
+
+/** The tags a book carries, as every tool answers them. Null when there is no such book. */
+export async function tagsOf(queries: CatalogueQueries, bookId: number): Promise<TagEntry[] | null> {
+  const tags = await queries.tagsOfBook.handle({ bookId })
+  return tags && tags.map((one) => ({
+    slug: one.slug, label: one.label, source: one.source, confidence: one.confidence,
+  }))
+}
+
+/** One book as `get_book` answers it, and as a write tool answers the book it wrote. */
+export async function describeBook(queries: CatalogueQueries, bookId: number): Promise<BookDetail | null> {
+  const found = await queries.getBook.handle({ id: bookId })
+  const tags = found && await tagsOf(queries, bookId)
+  if (!found || !tags) return null
+  const { book } = found
+  return {
+    ...summaryOf(book),
+    isbn10: book.isbn10,
+    publisher: book.publisher,
+    pages: book.pages,
+    notes: book.notes,
+    title_guess: book.title_guess,
+    scanned_at: book.scanned_at,
+    checked_out_at: book.checked_out_at,
+    lookup_source: book.lookup_source,
+    photographs: PHOTOGRAPH_KINDS.filter((kind) => book[`${kind}_image`] !== ''),
+    credits: found.authors.map((credit) => ({
+      position: credit.position,
+      author_id: credit.authorId,
+      name: credit.displayName,
+      files_under: credit.filingName,
+    })),
+    tags,
+  }
+}
 
 const authorEntry = z.object({
   author_id: z.number().int(),
@@ -218,31 +259,9 @@ export function registerReadTools(server: McpServer, queries: CatalogueQueries):
     annotations: READ,
   }, async (args, extra) => {
     actingFor(extra.authInfo)
-    const found = await queries.getBook.handle({ id: args.book_id })
-    const tags = found && await queries.tagsOfBook.handle({ bookId: args.book_id })
-    if (!found || !tags) return refuse(`There is no book ${args.book_id}. search_books finds book ids.`)
-    const { book } = found
-    return answer({
-      ...summaryOf(book),
-      isbn10: book.isbn10,
-      publisher: book.publisher,
-      pages: book.pages,
-      notes: book.notes,
-      title_guess: book.title_guess,
-      scanned_at: book.scanned_at,
-      checked_out_at: book.checked_out_at,
-      lookup_source: book.lookup_source,
-      photographs: PHOTOGRAPH_KINDS.filter((kind) => book[`${kind}_image`] !== ''),
-      credits: found.authors.map((credit) => ({
-        position: credit.position,
-        author_id: credit.authorId,
-        name: credit.displayName,
-        files_under: credit.filingName,
-      })),
-      tags: tags.map((one) => ({
-        slug: one.slug, label: one.label, source: one.source, confidence: one.confidence,
-      })),
-    })
+    const book = await describeBook(queries, args.book_id)
+    if (!book) return refuse(`There is no book ${args.book_id}. search_books finds book ids.`)
+    return answer(book)
   })
 
   server.registerTool('collection_summary', {

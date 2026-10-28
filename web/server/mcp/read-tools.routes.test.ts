@@ -153,11 +153,14 @@ const titles = (answer: Books) => answer.books.map((book) => book.title)
 
 describe('the tool list', () => {
   it('lists every read tool, each annotated read-only with an input and an output schema', async () => {
-    const { tools } = await client.listTools()
-    expect(tools.map((tool) => tool.name).sort()).toEqual([
-      'collection_summary', 'get_author_books', 'get_book', 'list_authors', 'list_tags',
-      'lookup_isbn', 'search_books', 'whoami',
+    const listed = (await client.listTools()).tools
+    expect(listed.map((tool) => tool.name).sort()).toEqual([
+      'add_book', 'collection_summary', 'get_author_books', 'get_book', 'list_authors', 'list_tags',
+      'lookup_isbn', 'search_books', 'tag_book', 'untag_book', 'update_book', 'whoami',
     ])
+    // The write tools are write-tools.routes.test.ts's.
+    const tools = listed.filter((tool) => tool.annotations?.readOnlyHint)
+    expect(tools).toHaveLength(8)
     for (const tool of tools) {
       expect(tool.annotations?.readOnlyHint, tool.name).toBe(true)
       expect(tool.inputSchema.type, tool.name).toBe('object')

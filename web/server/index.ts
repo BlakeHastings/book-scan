@@ -857,6 +857,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       listBooks, countBooks, getBook, tagsOfBook, vocabulary, listAuthors, booksByAuthor,
       lookupIsbn: lookUpIsbn,
     },
+    commands: { catalogueBook, reviseBook, applyTag, removeTag },
   })
 
   /**
@@ -1927,7 +1928,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       res.status(404).json({ error: 'No such book.' })
       return
     }
-    res.json(found)
+    res.json({ book: found.book, authors: found.authors })
   }))
 
   /**

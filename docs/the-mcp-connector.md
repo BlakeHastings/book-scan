@@ -4,7 +4,8 @@ For #613, the first child of #612. A person who is signed in and let in can add
 this app as a custom connector in claude.ai (or `claude mcp add --transport http`
 in Claude Code), approve it in the browser, and the client then holds a token
 that calls tools **as that person**. `whoami` proves the chain; the read tools
-(#617) search and read the catalogue, and the write tools are #618.
+(#617) search and read the catalogue, and the write tools (#618) add,
+edit and tag books.
 
 This page is the explanation and the research behind it. `docs/the-gate.md` has
 the doors and the count; the code is `web/server/mcp/` and
@@ -272,9 +273,9 @@ session does.
 
 ## The tool surface
 
-For #617, and for #618 to follow. The tools are `web/server/mcp/tools.ts` and
-`web/server/mcp/read-tools.ts`; how every tool answers is
-`web/server/mcp/answers.ts`.
+For #617 and #618. The tools are `web/server/mcp/tools.ts`,
+`web/server/mcp/read-tools.ts` and `web/server/mcp/write-tools.ts`; how every
+tool answers is `web/server/mcp/answers.ts`.
 
 ### The tools
 
@@ -288,6 +289,10 @@ For #617, and for #618 to follow. The tools are `web/server/mcp/tools.ts` and
 | `get_author_books` | `BooksByAuthorHandler` | One person and every book crediting them, in any state, paged |
 | `lookup_isbn` | `LookupIsbnHandler` | What Open Library and Google Books hold for a number, and whether this collection has it. Writes nothing |
 | `whoami` | `AuthStore` | Which person the connection acts for |
+| `add_book` | `LookupIsbnHandler`, then `CatalogueBookHandler` | Looks the ISBN up and catalogues it where it lands, or answers the book already here with `added: false` |
+| `update_book` | `GetBookHandler`, then `ReviseBookHandler` | Changes only the fields passed; `reidentified` and `withdrawn_tags` say what an ISBN change took off |
+| `tag_book` | `ApplyTagHandler` | Puts a book under a tag as the person |
+| `untag_book` | `RemoveTagHandler` | Takes a book out of a tag, whoever applied it |
 
 Every one takes its handlers from `createApp`, which builds them once; `/mcp`
 makes a fresh `McpServer` per request and hands it the same handlers, so a
@@ -375,6 +380,40 @@ one listing was widened rather than a second one written, as AGENTS.md asks.
     because that is on Open Library's or Google's host and anybody can fetch
     it. Serving a photograph to a connected client, as image content or a
     resource behind the bearer, is a follow-up.
+
+### The write tools, and what each decided
+
+- **`add_book` is the save a scan makes.** The lookup record becomes a draft
+  exactly as the review pane's does (`draftFromRecord` in
+  `web/server/book-commands.ts`, the server's copy of `draftFromLookup` in
+  `src/lib/api.ts`), then `catalogueCommandOf` and `CatalogueBookHandler`, with
+  no plank named, so the book is recorded where it lands. A `genre` passed is the
+  person's answer (`classificationSource: 'manual'`); omitted, the catalogues'
+  heading is saved as the classifier's guess, as a scan saves it. The ISBN
+  source is `manual`, the value the app writes for a typed number.
+- **A number already catalogued adds nothing**: the existing book comes back
+  with `added: false`, and nothing passed with it is applied.
+- **A number neither catalogue knows is refused unless the caller passes
+  `title`** (and `authors`), which the description says must come from the
+  person and never from memory. The app allows the same thing ("No catalogue
+  has ... fill the rest in by hand"), so refusing outright would leave some real
+  books impossible to add here. The not-found record's default genre is not
+  used, because nothing stated it.
+- **Two `add_book` calls for one ISBN at the same moment both add it.** The
+  duplicate check is the lookup handler's read, outside any unit of work, and a
+  new book takes no lock until its range's. A test records this as it stands.
+  That is why `add_book` says `idempotentHint: false` although a repeat after an
+  answer is harmless.
+- **`update_book` is PATCH over `ReviseBookHandler`**: the current record is
+  read through `GetBookHandler`, which also answers the printed names
+  (`printed`), because `authors` joined with a comma cannot be split back when a
+  name has a comma in it. Absent `genre` states nothing, so the book keeps its
+  tags and its run. A book in the queue, or discarded, is refused: revising it
+  would shelve it with no plank. Moving a book is not offered.
+- **Nobody is recorded by name**, because no command takes a person: a tag says
+  `source = 'person'` and a placement `actor = 'person'`, which is what the app
+  writes. `edited_by` belongs to the queue and holds a device, and no save
+  writes it.
 
 ---
 

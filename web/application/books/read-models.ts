@@ -146,4 +146,11 @@ export interface CatalogueReadModel {
 
   /** One book in any state, or null when there is no such row. */
   detail(id: number): Promise<BookView | null>
+
+  /**
+   * The names as printed on the book, in printed order. `BookView.authors` is
+   * these joined with a comma, which a name with a comma in it cannot be read
+   * back out of.
+   */
+  printedNames(id: number): Promise<string[]>
 }
