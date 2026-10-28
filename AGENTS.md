@@ -1359,9 +1359,19 @@ before, and that is also where a filing name somebody typed reaches the alias:
 **Filing a name does not move a book, and that sentence changed meaning.**
 `books.sort_key` is written by a save and by `server/refile-books.ts` and by
 nothing else, so correcting an alias leaves every shelf exactly as it was; what
-changes at once is what the catalogue *says* the book files under, because that
-is read from the alias. The next save of that book puts it where the corrected
-name says.
+changes at once is what the *name* files under, which is read from the alias.
+The next save of each book puts it where the corrected name says.
+
+**What a screen shows beside a book is the name its key files it under** (#652),
+and not the alias's answer, because a list is ordered by the key and a label that
+says the new name on a book still sorted under the old one reads as a misordered
+list. The views still join the alias on as `author_filing`; every read that puts
+a book on the wire or in an ordering passes it through `filedUnder`
+(`web/shared/shelving.ts`), which answers whichever of the alias's filing name and
+the printed name's derived one folds to the key, and the folded key itself when
+neither does. The alias's own answer stays where the name is the subject: an
+author's names, a book's credits, and the edit form, which must send the
+corrected name so the next save files under it.
 
 **A save or a refile that re-keys a shelved book onto another plank writes an
 `assigned` row** (#646), through `recordWhereItNowBelongs` and `recordWhatMoved`

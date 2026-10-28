@@ -41,7 +41,7 @@ import {
   type ShelfGroup, type Strip,
 } from '../shared/layout'
 import {
-  reviewShelving,
+  asFiled, reviewShelving,
   type AreaStanding, type FiledBook, type ShelfRange, type ShelvingReview,
 } from '../shared/shelving'
 
@@ -297,11 +297,11 @@ export class Shelves {
     // the path that draws the library.
     const rows = await withPlacements(this.db, await withPhotographs(
       this.db,
-      await this.db.all<FiledBookRow>(
+      (await this.db.all<FiledBookRow>(
         `SELECT * FROM shelved_books WHERE shelf_range = ?
           ORDER BY sort_key ASC`,
         [range],
-      ),
+      )).map(asFiled),
     ))
     return excludeId ? rows.filter((row) => row.id !== excludeId) : rows
   }
@@ -490,10 +490,10 @@ export class Shelves {
   async standingOn(areaId: number, excludeId = 0): Promise<ShelvedBook[]> {
     const rows = await withPlacements(this.db, await withPhotographs(
       this.db,
-      await this.db.all<FiledBookRow>(
+      (await this.db.all<FiledBookRow>(
         'SELECT * FROM shelved_books WHERE current_area_id = ? ORDER BY sort_key ASC',
         [areaId],
-      ),
+      )).map(asFiled),
     ))
     return rows
       .filter((row) => row.id !== excludeId)
@@ -1246,7 +1246,7 @@ export class Shelves {
         `SELECT * FROM catalogued_books WHERE shelf_range = ? AND state = ?
           ORDER BY sort_key ASC`,
         [range, CHECKED_OUT],
-      ))
+      ).then((rows) => rows.map(asFiled)))
     ).map((row) => toFiled(row, row.area_id, null, faces, true))
 
     const review = reviewShelving([...onShelf, ...off])

@@ -23,7 +23,7 @@ import {
 import {
   AssignPlacementsHandler, type AssignableBook, type AssignmentReport,
 } from '../application/placement/assign-placements'
-import type { ShelfRange } from '../shared/shelving'
+import { filedUnder, type ShelfRange } from '../shared/shelving'
 import type { Db } from './driver'
 import { boundaryLocks } from '../application/locks'
 
@@ -57,6 +57,7 @@ interface BookRow {
   id: number
   title: string
   author_filing: string
+  authors: string
   sort_key: string
   slugs: string[] | null
 }
@@ -71,13 +72,13 @@ interface BookRow {
  */
 async function booksIn(db: Db, range: ShelfRange): Promise<PlannableBook[]> {
   const rows = await db.all<BookRow>(
-    `SELECT b.id, b.title, b.author_filing, b.sort_key,
+    `SELECT b.id, b.title, b.author_filing, b.authors, b.sort_key,
             array_remove(array_agg(t.slug), NULL) AS slugs
        FROM catalogued_books b
        LEFT JOIN book_tag bt ON bt.book_id = b.id
        LEFT JOIN tag t ON t.id = bt.tag_id
       WHERE b.shelf_range = ?
-      GROUP BY b.id, b.title, b.author_filing, b.sort_key
+      GROUP BY b.id, b.title, b.author_filing, b.authors, b.sort_key
       ORDER BY b.sort_key`,
     [range],
   )
@@ -85,7 +86,7 @@ async function booksIn(db: Db, range: ShelfRange): Promise<PlannableBook[]> {
   return rows.map((row) => ({
     id: Number(row.id),
     title: row.title,
-    authorFiling: row.author_filing,
+    authorFiling: filedUnder(row),
     sortKey: row.sort_key,
     tagSlugs: row.slugs ?? [],
   }))

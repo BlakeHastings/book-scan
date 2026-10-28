@@ -238,6 +238,7 @@ describe('get_book', () => {
       book_id: seeded.dune, title: 'Dune', state: 'shelved', location: '1A', isbn10: '0441013597',
       checked_out_at: null, photographs: [],
       credits: [{ position: 1, author_id: seeded.herbert, name: 'Frank Herbert', files_under: 'Herbert, Frank' }],
+      files_under: 'Herbert, Frank',
     })
     expect((dune as { tags: unknown[] }).tags).toContainEqual(
       { slug: 'genre/fiction/space-opera', label: 'Space opera', source: 'person', confidence: 'high' },

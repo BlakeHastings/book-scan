@@ -21,6 +21,7 @@ import { furnitureIn, plankLabels } from '../infrastructure/shelving/areas'
 import {
   describeRules, tagCarried, tagLabels, type DescribedRule, type Refused,
 } from './furniture'
+import { filedUnder } from '../shared/shelving'
 import type { Db } from './driver'
 
 /** A rule that wanted this book, and whether it got it. */
@@ -58,6 +59,7 @@ interface BookRow {
   id: number
   title: string
   author_filing: string
+  authors: string
   sort_key: string
 }
 
@@ -97,7 +99,7 @@ export async function claimOfBook(db: Db, id: number): Promise<Claimed> {
    * have an opinion about.
    */
   const book = await db.get<BookRow>(
-    'SELECT id, title, author_filing, sort_key FROM catalogued_books WHERE id = ?',
+    'SELECT id, title, author_filing, authors, sort_key FROM catalogued_books WHERE id = ?',
     [id],
   )
   if (!book) return { ok: false, status: 404, error: 'No such book.' }
@@ -136,7 +138,7 @@ export async function claimOfBook(db: Db, id: number): Promise<Claimed> {
       book: {
         id: Number(book.id),
         title: book.title,
-        authorFiling: book.author_filing ?? '',
+        authorFiling: filedUnder(book),
       },
       standing: placeOf(standing.area, labels),
       wanted: found ? { areaId: found.slot.area.id, label: labelFor(found.slot) } : null,
@@ -177,6 +179,8 @@ interface UnclaimedRow {
   id: number
   title: string
   author_filing: string
+  authors: string
+  sort_key: string
   current_area_id: number | null
   slugs: string[] | null
   labels: string[] | null
@@ -197,14 +201,14 @@ interface UnclaimedRow {
  */
 export async function booksNoRuleClaims(db: Db): Promise<UnclaimedBook[]> {
   const rows = await db.all<UnclaimedRow>(
-    `SELECT b.id, b.title, b.author_filing, b.current_area_id,
+    `SELECT b.id, b.title, b.author_filing, b.authors, b.sort_key, b.current_area_id,
             array_remove(array_agg(t.slug), NULL) AS slugs,
             array_remove(array_agg(t.label), NULL) AS labels
        FROM catalogued_books b
        LEFT JOIN book_tag bt ON bt.book_id = b.id
        LEFT JOIN tag t ON t.id = bt.tag_id
       WHERE b."state" != ?
-      GROUP BY b.id, b.title, b.author_filing, b.current_area_id, b.sort_key
+      GROUP BY b.id, b.title, b.author_filing, b.authors, b.current_area_id, b.sort_key
       ORDER BY b.sort_key`,
     [WITHDRAWN],
   )
@@ -217,7 +221,7 @@ export async function booksNoRuleClaims(db: Db): Promise<UnclaimedBook[]> {
     .map((row) => ({
       id: Number(row.id),
       title: row.title,
-      authorFiling: row.author_filing ?? '',
+      authorFiling: filedUnder(row),
       standing: placeOf(row.current_area_id === null ? null : Number(row.current_area_id), labels),
       tags: row.labels ?? [],
       why: (row.slugs ?? []).length === 0 ? 'untagged' : 'unmatched',

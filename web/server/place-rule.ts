@@ -33,6 +33,7 @@ import { TagSlug } from '../domain/tagging/tags'
 import {
   AssignPlacementsHandler, type AssignableBook, type AssignmentReport,
 } from '../application/placement/assign-placements'
+import { filedUnder } from '../shared/shelving'
 import type { Db } from './driver'
 import { holdsSaid, placeSaid, ruleName, tagLabels } from './furniture'
 import { FURNITURE_LOCK } from '../application/locks'
@@ -352,22 +353,23 @@ async function everyBook(db: Db): Promise<PlannableBook[]> {
     id: number
     title: string
     author_filing: string
+    authors: string
     sort_key: string
     slugs: string[] | null
   }>(
-    `SELECT b.id, b.title, b.author_filing, b.sort_key,
+    `SELECT b.id, b.title, b.author_filing, b.authors, b.sort_key,
             array_remove(array_agg(t.slug), NULL) AS slugs
        FROM catalogued_books b
        LEFT JOIN book_tag bt ON bt.book_id = b.id
        LEFT JOIN tag t ON t.id = bt.tag_id
-      GROUP BY b.id, b.title, b.author_filing, b.sort_key
+      GROUP BY b.id, b.title, b.author_filing, b.authors, b.sort_key
       ORDER BY b.sort_key`,
   )
 
   return rows.map((row) => ({
     id: Number(row.id),
     title: row.title,
-    authorFiling: row.author_filing,
+    authorFiling: filedUnder(row),
     sortKey: row.sort_key,
     tagSlugs: row.slugs ?? [],
   }))

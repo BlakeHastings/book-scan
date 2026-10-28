@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  bookCover, buildPlacement, buildSortKey, filingName,
+  bookCover, buildPlacement, buildSortKey, filedUnder, filingName,
   normalise, parseLocation, placementOnAPlank, reviewShelving, shelfImage, shelfPhoto,
   shelfPhotoSlot, titleFiling, type FiledBook, type Neighbour,
 } from './shelving'
@@ -145,6 +145,32 @@ describe('buildSortKey', () => {
     const hobbit = key('Tolkien, J. R. R.', 'The Hobbit')
     const silmarillion = key('Tolkien, J. R. R.', 'The Silmarillion')
     expect(hobbit < silmarillion).toBe(true)
+  })
+})
+
+describe('filedUnder', () => {
+  const keyFor = (authorFiling: string) => buildSortKey({ authorFiling, title: 'Crime and Punishment' })
+
+  it('says the filing name when the stored key was written from it', () => {
+    expect(filedUnder({
+      sort_key: keyFor('Le Guin, Ursula K.'), author_filing: 'Le Guin, Ursula K.', authors: 'Ursula K. Le Guin',
+    })).toBe('Le Guin, Ursula K.')
+  })
+
+  it('says the name the key was written from when the filing name was corrected since', () => {
+    expect(filedUnder({
+      sort_key: keyFor('Достоевский, Фёдор'), author_filing: 'Dostoevsky, Fyodor', authors: 'Фёдор Достоевский',
+    })).toBe('Достоевский, Фёдор')
+  })
+
+  it('says the folded name when nothing the catalogue holds folds to the key', () => {
+    expect(filedUnder({
+      sort_key: keyFor('Garcia Marquez, Gabriel'), author_filing: 'García, Gabriel', authors: 'Gabriel García Márquez',
+    })).toBe('GARCIA MARQUEZ GABRIEL')
+  })
+
+  it('says nothing for a book filed under nobody', () => {
+    expect(filedUnder({ sort_key: keyFor(''), author_filing: '', authors: '' })).toBe('')
   })
 })
 

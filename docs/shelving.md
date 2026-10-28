@@ -288,8 +288,9 @@ the same fact, kept on the name itself rather than in a side table consulted on
 the way past, and reached by `PATCH /api/authors/aliases/:id` or by typing a
 filing name beside the author when saving a book. Correcting one does not move
 any book that is already shelved, because a sort key is written by a save; it
-changes what the catalogue says the book files under, and the next save of that
-book puts it there.
+changes what the name files under, and the next save of each book puts it there.
+Until then a book is listed under the name its key was written from, since that
+is what every list is ordered by, and its own page says it will move when saved.
 
 **A filing name is never empty, and there is one function that derives it.**
 The empty string sorts ahead of every real filing name, so a book given one is

@@ -78,8 +78,8 @@ export function useOpenBook(): OpenBook {
       /*
        * A filing name the heuristic would not produce is an override, and
        * must survive the round trip or the book moves on save. Read off
-       * the credit rather than the row, since that is the same value the
-       * shelf is ordered by.
+       * the credit rather than the row: the credit's alias is what the next
+       * save files under, and the row says what the last one did.
        */
       const derived = filingName(loaded.authors.split(',')[0]?.trim() ?? '')
       const files = authors[0]?.filingName ?? ''

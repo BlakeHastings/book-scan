@@ -1943,7 +1943,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       res.status(404).json({ error: 'No such book.' })
       return
     }
-    res.json({ book: found.book, authors: found.authors })
+    res.json({ book: found.book, authors: found.authors, filedUnder: found.filedUnder })
   }))
 
   /**
