@@ -8,26 +8,24 @@
  * `pg_advisory_xact_lock` has a row there that is not granted for exactly as
  * long as it waits. See the same probe in `db.pg.test.ts`.
  *
- * Saving a book is not in this file and is not covered: `Store.addBook` and
- * `updateBook` read the furniture under the range's lock alone, which is known
- * and is #604's to decide.
+ * Saving a book is not in this file and is not covered: `CatalogueBookHandler`
+ * and `ReviseBookHandler` read the furniture under the range's lock alone, which
+ * is known and is #604's to decide.
  */
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeTestDatabase, keepThisCatalogue, openTestDatabase } from './testdb'
+import { testBooks } from './testbooks'
 import { lockKey, type Db } from './driver'
-import { Store } from './store'
 import { Shelves } from './shelves'
 import { applyRunMove } from './relocate-run'
 import { dropArea } from './furniture'
 import { FURNITURE_LOCK, rangeLock } from '../application/locks'
-import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { FICTION_SLUG, NON_FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 import { plankAt, type PlankAt } from '../shared/layout'
 import type { ShelfRange } from '../shared/shelving'
 
 let db: Db
-let store: Store
 let shelves: Shelves
 let bob = 0
 
@@ -36,15 +34,14 @@ const plank = (label: string): PlankAt => plankAt(label)!
 /** Fiction is Ann and Bob on 1A and Cat on 1B; non-fiction is two books on 4A. */
 beforeAll(async () => {
   db = await openTestDatabase()
-  store = new Store(db, new DrizzleAuthorRepository(db))
   shelves = new Shelves(db)
 
   for (const author of ['Ann Author', 'Bob Baker', 'Cat Cole']) {
-    const { id } = await store.addBook({ title: 'Book', authors: [author], genre: FICTION_SLUG })
+    const { id } = await testBooks(db).catalogue({ title: 'Book', authors: [author], genre: FICTION_SLUG })
     if (author === 'Bob Baker') bob = id
   }
   for (const author of ['Dan Dale', 'Eve Edge']) {
-    await store.addBook({ title: 'Book', authors: [author], genre: NON_FICTION_SLUG })
+    await testBooks(db).catalogue({ title: 'Book', authors: [author], genre: NON_FICTION_SLUG })
   }
   const cut = await shelves.overflow('fiction', plank('1A'), 'area')
   if (!cut.ok) throw new Error(`the fixture could not cut 1B: ${cut.error}`)

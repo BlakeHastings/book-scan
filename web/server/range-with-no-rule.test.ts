@@ -13,6 +13,7 @@
 
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeTestDatabase, openTestDatabase } from './testdb'
+import { testBooks } from './testbooks'
 import type { Db } from './driver'
 import { Shelves } from './shelves'
 import { Store } from './store'
@@ -34,7 +35,7 @@ beforeEach(async () => {
 afterAll(closeTestDatabase)
 
 const add = (author: string, genre = NON_FICTION_SLUG) =>
-  store.addBook({ title: `${author}'s book`, authors: [author], genre })
+  testBooks(db).catalogue({ title: `${author}'s book`, authors: [author], genre })
 
 /**
  * Take every rule off the place that serves a range, through
@@ -187,7 +188,7 @@ describe('a range no rule serves', () => {
      * answer another part of the app does not share. The book is still
      * catalogued, because a book somebody scanned is a book they own.
      */
-    const saved = await store.addBook(drafting('Ackroyd'))
+    const saved = await testBooks(db).catalogue(drafting('Ackroyd'))
     expect(saved.placement?.kind).toBe('range-has-no-start')
     expect(saved.placement?.suggestedLocation).toBe('')
     expect(await db.get('SELECT id FROM books WHERE id = ?', [saved.id])).toBeTruthy()
