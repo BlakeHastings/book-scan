@@ -2,7 +2,7 @@
  * How many books each tag has, counting the ones under it.
  *
  * Not a method on the repository, and it must not become one: `server/furniture.ts`
- * reads this too, and a furniture module importing `book-repository.ts` closes a
+ * reads this too, and a furniture module importing `shelf-reads.ts` closes a
  * dependency loop through four files that `npm run lint:layers` fails by name.
  *
  * The rollup counts at or under the slug, as a range rather than a `LIKE`,

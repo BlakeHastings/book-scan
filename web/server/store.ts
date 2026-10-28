@@ -59,7 +59,7 @@ import {
  * through it is on the same connection, the same transaction and the same
  * advisory lock as the write beside it. See `infrastructure/db/query.ts`.
  */
-import { DrizzleBookRepository, type FiledPlacedBook } from '../infrastructure/books/book-repository'
+import { DrizzleShelfReads, type FiledPlacedBook } from '../infrastructure/books/shelf-reads'
 import {
   DrizzleCatalogueReadModel, type PlacedPhotographedBook,
 } from '../infrastructure/books/catalogue-read-model'
@@ -123,7 +123,7 @@ export interface FilingInput {
  */
 
 export class Store {
-  private readonly reads: DrizzleBookRepository
+  private readonly reads: DrizzleShelfReads
   /** The catalogue's reads. The three below that delegate to it are kept for their write-side callers. */
   private readonly catalogue: DrizzleCatalogueReadModel
 
@@ -136,7 +136,7 @@ export class Store {
     private readonly db: Db,
     private readonly authors: AuthorRepository,
   ) {
-    this.reads = new DrizzleBookRepository(db)
+    this.reads = new DrizzleShelfReads(db)
     this.catalogue = new DrizzleCatalogueReadModel(db)
   }
 
