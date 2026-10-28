@@ -25,7 +25,7 @@ import { resolveIsbnPair } from '../../shared/isbn'
 import { CHECKED_OUT, SHELVED } from '../../domain/books/state'
 import { build, statement } from '../db/query'
 import { authorAlias, bookAuthor, bookTag, cataloguedBooks, tag } from '../db/schema'
-import type { FiledPlacedBook } from './book-repository'
+import type { FiledPlacedBook } from './shelf-reads'
 
 /** A book read by id: the table's row, which has no filing name, with the rest derived. */
 export type PlacedPhotographedBook = PhotographedBook & PlacementFields

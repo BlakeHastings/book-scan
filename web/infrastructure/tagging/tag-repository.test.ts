@@ -14,7 +14,9 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import type { Db } from '../../server/driver'
 import { RestateTagsHandler } from '../../application/tagging/restate-tags'
-import { ApplyTagHandler, RemoveTagHandler } from '../../application/tagging/apply-tag'
+import { ApplyTagHandler } from '../../application/tagging/commands/apply-tag'
+import { RemoveTagHandler } from '../../application/tagging/commands/remove-tag'
+import { DrizzleBookRepository } from '../books/book-repository'
 import { TagSlug } from '../../domain/tagging/tags'
 import { closeTestDatabase, openTestDatabase } from '../../server/testdb'
 import { DbUnitOfWork } from '../db/unit-of-work'
@@ -169,7 +171,7 @@ describe('what a book carries', () => {
       { slug: TagSlug.of('genre/fiction'), source: 'person', confidence: 'high', addedAt: NOW },
     ])
 
-    await new RemoveTagHandler(tags).handle({ bookId: book, slug: TagSlug.of('genre/fiction') })
+    await new RemoveTagHandler(new DrizzleBookRepository(db), new DbUnitOfWork(db)).handle({ bookId: book, slug: TagSlug.of('genre/fiction') })
     expect(await tags.of(book)).toEqual([])
   })
 
@@ -195,7 +197,7 @@ describe('a lookup re-running', () => {
     // and the decision still there afterwards.
     const book = await aBook('Dune')
 
-    await new ApplyTagHandler(tags).handle({
+    await new ApplyTagHandler(new DrizzleBookRepository(db), tags, new DbUnitOfWork(db)).handle({
       bookId: book, slug: TagSlug.of('mine/lent-out'), label: 'Lent out', now: NOW,
     })
     await restate().handle({

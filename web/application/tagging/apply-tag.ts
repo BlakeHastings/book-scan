@@ -1,47 +1,14 @@
 /**
- * A person puts a book under a tag, or takes it back out. Touches only the
- * tag it names, so no transaction is needed.
- *
- * Removing a tag removes every source's row for it, not just the person's
- * own. This is not remembered as a fact: a later catalogue lookup that still
- * claims the tag will bring it back.
+ * The vocabulary's own commands: making, unmaking and renaming a word. Putting a
+ * book under one is `commands/apply-tag.ts`, because that changes a book.
  */
 
-import { TagSlug, type TagConfidence } from '../../domain/tagging/tags'
+import { TagSlug } from '../../domain/tagging/tags'
 import type { Tag, TagRepository } from './ports'
-
-/** Somebody put this book under this tag. */
-export interface ApplyTag {
-  bookId: number
-  /**
-   * What the person typed. Normalised into a slug on the way in, so "Lent Out",
-   * "lent out" and "LENT-OUT" are one tag rather than three near misses.
-   */
-  slug: TagSlug
-  /** What anybody reads. Defaults to what they typed, which is the point of it. */
-  label: string
-  confidence?: TagConfidence
-  now: string
-}
-
-export class ApplyTagHandler {
-  constructor(private readonly tags: TagRepository) {}
-
-  async handle(command: ApplyTag): Promise<void> {
-    const tag = await this.tags.define(command.slug, command.label)
-    await this.tags.apply(command.bookId, [{
-      slug: tag.slug,
-      source: 'person',
-      // A person is not guessing: there is no scale on which having the book in hand is 'medium'.
-      confidence: command.confidence ?? 'high',
-      addedAt: command.now,
-    }])
-  }
-}
 
 /**
  * Somebody made a word, with no book in their hand. The same `define` as
- * `ApplyTag`, minus applying it to a book. Idempotent, because `define` is:
+ * `ApplyTag` makes, minus applying it to a book. Idempotent, because `define` is:
  * naming a word a rule already asks for finds the existing row rather than
  * making a second one.
  */
@@ -93,20 +60,6 @@ export class ForgetTagHandler {
     return still.some((one) => one.slug.equals(command.slug))
       ? { kind: 'carried' }
       : { kind: 'unknown' }
-  }
-}
-
-/** Somebody took this book back out of this tag. */
-export interface RemoveTag {
-  bookId: number
-  slug: TagSlug
-}
-
-export class RemoveTagHandler {
-  constructor(private readonly tags: TagRepository) {}
-
-  async handle(command: RemoveTag): Promise<void> {
-    await this.tags.retract(command.bookId, [command.slug])
   }
 }
 

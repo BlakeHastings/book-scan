@@ -30,7 +30,7 @@ import { cropPhotos } from './crop'
 import { CaptureQueue, type CaptureEdit, type CaptureRow } from './queue'
 import { Shelves, type Planks, type ShelvedBook } from './shelves'
 import { plankLabels, tagsRulesName, type Plank, type RunPlanks } from '../infrastructure/shelving/areas'
-import { toNeighbour } from '../infrastructure/books/book-repository'
+import { toNeighbour } from '../infrastructure/books/shelf-reads'
 import {
   countProjectionDisagreements, projectionDisagreements, REBUILD_COMMAND,
 } from '../infrastructure/placement/projection'
@@ -39,8 +39,11 @@ import type { Move, PlankAt } from '../shared/layout'
 import { RemoveSeparatorHandler } from '../application/shelving/remove-separator'
 import { DrizzleSeparatorRepository } from '../infrastructure/shelving/separator-repository'
 import {
-  ApplyTagHandler, DefineTagHandler, ForgetTagHandler, RelabelTagHandler, RemoveTagHandler,
+  DefineTagHandler, ForgetTagHandler, RelabelTagHandler,
 } from '../application/tagging/apply-tag'
+import { ApplyTagHandler } from '../application/tagging/commands/apply-tag'
+import { RemoveTagHandler } from '../application/tagging/commands/remove-tag'
+import { DrizzleBookRepository } from '../infrastructure/books/book-repository'
 import { RestateTagsHandler } from '../application/tagging/restate-tags'
 import { ReidentifyBookHandler } from '../application/tagging/reidentify-book'
 import { DrizzleTagRepository } from '../infrastructure/tagging/tag-repository'
@@ -473,8 +476,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   const unitOfWork = new DbUnitOfWork(db)
   const restateTags = new RestateTagsHandler(tags, unitOfWork)
   const reidentifyBook = new ReidentifyBookHandler(tags, unitOfWork)
-  const applyTag = new ApplyTagHandler(tags)
-  const removeTag = new RemoveTagHandler(tags)
+  const books = new DrizzleBookRepository(db)
+  const applyTag = new ApplyTagHandler(books, tags, unitOfWork)
+  const removeTag = new RemoveTagHandler(books, unitOfWork)
   const relabelTag = new RelabelTagHandler(tags)
   const defineTag = new DefineTagHandler(tags)
   /* The rules are read per request rather than once, because a rule naming a
@@ -2244,12 +2248,16 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     const slug = slugFrom(typed, res)
     if (!slug) return
 
-    await applyTag.handle({
+    const applied = await applyTag.handle({
       bookId: id,
       slug,
       label: String(body.label ?? typed).trim() || slug.value,
       now: new Date().toISOString(),
     })
+    if (!applied) {
+      res.status(404).json({ error: 'No such book.' })
+      return
+    }
     res.status(201).json({ tags: await describeTags(id) })
   }))
 
@@ -2266,7 +2274,10 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     const slug = slugFrom(req.query.slug, res)
     if (!slug) return
 
-    await removeTag.handle({ bookId: id, slug })
+    if (!(await removeTag.handle({ bookId: id, slug }))) {
+      res.status(404).json({ error: 'No such book.' })
+      return
+    }
     res.json({ tags: await describeTags(id) })
   }))
 
