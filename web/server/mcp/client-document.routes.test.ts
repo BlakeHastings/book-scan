@@ -180,6 +180,7 @@ describe('a client with a published identity', () => {
     await boot(reaching(documents, exceptLoopback))
     publish()
     const page = await fetch(authorizeUrl(), { redirect: 'manual' })
+    expect(documents.connections).toBe(0)
     expect(page.status).toBe(200)
     const html = await page.text()
     expect(html).toContain(`Sign in to connect the client at ${new URL(documentId()).host}`)
@@ -188,6 +189,7 @@ describe('a client with a published identity', () => {
 
     const waiting = await signedIn(db, { enabled: false })
     const refused = await fetch(authorizeUrl(), { headers: { cookie: waiting.cookie }, redirect: 'manual' })
+    expect(documents.connections).toBe(0)
     expect(refused.status).toBe(403)
 
     expect(documents.connections).toBe(0)
