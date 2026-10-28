@@ -18,7 +18,8 @@
  * `--disable` takes effect on that person's very next request rather than
  * ending their session, since the gate reads `enabled` on every request
  * instead of caching it. `--sign-out` is the separate decision that revokes
- * every session they hold.
+ * every session they hold and, in the same transaction, every MCP client they
+ * have connected (#625), because a connected client is a credential too.
  */
 
 import pg from 'pg'
@@ -27,6 +28,7 @@ import { pathToFileURL } from 'node:url'
 import { connectionConfig, describeConnection, PgDb } from '../server/db.pg'
 import type { Db } from '../server/driver'
 import { AuthStore, type UserWithIdentities } from '../infrastructure/auth/auth-store'
+import { OAuthStore } from '../infrastructure/auth/oauth-store'
 
 export function describePerson(person: UserWithIdentities): string {
   const identities = person.identities.length
@@ -148,6 +150,42 @@ export async function listEverybody(db: Db): Promise<UserWithIdentities[]> {
   return everyone
 }
 
+/**
+ * Take away every credential a person holds: their sessions, and every grant
+ * an MCP client holds for them with the tokens under it. One transaction, so a
+ * failure part way leaves them holding both rather than half. Whether they are
+ * let in is untouched; that is `--disable`.
+ */
+export async function signOut(
+  db: Db,
+  person: UserWithIdentities,
+  now: Date,
+): Promise<{ sessions: number; connections: number }> {
+  const ended = await db.tx(async (tx) => ({
+    sessions: await new AuthStore(tx).revokeSessionsFor(person.id, now),
+    connections: await new OAuthStore(tx).revokeEveryGrantOf(person.id, now),
+  }))
+
+  console.log(
+    ended.sessions === 0
+      ? `${person.id} holds no session, so there was nothing to end.`
+      : `Ended ${ended.sessions} session(s) for ${person.id}.`,
+  )
+  console.log(
+    ended.connections === 0
+      ? `${person.id} has no MCP client connected, so there was nothing to revoke.`
+      : `Revoked ${ended.connections} MCP connection(s) for ${person.id}, and every ` +
+        'token issued under them. Each client has to be approved again to reconnect.',
+  )
+  if (ended.sessions + ended.connections > 0) {
+    console.log(
+      `They stay ${person.enabled ? 'enabled' : 'on the waiting list'}; this only took ` +
+      'away the credentials.',
+    )
+  }
+  return ended
+}
+
 async function main(): Promise<void> {
   const args = readArgs(process.argv.slice(2), process.env)
   if ('error' in args) {
@@ -181,14 +219,7 @@ async function main(): Promise<void> {
     const now = new Date()
 
     if (args.signOut !== undefined) {
-      const ended = await store.revokeSessionsFor(person.id, now)
-      console.log(
-        ended === 0
-          ? `${person.id} holds no session, so there was nothing to end.`
-          : `Ended ${ended} session(s) for ${person.id}. They stay ` +
-            `${person.enabled ? 'enabled' : 'on the waiting list'}; this only took ` +
-            'away the credential.',
-      )
+      await signOut(db, person, now)
       return
     }
 
@@ -205,8 +236,9 @@ async function main(): Promise<void> {
         ? `${person.id} is in. If they are holding a session already, their next ` +
           'request goes through; they do not have to sign in again.'
         : `${person.id} is back on the waiting list. Their next request answers ` +
-          '403, on whatever session they are holding, with no sign-out needed. ' +
-          'Use --sign-out as well if the credential itself is the problem.',
+          '403, on whatever session or MCP connection they are holding, with no ' +
+          'sign-out needed. Use --sign-out as well if the credentials themselves ' +
+          'are the problem.',
     )
   } finally {
     await pool.end()

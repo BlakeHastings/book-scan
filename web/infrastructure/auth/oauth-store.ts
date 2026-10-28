@@ -367,12 +367,34 @@ export class OAuthStore {
 
   /** A person disconnecting one of their own clients. False when it was not theirs or is already gone. */
   async revokeGrant(grantId: string, userId: string, now: Date): Promise<boolean> {
+    return (await this.revokeGrantsOf(userId, now, grantId)) > 0
+  }
+
+  /**
+   * Every grant a person holds, ended at once, and how many were still live.
+   * This is `enable-user --sign-out`'s half for the connector: a grant whose
+   * code was never exchanged is ended too, since that code could still be.
+   */
+  async revokeEveryGrantOf(userId: string, now: Date): Promise<number> {
+    return this.revokeGrantsOf(userId, now)
+  }
+
+  /**
+   * The one statement that disconnects. Tokens are not stamped one by one:
+   * `liveAccess` and `spendRefresh` both refuse a token whose grant is
+   * revoked, so revoking the grant is what revokes everything under it.
+   */
+  private async revokeGrantsOf(userId: string, now: Date, grantId?: string): Promise<number> {
     const query = statement(
       build.update(oauthGrant)
         .set({ revokedAt: at(now) })
-        .where(and(eq(oauthGrant.id, grantId), eq(oauthGrant.userId, userId), isNull(oauthGrant.revokedAt))),
+        .where(and(
+          eq(oauthGrant.userId, userId),
+          isNull(oauthGrant.revokedAt),
+          grantId === undefined ? undefined : eq(oauthGrant.id, grantId),
+        )),
     )
-    return (await this.db.run(query.text, query.values)).changes > 0
+    return (await this.db.run(query.text, query.values)).changes
   }
 
   /**
