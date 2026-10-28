@@ -17,22 +17,23 @@ let work: DbUnitOfWork
 
 beforeAll(async () => {
   db = await openTestDatabase()
-  await db.run('CREATE TABLE IF NOT EXISTS unit_of_work_probe (said text NOT NULL)')
 })
 
 beforeEach(async () => {
-  await db.run('DELETE FROM unit_of_work_probe')
+  await openTestDatabase()
   work = new DbUnitOfWork(db)
 })
 
 afterAll(closeTestDatabase)
 
-const say = (said: string) => db.run('INSERT INTO unit_of_work_probe (said) VALUES (?)', [said])
+/** Any table would do; `tag` is one with nothing hanging off it. */
+const say = (said: string) =>
+  db.run('INSERT INTO tag (slug, label) VALUES (?, ?)', [`probe/${said}`, said])
 
 /** What has been committed, read from outside any unit of work. */
 const committed = async () =>
-  (await db.all<{ said: string }>('SELECT said FROM unit_of_work_probe ORDER BY said'))
-    .map((row) => row.said)
+  (await db.all<{ label: string }>(`SELECT label FROM tag WHERE slug LIKE 'probe/%' ORDER BY label`))
+    .map((row) => row.label)
 
 const pause = (ms: number) => new Promise((resolve) => { setTimeout(resolve, ms) })
 
