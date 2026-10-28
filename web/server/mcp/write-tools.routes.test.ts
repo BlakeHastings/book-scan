@@ -565,6 +565,7 @@ describe('the tools do what the app would have done (#644)', () => {
     expect(updateBook).toMatch(/genre replaces every genre tag a person/)
     expect(updateBook).toMatch(/not looked up.*lookup_isbn/s)
     expect(byName.get('add_book')?.description).toMatch(/second_copy/)
+    expect(byName.get('add_book')?.description).toMatch(/list_queue.*only in the book-scan app/s)
   })
 
   it('update_book says a new ISBN was not looked up, and names the books already carrying it', async () => {

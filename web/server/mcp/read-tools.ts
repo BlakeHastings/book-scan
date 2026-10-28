@@ -217,7 +217,7 @@ const QUEUE_WORDS = Object.values(QUEUE_WORD) as [QueueWord, ...QueueWord[]]
  * the queue, so a model that has seen either tells the person rather than
  * reaching for add_book, which would catalogue a second copy beside the queued one.
  */
-const FINISHED_IN_THE_APP =
+export const FINISHED_IN_THE_APP =
   'A queued book is confirmed and shelved only in the book-scan app, by a person with the book in ' +
   'hand checking the photographs and the record; no tool here does it. Do not call add_book with a ' +
   'queued book\'s ISBN: that catalogues a second copy and leaves the queued one where it is. Tell the ' +
@@ -529,14 +529,19 @@ export function registerReadTools(server: McpServer, queries: CatalogueQueries):
     annotations: { readOnlyHint: true, openWorldHint: true },
   }, async (args, extra) => {
     actingFor(extra.authInfo)
-    if (!resolveIsbnPair(args.isbn).isbn13) {
+    const asked = resolveIsbnPair(args.isbn)
+    if (!asked.isbn13) {
       return refuse(`"${args.isbn}" is not a valid ISBN-10 or ISBN-13. Check the digits and the check digit.`)
     }
     const { record, duplicateOf } = await queries.lookupIsbn.handle({ isbn: args.isbn })
+    // A record nobody found carries `lookup.ts`'s default genre, which no catalogue stated.
+    const classification = record.found
+      ? record.classification
+      : { genre: null, confidence: 'unknown', reason: 'Neither catalogue knows this number, so nothing states a genre.' }
     return answer({
       found: record.found,
-      isbn13: record.isbn13,
-      isbn10: record.isbn10,
+      isbn13: record.isbn13 || asked.isbn13,
+      isbn10: record.isbn10 || asked.isbn10,
       title: record.title,
       subtitle: record.subtitle,
       authors: record.authors,
@@ -545,9 +550,9 @@ export function registerReadTools(server: McpServer, queries: CatalogueQueries):
       pages: record.pages,
       series_name: record.seriesName,
       series_index: record.seriesIndex,
-      genre: record.classification.genre,
-      genre_confidence: record.classification.confidence,
-      genre_reason: record.classification.reason,
+      genre: classification.genre,
+      genre_confidence: classification.confidence,
+      genre_reason: classification.reason,
       subjects: [...(record.subjects ?? []), ...(record.categories ?? [])],
       source: record.source,
       cover_url: record.coverUrl,
