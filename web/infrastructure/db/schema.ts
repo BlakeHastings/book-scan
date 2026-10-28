@@ -1057,6 +1057,149 @@ export const signInFlow = pgTable('sign_in_flow', {
 })
 
 /**
+ * An MCP client that registered itself (RFC 7591), such as claude.ai or Claude
+ * Code. A client is a program, not a person: registering one grants nothing,
+ * and nothing it can do reaches the catalogue until a person who is enabled
+ * approves it on the consent page.
+ *
+ * Every client is public (`token_endpoint_auth_method` `none`), whatever it
+ * asked for, so there is no client secret to store. PKCE is what proves the
+ * caller at the token endpoint is the one that started the authorization.
+ *
+ * `metadata` is the registration response as JSON text, the shape the SDK
+ * hands back to `getClient`. `client_name` and `redirect_uris` live inside it
+ * and are not trusted for anything but display and exact matching.
+ */
+export const oauthClient = pgTable('oauth_client', {
+  /** A `randomUUID()` the SDK generated at registration. */
+  clientId: text('client_id').primaryKey(),
+  metadata: text('metadata').notNull(),
+  // text, not timestamp, for the reason written out on books.cover_checked_at.
+  createdAt: text('created_at').notNull(),
+})
+
+/**
+ * A consent page that has been shown and not answered. The row is the CSRF
+ * token: the page carries 32 random bytes, this holds their SHA-256, and the
+ * answer is accepted only from the session the page was drawn for. It also
+ * holds the authorization request itself, so nothing the browser posts back
+ * can change which client, redirect or challenge is approved.
+ *
+ * Single use and ten minutes, like `sign_in_flow`.
+ */
+export const oauthConsent = pgTable('oauth_consent', {
+  tokenHash: text('token_hash').primaryKey(),
+  /** The `session.token_hash` of the person the page was shown to. */
+  sessionHash: text('session_hash').notNull(),
+  userId: text('user_id').notNull(),
+  clientId: text('client_id').notNull(),
+  redirectUri: text('redirect_uri').notNull(),
+  codeChallenge: text('code_challenge').notNull(),
+  /** The client's `state`, echoed back on the redirect. Empty when it sent none. */
+  state: text('state').notNull().default(''),
+  /** RFC 8707. Always this server's own `/mcp`; see `oauth_grant.resource`. */
+  resource: text('resource').notNull(),
+  // text, not timestamp, for the reason written out on books.cover_checked_at.
+  createdAt: text('created_at').notNull(),
+  expiresAt: text('expires_at').notNull(),
+}, (table) => [
+  foreignKey({
+    name: 'oauth_consent_user_id_fkey',
+    columns: [table.userId],
+    foreignColumns: [user.id],
+  }).onDelete('cascade'),
+  foreignKey({
+    name: 'oauth_consent_client_id_fkey',
+    columns: [table.clientId],
+    foreignColumns: [oauthClient.clientId],
+  }).onDelete('cascade'),
+])
+
+/**
+ * A person's approval of one client: a connection. Every token is issued under
+ * a grant, so revoking the grant ends every token it ever issued at once, and
+ * that is what a person disconnecting a client means.
+ *
+ * The authorization code is a column here rather than a table, because each
+ * approval produces exactly one. `code_used_at` is set rather than the row
+ * deleted, so a code presented a second time is recognised as a replay and the
+ * grant it opened is revoked (RFC 6749 section 4.1.2).
+ *
+ * `resource` is RFC 8707's: the MCP endpoint the tokens are for. It is always
+ * this server's own, and a token is refused at `/mcp` if it is not, so changing
+ * `BOOKSCAN_PUBLIC_ORIGIN` invalidates every token issued under the old one.
+ *
+ * No scope column. There is one thing a token can do, which is act as the
+ * person who approved it; #171 has not decided roles and this does not invent
+ * any.
+ */
+export const oauthGrant = pgTable('oauth_grant', {
+  /** A `randomUUID()`, and what a person names when they disconnect a client. */
+  id: text('id').primaryKey(),
+  clientId: text('client_id').notNull(),
+  userId: text('user_id').notNull(),
+  resource: text('resource').notNull(),
+  redirectUri: text('redirect_uri').notNull(),
+  /** SHA-256 of the code, hex. Never the code. */
+  codeHash: text('code_hash').notNull(),
+  /** PKCE, RFC 7636, `S256`. */
+  codeChallenge: text('code_challenge').notNull(),
+  // text, not timestamp, for the reason written out on books.cover_checked_at.
+  codeExpiresAt: text('code_expires_at').notNull(),
+  codeUsedAt: text('code_used_at'),
+  createdAt: text('created_at').notNull(),
+  /** Moved by every token issued and every refresh, for the connections list. */
+  lastUsedAt: text('last_used_at').notNull(),
+  revokedAt: text('revoked_at'),
+}, (table) => [
+  foreignKey({
+    name: 'oauth_grant_user_id_fkey',
+    columns: [table.userId],
+    foreignColumns: [user.id],
+  }).onDelete('cascade'),
+  foreignKey({
+    name: 'oauth_grant_client_id_fkey',
+    columns: [table.clientId],
+    foreignColumns: [oauthClient.clientId],
+  }).onDelete('cascade'),
+  uniqueIndex('idx_oauth_grant_code').on(table.codeHash),
+  /** "Every connection this person holds", which is what the list reads. */
+  index('idx_oauth_grant_user').on(table.userId),
+])
+
+/**
+ * An access or refresh token, stored as the SHA-256 of what the client holds,
+ * for the argument written out on `session`: a copy of this table is not a set
+ * of live credentials.
+ *
+ * Access tokens live an hour. Refresh tokens live thirty days and are single
+ * use: each refresh revokes the one presented and issues a new pair, so the
+ * thirty days slide with use the way a session's do. A refresh token presented
+ * after it was rotated is treated as stolen and revokes the grant (OAuth 2.1
+ * section 4.3.1).
+ *
+ * `enabled` is not here, for the reason it is not on `session`: `/mcp` joins
+ * `user` on every request.
+ */
+export const oauthToken = pgTable('oauth_token', {
+  tokenHash: text('token_hash').primaryKey(),
+  grantId: text('grant_id').notNull(),
+  kind: text('kind', { enum: ['access', 'refresh'] }).notNull(),
+  // text, not timestamp, for the reason written out on books.cover_checked_at.
+  createdAt: text('created_at').notNull(),
+  expiresAt: text('expires_at').notNull(),
+  revokedAt: text('revoked_at'),
+}, (table) => [
+  foreignKey({
+    name: 'oauth_token_grant_id_fkey',
+    columns: [table.grantId],
+    foreignColumns: [oauthGrant.id],
+  }).onDelete('cascade'),
+  check('oauth_token_kind_check', sql`${table.kind} in ('access', 'refresh')`),
+  index('idx_oauth_token_grant').on(table.grantId),
+])
+
+/**
  * Every table this schema declares, which is not the same list as every table
  * the baseline creates: several arrive in later migrations instead, so that a
  * database predating them can still be adopted. `migrate.ts` decides that by
@@ -1069,4 +1212,5 @@ export const ALL_TABLES = [
   bookPlacement,
   // The only tables here that are not about books.
   user, userIdentity, session, signInFlow,
+  oauthClient, oauthConsent, oauthGrant, oauthToken,
 ] as const
