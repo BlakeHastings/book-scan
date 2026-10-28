@@ -114,7 +114,7 @@ the approve button cannot be clickjacked. Its `form-action` names this origin
 and the redirect URI's origin, because browsers apply `form-action` to the
 redirect a submission is answered with.
 
-### Clients are public, and registered by DCR
+### Clients are public, registered by DCR or named by a document
 
 claude.ai registers through DCR when the server does not advertise CIMD, and
 both make it a public client. So **every client is registered public**, whatever
@@ -127,10 +127,262 @@ and so could only check one this server kept in the clear.
 `[::1]`, with no fragment.** Matching is the SDK's: exact, except that a loopback
 port is ignored, as RFC 8252 section 7.3 requires and Claude Code needs.
 
-**CIMD is not supported yet.** It is a SHOULD in this revision and claude.ai
-falls back to DCR without it. Supporting it means fetching a URL a stranger
-names, with the SSRF care the specification spells out, and that is its own
-change. Follow-up below.
+**CIMD is supported since #640**, beside DCR rather than instead of it. The
+next section is the whole of it.
+
+### Clients that name themselves with a metadata document (#640)
+
+#### What was read
+
+- **The MCP specification, 2025-11-25**, "Client ID Metadata Documents". It
+  cites **draft-ietf-oauth-client-id-metadata-document-00**. Authorization
+  servers **SHOULD** support CIMD; a server that does **MUST** check that the
+  fetched document's `client_id` equals its URL exactly, **MUST** check the
+  authorization request's redirect URI against the document's `redirect_uris`,
+  **MUST** check the document is valid JSON with the required fields, and
+  **SHOULD** cache it respecting HTTP cache headers. Support is advertised as
+  `client_id_metadata_document_supported: true` in RFC 8414 metadata. Its
+  security section repeats the SSRF warning ("a malicious client could use this
+  to trigger the authorization server to make requests to arbitrary URLs") and
+  says the server **MUST** clearly display the redirect URI's host and
+  **SHOULD** warn on a loopback-only redirect, because CIMD by itself cannot
+  stop somebody quoting a real client's URL and listening on a loopback port.
+- **The draft itself.** `-00` is what the specification cites; the current
+  revision is **`-02`, 6 July 2026**, and where they differ this follows the
+  stricter. The `client_id` URL **MUST** be `https`, have a path, and carry no
+  fragment, no user name or password and no dot segments. The document **MUST
+  NOT** carry `client_secret` or a shared-secret `token_endpoint_auth_method`.
+  `-02` adds that the server **MUST NOT** follow redirects, that anything but
+  `200` is an error, and that it **MUST NOT** fetch from an address RFC 6890
+  calls special-use. Errors and invalid documents **MUST NOT** be cached, and
+  the server **MAY** bound the cache lifetime both ways. It recommends a
+  **5 kilobyte** ceiling, and says to show the `client_id`'s host on the
+  consent screen.
+- **Claude's documentation** (`connectors/building/authentication`,
+  `connectors/building/lazy-authentication` and `connectors/custom/add-unlisted`,
+  read 2026-10-28). Claude uses CIMD only when the metadata says both
+  `client_id_metadata_document_supported: true` and `"none"` in
+  `token_endpoint_auth_methods_supported`; otherwise it falls back to DCR. The
+  custom-connector dialog's **Use Claude's published identity** is this: "The
+  server reads Claude's client details from a Client ID Metadata Document that
+  Anthropic hosts." The lazy-authentication page tells a server to name the
+  `client_id`'s host on the consent screen "not the document's `client_name`,
+  because the document is self-asserted".
+
+#### What Claude actually sends
+
+**Claude Code's document is published, and was fetched** on 2026-10-28
+(`Cache-Control: public, max-age=300`, 317 bytes):
+
+```
+GET https://claude.ai/oauth/claude-code-client-metadata
+{"client_id":"https://claude.ai/oauth/claude-code-client-metadata","client_name":"Claude Code",
+ "client_uri":"https://claude.ai","redirect_uris":["http://localhost/callback","http://127.0.0.1/callback"],
+ "grant_types":["authorization_code","refresh_token"],"response_types":["code"],
+ "token_endpoint_auth_method":"none"}
+```
+
+Its redirect URIs carry no port, and the SDK's loopback match ignores the port,
+so `http://localhost:<any>/callback` matches.
+
+**claude.ai's own document URL is not published anywhere I could find.** The
+documentation says Anthropic hosts it, and that the hosted apps redirect to
+exactly `https://claude.ai/api/mcp/auth_callback`; ten likely paths under
+`claude.ai/oauth/` answered Cloudflare's `403`. So this was built to the
+specification rather than to a known document, on the reading that claude.ai's
+`client_id` is an `https` URL on `claude.ai` whose document lists that one
+callback and says `"none"`. Nothing here names claude.ai specially: any
+document that passes the checks below is accepted, and the person approving it
+sees where it came from.
+
+#### Does the SDK do this
+
+**Not on the server side.** `@modelcontextprotocol/sdk` 1.32.2, still the latest
+on npm on 2026-10-28, has CIMD on the **client** side only:
+`OAuthClientProvider.clientMetadataUrl`, used when the server advertises support
+(`client/auth.js`, "SEP-991: URL-based Client IDs"). On the server side the only
+trace is the `client_id_metadata_document_supported` field in the metadata
+schema; `authorizationHandler` and `authenticateClient` both just call
+`clientsStore.getClient(client_id)`. So the document is fetched inside our own
+`getClient` (`ConnectorProvider` in `web/server/mcp/provider.ts`), and nothing
+else was brought in. The SDK's own client is what drives the tests.
+
+#### How it works here
+
+`getClient` looks at the shape of the id. **A registered client's id is a
+`randomUUID()`; a document client's id starts `https://`**, and neither can be
+the other, so the two never collide. `registerClient` refuses to store an
+`https` id in case the SDK ever stops generating UUIDs, and a body that sends
+`client_id` to `/register` is given a UUID anyway (the SDK strips it); both are
+tested.
+
+A document client is fetched, checked and stored **only by the provider that
+answers `/authorize`**. `/token` and `/revoke` are answered by a second provider
+that never fetches: it reads the row the approval was made against, however
+old. So nothing posted to `/token` makes this server send a request, and a
+connection keeps refreshing while the document's publisher is down.
+
+**And `/authorize` does not fetch for a stranger.** A middleware in front of the
+SDK's handler (`holdDocumentClients`) looks at `client_id` first. For a document
+id with no session it draws the sign-in page, naming the client by its host
+("Sign in to connect the client at claude.ai"); for a session that is not let in
+it draws the waiting page. Only an **enabled** person's request reaches the
+fetch. So the people who can make this server send a request to a URL of their
+choosing are the people the owner has let in, not the internet. The
+specification's own sequence diagram has the person authenticate before the
+fetch too.
+
+The document must then say:
+
+| Field | Required |
+| --- | --- |
+| `client_id` | Exactly the URL it was fetched from |
+| `redirect_uris` | At least one, each `https` or `http` to loopback with no fragment, the same rule as DCR. These **are** the registered list: the SDK matches the request's redirect URI against them |
+| `token_endpoint_auth_method` | Exactly `"none"`. Absent is refused, because RFC 7591's default is a secret method |
+| `client_secret`, `client_secret_expires_at` | Absent |
+| `grant_types`, `response_types` | If present, include `authorization_code` and `code` |
+| `client_name` | Text, if present. Shown, never trusted |
+
+The id itself must be `https`, have a path, have no fragment or credentials, and
+be in normal form (`new URL(id).href === id`), which refuses dot segments, an
+upper-case host and a spelled-out `:443`: the document's `client_id` is compared
+with this string exactly, so two spellings would be two clients.
+
+**The consent page shows both the name and the host**: "Allow Claude Code to
+use this catalogue as you?" and, under it, "This client describes itself in a
+document at claude.ai. The name above is what that document says; the address
+is who published it." The redirect host and the loopback warning are shown as
+before.
+
+#### The fetch, and the SSRF controls
+
+`web/server/mcp/client-document.ts`. `server/bounded-fetch.ts` was read and not
+used: it has a timeout and nothing else, uses the global `fetch` (which resolves
+names itself and follows redirects), and has no size limit.
+
+1. **`https` only.** Anything else is refused before resolution.
+2. **Every address is checked before a socket opens.** The name is resolved once
+   (`dns.lookup`, all addresses), and **if any one** is special-use the fetch is
+   refused: a name answering one public and one private address is a name
+   somebody pointed at both. An address written into the URL
+   (`https://10.0.0.1/...`, `https://[::1]/...`) is checked the same way.
+   Refused: every RFC 6890 IPv4 range (`0/8`, `10/8`, `100.64/10` carrier-grade
+   NAT, `127/8`, `169.254/16` link-local and cloud metadata, `172.16/12`,
+   `192.168/16`, the documentation and benchmarking ranges, multicast, `240/4`),
+   and for IPv6 anything outside global unicast `2000::/3` (which takes
+   loopback, link-local, unique-local, multicast, NAT64 and IPv4-mapped) plus
+   `2001::/23`, `2001:db8::/32` and `2002::/16`, which embed IPv4 or are
+   documentation.
+3. **The socket is pinned to the address that was checked.** The request is
+   made with Node's `https.request` and a `lookup` that answers the checked
+   address, so there is no second resolution for a DNS rebinding to win.
+4. **No redirect is followed.** Anything but `200` is a refusal, and a `3xx`
+   says so. So there is no "check again after the redirect" to get wrong.
+5. **Five seconds and five kilobytes** (the draft's figure, 5120 bytes). A
+   declared `Content-Length` over it is refused without reading; a body that
+   grows past it is cut off mid-stream.
+6. **No cookie, no credential, no compression.** The request carries `Accept`
+   and `User-Agent` and nothing else (a test asserts the exact header set), on a
+   fresh agent with no connection reuse. No `Accept-Encoding` is sent and a
+   compressed answer is refused, so there is no decompression to bomb.
+7. **JSON only**: `application/json` or `application/*+json`.
+8. **TLS is verified** against the system's roots; only a test passes a
+   certificate of its own.
+
+The address rule and the resolver are the two seams a test replaces
+(`clientDocuments` on `createApp`), so a test can serve a document from
+loopback. Nothing in the running server sets them.
+
+#### The cache: in `oauth_client`, no migration
+
+A document client needs an `oauth_client` row anyway, because `oauth_consent`
+and `oauth_grant` reference it. So the cache **is** that row: `client_id` is the
+document's URL, `metadata` is what was kept of the document plus
+`document_fresh_until`, and `created_at` is when it was last fetched. The
+existing columns fit, so there is no migration and no in-memory cache.
+
+- **Lifetime**: the document's `Cache-Control: max-age`, at most **one hour**,
+  five minutes when it says nothing, and **zero** for `no-store` or `no-cache`
+  (fetched again at every `/authorize`, though still stored, because grants need
+  the row).
+- A refetch **updates the row in place** (an upsert on `client_id`) rather than
+  replacing it, because a delete would cascade the person's grants away.
+- **A refusal is not stored**: a document that fails leaves the previous row
+  exactly as it was, and the next `/authorize` fetches again.
+- `/token` and `/revoke` read the row whatever its age (above).
+- `web/server/mcp/sweep.ts` treats these rows like registrations: one with no
+  grant and no open consent page goes a day after it was last fetched.
+
+#### What was proved
+
+`web/server/mcp/client-document.test.ts` (no database) runs the fetcher against
+a real `https` server on loopback that counts every TCP connection: a valid
+document is read with exactly `accept`, `connection`, `host` and `user-agent`
+sent; a name resolving to `127.0.0.1`, `10.0.0.5`, `192.168.1.1`,
+`169.254.169.254`, `100.64.0.1` or `::1` is refused **with the connection count
+still nought**, as is a name with one public and one private address and an
+address written into the URL; the name is resolved once and the connection goes
+to it; a `302` is not followed (the second path is never requested); a declared
+oversize body, an undeclared one streaming up to ten megabytes, a body that never
+finishes, HTML, broken JSON, an untrusted certificate and plain `http` are each
+refused. Beside those: the address table, the id shapes, the lifetime arithmetic
+and the document checks.
+
+`web/server/mcp/client-document.routes.test.ts`, against Postgres and the SDK's
+own client with `clientMetadataUrl` set: the metadata advertises both values;
+the client connects **without registering**, the consent page shows "Claude
+Code" and the document's host, the code is exchanged, `whoami` answers the
+person, a refresh works, the connection is listed under the document's name, and
+the document was fetched **once** for all of it. A stranger and a person not let
+in get their pages **with no connection made**; a mismatched `client_id`, a
+document on a private address (no connection made), an oversize and a slow
+document are each `400 invalid_client` and leave no row; a redirect URI outside
+the document is `Unregistered redirect_uri`; the cache is reused inside
+`max-age` and fetched again after it; and when the publisher starts answering
+`500` a new approval is refused while the existing connection still refreshes
+and calls a tool with no further request. DCR still connects beside it,
+`/register` cannot be talked into an `https` id, and an unknown UUID fetches
+nothing.
+
+Reverting each control and quoting the failure:
+
+- the address check off: *"refuses a document on a private address before any
+  request is sent → expected 200 to be 400"*, and in the fetch tests *"expected
+  1 to be +0"*;
+- the `client_id` match off: *"refuses a document whose client_id is not its own
+  URL → expected 200 to be 400"*;
+- the hold in front of `/authorize` off: *"sends a stranger to sign in without
+  fetching anything → expected 1 to be +0"*;
+- the `/token` provider allowed to fetch: the refresh after the publisher fails
+  throws *"InvalidClientError: This client's metadata document was refused: The
+  document answered 500, not 200."*;
+- the size limit off: *"expected 200 to be 400"*, and the fetch tests run into
+  the timeout instead (*"expected 'The document took longer than 5 secon...' to
+  contain 'over the 5120'"*);
+- the timeout off: *"Test timed out in 20000ms."*
+
+**Against the booted app** (`aspire start` in a worktree, 2026-10-28), the SDK's
+client with `clientMetadataUrl` set to **Claude Code's real document**, fetched
+over the real network under the real address rule:
+
+```
+client_id used: https://claude.ai/oauth/claude-code-client-metadata
+no session -> 200 Sign in to connect the client at claude.ai
+signed in -> 200 Allow Claude Code to use this catalogue as you?
+   This client describes itself in a document at claude.ai. The name above is what that document says; the address is who published it.
+   The answer will be sent to localhost:7781.
+approved -> 302 http://localhost:7781/callback
+whoami -> {"id":"d6d901ab-...","name":"developer","email":"developer@localhost","client":"https://claude.ai/oauth/claude-code-client-metadata"}
+connections -> [[{"id":"https://claude.ai/oauth/claude-code-client-metadata","name":"Claude Code"},"localhost:7781"]]
+client_id https://localhost/x.json -> 400 {"error":"invalid_client","error_description":"This client's metadata document was refused: localhost resolves to 127.0.0.1, which is a private or special-use address this server does not fetch from."}
+client_id https://169.254.169.254/latest/meta-data -> 400 ... "169.254.169.254 resolves to 169.254.169.254, ..."
+client_id https://10.0.0.1/client.json -> 400 ... "10.0.0.1 resolves to 10.0.0.1, ..."
+```
+
+**Not proved**: claude.ai itself choosing **Use Claude's published identity**
+against a deployment, for the reason given for claude.ai below, and the real
+`claude` CLI picking CIMD (it should, since the metadata now advertises it, but
+its login opens a browser nobody here could press).
 
 ### Tokens: opaque, digested, bound to a grant
 
@@ -508,8 +760,18 @@ reach, and is the owner's to try once this is deployed.
 
 ## Known gaps, each a follow-up
 
-- **CIMD.** A SHOULD, and Claude Code prefers it when advertised. Needs an
-  outbound fetch with SSRF limits and a cache.
+- **Close `/register` to all but loopback clients**, now that claude.ai can use
+  CIMD. That would retire most of #624's sweep. Not done here: a claude.ai
+  connector added with **Register automatically** before this change would stop
+  reconnecting.
+- **CIMD's optional extras.** A document's `logo_uri` is dropped rather than
+  fetched and shown, and nothing requires a non-loopback redirect to share the
+  document's origin (the draft's section 6.1 "MAY"). The consent page shows
+  both hosts instead.
+- **A host allowlist for documents.** The address rule keeps the fetch off the
+  home network; it does not limit which public hosts may be named. A deployment
+  that wants only `claude.ai` could add one, which is the specification's
+  "trust policy" option.
 - **A Settings screen** over `GET /api/mcp/connections`.
 - **Photographs over MCP.** The read tools say which photographs exist and never
   link to them, because the links need the session cookie. Image content in a

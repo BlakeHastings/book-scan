@@ -37,12 +37,18 @@ pages are the authority.
    server: `1` for one reverse proxy or tunnel, `2` for a CDN in front of a
    reverse proxy. Leave it at `0` only when nothing is in front.
 
-3. **Let Claude reach it.** claude.ai, Claude Desktop and the mobile apps
-   connect from Anthropic's servers, not from your device, so `https://<your
-   host>` has to be reachable from the public internet. If you restrict who may
-   connect, allow Anthropic's outbound range, `160.79.104.0/21`
+3. **Let Claude reach it, and let it reach Claude.** claude.ai, Claude Desktop
+   and the mobile apps connect from Anthropic's servers, not from your device,
+   so `https://<your host>` has to be reachable from the public internet. If you
+   restrict who may connect, allow Anthropic's outbound range,
+   `160.79.104.0/21`
    ([IP address reference](https://platform.claude.com/docs/en/api/ip-addresses)).
    Claude Code connects from the machine it runs on.
+
+   The other direction matters too: when a client uses its published identity,
+   book-scan fetches that client's document over `https` (from `claude.ai`, for
+   Claude), so the server needs outbound `https` to the internet. It never
+   fetches from a private or local address.
 
 4. **Restart, and read the start log.** One line says whether the connector is
    on:
@@ -81,9 +87,10 @@ or in the desktop app, and use it from any of them.
 4. For the URL, enter `https://<your host>/mcp`.
 5. If the dialog asks you to choose authentication settings:
    - **Authentication**: **Sign in now**.
-   - **OAuth client**: **Register automatically**. book-scan registers clients
-     itself and does not publish a client ID metadata document, so **Use
-     Claude's published identity** is not the one to pick.
+   - **OAuth client**: **Use Claude's published identity**, the dialog's
+     recommended option. book-scan reads Claude's client details from the
+     document Anthropic publishes, so nothing is registered.
+     **Register automatically** works too.
    - **Request headers**: leave empty.
 
    If instead the dialog shows **Advanced settings**, leave the OAuth client ID
@@ -201,8 +208,12 @@ page depends on who is signed in to book-scan in that browser:
 
 The consent page names:
 
-- **the client**, by the name it registered with. Claude Code registers as
-  `Claude Code (<the name you gave it>)`, for example `Claude Code (book-scan)`;
+- **the client**, by the name it gave. A client using its published identity
+  shows that document's name and, under it, the host the document came from,
+  for example `Claude Code` and `claude.ai`. The host is the part to read: any
+  document can call itself Claude, and only Anthropic can publish one on
+  `claude.ai`. A client that registered shows only its name; Claude Code
+  registering shows `Claude Code (<the name you gave it>)`;
 - **who you are signed in as**, normally your email address;
 - **where the answer will be sent**, as a host. From claude.ai and the Claude
   apps it is `claude.ai`. From Claude Code it is `localhost:<port>`, and the page
@@ -346,6 +357,21 @@ again from Claude.
 A connection that worked and now answers `403` means the person was disabled
 since. It keeps its tokens: once they are enabled again, it works without
 reconnecting. Claude Code shows such a server as needing authentication.
+
+### The browser shows "This client's metadata document was refused"
+
+```json
+{"error":"invalid_client","error_description":"This client's metadata document was refused: ..."}
+```
+
+The connection used a published identity, and book-scan could not accept the
+document it names. The rest of the message says why. "The document at
+claude.ai could not be fetched" or "took longer than 5 seconds" means the
+server has no outbound `https` to the internet, or the publisher was down: check
+[Before you start](#before-you-start), step 3, and try again. Anything else
+means the document itself was refused, which for Claude's own should not
+happen. In either case, removing the connector and adding it again with
+**Register automatically** connects without the document.
 
 ### The browser says "This request has expired"
 
