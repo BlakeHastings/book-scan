@@ -487,7 +487,10 @@ the new instruction.
 
 This falls out of the check above rather than needing its own path. An edit
 recomputes the sort key, which changes the derived location, which no longer
-matches the recorded one. The same is true of the other way a book moves
+matches the recorded one. The carry list does not derive: it reads the ledger's
+`assigned` rows against its `placed` ones, so an edit (or `refile-books.ts`)
+that puts a shelved book on another plank writes the assignment as well, and the
+two lists name the same book (#646). The same is true of the other way a book moves
 without being touched: marking a shelf full pushes a run of books along, and
 every one of them appears on the list until somebody says they were moved.
 
