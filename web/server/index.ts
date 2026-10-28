@@ -52,12 +52,24 @@ import {
 } from '../application/authorship/curate-authors'
 import type { StoredAuthor } from '../application/authorship/ports'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
+import { authorView, DrizzleAuthorReadModel } from '../infrastructure/authorship/author-read-model'
+import { DrizzleCatalogueReadModel } from '../infrastructure/books/catalogue-read-model'
+import { DrizzleTagReadModel } from '../infrastructure/tagging/tag-read-model'
+import type { CataloguedState } from '../application/books/ports'
+import { ListBooksHandler } from '../application/books/queries/list-books'
+import { CountBooksHandler } from '../application/books/queries/count-books'
+import { GetBookHandler } from '../application/books/queries/get-book'
+import { VocabularyHandler } from '../application/tagging/queries/vocabulary'
+import { TagsOfBookHandler } from '../application/tagging/queries/tags-of-book'
+import { ListAuthorsHandler } from '../application/authorship/queries/list-authors'
+import { BooksByAuthorHandler } from '../application/authorship/queries/books-by-author'
+import { CreditsOfBookHandler } from '../application/authorship/queries/credits-of-book'
 import { claimsFrom } from '../domain/tagging/catalogue-claims'
 import {
   asConfidence, genreStatedBy, statedGenre,
 } from '../domain/tagging/genre'
 import { TagSlug } from '../domain/tagging/tags'
-import { CATALOGUED_STATES, type BookState } from '../domain/books/state'
+import { CATALOGUED_STATES } from '../domain/books/state'
 import { DrizzleCaptureRepository } from '../infrastructure/capture/capture-repository'
 import { shownFile, verdictOf } from '../domain/capture/photographs'
 import { filesOf } from './photographs'
@@ -378,6 +390,23 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   const mergeAuthors = new MergeAuthorsHandler(authors)
 
   const store = new Store(db, authors)
+
+  /*
+   * The catalogue's reads. A route below maps a request onto one of these and
+   * answers what it returns; anything else calling them (an MCP tool) gets the
+   * same answer without Express.
+   */
+  const catalogueReads = new DrizzleCatalogueReadModel(db)
+  const tagReads = new DrizzleTagReadModel(db)
+  const authorReads = new DrizzleAuthorReadModel(db)
+  const listBooks = new ListBooksHandler(catalogueReads)
+  const countBooks = new CountBooksHandler(catalogueReads)
+  const getBook = new GetBookHandler(catalogueReads, authorReads)
+  const vocabulary = new VocabularyHandler(tagReads)
+  const tagsOfBook = new TagsOfBookHandler(catalogueReads, tagReads)
+  const listAuthors = new ListAuthorsHandler(authorReads)
+  const booksByAuthor = new BooksByAuthorHandler(authorReads, catalogueReads)
+  const creditsOfBook = new CreditsOfBookHandler(catalogueReads, authorReads)
 
   /*
    * The work a save starts and nobody waits for.
@@ -1624,14 +1653,14 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     const asked = String(req.query.range ?? '')
     const range = asked === 'all' ? null : asked === 'nonfiction' ? 'nonfiction' : 'fiction'
 
-    const tags: string[] = []
+    const tags: TagSlug[] = []
     for (const raw of [req.query.tag ?? []].flat()) {
       const slug = TagSlug.parse(String(raw))
       if (!slug) {
         res.status(400).json({ error: `"${String(raw)}" is not a tag.` })
         return
       }
-      tags.push(slug.value)
+      tags.push(slug)
     }
 
     /*
@@ -1658,18 +1687,18 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     const limit = Number(req.query.limit)
     const offset = Number(req.query.offset)
 
-    const found = await store.listing({
+    const found = await listBooks.handle({
       placed: placedAsked ? placedAsked === 'yes' : undefined,
       range,
       words: String(req.query.q ?? ''),
       isbn: String(req.query.isbn ?? ''),
       tags,
-      state: (wanted || undefined) as BookState | undefined,
+      state: (wanted || undefined) as CataloguedState | undefined,
       limit: Number.isFinite(limit) && limit > 0 ? limit : undefined,
       offset: Number.isFinite(offset) && offset > 0 ? offset : undefined,
     })
 
-    res.json({ books: found.books, total: found.total, counts: await store.counts() })
+    res.json({ books: found.books, total: found.total, counts: await countBooks.handle() })
   }))
 
   /**
@@ -1967,12 +1996,12 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     const id = idIn(req.params.id, res, 'No such book.')
     if (id === null) return
 
-    const book = await store.getBook(id)
-    if (!book) {
+    const found = await getBook.handle({ id })
+    if (!found) {
       res.status(404).json({ error: 'No such book.' })
       return
     }
-    res.json({ book, authors: await describeCredits(id) })
+    res.json(found)
   }))
 
   /**
@@ -2057,35 +2086,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       return
     }
 
-    const vocabulary = await tags.vocabulary(under ?? undefined)
-    /*
-     * How many books each one has, counting the ones under it. It rolls up,
-     * because choosing Fantasy shows the books tagged Urban fantasy too, and a
-     * number that disagreed with the list one tap later would be the screen
-     * contradicting itself.
-     *
-     * Counted by `Store` rather than through the tagging port, which is about
-     * the vocabulary and not a place to ask which books match something.
-     */
-    const counts = new Map((await store.tagCounts()).map((one) => [one.slug, one.books]))
-    /*
-     * Which of these a placement rule asks for. A word nothing carries and
-     * nothing points at is litter; a word nothing carries that a rule asks for is
-     * somebody setting up a bookcase before they own anything in it, and nothing
-     * else in the table separates the two. It is the truth about every tag rather
-     * than only the empty ones, because a flag that meant something different
-     * depending on the count beside it is a flag two readers will read two ways.
-     */
-    const ruled = await tagsRulesName(db)
-    res.json({
-      tags: vocabulary.map((one) => ({
-        slug: one.slug.value,
-        label: one.label,
-        note: one.note,
-        books: counts.get(one.slug.value) ?? 0,
-        ruled: ruled.has(one.slug.value),
-      })),
-    })
+    res.json({ tags: await vocabulary.handle({ under: under ?? undefined }) })
   }))
 
   /**
@@ -2203,11 +2204,12 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     const id = idIn(req.params.id, res, 'No such book.')
     if (id === null) return
 
-    if (!(await store.getBook(id))) {
+    const carried = await tagsOfBook.handle({ bookId: id })
+    if (!carried) {
       res.status(404).json({ error: 'No such book.' })
       return
     }
-    res.json({ tags: await describeTags(id) })
+    res.json({ tags: carried })
   }))
 
   /**
@@ -2302,22 +2304,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     res.json({ found: true, source: found.source, tags: await describeTags(id) })
   }))
 
-  /**
-   * A book's tags, said the way a client reads them: with the label.
-   *
-   * The label is looked up rather than carried on `AppliedTag`, because the
-   * domain rule about who may retract what has no use for a display string and
-   * a type that carried one would invite somebody to match on it.
-   */
-  async function describeTags(bookId: number) {
-    const [applied, vocabulary] = await Promise.all([tags.of(bookId), tags.vocabulary()])
-    const labels = new Map(vocabulary.map((one) => [one.slug.value, one.label]))
-    return applied.map((one) => ({
-      slug: one.slug.value,
-      label: labels.get(one.slug.value) ?? one.slug.value,
-      source: one.source,
-      confidence: one.confidence,
-    }))
+  /** A book's tags as the tag write routes answer them: the shape the read answers. */
+  function describeTags(bookId: number) {
+    return tagReads.ofBook(bookId)
   }
 
   /*
@@ -2541,33 +2530,17 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     res.json({ plan: removed.plan })
   }))
 
+  /* What the author write routes answer, in the shapes the reads answer. */
   function describeAuthor(stored: StoredAuthor) {
-    return {
-      id: stored.id,
-      isCorporate: stored.author.isCorporate,
-      note: stored.author.note,
-      primary: stored.author.primary.name.value,
-      aliases: stored.aliases.map((alias) => ({
-        id: alias.id,
-        displayName: alias.name.value,
-        filingName: alias.filing,
-        isPrimary: alias.isPrimary,
-      })),
-    }
+    return authorView(stored)
   }
 
-  async function describeCredits(bookId: number) {
-    return (await authors.creditsOf(bookId)).map((alias, at) => ({
-      position: at + 1,
-      aliasId: alias.id,
-      authorId: alias.authorId,
-      displayName: alias.name.value,
-      filingName: alias.filing,
-    }))
+  function describeCredits(bookId: number) {
+    return authorReads.creditsOf(bookId)
   }
 
   app.get('/api/authors', asyncRoute(async (_req, res) => {
-    res.json({ authors: (await authors.everyone()).map(describeAuthor) })
+    res.json({ authors: await listAuthors.handle() })
   }))
 
   /**
@@ -2579,15 +2552,12 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     const id = idIn(req.params.id, res, 'No such author.')
     if (id === null) return
 
-    const found = await authors.find(id)
+    const found = await booksByAuthor.handle({ authorId: id })
     if (!found) {
       res.status(404).json({ error: 'No such author.' })
       return
     }
-
-    const ids = await authors.booksCreditedTo(found.aliases.map((alias) => alias.id))
-    const books = await Promise.all(ids.map((id) => store.getBook(id)))
-    res.json({ author: describeAuthor(found), books: books.filter(Boolean) })
+    res.json(found)
   }))
 
   /**
@@ -2646,11 +2616,12 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     const id = idIn(req.params.id, res, 'No such book.')
     if (id === null) return
 
-    if (!(await store.getBook(id))) {
+    const credits = await creditsOfBook.handle({ bookId: id })
+    if (!credits) {
       res.status(404).json({ error: 'No such book.' })
       return
     }
-    res.json({ authors: await describeCredits(id) })
+    res.json({ authors: credits })
   }))
 
   /**

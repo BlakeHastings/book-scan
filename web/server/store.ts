@@ -3,7 +3,7 @@
  * and out of shared/shelving.ts, which stays pure.
  */
 
-import type { BookRow, FiledBookRow } from './db.pg'
+import type { CatalogueCounts } from '../application/books/ports'
 import type { Db } from './driver'
 /*
  * Photographs are rows in `capture`, not columns on `books`. The flat
@@ -13,7 +13,7 @@ import type { Db } from './driver'
  */
 import {
   coverDownloaded, photographsTaken, recordCrop, recordHashes,
-  withPhotographs, withPhotographsOf,
+  withPhotographs,
   type FiledPhotographedBook, type PhotographedBook, type PhotographFields,
 } from './photographs'
 import {
@@ -51,24 +51,23 @@ import { rangeLock } from '../application/locks'
  */
 import {
   eraseLedger, recordCheckedOut, recordPlaced, recordPlacedIn, recordUnplacedAll,
-  withPlacements, withPlacementsOf,
-  type ErasureCounts, type PlacementFields, type UnplaceCounts,
+  withPlacements,
+  type ErasureCounts, type UnplaceCounts,
 } from './placement-ledger'
 /*
  * The repository takes the same `Db` this class was handed, so a read made
  * through it is on the same connection, the same transaction and the same
  * advisory lock as the write beside it. See `infrastructure/db/query.ts`.
  */
+import { DrizzleBookRepository, type FiledPlacedBook } from '../infrastructure/books/book-repository'
 import {
-  DrizzleBookRepository, PAGE_LIMIT, wordsOf,
-  type FiledPlacedBook, type Listing,
-} from '../infrastructure/books/book-repository'
+  DrizzleCatalogueReadModel, type PlacedPhotographedBook,
+} from '../infrastructure/books/catalogue-read-model'
 
-export type { FiledPhotographedBook, PhotographedBook }
-export type PlacedPhotographedBook = PhotographedBook & PlacementFields
+export type { FiledPhotographedBook, PhotographedBook, PlacedPhotographedBook }
 export type { FiledPlacedBook }
 
-export { PAGE_LIMIT, wordsOf, type Listing }
+export { PAGE_LIMIT } from '../application/books/ports'
 
 export interface DraftBook {
   isbn13?: string
@@ -125,6 +124,8 @@ export interface FilingInput {
 
 export class Store {
   private readonly reads: DrizzleBookRepository
+  /** The catalogue's reads. The three below that delegate to it are kept for their write-side callers. */
+  private readonly catalogue: DrizzleCatalogueReadModel
 
   /**
    * The authorship port is here for one question and writes nothing. Nothing in
@@ -136,6 +137,7 @@ export class Store {
     private readonly authors: AuthorRepository,
   ) {
     this.reads = new DrizzleBookRepository(db)
+    this.catalogue = new DrizzleCatalogueReadModel(db)
   }
 
   /**
@@ -388,10 +390,7 @@ export class Store {
   }
 
   async getBook(id: number): Promise<PlacedPhotographedBook | undefined> {
-    return withPlacementsOf(this.db, await withPhotographsOf(
-      this.db,
-      await this.db.get<BookRow>('SELECT * FROM books WHERE id = ?', [id]),
-    ))
+    return (await this.catalogue.detail(id)) ?? undefined
   }
 
   /**
@@ -518,17 +517,7 @@ export class Store {
   }
 
   async findByIsbn(value: string): Promise<FiledPlacedBook | undefined> {
-    const { isbn13, isbn10 } = resolveIsbnPair(value)
-    if (!isbn13 && !isbn10) return undefined
-
-    return withPlacementsOf(this.db, await withPhotographsOf(this.db,
-      await this.db.get<FiledBookRow>(
-        `SELECT * FROM catalogued_books
-          WHERE (isbn13 != '' AND isbn13 = :isbn13)
-             OR (isbn10 != '' AND isbn10 = :isbn10)
-          ORDER BY id LIMIT 1`,
-        { isbn13, isbn10 },
-      )))
+    return (await this.catalogue.findByIsbn(value)) ?? undefined
   }
 
   /**
@@ -589,14 +578,6 @@ export class Store {
 
   listRange(range: ShelfRange): Promise<FiledPlacedBook[]> {
     return this.reads.listRange(range)
-  }
-
-  listing(query: Listing): Promise<{ books: FiledPlacedBook[]; total: number }> {
-    return this.reads.listing(query)
-  }
-
-  tagCounts(): Promise<{ slug: string; books: number }[]> {
-    return this.reads.tagCounts()
   }
 
   /**
@@ -771,10 +752,7 @@ export class Store {
     return this.reads.checkedOut()
   }
 
-  counts(): Promise<{
-    total: number; fiction: number; nonfiction: number; checkedOut: number
-    unplaced: number
-  }> {
-    return this.reads.counts()
+  counts(): Promise<CatalogueCounts> {
+    return this.catalogue.counts()
   }
 }
