@@ -169,24 +169,3 @@ export interface OutstandingMoveRepository {
   /** Nothing is outstanding for this book any more, however that came about. */
   clear(bookId: number): Promise<void>
 }
-
-/**
- * Atomicity and mutual exclusion, which are two things rather than one.
- *
- * A transaction commits or rolls back as a unit and does not stop another
- * transaction committing a row in the middle of it: Postgres runs at READ
- * COMMITTED, where every statement takes a fresh snapshot. So a read-then-write
- * that has to be the only one in flight over a range has to say so, and that is
- * what this port is for rather than a bare `transaction(work)`.
- *
- * See `TxOptions` in `web/server/driver.ts`, where the mechanism lives, and
- * `boundaryLocks` in `web/server/shelves.ts` for the names taken.
- */
-export interface Transactions {
-  /**
-   * Run `work` atomically, and serialised against everything else working on
-   * the same range and against every change to the furniture, since a
-   * boundary is an area. Nothing that only reads waits for it.
-   */
-  inRange<T>(range: ShelfRange, work: () => Promise<T>): Promise<T>
-}

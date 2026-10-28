@@ -26,6 +26,14 @@ export const rangeLock = (range: ShelfRange): LockName => `shelf:${range}` as Lo
 export const FURNITURE_LOCK = 'furniture' as LockName
 
 /**
+ * What a write to a range's boundaries serialises on. A boundary is the area it
+ * opens, so moving one rewrites the furniture, and the plan it writes from is
+ * read off the furniture too: both locks are held from the first read.
+ */
+export const boundaryLocks = (range: ShelfRange): readonly LockName[] =>
+  [rangeLock(range), FURNITURE_LOCK]
+
+/**
  * Which lock is taken before which, by the namespace a name starts with and then
  * by its spelling: any `book:`, then `shelf:fiction`, `shelf:nonfiction`, then
  * `furniture`. A book comes first because a unit of work on a book only learns

@@ -16,7 +16,7 @@
  * Each method opens its own `tx`, nested as a savepoint inside the one the
  * caller usually already has open, and reads inside it. Callers are already
  * serialised on the range and the furniture (`boundaryLocks` in
- * `server/shelves.ts`), and must be, because the plan they write from is read
+ * `application/locks.ts`), and must be, because the plan they write from is read
  * before this is called; what this buys is that the change and the areas it
  * implies commit together or neither does.
  *

@@ -28,7 +28,7 @@ import { downloadCover, openLibraryCover, upgradeGoogleCover } from './covers'
 import { coverHash, distance } from './imagehash'
 import { cropPhotos } from './crop'
 import { CaptureQueue, type CaptureEdit, type CaptureRow } from './queue'
-import { boundaryLocks, Shelves, type Planks, type ShelvedBook } from './shelves'
+import { Shelves, type Planks, type ShelvedBook } from './shelves'
 import { plankLabels, tagsRulesName, type Plank, type RunPlanks } from '../infrastructure/shelving/areas'
 import { toNeighbour } from '../infrastructure/books/book-repository'
 import {
@@ -38,7 +38,6 @@ import { countStrandedBooks, strandedBooks } from '../infrastructure/placement/s
 import type { Move, PlankAt } from '../shared/layout'
 import { RemoveSeparatorHandler } from '../application/shelving/remove-separator'
 import { DrizzleSeparatorRepository } from '../infrastructure/shelving/separator-repository'
-import { DbTransactions } from '../infrastructure/shelving/transactions'
 import {
   ApplyTagHandler, DefineTagHandler, ForgetTagHandler, RelabelTagHandler, RemoveTagHandler,
 } from '../application/tagging/apply-tag'
@@ -454,9 +453,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   }
 
   const separators = new DrizzleSeparatorRepository(db)
-  const removeSeparator = new RemoveSeparatorHandler(
-    separators, new DbTransactions(db, boundaryLocks),
-  )
+  const removeSeparator = new RemoveSeparatorHandler(separators, new DbUnitOfWork(db))
   const shelves = new Shelves(db, separators, removeSeparator)
 
   const tags = new DrizzleTagRepository(db)

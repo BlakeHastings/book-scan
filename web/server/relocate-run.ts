@@ -25,7 +25,7 @@ import {
 } from '../application/placement/assign-placements'
 import type { ShelfRange } from '../shared/shelving'
 import type { Db } from './driver'
-import { boundaryLocks } from './shelves'
+import { boundaryLocks } from '../application/locks'
 
 /** A plan, and the furniture change it is a plan of. */
 export interface RunMovePlan extends PlacementPlan {
