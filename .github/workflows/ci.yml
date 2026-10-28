@@ -11,6 +11,7 @@ name: CI
 #
 # `e2e (typecheck)` is named here and nowhere else on purpose. It is advisory
 # and gates nothing. Do not complete it by adding it to the other two files.
+# It compiles the browser suite and, since #581, the AppHost.
 on:
   pull_request:
 
@@ -198,7 +199,9 @@ jobs:
         run: node e2e/ux/tasks.test.mjs
 
   # Playwright transpiles TypeScript with esbuild and never typechecks it, so
-  # without this job `e2e/` reaches master untyped.
+  # without this job `e2e/` reaches master untyped. `aspire start` does the same
+  # to `apphost.mts`, the file that sets `BOOKSCAN_DATA` and the connection for
+  # every checkout, so since #581 this job compiles that too.
   #
   # A job of its own because a step of a required job would gate the merge from
   # its first run. This name is deliberately not in `REQUIRED` in
@@ -239,4 +242,41 @@ jobs:
       - name: Typecheck the suite
         if: steps.scope.outputs.docs_only != 'true'
         working-directory: e2e
+        run: npm run typecheck
+
+      # The AppHost imports `.aspire/modules/aspire.mjs`, which the Aspire CLI
+      # generates from the integrations in `aspire.config.json` and
+      # `.gitignore` excludes, so there is nothing to compile against until the
+      # CLI has written it. There is no published package of those types: they
+      # are generated per AppHost.
+      #
+      # `!cancelled()` so a red suite above does not hide the AppHost's answer:
+      # the two checks share a job and nothing else.
+      #
+      # Pinned exactly as `e2e.yml` pins it, to `aspire.config.json`'s
+      # `sdk.version`, so this job cannot move the toolchain either (#535).
+      - name: Install the Aspire CLI
+        if: ${{ !cancelled() && steps.scope.outputs.docs_only != 'true' }}
+        run: |
+          version="$(node -p "require('./aspire.config.json').sdk.version")"
+          curl -sSL https://aspire.dev/install.sh | bash -s -- --version "$version"
+          echo "$HOME/.aspire/bin" >> "$GITHUB_PATH"
+          "$HOME/.aspire/bin/aspire" --version
+
+      - name: Install the AppHost
+        if: ${{ !cancelled() && steps.scope.outputs.docs_only != 'true' }}
+        run: node scripts/npm-install.mjs
+
+      # `restore` writes `.aspire/modules/` and starts nothing: no dashboard, no
+      # container, no resource. It is the code generation half of `aspire start`.
+      - name: Generate the AppHost's Aspire modules
+        if: ${{ !cancelled() && steps.scope.outputs.docs_only != 'true' }}
+        run: aspire restore --non-interactive --nologo
+
+      # `tsconfig.apphost.json` names the generated modules too. They are
+      # checked whether named or not, because the AppHost imports them, so a
+      # red here can be Aspire's code rather than ours; the file in the error
+      # says which.
+      - name: Typecheck the AppHost
+        if: ${{ !cancelled() && steps.scope.outputs.docs_only != 'true' }}
         run: npm run typecheck
