@@ -144,6 +144,24 @@ export function buildSortKey(input: SortKeyInput): string {
   return [author, hasSeries, padNumbers(series), index, title].join(SEP)
 }
 
+/**
+ * The name a book's stored sort key files it under, written the way a person
+ * reads it, for showing beside the book in anything ordered by that key.
+ *
+ * The key holds the name folded, so the readable form is whichever candidate
+ * folds to it: the first credit's filing name as the catalogue now says it,
+ * then what the first printed name derives. A filing name corrected since the
+ * book was last saved matches neither until the book is saved again, and the
+ * folded name is then the only honest answer, because it is the one the shelf
+ * is ordered by.
+ */
+export function filedUnder(book: { sort_key: string; author_filing?: string | null; authors?: string | null }): string {
+  const keyed = (book.sort_key ?? '').split(SEP)[0] ?? ''
+  const printed = (book.authors ?? '').split(',')[0]?.trim() ?? ''
+  const candidates = [book.author_filing ?? '', printed ? filingName(printed) : '']
+  return candidates.find((name) => name && padNumbers(normalise(name)) === keyed) ?? keyed
+}
+
 export interface ParsedLocation {
   shelf: number
   section: string
