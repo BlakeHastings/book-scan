@@ -11,6 +11,10 @@ This page is the explanation and the research behind it. `docs/the-gate.md` has
 the doors and the count; the code is `web/server/mcp/` and
 `web/infrastructure/auth/oauth-store.ts`.
 
+**To connect Claude, follow [`connecting-claude.md`](connecting-claude.md)**:
+the steps for claude.ai, the Claude apps and Claude Code, the consent screen,
+disconnecting, and what to check when it fails.
+
 ---
 
 ## What it was built against
@@ -475,6 +479,22 @@ $ POST /mcp with the first token, after that replay      -> 401
 $ POST /mcp with only the session cookie                 -> 401
 $ GET /api/health with only the bearer                   -> 401
 ```
+
+**By the browser suite** (#619), on every pull request:
+`e2e/features/connecting-claude.feature` registers the SDK's client against the
+booted app, sends a signed-out browser to `/authorize`, signs in through the
+development door, presses Allow on the real consent page, receives the code on
+a loopback listener the way Claude Code does, exchanges it, and calls
+`search_books` and `add_book`; the added book is then read back out of
+Postgres. A second scenario presses Deny and gets `access_denied`.
+
+**By Claude Code itself**, on 2026-10-28, against a checkout:
+`claude mcp add --transport http` and `claude mcp login` registered as
+`Claude Code (<name>)`, the consent page warned about the loopback redirect,
+and `claude -p` then called `whoami`, `add_book` and `search_books`. One thing
+learned there and written into the how-to: `claude mcp remove` forgets the
+tokens locally and **does not revoke the connection here**; it was still listed
+by `GET /api/mcp/connections` until it was deleted there.
 
 **Not proved, and it needs a deployment this repository must never describe:**
 claude.ai itself connecting. That needs a public `https` origin claude.ai can

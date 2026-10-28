@@ -10,6 +10,7 @@
 import { test as base, createBdd } from 'playwright-bdd'
 
 import { Catalogue } from '../support/database.js'
+import { McpConnection } from '../support/mcp-client.js'
 import { describeCommitment } from '../support/machine.js'
 
 function fromEnvironment(name: string): string {
@@ -42,7 +43,12 @@ export interface Fixtures {
   webUrl: string
   /** Base URL of the catalogue stub's own control plane, see catalogue-stub.ts. */
   stubUrl: string
+  /** An MCP client in this process, connecting the way Claude Code does. See support/mcp-client.ts. */
+  mcp: McpConnection
 }
+
+/** The `fetch` this process had before the session was attached to it, for a caller that must not carry one. */
+export const fetchAsAStranger: typeof fetch = globalThis.fetch.bind(globalThis)
 
 /**
  * The suite arrives signed in, in both of the ways it talks to the app.
@@ -62,10 +68,10 @@ function attachTheSession(): void {
   globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     const target = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
     if (!target.startsWith(apiUrl)) return underneath(input as RequestInfo, init)
-    return underneath(input as RequestInfo, {
-      ...init,
-      headers: { ...(init?.headers as Record<string, string> | undefined), cookie: session },
-    })
+    // Through `Headers`, because spreading a `Headers` instance copies none of its entries.
+    const headers = new Headers(init?.headers)
+    headers.set('cookie', session)
+    return underneath(input as RequestInfo, { ...init, headers })
   }) as typeof fetch
 }
 
@@ -161,6 +167,15 @@ export const test = base.extend<Fixtures>({
 
   stubUrl: async ({}, use) => {
     await use(fromEnvironment('BOOKSCAN_E2E_STUB_URL'))
+  },
+
+  mcp: async ({}, use) => {
+    const connection = new McpConnection(fromEnvironment('BOOKSCAN_E2E_API_URL'), fetchAsAStranger)
+    try {
+      await use(connection)
+    } finally {
+      await connection.close()
+    }
   },
 })
 
