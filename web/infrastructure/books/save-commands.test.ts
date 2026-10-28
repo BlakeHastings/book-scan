@@ -9,7 +9,7 @@ import { closeTestDatabase, openTestDatabase } from '../../server/testdb'
 import { ReviseBookHandler, type ReviseBook } from '../../application/books/commands/revise-book'
 import { CatalogueBookHandler, type CatalogueBook } from '../../application/books/commands/catalogue-book'
 import { DbPhotographs } from './photographs-taken'
-import { rangeLock } from '../../application/locks'
+import { isbnLock, rangeLock, type LockName } from '../../application/locks'
 import { TagSlug, type TagSource } from '../../domain/tagging/tags'
 import { FICTION_SLUG, NON_FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
 import { DbUnitOfWork } from '../db/unit-of-work'
@@ -22,6 +22,7 @@ import { Shelves } from '../../server/shelves'
 const NOW = '2026-10-28T09:00:00.000Z'
 const DUNE = '9780441013593'
 const EMMA = '9780141439587'
+const DUNE_10 = '0441013597'
 
 let db: Db
 let tags: DrizzleTagRepository
@@ -211,11 +212,12 @@ describe('revising a book', () => {
   })
 })
 
-const save = (over: Partial<CatalogueBook> = {}): CatalogueBook => ({
+const save = (over: Partial<Omit<CatalogueBook, 'ifCatalogued'>> = {}) => ({
   description: { title: 'Dune', authors: ['Frank Herbert'], isbn13: DUNE, classificationSource: 'auto' },
   genre: FICTION_SLUG,
   photographs: {},
   now: NOW,
+  ifCatalogued: 'add-a-copy' as const,
   ...over,
 })
 
@@ -292,5 +294,87 @@ describe('cataloguing a book', () => {
     order.push('catalogued')
     await holding
     expect(order).toEqual(['range held', 'range let go', 'catalogued'])
+  })
+})
+
+describe('a book whose ISBN is already catalogued (#637)', () => {
+  const books = () => db.get<{ n: number }>('SELECT count(*)::int AS n FROM books')
+
+  it('answers that book, writing and starting nothing, when the caller asks to be answered', async () => {
+    const shelved = await aBook('shelved')
+
+    const answered = await catalogue.handle({
+      ...save({ description: { title: 'Dune', authors: ['Frank Herbert'], isbn10: DUNE_10 } }),
+      ifCatalogued: 'answer-it',
+    })
+    expect(answered).toEqual({ added: false, id: shelved })
+    expect(await books()).toEqual({ n: 1 })
+    expect(await slugsOf(shelved)).toEqual([])
+    expect(started).toEqual([])
+  })
+
+  it('adds a second copy when the caller says so, which is what the app does', async () => {
+    const shelved = await aBook('shelved')
+    const copy = await catalogue.handle(save())
+    expect(copy.added).toBe(true)
+    expect(copy.id).not.toBe(shelved)
+    expect(await books()).toEqual({ n: 2 })
+  })
+
+  it('does not count a scan of the number still in the queue as catalogued', async () => {
+    await aBook('identified')
+    const added = await catalogue.handle({ ...save(), ifCatalogued: 'answer-it' })
+    expect(added.added).toBe(true)
+  })
+
+  it('two saves of one ISBN at once take turns, so the second finds the first', async () => {
+    const both = await Promise.all([
+      catalogue.handle({ ...save(), ifCatalogued: 'answer-it' }),
+      catalogue.handle({ ...save(), ifCatalogued: 'answer-it' }),
+    ])
+    expect(both.map((one) => one.added).sort()).toEqual([false, true])
+    expect(new Set(both.map((one) => one.id)).size).toBe(1)
+    expect(await books()).toEqual({ n: 1 })
+  })
+
+  it('waits for whoever holds its number, a save out of the queue as well as a new one', async () => {
+    const queued = await aBook('identified')
+    const order: string[] = []
+    const holding = new DbUnitOfWork(db).run(async () => {
+      order.push('number held')
+      await new Promise((resolve) => setTimeout(resolve, 150))
+      order.push('number let go')
+    }, { serialiseOn: [isbnLock(DUNE)!] })
+    await new Promise((resolve) => setTimeout(resolve, 30))
+
+    // The save holds `book:<scan>` too, which comes after the number in the
+    // order: had the number been taken mid-work, behind the book, it would
+    // have been refused rather than waited for.
+    await catalogue.handle(save({ scanId: queued }))
+    order.push('catalogued')
+    await holding
+    expect(order).toEqual(['number held', 'number let go', 'catalogued'])
+  })
+
+  it('locks the thirteen digit form of a number typed as ten, and no number for a book without one', async () => {
+    const asked: (readonly LockName[] | undefined)[] = []
+    const unitOfWork = new DbUnitOfWork(db)
+    const shelves = new Shelves(db)
+    const recording = new CatalogueBookHandler(
+      new DrizzleBookRepository(db), authors, tags, new DbPhotographs(db),
+      new DrizzlePlacementOnSave(db, (range, id) => shelves.areaOf(range, id)),
+      { start: () => undefined },
+      {
+        run: (work, options) => {
+          asked.push(options?.serialiseOn)
+          return unitOfWork.run(work, options)
+        },
+      },
+    )
+
+    await recording.handle(save({ description: { title: 'Dune', authors: [], isbn10: DUNE_10 } }))
+    await recording.handle(save({ description: { title: 'A Zine', authors: [] } }))
+    await recording.handle(save({ description: { title: 'A Zine', authors: [], isbn13: 'not a number' } }))
+    expect(asked).toEqual([[`isbn:${DUNE}`], undefined, undefined])
   })
 })

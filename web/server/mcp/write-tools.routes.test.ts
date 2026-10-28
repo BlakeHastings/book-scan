@@ -22,6 +22,7 @@ import { signedIn } from '../testauth'
 import { lookupIsbn, type LookupResult } from '../lookup'
 import { FICTION_SLUG, NON_FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
 import { connect } from './testclient'
+import { DrizzleCatalogueReadModel } from '../../infrastructure/books/catalogue-read-model'
 
 vi.mock('../lookup', () => ({
   lookupIsbn: vi.fn(),
@@ -43,6 +44,8 @@ let scratch: string
 let app: BookScanApp
 let server: Server
 let client: Client
+let origin: string
+let cookie: string
 
 function found(over: Partial<LookupResult> & { isbn13: string; isbn10: string; title: string }): LookupResult {
   return {
@@ -85,7 +88,7 @@ beforeAll(async () => {
   server = createServer()
   server.listen(0, '127.0.0.1')
   await new Promise<void>((resolve) => server.once('listening', resolve))
-  const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   app = createApp({
     db,
     coverDir: mkdtempSync(join(scratch, 'covers-')),
@@ -95,6 +98,7 @@ beforeAll(async () => {
   server.on('request', app)
 
   const person = await signedIn(db)
+  cookie = person.cookie
   client = (await connect(origin, person.cookie)).client
   // The connection is rows too, so it is kept with the empty catalogue and put back with it.
   await keepThisCatalogue('connected')
@@ -140,6 +144,17 @@ async function refusal(name: string, args: Record<string, unknown>): Promise<str
 }
 
 const tagsOf = (book: { tags: Tag[] }) => book.tags.map((tag) => `${tag.slug}:${tag.source}`).sort()
+
+/** A save from the app's review pane, as `POST /api/books` takes it. */
+async function saveFromTheApp(fields: Record<string, unknown>): Promise<number> {
+  const response = await fetch(`${origin}/api/books`, {
+    method: 'POST',
+    headers: { cookie, 'content-type': 'application/json' },
+    body: JSON.stringify(fields),
+  })
+  expect(response.status).toBe(201)
+  return Number(((await response.json()) as { id: number }).id)
+}
 
 async function bookCount(): Promise<number> {
   return Number((await db.get<{ n: number }>('SELECT count(*)::int AS n FROM books'))?.n)
@@ -244,10 +259,11 @@ describe('add_book', () => {
     expect(lookupIsbn).not.toHaveBeenCalled()
   })
 
-  it('is not serialised: two adds of one ISBN racing past the duplicate check both add it', async () => {
+  it('is serialised: two adds of one ISBN racing past the lookup add it once (#637)', async () => {
     // Both lookups are held until both calls have reached them, so both
-    // duplicate checks run before either save commits. No lock covers the
-    // gap between the check and the save; see the pull request for #618.
+    // lookups' duplicate checks run before either save commits. The save asks
+    // again under the number's lock, so the second asks after the first has
+    // committed and answers its book.
     let release!: () => void
     const both = new Promise<void>((resolve) => { release = resolve })
     let arrived = 0
@@ -261,8 +277,44 @@ describe('add_book', () => {
       call<Added>('add_book', { isbn: DUNE.isbn13 }),
       call<Added>('add_book', { isbn: DUNE.isbn13 }),
     ])
-    expect([one.added, two.added]).toEqual([true, true])
-    expect(one.book.book_id).not.toBe(two.book.book_id)
+    expect([one.added, two.added].sort()).toEqual([false, true])
+    expect(one.book.book_id).toBe(two.book.book_id)
+    expect([one, two].find((call) => !call.added)?.record_from).toBe('existing')
+    expect(await bookCount()).toBe(1)
+  })
+
+  it('answers the book the app saved after its lookup and before its save', async () => {
+    // The app's save lands just after the lookup's duplicate check has found
+    // nothing, so only the check the save makes under the number's lock can
+    // see it.
+    const lookupsCheck = DrizzleCatalogueReadModel.prototype.findByIsbn
+    let theAppSaved: Promise<number> | undefined
+    const spy = vi.spyOn(DrizzleCatalogueReadModel.prototype, 'findByIsbn')
+      .mockImplementation(async function (this: DrizzleCatalogueReadModel, isbn: string) {
+        const found = await lookupsCheck.call(this, isbn)
+        theAppSaved ??= saveFromTheApp({ title: 'Dune', authors: ['Frank Herbert'], isbn13: DUNE.isbn13, genre: FICTION_SLUG })
+        await theAppSaved
+        return found
+      })
+
+    try {
+      const added = await call<Added>('add_book', { isbn: DUNE.isbn13 })
+      expect(added).toMatchObject({ added: false, record_from: 'existing' })
+      expect(added.book.book_id).toBe(await theAppSaved)
+      expect(await bookCount()).toBe(1)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+})
+
+describe('POST /api/books, beside add_book (#637)', () => {
+  it('still adds a second copy of an ISBN already catalogued, at once or one after the other', async () => {
+    const dune = { title: 'Dune', authors: ['Frank Herbert'], isbn13: DUNE.isbn13, genre: FICTION_SLUG }
+    const [one, two] = await Promise.all([saveFromTheApp(dune), saveFromTheApp(dune)])
+    const three = await saveFromTheApp({ ...dune, isbn13: DUNE.isbn10 })
+    expect(new Set([one, two, three]).size).toBe(3)
+    expect(await bookCount()).toBe(3)
   })
 })
 

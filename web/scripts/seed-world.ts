@@ -236,7 +236,7 @@ function draftFor(book: BookSeed, isbn13: string, photos: Photos): DraftBook {
  * credits and the plank it landed on, in one unit of work. Returns the new id.
  */
 async function shelveBook(commands: BookCommands, draft: DraftBook): Promise<number> {
-  const { id } = await commands.catalogueBook.handle(catalogueCommandOf(draft, new Date().toISOString()))
+  const { id } = await commands.catalogueBook.handle(catalogueCommandOf(draft, new Date().toISOString(), 'add-a-copy'))
   return id
 }
 

@@ -229,7 +229,7 @@ describe('two units of work at once', () => {
     ])
     expect(outcomes.map((one) => one.status === 'fulfilled' ? one.value : String(one.reason)))
       .toEqual([
-        'Error: book:7 cannot be taken while holding shelf:fiction: the order is book, shelf, furniture',
+        'Error: book:7 cannot be taken while holding shelf:fiction: the order is isbn, book, shelf, furniture',
         'book:7 then shelf:fiction',
       ])
   })

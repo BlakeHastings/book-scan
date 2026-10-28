@@ -42,7 +42,7 @@ export function testBooks(db: Db): TestBooks {
 
   return {
     catalogue: (draft, scanId) =>
-      catalogueBook.handle(catalogueCommandOf(draft, new Date().toISOString(), scanId)),
+      catalogueBook.handle(catalogueCommandOf(draft, new Date().toISOString(), 'add-a-copy', scanId)),
     async revise(id, draft) {
       const revised = await reviseBook.handle({
         ...bookSaveOf(draft),

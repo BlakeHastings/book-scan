@@ -15,6 +15,7 @@ import type { BookRepository } from '../../application/books/ports'
 import { Book, type BookRecord, type StoredBook, type TagChange } from '../../domain/books/book'
 import { isQueued, type BookState } from '../../domain/books/state'
 import type { Db } from '../../server/driver'
+import { resolveIsbnPair } from '../../shared/isbn'
 import type { ShelfRange } from '../../shared/shelving'
 import { DrizzleTagRepository } from '../tagging/tag-repository'
 
@@ -124,6 +125,19 @@ export class DrizzleBookRepository implements BookRepository {
     await this.writeTags(id, book.changes.tags)
     book.saved(id)
     return id
+  }
+
+  /** The same question `DrizzleCatalogueReadModel.findByIsbn` asks, answering only the id. */
+  async cataloguedWith(isbn13: string): Promise<number | null> {
+    const { isbn10 } = resolveIsbnPair(isbn13)
+    const row = await this.db.get<{ id: number }>(
+      `SELECT id FROM catalogued_books
+        WHERE (isbn13 != '' AND isbn13 = :isbn13)
+           OR (isbn10 != '' AND isbn10 = :isbn10)
+        ORDER BY id LIMIT 1`,
+      { isbn13, isbn10 },
+    )
+    return row ? Number(row.id) : null
   }
 
   async save(book: Book): Promise<void> {
