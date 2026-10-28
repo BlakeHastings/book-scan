@@ -20,8 +20,11 @@
 // Being refused is the answer you want. The probe printing its own output means
 // nothing intercepted it. Settings are read once at CLI startup, so a process
 // that began before the hook did never has it.
-import { execSync } from 'node:child_process'
-import { resolve } from 'node:path'
+import { execFileSync } from 'node:child_process'
+import { realpathSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { dirname, isAbsolute, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const DEFAULT_BRANCH = 'master'
 
@@ -216,16 +219,37 @@ function withoutLeadingWords(tokens) {
   return tokens.slice(at)
 }
 
-function segmentsOf(line) {
+// END command reader
+//
+// The reader's `segmentsOf` is replaced by `commandsOf` below, because the scope
+// rules also need the bindings it drops.
+
+// Each command the line runs, with the `NAME=value` bindings written in front of
+// it. `GIT_DIR=... git push` and `GH_REPO=... gh pr merge` land wherever the
+// binding says, not where the command stands.
+function commandsOf(line) {
   const first = parse(line, null)
   // An apostrophe in ordinary text opens a quote that never closes, and every
   // operator after it would read as that argument's contents, including a real
   // chained merge. A quote with no partner is text, so read it that way.
   const parsed = first.unterminated === null ? first : parse(line, first.unterminated)
-  return parsed.segments.map(withoutLeadingWords).filter((tokens) => tokens.length > 0)
+  return parsed.segments
+    .map((raw) => {
+      const tokens = withoutLeadingWords(raw)
+      return { tokens, bindings: bindingsIn(raw.slice(0, raw.length - tokens.length)) }
+    })
+    .filter(({ tokens }) => tokens.length > 0)
 }
 
-// END command reader
+function bindingsIn(tokens) {
+  const bindings = {}
+  for (const token of tokens) {
+    if (!ASSIGNMENT.test(token)) continue
+    const equals = token.indexOf('=')
+    bindings[token.slice(0, equals)] = token.slice(equals + 1)
+  }
+  return bindings
+}
 
 const commandName = (token) =>
   token
@@ -276,16 +300,18 @@ function ghArguments(tokens) {
 }
 
 // `git` takes its own flags before the subcommand, and several of them swallow
-// the next token. Null when this segment does not invoke git.
+// the next token. Null when this segment does not invoke git. The flags are kept,
+// because `-C`, `--git-dir` and `-c url.<base>.insteadOf=` all change which
+// repository the command reaches.
 const GIT_FLAGS_WITH_VALUE = new Set(['-C', '-c', '--git-dir', '--work-tree', '--exec-path'])
 
-function gitArguments(tokens) {
+function gitInvocation(tokens) {
   if (commandName(tokens[0]) !== 'git') return null
   let at = 1
   while (at < tokens.length && tokens[at].startsWith('-')) {
     at += GIT_FLAGS_WITH_VALUE.has(tokens[at]) ? 2 : 1
   }
-  return tokens.slice(at)
+  return { options: tokens.slice(1, at), args: tokens.slice(at) }
 }
 
 // `gh api` takes exactly one endpoint and everything else it is handed is
@@ -324,6 +350,20 @@ function pushesToDefaultBranch(args) {
   return positional.slice(1).some((refspec) => pushDestination(refspec) === DEFAULT_BRANCH)
 }
 
+// `--delete master`, `-d master` and `:master` all remove the remote's master
+// rather than writing to it. Still refused here, with its own reason.
+function deletesDefaultBranch(args) {
+  const deleting = args.includes('--delete') || args.includes('-d')
+  const positional = args.filter((token) => !token.startsWith('-'))
+  return positional
+    .slice(1)
+    .some(
+      (refspec) =>
+        pushDestination(refspec) === DEFAULT_BRANCH &&
+        (deleting || refspec.replace(/^\+/, '').startsWith(':')),
+    )
+}
+
 // A dry run contacts the remote and changes nothing.
 //
 // `-n` is matched as a whole token, so a bundled cluster such as `git push -nq`
@@ -350,14 +390,22 @@ const isFastForwardFromRemote = (args) =>
 const RESOLVES_A_MERGE = new Set(['--abort', '--continue', '--quit'])
 const resolvesAMerge = (args) => args.some((token) => RESOLVES_A_MERGE.has(token))
 
-// The branch a bare `git push` or a `git merge` would land on is a fact about
-// the directory the command runs in, not about the hook's own directory. Null
-// means the question could not be asked, because that directory is not a git
-// repo; DEFAULT_BRANCH means it was asked and answered.
-function branchIn(cwd) {
+// Where a command stands: the directory it runs in, the git flags it was given,
+// and the environment it runs with. A null directory is a command the guard
+// cannot place, and every question asked of it answers in the refusing direction.
+
+// Variables that would point a query about some other path back at the
+// repository the hook or the command happens to sit in.
+const LOCATING = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR']
+
+function git(place, args) {
+  if (place.directory === null) return null
   try {
-    return execSync('git rev-parse --abbrev-ref HEAD', {
-      cwd,
+    return execFileSync('git', [...place.options, ...args], {
+      cwd: place.directory,
+      env: Object.fromEntries(
+        Object.entries({ ...process.env, ...place.environment }).filter(([, value]) => value !== undefined),
+      ),
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim()
@@ -366,21 +414,195 @@ function branchIn(cwd) {
   }
 }
 
+// A path anywhere outside the command's own git flags and bindings.
+const at = (directory) => {
+  const environment = {}
+  for (const name of LOCATING) environment[name] = undefined
+  return { directory, options: [], environment }
+}
+
+// The repository's shared git directory, which every worktree of it reports
+// identically and nothing else does.
+function commonDirOf(place) {
+  const output = git(place, ['rev-parse', '--path-format=absolute', '--git-common-dir'])
+  if (output === null) return null
+  try {
+    return realpathSync(output)
+  } catch {
+    return null
+  }
+}
+
+// What a remote URL names, spelled one way: `git@github.com:O/r.git` and
+// `https://github.com/o/r` are the same repository. A local path names whatever
+// repository is at that path. Null when it names nothing the guard can find.
+function identityOf(url, base) {
+  const schemed = /^([a-z][a-z0-9+.-]*):\/\/(.*)$/i.exec(url)
+  if (schemed !== null && schemed[1].toLowerCase() !== 'file') {
+    const slash = schemed[2].indexOf('/')
+    return slash === -1 ? null : hostedIdentity(schemed[2].slice(0, slash), schemed[2].slice(slash + 1))
+  }
+  // `host:path` is scp-like syntax. One letter before the colon is a Windows
+  // drive, which is a path.
+  const scp = schemed === null ? /^([^/:]{2,}):(.+)$/.exec(url) : null
+  if (scp !== null) return hostedIdentity(scp[1], scp[2])
+
+  const path = schemed === null ? url : schemed[2]
+  if (!isAbsolute(path) && base === null) return null
+  const common = commonDirOf(at(resolve(base ?? '/', path)))
+  return common === null ? null : `path:${common}`
+}
+
+function hostedIdentity(host, path) {
+  const name = host.replace(/^[^@]*@/, '').replace(/:\d*$/, '')
+  const repository = path.replace(/^\/+|\/+$/g, '').replace(/\.git$/i, '')
+  return `${name}/${repository}`.toLowerCase()
+}
+
+// Every URL a checkout fetches from or pushes to, after git's own rewriting.
+function remoteUrlsOf(place) {
+  const names = git(place, ['remote'])
+  if (names === null) return []
+  return names
+    .split('\n')
+    .filter(Boolean)
+    .flatMap((name) => [
+      ...(git(place, ['remote', 'get-url', '--all', name]) ?? '').split('\n'),
+      ...(git(place, ['remote', 'get-url', '--push', '--all', name]) ?? '').split('\n'),
+    ])
+    .filter(Boolean)
+}
+
+// This repository is the one the guard itself was checked out from: its shared
+// git directory, which covers every worktree, and every remote it names, which
+// covers another clone of it.
+const GUARD_PLACE = at(dirname(fileURLToPath(import.meta.url)))
+let ours
+
+function thisRepository() {
+  if (ours === undefined) {
+    const common = commonDirOf(GUARD_PLACE)
+    ours =
+      common === null
+        ? null
+        : new Set([
+            `path:${common}`,
+            ...remoteUrlsOf(GUARD_PLACE)
+              .map((url) => identityOf(url, GUARD_PLACE.directory))
+              .filter((identity) => identity !== null),
+          ])
+  }
+  return ours
+}
+
+// Each of these answers true when it cannot tell. A guard that cannot place a
+// command treats it as this repository's, the same answer it gave before it
+// looked at all.
+
+const isOurs = (identity) => identity === null || thisRepository() === null || thisRepository().has(identity)
+
+// Whether the checkout a command stands in is a checkout of this repository.
+function standsInOurs(place) {
+  if (thisRepository() === null) return true
+  const common = commonDirOf(place)
+  if (common === null) return true
+  if (thisRepository().has(`path:${common}`)) return true
+  return remoteUrlsOf(place).some((url) => thisRepository().has(identityOf(url, base(place))))
+}
+
+// Whether `git push <destination> ...` reaches this repository. The destination
+// is a remote's name or a URL, and git rewrites either before using it.
+function pushReachesOurs(destination, place) {
+  const named = git(place, ['remote', 'get-url', '--push', '--all', destination])
+  const urls = named !== null ? named.split('\n') : [git(place, ['ls-remote', '--get-url', destination]) ?? destination]
+  return urls.some((url) => isOurs(identityOf(url, base(place))))
+}
+
+// The directory git resolves a relative path against, which `-C` moves.
+function base(place) {
+  let directory = place.directory
+  for (let i = 0; i < place.options.length; i += 1) {
+    if (place.options[i] === '-C' && directory !== null) directory = resolve(directory, place.options[i + 1] ?? '.')
+  }
+  return directory
+}
+
+// gh names a repository as `owner/repo`, `host/owner/repo` or a URL to it or to
+// one of its pull requests.
+function ghIdentity(name, environment) {
+  if (name.includes('://')) {
+    const url = /^[a-z]+:\/\/([^/]+)\/([^/]+)\/([^/]+)/i.exec(name)
+    return url === null ? null : hostedIdentity(url[1], `${url[2]}/${url[3]}`)
+  }
+  const parts = name.split('/')
+  if (parts.length === 2) return hostedIdentity(environment.GH_HOST ?? 'github.com', name)
+  if (parts.length === 3) return hostedIdentity(parts[0], `${parts[1]}/${parts[2]}`)
+  return null
+}
+
+// The repository `gh pr merge` acts on: `--repo`, then a pull request named by
+// URL, then `GH_REPO`, and failing all three whatever the checkout's remotes say.
+// `--repo` may come before the subcommand or after it, so it is looked for in
+// the whole command.
+function ghPrReachesOurs(tokens, place) {
+  const named =
+    flagValue(tokens.slice(1), '--repo', '-R') ??
+    ghArguments(tokens)
+      .slice(2)
+      .find((token) => token.includes('://'))
+  const repository = named ?? place.environment.GH_REPO ?? process.env.GH_REPO
+  return repository === undefined ? standsInOurs(place) : isOurs(ghIdentity(repository, place.environment))
+}
+
+// `gh api repos/owner/repo/...` names its repository outright. `{owner}/{repo}`
+// is filled from `GH_REPO` or the checkout.
+function ghApiReachesOurs(endpoint, place) {
+  const named = /^\/?repos\/([^/{}]+)\/([^/{}]+)\//.exec(endpoint)
+  if (named !== null) return isOurs(hostedIdentity(place.environment.GH_HOST ?? 'github.com', `${named[1]}/${named[2]}`))
+  const repository = place.environment.GH_REPO ?? process.env.GH_REPO
+  return repository === undefined ? standsInOurs(place) : isOurs(ghIdentity(repository, place.environment))
+}
+
+function flagValue(args, long, short) {
+  for (let i = 0; i < args.length; i += 1) {
+    if (args[i] === long || args[i] === short) return args[i + 1]
+    if (args[i].startsWith(`${long}=`)) return args[i].slice(long.length + 1)
+    if (args[i].startsWith(short) && args[i].length > short.length) return args[i].slice(short.length)
+  }
+  return undefined
+}
+
+// The branch a bare `git push` or a `git merge` would land on is a fact about
+// where the command runs, not about the hook's own directory. Null means the
+// question could not be asked, because that directory is not a git repo.
+function branchIn(place) {
+  return git(place, ['rev-parse', '--abbrev-ref', 'HEAD'])
+}
+
+// A command the guard cannot place might be standing anywhere, master included.
+const onDefaultBranch = (place) => place.directory === null || branchIn(place) === DEFAULT_BRANCH
+
 // A leading `cd <dir> &&` arrives as a command of its own, in order, and the
 // shell really does change to that directory before the rest of the line runs,
-// so the branch-dependent rules below read this rather than the hook process's
-// own directory.
+// so the rules below read this rather than the hook process's own directory.
 function directoryOf(tokens, current) {
   if (commandName(tokens[0]) !== 'cd') return current
   // `cd /d C:\path` on Windows, and `cd -- <dir>`.
   const target = tokens.slice(1).find((token) => !token.startsWith('-') && token !== '/d')
-  return target === undefined ? current : resolve(current, target)
+  if (target === undefined) return current
+  const expanded = target.replace(/^(~|\$HOME|\$\{HOME\})(?=$|[\\/])/, homedir())
+  if (isAbsolute(expanded)) return expanded
+  return current === null ? null : resolve(current, expanded)
 }
 
-function judge(line, depth, cwd) {
+function judge(line, depth, cwd, inherited = {}) {
   let directory = cwd
-  for (const tokens of segmentsOf(line)) {
+  const exported = { ...inherited }
+  for (const { tokens, bindings } of commandsOf(line)) {
     directory = directoryOf(tokens, directory)
+    if (commandName(tokens[0]) === 'export') Object.assign(exported, bindingsIn(tokens.slice(1)))
+    const environment = { ...exported, ...bindings }
+    const place = { directory, options: [], environment }
 
     if (isLivenessProbe(tokens)) {
       deny(
@@ -391,21 +613,35 @@ function judge(line, depth, cwd) {
     }
 
     const gh = ghArguments(tokens)
-    if (gh !== null && gh[0] === 'pr' && gh[1] === 'merge') {
+    if (gh !== null && gh[0] === 'pr' && gh[1] === 'merge' && ghPrReachesOurs(tokens, place)) {
       deny(
         'Blocked: `gh pr merge` bypasses the green-checks requirement, and agents do\n' +
           `not land pull requests.\n\n${USE_WRAPPER}`,
       )
     }
-    if (gh !== null && gh[0] === 'api' && isMergeEndpoint(apiEndpoint(gh.slice(1)) ?? '')) {
+    const endpoint = gh !== null && gh[0] === 'api' ? apiEndpoint(gh.slice(1)) : null
+    if (endpoint !== null && isMergeEndpoint(endpoint) && ghApiReachesOurs(endpoint, place)) {
       deny(`Blocked: merging through \`gh api\` is still merging.\n\n${USE_WRAPPER}`)
     }
 
-    const git = gitArguments(tokens)
+    const invocation = gitInvocation(tokens)
+    const gitPlace = invocation === null ? place : { ...place, options: invocation.options }
+    const subcommand = invocation?.args[0]
+    const args = invocation?.args.slice(1) ?? []
 
-    if (git !== null && git[0] === 'push' && !isDryRun(git)) {
-      const args = git.slice(1)
-      if (pushesToDefaultBranch(args)) {
+    if (subcommand === 'push' && !isDryRun(args)) {
+      const destination = args.find((token) => !token.startsWith('-'))
+      const reachesOurs = () =>
+        destination === undefined ? standsInOurs(gitPlace) : pushReachesOurs(destination, gitPlace)
+
+      if (deletesDefaultBranch(args) && reachesOurs()) {
+        deny(
+          `Blocked: this deletes ${DEFAULT_BRANCH} on the remote, which is this repository's\n` +
+            `default branch. It is not deleted from a session; that is the owner's call.\n\n` +
+            `Deleting any other branch is allowed:  git push origin --delete <branch>`,
+        )
+      }
+      if (pushesToDefaultBranch(args) && reachesOurs()) {
         deny(
           `Blocked: pushing to ${DEFAULT_BRANCH} skips review and CI entirely.\n\n` +
             `Push your feature branch instead:  git push -u origin HEAD\n\n` +
@@ -413,7 +649,7 @@ function judge(line, depth, cwd) {
             `nothing. So is \`-n\`.\n\n${USE_WRAPPER}`,
         )
       }
-      if (!hasExplicitDestination(args) && branchIn(directory) === DEFAULT_BRANCH) {
+      if (!hasExplicitDestination(args) && onDefaultBranch(gitPlace) && reachesOurs()) {
         deny(
           `Blocked: you are on ${DEFAULT_BRANCH} and this push names no destination, so\n` +
             `it would put code on the default branch without a pull request.\n\n` +
@@ -423,11 +659,11 @@ function judge(line, depth, cwd) {
     }
 
     if (
-      git !== null &&
-      git[0] === 'merge' &&
-      !isFastForwardFromRemote(git.slice(1)) &&
-      !resolvesAMerge(git.slice(1)) &&
-      branchIn(directory) === DEFAULT_BRANCH
+      subcommand === 'merge' &&
+      !isFastForwardFromRemote(args) &&
+      !resolvesAMerge(args) &&
+      onDefaultBranch(gitPlace) &&
+      standsInOurs(gitPlace)
     ) {
       deny(
         `Blocked: you are on ${DEFAULT_BRANCH}, so this would put commits on the default\n` +
@@ -438,7 +674,7 @@ function judge(line, depth, cwd) {
     }
 
     const nested = depth > 0 ? shellPayload(tokens) : null
-    if (nested !== null) judge(nested, depth - 1, directory)
+    if (nested !== null) judge(nested, depth - 1, directory, environment)
   }
 }
 
@@ -493,8 +729,9 @@ if (process.argv.includes('--probe')) {
   const command = parsed?.tool_input?.command ?? ''
   // The directory the command will run in, which the payload knows and the hook
   // process does not: the hook runs from the primary checkout, and an agent's
-  // command runs in its worktree.
-  const cwd = parsed?.cwd ?? process.cwd()
+  // command runs in its worktree. Without it the command cannot be placed, and
+  // the hook's own directory is not a stand-in for it.
+  const cwd = typeof parsed?.cwd === 'string' && isAbsolute(parsed.cwd) ? parsed.cwd : null
   if (command.trim()) judge(command, 2, cwd)
   process.exit(0)
 }
