@@ -737,8 +737,27 @@ thing #510 says it must not.
 `--disable` and `--sign-out` are separate switches because they are separate
 decisions. Disabling takes effect on the next request and leaves the person
 holding their session, so they see the waiting-list screen rather than the login
-screen, which is the truth of their situation. Signing out takes the credential,
-which is what you want after a lost phone.
+screen, which is the truth of their situation. A connected MCP client is treated
+the same way: `/mcp` reads `enabled` on every call, so it is answered `403` and
+keeps its tokens. Signing out takes the credentials, which is what you want after
+a lost phone.
+
+**Since #625 that means every credential, not only the sessions.** A connected
+MCP client holds tokens that act as the person, so `--sign-out` revokes every
+`oauth_grant` they hold (a connection, and a code approved but not yet exchanged)
+in the same transaction as their sessions, through `OAuthStore`, and says how
+many of each it ended:
+
+```
+Ended 1 session(s) for c2819db5-....
+Revoked 1 MCP connection(s) for c2819db5-..., and every token issued under them. Each client has to be approved again to reconnect.
+They stay enabled; this only took away the credentials.
+```
+
+Revoking a grant is what revokes its tokens: `/mcp` and `/token` both refuse a
+token whose grant is revoked, so the access token is answered `401` and the
+refresh token `invalid_grant`. `web/scripts/enable-user.sign-out.test.ts` proves
+both against the booted app, and that another person's connection still answers.
 
 ---
 
