@@ -1069,9 +1069,17 @@ export const signInFlow = pgTable('sign_in_flow', {
  * `metadata` is the registration response as JSON text, the shape the SDK
  * hands back to `getClient`. `client_name` and `redirect_uris` live inside it
  * and are not trusted for anything but display and exact matching.
+ *
+ * A client that identifies itself with a metadata document has a row too, so
+ * its grants have a client to belong to. Its `client_id` is the document's
+ * `https` URL, its `metadata` what the document said plus `document_fresh_until`,
+ * and its `created_at` the time it was last fetched.
  */
 export const oauthClient = pgTable('oauth_client', {
-  /** A `randomUUID()` the SDK generated at registration. */
+  /**
+   * A `randomUUID()` the SDK generated at registration, or the `https` URL of
+   * a metadata document. The two shapes never meet.
+   */
   clientId: text('client_id').primaryKey(),
   metadata: text('metadata').notNull(),
   // text, not timestamp, for the reason written out on books.cover_checked_at.

@@ -96,6 +96,8 @@ export function consent(
   res: express.Response,
   args: {
     clientName: string
+    /** The host of a metadata document's URL, for a client that named itself with one. */
+    clientHost?: string
     redirectUri: string
     who: string
     consentToken: string
@@ -106,8 +108,16 @@ export function consent(
   const warning = loopback
     ? `<p class="warn">This client receives the answer on <span class="where">${escape(target.host)}</span>, which is a program on the computer you are using. Any program there could claim this name, so allow it only if you started this connection yourself just now.</p>`
     : ''
+  /*
+   * A document may give itself any name, so the host it was fetched from is
+   * shown beside it: that is the part nobody else can claim.
+   */
+  const vouched = args.clientHost
+    ? `<p>This client describes itself in a document at <span class="where">${escape(args.clientHost)}</span>. The name above is what that document says; the address is who published it.</p>`
+    : ''
   send(res, 200, page('Allow access?', `
 <h1>Allow ${escape(args.clientName)} to use this catalogue as you?</h1>
+${vouched}
 <p>Signed in as <strong>${escape(args.who)}</strong>.</p>
 <p>If you allow it, <strong>${escape(args.clientName)}</strong> can read and change this book catalogue as you until you disconnect it. The answer will be sent to <span class="where">${escape(target.host)}</span>.</p>
 ${warning}

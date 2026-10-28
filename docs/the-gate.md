@@ -397,7 +397,7 @@ drawn on, and each is a deliberate, listed door.
 | --- | --- |
 | `GET /.well-known/oauth-authorization-server` | Where a client learns the endpoints below. Says nothing about anybody. |
 | `GET /.well-known/oauth-protected-resource/mcp` | Where a client that was refused at `/mcp` learns who issues tokens for it. |
-| `GET\|POST /authorize` | The browser half. Open because a person not yet signed in arrives here; what it draws depends on the session cookie, and it issues nothing. A code is issued only by the consent answer below, which is behind the gate. |
+| `GET\|POST /authorize` | The browser half. Open because a person not yet signed in arrives here; what it draws depends on the session cookie, and it issues nothing. A code is issued only by the consent answer below, which is behind the gate. It is also the only door that makes this server send a request: for a client named by a metadata document (#640) it fetches that document, and **only once an enabled person is signed in**, so a stranger cannot point it anywhere. The fetch refuses private and special-use addresses before connecting; see `docs/the-mcp-connector.md`. |
 | `POST /token` | Exchanges a code (with its PKCE verifier) or a refresh token. Guarded by what it is handed rather than by who is asking. |
 | `POST /register` | Dynamic client registration, which claude.ai uses. Registering grants nothing: a client is a program, and only a person who is enabled can approve one. Rate-limited by the SDK. |
 | `POST /revoke` | RFC 7009. Guarded by the token being revoked. |

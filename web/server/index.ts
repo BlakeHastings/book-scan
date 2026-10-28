@@ -77,6 +77,7 @@ import { PAGE_LIMIT, Store, type DraftBook } from './store'
 import { mountCachePolicy, mountGate, mountSignIn } from './auth/gate'
 import { describeSignIn, signInFrom, type SignInConfig } from './auth/providers'
 import { describeMcp, mountMcp } from './mcp/mount'
+import type { DocumentFetchOptions } from './mcp/client-document'
 import { bindFrom, describeBind } from './bind'
 import { describeProxyHops, proxyHopsFrom, trustProxySetting } from './trust-proxy'
 import { keepSweeping } from './mcp/sweep'
@@ -332,6 +333,13 @@ export interface CreateAppOptions {
    * `server/trust-proxy.ts`.
    */
   proxyHops?: number
+  /**
+   * How the MCP connector fetches a client's metadata document. Absent is the
+   * real network with every private and special-use address refused, which is
+   * every deployment; a test passes a resolver and a certificate of its own.
+   * See `server/mcp/client-document.ts`.
+   */
+  clientDocuments?: DocumentFetchOptions
 }
 
 /**
@@ -858,6 +866,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       lookupIsbn: lookUpIsbn,
     },
     commands: { catalogueBook, reviseBook, applyTag, removeTag },
+    clientDocuments: options.clientDocuments,
   })
 
   /**

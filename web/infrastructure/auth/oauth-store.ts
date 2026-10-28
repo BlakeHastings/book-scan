@@ -98,6 +98,19 @@ export class OAuthStore {
     await this.db.run(insert.text, insert.values)
   }
 
+  /**
+   * A client described by a metadata document, as it was last fetched. The row
+   * is updated in place rather than replaced, because a grant and a consent
+   * page cascade from it, and `created_at` becomes the time of this fetch.
+   */
+  async saveClientDocument(clientId: string, metadata: string, now: Date): Promise<void> {
+    const upsert = statement(
+      build.insert(oauthClient).values({ clientId, metadata, createdAt: at(now) })
+        .onConflictDoUpdate({ target: oauthClient.clientId, set: { metadata, createdAt: at(now) } }),
+    )
+    await this.db.run(upsert.text, upsert.values)
+  }
+
   /** The registration response as it was stored, or undefined for a client nobody registered. */
   async clientMetadata(clientId: string): Promise<string | undefined> {
     const query = statement(
