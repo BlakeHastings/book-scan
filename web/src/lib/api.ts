@@ -288,8 +288,10 @@ export interface BookRow {
 }
 
 /**
- * `author_filing` is not a column on `books`: it is a fact about the first
- * credit's alias, and the server's views join it back on.
+ * `author_filing` is not a column on `books`. On the wire it is the name the
+ * row's `sort_key` files it under (`filedUnder` in shared/shelving.ts), so it
+ * always agrees with the order a list arrives in. That is the first credit's
+ * filing name, except for a book saved before that name was corrected.
  */
 export interface FiledBookRow extends BookRow {
   author_filing: string
