@@ -3,8 +3,8 @@
 For #613, the first child of #612. A person who is signed in and let in can add
 this app as a custom connector in claude.ai (or `claude mcp add --transport http`
 in Claude Code), approve it in the browser, and the client then holds a token
-that calls tools **as that person**. One tool, `whoami`, proves the chain; the
-catalogue tools are later children of #612.
+that calls tools **as that person**. `whoami` proves the chain; the read tools
+(#617) search and read the catalogue, and the write tools are #618.
 
 This page is the explanation and the research behind it. `docs/the-gate.md` has
 the doors and the count; the code is `web/server/mcp/` and
@@ -237,6 +237,114 @@ Settings screen over them is a follow-up.
 
 ---
 
+## The tool surface
+
+For #617, and for #618 to follow. The tools are `web/server/mcp/tools.ts` and
+`web/server/mcp/read-tools.ts`; how every tool answers is
+`web/server/mcp/answers.ts`.
+
+### The tools
+
+| Tool | Calls | What it answers |
+| --- | --- | --- |
+| `search_books` | `ListBooksHandler` | One page of short book records, filtered by words, ISBN, tags, range, author, state and placement |
+| `get_book` | `GetBookHandler`, `TagsOfBookHandler` | One book in any state, queued included: record, place, tags, credits, which photographs exist |
+| `collection_summary` | `CountBooksHandler` | The counts the first screen shows |
+| `list_tags` | `VocabularyHandler` | The vocabulary, or the part under one slug, with rolled-up counts |
+| `list_authors` | `ListAuthorsHandler` | People, each with every name they publish under, paged and optionally narrowed by name |
+| `get_author_books` | `BooksByAuthorHandler` | One person and every book crediting them, in any state, paged |
+| `lookup_isbn` | `LookupIsbnHandler` | What Open Library and Google Books hold for a number, and whether this collection has it. Writes nothing |
+| `whoami` | `AuthStore` | Which person the connection acts for |
+
+Every one takes its handlers from `createApp`, which builds them once; `/mcp`
+makes a fresh `McpServer` per request and hands it the same handlers, so a
+tool never opens a pool or a store of its own. `lookup_isbn`'s handler sits in
+front of `server/lookup.ts` through a `CatalogueLookup` port
+(`web/application/lookup/read-models.ts`), and `GET /api/lookup/isbn/:isbn` now
+calls the same handler.
+
+`search_books` filters by author, so `CatalogueFilter` gained `authorId`: the
+one listing was widened rather than a second one written, as AGENTS.md asks.
+
+### What was read, and what it changed
+
+- **The specification's tools page** (2025-11-25,
+  <https://modelcontextprotocol.io/specification/2025-11-25/server/tools>).
+  A tool that returns `structuredContent` **SHOULD** also return the serialized
+  JSON in a text block, for clients that predate structured content; with an
+  `outputSchema` the server **MUST** conform to it, and the SDK checks this on
+  every call, so a test that calls a tool is also a test of its schema. Errors a
+  model can correct (a bad tag, an unknown id) are **tool execution errors**,
+  `isError: true` with a message, not JSON-RPC errors, because clients hand the
+  first to the model and may not hand it the second. Names: 1 to 128
+  characters, letters, digits, `_`, `-`, `.`.
+- **The annotations** (`ToolAnnotations` in the same revision). `readOnlyHint`
+  defaults to **false**, `destructiveHint` to **true** and `openWorldHint` to
+  **true**, so a tool that says nothing is assumed to be a destructive call to
+  the open world. Every tool here says all of what applies. `destructiveHint`
+  and `idempotentHint` mean something only when `readOnlyHint` is false.
+  Clients must treat annotations as untrusted hints; they describe, they do not
+  protect.
+- **Anthropic's "Writing effective tools for agents"**
+  (<https://www.anthropic.com/engineering/writing-tools-for-agents>). Describe a
+  tool as to a new colleague, with this app's vocabulary spelled out; name
+  parameters unambiguously (`book_id`, not `id`); return high-signal fields
+  rather than everything a row holds; page, because Claude Code truncates a tool
+  answer at about 25,000 tokens; and make an error say how to fix the call. This
+  is what moved the default page from the `/api` listing's 500 to **25**, with a
+  ceiling of **100**, and what took the internal columns (`draft_json`,
+  `ocr_text`, `sort_key`, the hashes) out of every answer.
+- **GitHub's MCP server** (<https://github.com/github/github-mcp-server>), as
+  the most used example: snake_case `verb_noun` names (`search_issues`,
+  `list_issues`), a page size with a stated maximum, and descriptions that say
+  what an omitted filter means. Its `owner`/`perPage` mix of cases is the thing
+  not copied.
+- **Resources.** Claude's connector clients surface a server's resources as
+  something a *person* attaches from a menu; tools are what the model chooses to
+  call. Searching a collection is the model's choice, so there are no resources.
+
+### The conventions, which #618 follows
+
+1. **Names are snake_case `verb_noun`**, and the noun says which thing:
+   `search_books`, `get_book`, `list_tags`. Write tools read the same way
+   (`add_book`, `apply_tag`).
+2. **Arguments and answers are snake_case, and ids say what they identify**:
+   `book_id`, `author_id`. An answer never says `id` alone.
+3. **Every tool declares an input schema and an output schema with zod**, and
+   every field a model could misread carries a `.describe()` in this app's
+   words: a range is fiction or non-fiction, a tag is a slug path such as
+   `genre/fiction/weird` that matches itself and anything beneath it, a location
+   is the label the shelves print.
+4. **A description says what comes back, what an omitted filter means, and which
+   tool to call next.** That last part is how a model finds `book_id` and
+   `author_id` without guessing.
+5. **Every answer is `answer(data)`**: `structuredContent` and the same object
+   as JSON in one text block.
+6. **Every refusal a model can act on is `refuse(text)`**, an `isError` result
+   that names the tool which answers the question (`search_books finds book
+   ids`). Arguments outside the schema (a page of 1000) are refused by the SDK
+   before the tool runs, the same way.
+7. **Listings are paged**: `limit` (default 25, at most 100) and `offset` in,
+   `total`, `offset`, `limit` and `next_offset` (null on the last page) out.
+   `list_tags` is the exception and says so: the vocabulary is tens of words.
+8. **Every tool states its annotations.** The read tools say `readOnlyHint:
+   true`. `openWorldHint` is `false` for everything that reads only this
+   catalogue and `true` for `lookup_isbn`, which asks two outside services. A
+   write tool says `readOnlyHint: false` and states `destructiveHint` and
+   `idempotentHint` explicitly, since their defaults are the pessimistic ones.
+9. **Every tool calls `actingFor(extra.authInfo)` first**, so none can run for
+   nobody. The read handlers do not take the person, because the catalogue is
+   one collection; the write handlers will.
+10. **No URL a client cannot fetch.** The photographs are served under `/api`,
+    behind the session cookie, and a bearer token is not a session (above). So
+    `get_book` says which photographs exist (`photographs: ["front", "cover"]`)
+    and nothing more. `lookup_isbn` does pass the catalogue's own `cover_url`,
+    because that is on Open Library's or Google's host and anybody can fetch
+    it. Serving a photograph to a connected client, as image content or a
+    resource behind the bearer, is a follow-up.
+
+---
+
 ## What was proved
 
 **By the SDK's own client**, in `web/server/mcp/connector.routes.test.ts`,
@@ -315,6 +423,9 @@ reach, and is the owner's to try once this is deployed.
   which is "lost phone"; a connected client is another credential the person
   holds and arguably belongs in the same switch.
 - **A Settings screen** over `GET /api/mcp/connections`.
+- **Photographs over MCP.** The read tools say which photographs exist and never
+  link to them, because the links need the session cookie. Image content in a
+  tool result, behind the bearer, would let Claude see a cover.
 - **A missing `Authorization` header is answered `error="invalid_token"`.** RFC
   6750 section 3.1 says a request with no credentials should carry no error
   code. It is the SDK's `requireBearerAuth`, it changes nothing for Claude, which
