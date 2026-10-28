@@ -23,6 +23,17 @@ import { lookupIsbn, type LookupResult } from '../lookup'
 import { FICTION_SLUG, NON_FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
 import { connect } from './testclient'
 import { DrizzleCatalogueReadModel } from '../../infrastructure/books/catalogue-read-model'
+import { isValidElement, useState, type ReactElement, type ReactNode } from 'react'
+import { TagNaming } from '../../src/components/TagNaming'
+import { Make } from '../../src/design/Naming'
+import type { TagRow } from '../../src/lib/api'
+
+// Only so the app's tag box can be asked what it makes of a word: it keeps what
+// was typed in `useState`, and with no DOM here the test hands it the word.
+vi.mock('react', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react')>()),
+  useState: vi.fn(),
+}))
 
 vi.mock('../lookup', () => ({
   lookupIsbn: vi.fn(),
@@ -158,6 +169,49 @@ async function saveFromTheApp(fields: Record<string, unknown>): Promise<number> 
 
 async function bookCount(): Promise<number> {
   return Number((await db.get<{ n: number }>('SELECT count(*)::int AS n FROM books'))?.n)
+}
+
+/** Makes a tag the way the app's tags screen does, with no book in hand. */
+async function defineInTheApp(slug: string, label: string): Promise<void> {
+  const response = await fetch(`${origin}/api/tags`, {
+    method: 'POST',
+    headers: { cookie, 'content-type': 'application/json' },
+    body: JSON.stringify({ slug, label }),
+  })
+  expect(response.ok).toBe(true)
+}
+
+async function fromTheApp<T>(path: string): Promise<T> {
+  const response = await fetch(`${origin}${path}`, { headers: { cookie } })
+  expect(response.status).toBe(200)
+  return await response.json() as T
+}
+
+function elementsOf(node: ReactNode, type: unknown): ReactElement[] {
+  if (Array.isArray(node)) return node.flatMap((one) => elementsOf(one, type))
+  if (!isValidElement(node)) return []
+  const props = node.props as { children?: ReactNode }
+  return [...(node.type === type ? [node] : []), ...elementsOf(props.children, type)]
+}
+
+/**
+ * What the app's tag box, open on this book, offers to make of a typed word:
+ * the slug and label its "make a new one" press hands to `api.applyTag`, or
+ * null when it offers no new tag. It is given what the app gives it: the
+ * vocabulary from `GET /api/tags` and every slug the book carries.
+ */
+async function theTagBoxMakes(bookId: number, typed: string): Promise<{ slug: string; label: string } | null> {
+  const { tags: vocabulary } = await fromTheApp<{ tags: TagRow[] }>('/api/tags')
+  const { tags: carried } = await fromTheApp<{ tags: { slug: string }[] }>(`/api/books/${bookId}/tags`)
+  vi.mocked(useState).mockReturnValueOnce([typed, () => {}])
+  let picked: { slug: string; label: string } | null = null
+  const box = TagNaming({
+    vocabulary, carried: carried.map((tag) => tag.slug), busy: false, error: '',
+    onPick: (tag) => { picked = tag }, onClose: () => {},
+  })
+  const [make] = elementsOf(box, Make)
+  ;(make?.props as { onPress?: () => void } | undefined)?.onPress?.()
+  return picked
 }
 
 describe('the tool list', () => {
@@ -345,7 +399,9 @@ describe('update_book', () => {
   it('re-identifies on a new ISBN: every genre and subject tag goes, a person\'s included, and the rest stay', async () => {
     const added = await call<Added>('add_book', { isbn: DUNE.isbn13, genre: 'fiction' })
     const id = added.book.book_id
-    await call('tag_book', { book_id: id, tag: 'subject/sand' })
+    await call('tag_book', { book_id: id, tag: 'sand' })
+    // A heading the app's tag box never makes, defined by hand to show what survives.
+    await defineInTheApp('mine/signed', 'Signed')
     await call('tag_book', { book_id: id, tag: 'mine/signed' })
 
     const corrected = await call<Updated>('update_book', { book_id: id, isbn: SAPIENS.isbn13, title: 'Sapiens' })
@@ -369,7 +425,13 @@ describe('update_book', () => {
     expect(tagsOf(added.book)).toEqual(['genre/non-fiction:guess'])
     expect(added.book.range).toBe('nonfiction')
 
-    await call('tag_book', { book_id: added.book.book_id, tag: 'genre/fiction' })
+    // tag_book writes no genre, so the person's tag goes on through the app's route.
+    const response = await fetch(`${origin}/api/books/${added.book.book_id}/tags`, {
+      method: 'POST',
+      headers: { cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ slug: FICTION_SLUG, label: 'Fiction' }),
+    })
+    expect(response.status).toBe(201)
     const saved = await call<Updated>('update_book', { book_id: added.book.book_id, notes: 'a novel, really' })
     expect(saved.book.range).toBe('fiction')
     expect(tagsOf(saved.book)).toEqual(['genre/fiction:person', 'genre/non-fiction:guess'])
@@ -401,29 +463,135 @@ describe('tag_book and untag_book', () => {
     const added = await call<Added>('add_book', { isbn: DUNE.isbn13 })
     const id = added.book.book_id
 
-    const tagged = await call<{ tag: string; tags: (Tag & { label: string })[] }>('tag_book', { book_id: id, tag: 'mine/Lent Out' })
-    expect(tagged.tag).toBe('mine/lent-out')
-    expect(tagged.tags).toContainEqual(expect.objectContaining({ slug: 'mine/lent-out', source: 'person', label: 'mine/Lent Out' }))
+    const tagged = await call<{ tag: string; tags: (Tag & { label: string })[] }>('tag_book', { book_id: id, tag: 'Lent Out' })
+    expect(tagged.tag).toBe('subject/lent-out')
+    expect(tagged.tags).toContainEqual(expect.objectContaining({ slug: 'subject/lent-out', source: 'person', label: 'Lent Out' }))
 
-    const again = await call<{ tags: Tag[] }>('tag_book', { book_id: id, tag: 'mine/lent-out' })
-    expect(tagsOf(again)).toEqual(tagsOf(tagged))
+    expect(tagsOf(await call<{ tags: Tag[] }>('tag_book', { book_id: id, tag: 'lent out' }))).toEqual(tagsOf(tagged))
+    expect(tagsOf(await call<{ tags: Tag[] }>('tag_book', { book_id: id, tag: 'subject/lent-out' }))).toEqual(tagsOf(tagged))
 
-    expect(await refusal('tag_book', { book_id: 999_999, tag: 'mine/x' })).toMatch(/no book/)
+    expect(await refusal('tag_book', { book_id: 999_999, tag: 'signed' })).toMatch(/no book/)
     expect(await refusal('tag_book', { book_id: id, tag: '///' })).toMatch(/not a tag/)
+    expect(await refusal('tag_book', { book_id: id, tag: '???' })).toMatch(/not a word/)
   })
 
   it('untags whoever applied it, and says when there was nothing to take off', async () => {
     const added = await call<Added>('add_book', { isbn: DUNE.isbn13 })
     const id = added.book.book_id
-    await call('tag_book', { book_id: id, tag: 'mine/signed' })
+    await call('tag_book', { book_id: id, tag: 'signed' })
 
     const guessGone = await call<{ removed: boolean; tags: Tag[] }>('untag_book', { book_id: id, tag: 'genre/fiction' })
     expect(guessGone.removed).toBe(true)
-    expect(tagsOf(guessGone)).toEqual(['mine/signed:person'])
+    expect(tagsOf(guessGone)).toEqual(['subject/signed:person'])
 
-    const gone = await call<{ removed: boolean; tags: Tag[] }>('untag_book', { book_id: id, tag: 'mine/signed' })
+    const gone = await call<{ removed: boolean; tags: Tag[] }>('untag_book', { book_id: id, tag: 'subject/signed' })
     expect(gone).toMatchObject({ removed: true, tags: [] })
-    expect(await call('untag_book', { book_id: id, tag: 'mine/signed' })).toMatchObject({ removed: false, tags: [] })
-    expect(await refusal('untag_book', { book_id: 999_999, tag: 'mine/signed' })).toMatch(/no book/)
+    expect(await call('untag_book', { book_id: id, tag: 'subject/signed' })).toMatchObject({ removed: false, tags: [] })
+    expect(await refusal('untag_book', { book_id: 999_999, tag: 'subject/signed' })).toMatch(/no book/)
+  })
+})
+
+describe('the tools do what the app would have done (#644)', () => {
+  type Tagged = { tag: string; label: string; made: boolean; tags: (Tag & { label: string })[] }
+  type Revised = Updated & { looked_up: boolean; same_isbn_as: { book_id: number; title: string }[] }
+
+  it('tag_book names a new word exactly as the app\'s tag box would, under subject with the word as its label', async () => {
+    const id = (await call<Added>('add_book', { isbn: DUNE.isbn13 })).book.book_id
+
+    for (const typed of ['signed', 'First  edition', 'Lent Out', 'MTG', 'café au lait']) {
+      const box = await theTagBoxMakes(id, typed)
+      expect(box, typed).not.toBeNull()
+      const tagged = await call<Tagged>('tag_book', { book_id: id, tag: typed })
+      expect({ slug: tagged.tag, label: tagged.label }, typed).toEqual(box)
+      expect(tagged.tags, typed).toContainEqual(expect.objectContaining({ ...box, source: 'person' }))
+    }
+    expect(tagsOf(await call<Book>('get_book', { book_id: id }))).toEqual([
+      'genre/fiction:guess', 'subject/cafe-au-lait:person', 'subject/first-edition:person',
+      'subject/lent-out:person', 'subject/mtg:person', 'subject/signed:person',
+    ])
+  })
+
+  it('tag_book reuses a word the collection keeps, and refuses a second spelling of it, as the box does', async () => {
+    const dune = (await call<Added>('add_book', { isbn: DUNE.isbn13 })).book.book_id
+    const sapiens = (await call<Added>('add_book', { isbn: SAPIENS.isbn13 })).book.book_id
+    expect(await call<Tagged>('tag_book', { book_id: dune, tag: 'Comic book' }))
+      .toMatchObject({ tag: 'subject/comic-book', label: 'Comic book', made: true })
+
+    // Spelled the way the collection spells it: the tag it already has.
+    expect(await call<Tagged>('tag_book', { book_id: sapiens, tag: 'comic book' }))
+      .toMatchObject({ tag: 'subject/comic-book', label: 'Comic book', made: false })
+
+    // A plural is the same word to this app: the box offers no new tag, and the tool makes none.
+    const other = (await call<Added>('add_book', { isbn: UNKNOWN, title: 'A Pamphlet' })).book.book_id
+    expect(await theTagBoxMakes(other, 'Comic Books')).toBeNull()
+    const said = await refusal('tag_book', { book_id: other, tag: 'Comic Books' })
+    expect(said).toMatch(/subject\/comic-book/)
+    expect(said).toMatch(/same word/)
+    expect(tagsOf(await call<Book>('get_book', { book_id: other }))).toEqual([])
+
+    // An existing slug is reused as it always was; a slug nobody has made is not made.
+    expect(await call<Tagged>('tag_book', { book_id: other, tag: 'subject/comic-book' }))
+      .toMatchObject({ tag: 'subject/comic-book', made: false })
+    expect(await refusal('tag_book', { book_id: other, tag: 'mine/signed' }))
+      .toMatch(/no tag mine\/signed.*"signed"/s)
+    const vocabulary = await call<{ tags: { slug: string }[] }>('list_tags')
+    expect(vocabulary.tags.map((tag) => tag.slug)).not.toContain('mine/signed')
+  })
+
+  it('tag_book refuses a genre, as the box does, and points at update_book', async () => {
+    const id = (await call<Added>('add_book', { isbn: DUNE.isbn13 })).book.book_id
+    for (const typed of ['fiction', 'Non fiction']) {
+      expect(await theTagBoxMakes(id, typed), typed).toBeNull()
+      expect(await refusal('tag_book', { book_id: id, tag: typed }), typed).toMatch(/update_book.*genre/s)
+    }
+    for (const slug of ['genre/cyberpunk', 'genre/fiction', 'genre/fiction/science-fiction']) {
+      expect(await refusal('tag_book', { book_id: id, tag: slug }), slug).toMatch(/update_book.*genre/s)
+    }
+    expect(tagsOf(await call<Book>('get_book', { book_id: id }))).toEqual(['genre/fiction:guess'])
+    const genres = await call<{ tags: { slug: string }[] }>('list_tags', { under: 'genre' })
+    expect(genres.tags.map((tag) => tag.slug)).not.toContain('genre/cyberpunk')
+  })
+
+  it('describes the tools so that a model following the examples does what the app does', async () => {
+    const { tools } = await client.listTools()
+    const byName = new Map(tools.map((tool) => [tool.name, tool]))
+    const tagBook = JSON.stringify(byName.get('tag_book'))
+    expect(tagBook).not.toMatch(/mine\//)
+    expect(tagBook).toMatch(/subject/)
+    expect(byName.get('tag_book')?.inputSchema.properties).not.toHaveProperty('label')
+
+    const updateBook = byName.get('update_book')?.description ?? ''
+    expect(updateBook).not.toMatch(/mine\//)
+    expect(updateBook).toMatch(/genre replaces every genre tag a person/)
+    expect(updateBook).toMatch(/not looked up.*lookup_isbn/s)
+    expect(byName.get('add_book')?.description).toMatch(/second_copy/)
+  })
+
+  it('update_book says a new ISBN was not looked up, and names the books already carrying it', async () => {
+    const dune = (await call<Added>('add_book', { isbn: DUNE.isbn13 })).book.book_id
+    const sapiens = (await call<Added>('add_book', { isbn: SAPIENS.isbn13 })).book.book_id
+    const lookups = vi.mocked(lookupIsbn).mock.calls.length
+
+    const corrected = await call<Revised>('update_book', { book_id: sapiens, isbn: DUNE.isbn10 })
+    expect(corrected).toMatchObject({ reidentified: true, looked_up: false })
+    // The old record, untouched: nothing was fetched for the new number.
+    expect(corrected.book).toMatchObject({ title: 'Sapiens', isbn13: DUNE.isbn13 })
+    expect(vi.mocked(lookupIsbn).mock.calls.length).toBe(lookups)
+    expect(corrected.same_isbn_as).toEqual([{ book_id: dune, title: 'Dune' }])
+
+    expect(await call<Revised>('update_book', { book_id: dune, notes: 'mine' }))
+      .toMatchObject({ looked_up: false, same_isbn_as: [] })
+  })
+
+  it('add_book adds a genuine second copy when asked, as the review pane does, and only then', async () => {
+    const first = await call<Added>('add_book', { isbn: DUNE.isbn13 })
+    expect(await call<Added>('add_book', { isbn: DUNE.isbn13 }))
+      .toMatchObject({ added: false, record_from: 'existing', book: { book_id: first.book.book_id } })
+
+    const copy = await call<Added>('add_book', { isbn: DUNE.isbn10, second_copy: true, notes: 'the paperback' })
+    expect(copy).toMatchObject({ added: true, record_from: 'catalogue' })
+    expect(copy.book).toMatchObject({ title: 'Dune', isbn13: DUNE.isbn13, notes: 'the paperback' })
+    expect(copy.book.book_id).not.toBe(first.book.book_id)
+    expect(await bookCount()).toBe(2)
   })
 })

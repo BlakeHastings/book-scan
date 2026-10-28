@@ -335,11 +335,15 @@ describe('lookup_isbn', () => {
     vi.mocked(lookupIsbn).mockResolvedValueOnce({
       found: false, title: '', subtitle: '', authors: [], publisher: '', published: '', pages: '',
       isbn13: '', isbn10: '', seriesName: '', seriesIndex: null, coverUrl: '', source: '',
-      classification: { genre: null, confidence: 'unknown', reason: 'No lookup performed.' },
+      // What `lookup.ts` answers when nothing is found: a default genre nobody stated.
+      classification: { genre: FICTION_SLUG, confidence: 'unknown', reason: 'No lookup performed.' },
       notes: ['ISBN 9780000000002 not found in either catalogue.'],
     })
-    const missing = await call('lookup_isbn', { isbn: '9780000000002' })
+    const missing = await call<Record<string, unknown>>('lookup_isbn', { isbn: '9780000000002' })
     expect(missing).toMatchObject({ found: false, already_catalogued: null, notes: [expect.stringContaining('not found')] })
+    // Nothing stated a genre, so none reaches the model, and the number asked about is echoed.
+    expect(missing).toMatchObject({ genre: null, genre_confidence: 'unknown', isbn13: '9780000000002' })
+    expect(missing.genre_reason).not.toMatch(/No lookup performed/)
     expect((await call<{ total: number }>('collection_summary')).total).toBe(before.total)
   })
 
