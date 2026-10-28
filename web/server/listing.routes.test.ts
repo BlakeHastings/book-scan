@@ -382,6 +382,10 @@ describe('a page of a listing, which is what makes this screen survive growing',
    * hundred and one saves over HTTP is a minute this suite should not
    * spend to prove one `LIMIT`. It is still the whole route being asked,
    * over real HTTP, against rows a real save wrote.
+   *
+   * Each names the plank, `1A`, the one fiction has. A save that names none is
+   * recorded where it lands, which lays the whole run out again, and five
+   * hundred of those is quadratic in the books already saved.
    */
   it('answers one page at most when nobody asked for a page', async () => {
     const books = testBooks(db)
@@ -390,6 +394,7 @@ describe('a page of a listing, which is what makes this screen survive growing',
         title: `Book ${n}`,
         authors: [`Author ${String(n).padStart(4, '0')}`],
         genre: FICTION_SLUG,
+        location: '1A',
       })
     }
 
