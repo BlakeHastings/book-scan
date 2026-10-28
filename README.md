@@ -32,6 +32,7 @@ setup, including why the certificate warning appears and how to get rid of it.
 | [`web/README.md`](web/README.md) | Setup, architecture, how the pieces fit |
 | [`docs/shelving.md`](docs/shelving.md) | The shelving specification, and the authority on filing rules |
 | [`e2e/README.md`](e2e/README.md) | The browser end to end suite, and how the camera is faked |
+| [`docs/connecting-claude.md`](docs/connecting-claude.md) | How to connect Claude (claude.ai, the Claude apps, Claude Code) to your catalogue, and what to check when it fails |
 | [`docs/postgres-migration.md`](docs/postgres-migration.md) | The staged plan for moving off SQLite, and the decisions behind it |
 | [`docs/deployment-survey.md`](docs/deployment-survey.md) | What this app requires in order to run somewhere that is not one desktop |
 | [`AGENTS.md`](AGENTS.md) | Instructions for coding agents, including data safety |
