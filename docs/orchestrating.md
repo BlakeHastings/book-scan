@@ -187,6 +187,9 @@ question as a criticism and re-audited something that was fine.
 
 ## Things that will bite you
 
+**A stack of pull requests closes itself when its base merges.** `merge-pr.mjs` squashes and deletes the head branch, and GitHub then **closes**, rather than retargets, every pull request whose base was that branch. A closed PR whose base is gone cannot be reopened or retargeted. Seen on 2026-10-29 with #628 and #630. **Retarget each child to `master` before merging its base**, then replay only the child's own commits with `git rebase --onto origin/master <old base head>` in a throwaway worktree, because the squash rewrote the commits it shares with the base. If it has already happened: recreate the deleted branch at the merged PR's `headRefOid`, reopen, retarget, and delete the branch again.
+
+
 **There are two families of defect here and both are one sentence.**
 
 The first: **a question with two answers that part company.** Nine instances by
