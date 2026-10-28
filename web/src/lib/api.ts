@@ -1123,6 +1123,21 @@ export class Refusal extends Error {
 }
 
 /**
+ * A client somebody approved, as `GET /api/mcp/connections` answers it. The name
+ * is whatever the client registered itself as, which anybody can do, so it is
+ * never the whole of who this is: `redirectHost` is where its approval was sent.
+ */
+export interface McpConnection {
+  id: string
+  client: { id: string; name: string }
+  redirectHost: string
+  /** ISO 8601. */
+  connectedAt: string
+  /** ISO 8601. Moved when a token is issued or refreshed, not on every call, so it is good to the hour. */
+  lastUsedAt: string
+}
+
+/**
  * Any request can be the one that finds out the session has died, and the screen
  * that has to change is the whole app, so the answer travels out of here rather
  * than back to the caller. `app/gate.tsx` is the one listener. A set rather than
@@ -1181,6 +1196,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       state,
     )
   }
+  // A 204 has no body to parse, and the caller asked for nothing back.
+  if (response.status === 204) return undefined as T
   return (await response.json()) as T
 }
 
@@ -1860,6 +1877,19 @@ export const api = {
    * `server/backup-watch.ts`.
    */
   backup: () => request<BackupWatch>('/api/backup'),
+
+  /**
+   * The clients this person has connected over MCP and not disconnected, newest
+   * first. Only the caller's own.
+   */
+  connections: () => request<{ connections: McpConnection[] }>('/api/mcp/connections'),
+
+  /**
+   * Revokes every token the connection holds. A `404` means it was already gone,
+   * whoever disconnected it.
+   */
+  disconnect: (id: string) =>
+    request<void>(`/api/mcp/connections/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
   /**
    * The only calls here that answer to somebody with no session, grouped so that
