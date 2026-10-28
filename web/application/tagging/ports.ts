@@ -76,5 +76,3 @@ export interface TagRepository {
    */
   remove(slug: TagSlug): Promise<boolean>
 }
-
-}
