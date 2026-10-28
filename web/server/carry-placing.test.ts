@@ -28,19 +28,13 @@ import { removeScratchRoot, scratchRoot } from './scratchdir'
 import { createApp, type BookScanApp } from './index'
 import { signedIn } from './testauth'
 import type { Db } from './driver'
-import { Store, type DraftBook } from './store'
+import type { DraftBook } from './store'
 import { Shelves } from './shelves'
-import { recordCredits, settleGenre } from './book-save'
+import { bookCommands, catalogueCommandOf } from './book-commands'
 import { applyRunMove } from './relocate-run'
 import { addAreaTo, addFixture, describeFurniture, editFixture } from './furniture'
 import { applyRuleChange } from './place-rule'
-import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
-import { DrizzleTagRepository } from '../infrastructure/tagging/tag-repository'
 import { DrizzlePlacementLedger } from '../infrastructure/placement/ledger-repository'
-import { DbUnitOfWork } from '../infrastructure/db/unit-of-work'
-import { RestateTagsHandler } from '../application/tagging/restate-tags'
-import { CreditBookHandler } from '../application/authorship/credit-book'
-import { FileAliasHandler } from '../application/authorship/curate-authors'
 import { FICTION_SLUG, NON_FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
 /* The catalogues are stubbed the way every route test stubs them: nothing here
@@ -65,7 +59,6 @@ vi.mock('./covers', () => ({
 }))
 
 let db: Db
-let store: Store
 let shelves: Shelves
 let scratch: string
 let coverDir: string
@@ -86,16 +79,8 @@ const draft = (at: number, genre = NON_FICTION_SLUG): DraftBook => ({
 
 /** A book put on a shelf the way a save puts one there. `carry.test.ts`'s. */
 async function shelve(of: DraftBook): Promise<number> {
-  const authors = new DrizzleAuthorRepository(db)
-  const tags = new DrizzleTagRepository(db)
-  const { id, placement } = await store.addBook(of)
-  await settleGenre(new RestateTagsHandler(tags, new DbUnitOfWork(db)), tags, id, of)
-  await recordCredits(
-    new CreditBookHandler(authors), authors, new FileAliasHandler(authors), id, of,
-  )
-  const landed = placement && await shelves.labelFor(placement.range, id)
-  if (landed) await store.setLocation(id, landed)
-  return id
+  const { catalogueBook } = bookCommands(db, (range, id) => shelves.areaOf(range, id))
+  return (await catalogueBook.handle(catalogueCommandOf(of, new Date().toISOString()))).id
 }
 
 /**
@@ -147,7 +132,6 @@ async function buildTheWorld(): Promise<void> {
 
 beforeAll(async () => {
   db = await openTestDatabase()
-  store = new Store(db, new DrizzleAuthorRepository(db))
   shelves = new Shelves(db)
   scratch = scratchRoot('carry-placing')
 

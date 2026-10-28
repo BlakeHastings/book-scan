@@ -29,19 +29,12 @@ import { closeTestDatabase, openTestDatabase } from './testdb'
 import type { Db } from './driver'
 import { createApp, type BookScanApp } from './index'
 import { signedIn } from './testauth'
-import { Store, type DraftBook } from './store'
+import type { DraftBook } from './store'
 import { Shelves } from './shelves'
-import { recordCredits, settleGenre } from './book-save'
-import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
-import { DrizzleTagRepository } from '../infrastructure/tagging/tag-repository'
-import { DbUnitOfWork } from '../infrastructure/db/unit-of-work'
-import { RestateTagsHandler } from '../application/tagging/restate-tags'
-import { CreditBookHandler } from '../application/authorship/credit-book'
-import { FileAliasHandler } from '../application/authorship/curate-authors'
+import { bookCommands, catalogueCommandOf } from './book-commands'
 import { FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
 let db: Db
-let store: Store
 let shelves: Shelves
 let app: BookScanApp
 let server: Server
@@ -54,16 +47,8 @@ let coverDir: string
 
 /** A save, all of the steps `POST /api/books` performs, so the tag is written. */
 async function shelve(draft: DraftBook): Promise<number> {
-  const authors = new DrizzleAuthorRepository(db)
-  const tags = new DrizzleTagRepository(db)
-  const { id, placement } = await store.addBook(draft)
-  await settleGenre(new RestateTagsHandler(tags, new DbUnitOfWork(db)), tags, id, draft)
-  await recordCredits(
-    new CreditBookHandler(authors), authors, new FileAliasHandler(authors), id, draft,
-  )
-  const landed = placement && await shelves.labelFor(placement.range, id)
-  if (landed) await store.setLocation(id, landed)
-  return id
+  const { catalogueBook } = bookCommands(db, (range, id) => shelves.areaOf(range, id))
+  return (await catalogueBook.handle(catalogueCommandOf(draft, new Date().toISOString()))).id
 }
 
 const draft = (at: number): DraftBook => ({
@@ -103,7 +88,6 @@ beforeAll(() => { scratch = scratchRoot('placement-drift') })
 
 beforeEach(async () => {
   db = await openTestDatabase()
-  store = new Store(db, new DrizzleAuthorRepository(db))
   shelves = new Shelves(db)
 
   coverDir = mkdtempSync(join(scratch, 'drift-test-'))

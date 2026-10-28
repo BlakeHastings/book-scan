@@ -7,6 +7,8 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import type { Db } from '../../server/driver'
 import { closeTestDatabase, openTestDatabase } from '../../server/testdb'
 import { ReviseBookHandler, type ReviseBook } from '../../application/books/commands/revise-book'
+import { CatalogueBookHandler, type CatalogueBook } from '../../application/books/commands/catalogue-book'
+import { DbPhotographs } from './photographs-taken'
 import { rangeLock } from '../../application/locks'
 import { TagSlug, type TagSource } from '../../domain/tagging/tags'
 import { FICTION_SLUG, NON_FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
@@ -25,6 +27,8 @@ let db: Db
 let tags: DrizzleTagRepository
 let authors: DrizzleAuthorRepository
 let revise: ReviseBookHandler
+let catalogue: CatalogueBookHandler
+let started: { id: number; inTransaction: Promise<string | null> }[]
 
 async function aBook(state = 'shelved', isbn13 = DUNE): Promise<number> {
   const row = await db.get<{ id: number }>(
@@ -66,6 +70,22 @@ beforeEach(async () => {
   revise = new ReviseBookHandler(
     new DrizzleBookRepository(db), authors, tags,
     new DrizzlePlacementOnSave(db, (range, id) => shelves.areaOf(range, id)),
+    new DbUnitOfWork(db),
+  )
+  started = []
+  catalogue = new CatalogueBookHandler(
+    new DrizzleBookRepository(db), authors, tags, new DbPhotographs(db),
+    new DrizzlePlacementOnSave(db, (range, id) => shelves.areaOf(range, id)),
+    {
+      // Outside the save's unit of work this statement goes to the pool and is
+      // in no transaction; inside it, it would land on the save's transaction,
+      // open or already ended.
+      start: (id) => started.push({
+        id,
+        inTransaction: db.get<{ tx: string | null }>('SELECT txid_current_if_assigned()::text AS tx')
+          .then((row) => row?.tx ?? null, (error: unknown) => `refused: ${String(error)}`),
+      }),
+    },
     new DbUnitOfWork(db),
   )
 })
@@ -188,5 +208,89 @@ describe('revising a book', () => {
     order.push('revised')
     await holding
     expect(order).toEqual(['range held', 'range let go', 'revised'])
+  })
+})
+
+const save = (over: Partial<CatalogueBook> = {}): CatalogueBook => ({
+  description: { title: 'Dune', authors: ['Frank Herbert'], isbn13: DUNE, classificationSource: 'auto' },
+  genre: FICTION_SLUG,
+  photographs: {},
+  now: NOW,
+  ...over,
+})
+
+const photographsOf = (id: number) => db.all<{ kind: string; file: string }>(
+  'SELECT kind, file FROM capture WHERE book_id = ? ORDER BY id', [id])
+
+describe('cataloguing a book', () => {
+  it('writes the row, its genre, its credits, its photographs and the plank it lands on, together', async () => {
+    const { id, placement, filing } = await catalogue.handle(save({ photographs: { front: 'f.jpg' } }))
+
+    expect(await row(id)).toMatchObject({ state: 'shelved', shelf_range: 'fiction', sort_key: filing.sortKey })
+    expect(await slugsOf(id)).toEqual(['genre/fiction:guess'])
+    expect((await authors.creditsOf(id)).map((one) => one.name.value)).toEqual(['Frank Herbert'])
+    expect(await photographsOf(id)).toEqual([{ kind: 'front', file: 'f.jpg' }])
+    expect((await ledger(id)).map((one) => one.kind)).toEqual(['placed'])
+    expect(placement?.range).toBe('fiction')
+  })
+
+  it('confirms a queued book in place rather than adding a second', async () => {
+    const queued = await aBook('identified')
+    await db.run(`INSERT INTO capture (book_id, kind, file, taken_at) VALUES (?, 'front', 'q.jpg', ?)`, [queued, NOW])
+
+    const { id } = await catalogue.handle(save({ scanId: queued, photographs: { front: 'q.jpg' } }))
+    expect(id).toBe(queued)
+    expect((await row(id))?.state).toBe('shelved')
+    expect(await photographsOf(id)).toEqual([{ kind: 'front', file: 'q.jpg' }])
+    expect(await db.get('SELECT count(*)::int AS n FROM books')).toEqual({ n: 1 })
+  })
+
+  it('saves a scan that has already left the queue as a new book', async () => {
+    const shelved = await aBook('shelved')
+    const { id } = await catalogue.handle(save({ scanId: shelved }))
+    expect(id).not.toBe(shelved)
+  })
+
+  it('records the plank somebody named, rather than where it lands', async () => {
+    const { id } = await catalogue.handle(save({ shelvedOn: { label: '1A' } }))
+    const [placed] = await db.all<{ reason: string }>('SELECT reason FROM book_placement WHERE book_id = ?', [id])
+    expect(placed?.reason).toBe('recorded at 1A')
+  })
+
+  it('records nothing, and answers no placement, for a book no genre files', async () => {
+    const { id, placement } = await catalogue.handle(save({ genre: null }))
+    expect(placement).toBeNull()
+    expect((await row(id))?.shelf_range).toBe('')
+    expect(await ledger(id)).toEqual([])
+  })
+
+  it('writes nothing and starts nothing when the plank it names does not exist', async () => {
+    await expect(catalogue.handle(save({ shelvedOn: { label: '9Z' } }))).rejects.toThrow()
+    expect(await db.get('SELECT count(*)::int AS n FROM books')).toEqual({ n: 0 })
+    expect(await db.get('SELECT count(*)::int AS n FROM book_tag')).toEqual({ n: 0 })
+    expect(await db.get('SELECT count(*)::int AS n FROM book_author')).toEqual({ n: 0 })
+    expect(started).toEqual([])
+  })
+
+  it('starts the cover, hashes and crops only after the commit, outside the unit of work', async () => {
+    const { id } = await catalogue.handle(save())
+    expect(started.map((one) => one.id)).toEqual([id])
+    expect(await started[0]!.inTransaction).toBeNull()
+  })
+
+  it('waits for whoever holds its range, having taken the scanned book first', async () => {
+    const queued = await aBook('identified')
+    const order: string[] = []
+    const holding = new DbUnitOfWork(db).run(async () => {
+      order.push('range held')
+      await new Promise((resolve) => setTimeout(resolve, 150))
+      order.push('range let go')
+    }, { serialiseOn: [rangeLock('fiction')] })
+    await new Promise((resolve) => setTimeout(resolve, 30))
+
+    await catalogue.handle(save({ scanId: queued }))
+    order.push('catalogued')
+    await holding
+    expect(order).toEqual(['range held', 'range let go', 'catalogued'])
   })
 })

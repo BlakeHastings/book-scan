@@ -55,7 +55,7 @@ async function splitFiction(...kinds: SeparatorKind[]): Promise<void> {
 /**
  * The range a draft's own genre files it into, used for placement and edits
  * in this file. There is no tagging layer here, so for a book carrying no
- * other genre the draft's own claim is the same answer `settleGenre` would
+ * other genre the draft's own claim is the same answer `Book.stateGenre` would
  * reach.
  */
 const rangeOf = (of: DraftBook): ShelfRange => {

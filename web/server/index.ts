@@ -41,13 +41,8 @@ import { DrizzleSeparatorRepository } from '../infrastructure/shelving/separator
 import {
   DefineTagHandler, ForgetTagHandler, RelabelTagHandler,
 } from '../application/tagging/apply-tag'
-import { ApplyTagHandler } from '../application/tagging/commands/apply-tag'
-import { RemoveTagHandler } from '../application/tagging/commands/remove-tag'
-import { DrizzleBookRepository } from '../infrastructure/books/book-repository'
 import { RestateTagsHandler } from '../application/tagging/restate-tags'
-import type { BookSave } from '../application/books/commands/saving'
-import { ReviseBookHandler } from '../application/books/commands/revise-book'
-import { DrizzlePlacementOnSave } from '../infrastructure/books/placement-on-save'
+import { bookCommands, bookSaveOf, catalogueCommandOf } from './book-commands'
 import { DrizzleTagRepository } from '../infrastructure/tagging/tag-repository'
 import { DbUnitOfWork } from '../infrastructure/db/unit-of-work'
 import { CreditBookHandler, nameFor } from '../application/authorship/credit-book'
@@ -86,7 +81,6 @@ import { bindFrom, describeBind } from './bind'
 import { describeProxyHops, proxyHopsFrom, trustProxySetting } from './trust-proxy'
 import { keepSweeping } from './mcp/sweep'
 import { AuthStore } from '../infrastructure/auth/auth-store'
-import { recordCredits as recordCreditsStep, settleGenre as settleGenreStep } from './book-save'
 import { historyOf, UnknownPlank } from './placement-ledger'
 import { applyRunMove, planRunMove, runMoveOffer } from './relocate-run'
 import { applyRuleChange, draftFrom, planRuleChange, rulesOnPlace } from './place-rule'
@@ -107,7 +101,7 @@ import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
 import {
   bookCover, buildPlacement, formatLocation, parseLocation, placementOnAPlank,
   shelfImage,
-  type Neighbour, type Placement, type ShelfRange, type ShelfSlot,
+  type Neighbour, type ShelfSlot,
 } from '../shared/shelving'
 
 export type Slot = 'front' | 'back' | 'edge'
@@ -150,13 +144,6 @@ function asDraft(body: Record<string, unknown>): DraftBook {
       ? String(body.authorFilingOverride)
       : null,
   }
-}
-
-/** A draft as the book commands take it. */
-function bookSaveOf(draft: DraftBook): BookSave {
-  const { genre, authorFilingOverride, location: _location, frontImage: _front,
-    backImage: _back, edgeImage: _edge, ...description } = draft
-  return { description, genre, authorFilingOverride }
 }
 
 /**
@@ -456,44 +443,32 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   const tags = new DrizzleTagRepository(db)
   const unitOfWork = new DbUnitOfWork(db)
   const restateTags = new RestateTagsHandler(tags, unitOfWork)
-  const books = new DrizzleBookRepository(db)
-  const applyTag = new ApplyTagHandler(books, tags, unitOfWork)
-  const removeTag = new RemoveTagHandler(books, unitOfWork)
-  const placementOnSave = new DrizzlePlacementOnSave(db, (range, id) => shelves.areaOf(range, id))
-  const reviseBook = new ReviseBookHandler(books, authors, tags, placementOnSave, unitOfWork)
+  /*
+   * The one save path. The background work is the cover, the hashes and the
+   * crops, which `CatalogueBookHandler` starts only once its unit of work has
+   * committed, so `inTheBackground` is called from outside the transaction.
+   */
+  const { catalogueBook, reviseBook, applyTag, removeTag } = bookCommands(
+    db,
+    (range, id) => shelves.areaOf(range, id),
+    {
+      start: (id) => inTheBackground(
+        fetchCoverFor(id)
+          .then(() => hashBook(id))
+          .then(() => cropBookPhotos(id)),
+        `filling in the cover, hashes and crops of book ${id}`,
+      ),
+    },
+  )
   const relabelTag = new RelabelTagHandler(tags)
   const defineTag = new DefineTagHandler(tags)
   /* The rules are read per request rather than once, because a rule naming a
      tag is exactly what changes between one of these and the next. */
   const forgetTag = new ForgetTagHandler(tags, () => tagsRulesName(db))
 
-  /**
-   * Write what this save says a book is under, and answer the range that puts it
-   * in.
-   *
-   * A thin binding of `settleGenre` in `server/book-save.ts`, which lives there
-   * so `scripts/seed-world.ts` can call the exact same steps. Null is a range: a
-   * save that states no genre writes no genre tag, and a book no genre tag
-   * claims is in neither run.
-   */
-  async function settleGenre(bookId: number, draft: DraftBook): Promise<ShelfRange | null> {
-    return settleGenreStep(restateTags, tags, bookId, draft)
-  }
-
-  /**
-   * Keep the credits in step with what was just saved about a book, and file the
-   * first-listed name when somebody has said what it files under. Every save
-   * carries it, because the alias rather than `books.author_filing` decides
-   * where a book goes: an override that stopped at the column would apply to one
-   * book and then vanish.
-   */
-  async function recordCredits(bookId: number, draft: DraftBook): Promise<void> {
-    return recordCreditsStep(creditBook, authors, fileAlias, bookId, draft)
-  }
-
   /*
-   * There is no step here that records a save's photographs. `Store` and
-   * `CaptureQueue` write those rows themselves, on the transaction handle that
+   * There is no step here that records a save's photographs. The save commands
+   * and `CaptureQueue` write those rows themselves, on the transaction that
    * writes the book, so a route cannot save a book and forget its photographs
    * and a book cannot commit without them. `server/photographs.ts` is where a
    * filename becomes a row, on the way in and back out again.
@@ -1536,14 +1511,13 @@ export function createApp(options: CreateAppOptions): BookScanApp {
      * by the first photograph, so what happens here is an update that moves it to
      * `shelved` rather than an insert. See `docs/data-model.md`.
      *
-     * It carries the photographs across explicitly, because the draft is what
-     * `store` writes from and the client does not re-upload them. For a still
+     * It carries the photographs across explicitly, because the save writes them
+     * from the command and the client does not re-upload them. For a still
      * queued book that restates what it already has; for a capture that has left
      * the queue, saved as a new book, it is what hands the new one the filenames
      * the old was photographed with.
      */
     const capture = captureId ? await queue.get(captureId) : undefined
-    const queued = capture && capture.status !== 'done' ? capture : undefined
     if (capture) {
       draft.frontImage = capture.front_image
       draft.backImage = capture.back_image
@@ -1563,59 +1537,15 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     }
 
     /*
-     * The genre is settled before the row, because `books.shelf_range` is
-     * derived from the tags rather than from a column of its own. A queued book
-     * already exists and may already carry a genre somebody applied, so its tags
-     * are restated and read back and that answer is what the row is written
-     * with.
+     * The handler confirms a still-queued book, or catalogues a new one, and
+     * records where it went in the same unit of work. A location sent by the
+     * client wins, since that came from a person too; otherwise the book is
+     * where it lands, because the person is standing at the shelf having just
+     * put it in the gap they were shown. The cover, hashes and crops start after
+     * the commit and are not waited for.
      */
-    let id: number
-    /**
-     * Where the book goes, or null when nothing files it. A save that states no
-     * genre writes no genre tag, so no rule claims the book and it joins neither
-     * run. The row is written all the same, with everything anybody said about
-     * it.
-     */
-    let placement: Placement | null
-    if (queued) {
-      id = queued.id
-      placement = await store.updateBook(id, draft, await settleGenre(id, draft))
-    } else {
-      const added = await store.addBook(draft)
-      id = added.id
-      placement = added.placement
-      await settleGenre(id, draft)
-    }
-
-    await recordCredits(id, draft)
-
-    /*
-     * Record where the book physically went. The person is standing at the shelf
-     * having just answered "it fits" about this exact plank, and that is the only
-     * observation anybody will make about this book unless it moves.
-     *
-     * A location sent by the client wins, since that came from a person too. A
-     * book nothing files has no derived plank to fall back on, so nothing is
-     * recorded and the ledger keeps saying nobody has put it anywhere.
-     *
-     * The plank, not what the plank is called: reading a label back into the area
-     * it came from breaks the moment somebody names a bookcase.
-     */
-    if (!draft.location?.trim() && placement) {
-      const landed = await shelves.areaOf(placement.range, id)
-      if (landed !== null) await store.setLocationIn(id, landed)
-    }
-
-    // Deliberately not awaited: the person is waiting to be told where the book
-    // goes. There is no fourth step recording the photographs again, because each
-    // of these three writes a photograph down itself through
-    // `server/photographs.ts`, and carrying on after a failure is safe since
-    // `record` is idempotent and the next pass catches up.
-    inTheBackground(
-      fetchCoverFor(id)
-        .then(() => hashBook(id))
-        .then(() => cropBookPhotos(id)),
-      `filling in the cover, hashes and crops of book ${id}`,
+    const { id, placement, filing } = await catalogueBook.handle(
+      catalogueCommandOf(draft, new Date().toISOString(), capture?.id),
     )
 
     res.status(201).json({
@@ -1626,10 +1556,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       //
       // Null when no genre tag claims the book, which is a saved book with
       // nowhere the rules can put it rather than a save that failed.
-      placement: placement && await inDerivedScheme(
-        placement.range,
-        { ...placement, ...(await store.resolveKey(draft)) },
-      ),
+      placement: placement && await inDerivedScheme(placement.range, { ...placement, ...filing }),
       counts: await store.counts(),
       queue: await queue.counts(),
     })

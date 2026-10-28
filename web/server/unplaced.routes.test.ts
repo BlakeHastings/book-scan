@@ -21,15 +21,14 @@ import { createApp, type BookScanApp } from './index'
 import { signedIn } from './testauth'
 import { Store, type DraftBook } from './store'
 import { Shelves } from './shelves'
-import { recordCredits, settleGenre } from './book-save'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { DrizzleTagRepository } from '../infrastructure/tagging/tag-repository'
 import { DrizzlePlacementLedger } from '../infrastructure/placement/ledger-repository'
 import { DbUnitOfWork } from '../infrastructure/db/unit-of-work'
 import { RestateTagsHandler } from '../application/tagging/restate-tags'
 import { CreditBookHandler } from '../application/authorship/credit-book'
-import { FileAliasHandler } from '../application/authorship/curate-authors'
-import { NON_FICTION_SLUG } from '../domain/tagging/catalogue-claims'
+import { GENRE, NON_FICTION_SLUG } from '../domain/tagging/catalogue-claims'
+import { genreStatedBy } from '../domain/tagging/genre'
 import type { ShelfRange } from '../shared/shelving'
 
 let db: Db
@@ -42,15 +41,21 @@ let cookie: string
 let scratch: string
 let coverDir: string
 
-/** Saved the way a save saves it: the row, its genre tag and its credits. */
+/**
+ * The row, its genre tag and its credits, and no plank: a shelved book nobody has
+ * put anywhere, which the save path no longer leaves behind but a reset does.
+ */
 async function save(draft: DraftBook): Promise<{ id: number; range: ShelfRange | null }> {
   const authors = new DrizzleAuthorRepository(db)
   const tags = new DrizzleTagRepository(db)
   const { id, placement } = await store.addBook(draft)
-  await settleGenre(new RestateTagsHandler(tags, new DbUnitOfWork(db)), tags, id, draft)
-  await recordCredits(
-    new CreditBookHandler(authors), authors, new FileAliasHandler(authors), id, draft,
-  )
+  const { tag } = genreStatedBy(draft)
+  if (tag) {
+    await new RestateTagsHandler(tags, new DbUnitOfWork(db)).handle({
+      bookId: id, source: tag.source, claims: [tag], within: GENRE, now: new Date().toISOString(),
+    })
+  }
+  await new CreditBookHandler(authors).handle({ bookId: id, authors: draft.authors })
   return { id, range: placement?.range ?? null }
 }
 
