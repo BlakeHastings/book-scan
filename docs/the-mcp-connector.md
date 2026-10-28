@@ -184,7 +184,10 @@ now also refuses an origin with a path, query or fragment, since an RFC 8414
 issuer may not carry the last two and the endpoints are at the root.
 
 **Unset, the connector is off**: none of the seven doors is mounted, and the
-start log says so both ways round:
+start log says so both ways round. It is also off, rather than the process
+refusing to start, on a plain `http` origin that is not `localhost` or
+`127.0.0.1`, because OAuth 2.1 serves an authorization server over `https` only
+and the SDK throws on any other issuer:
 
 ```
 [mcp] the MCP connector is at http://localhost:36287/mcp, its own OAuth authorization server at http://localhost:36287
