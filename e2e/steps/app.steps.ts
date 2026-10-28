@@ -68,6 +68,23 @@ Then('it should open the book {string}', async ({ page }, title: string) => {
   await expect(bookTitle(page)).toHaveText(title, { timeout: QUEUE_TIMEOUT })
 })
 
+When('I pick a book at random', async ({ page }) => {
+  await page.getByRole('button', { name: 'Pick a book at random' }).click()
+})
+
+/** The server picks, so the scenario names the books it may land on rather than one. */
+Then('it should open one of:', async ({ page }, table: DataTable) => {
+  const titles = table.raw().map((row) => (row[0] ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  await expect(bookTitle(page)).toHaveText(new RegExp(`^(?:${titles.join('|')})$`))
+})
+
+Then('the first screen should not offer a book at random', async ({ page }) => {
+  // The counts have answered by now (`I open the app` waits on them), so an
+  // absent door is a decision and not a door still on its way.
+  await expect(homeScreen(page)).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Pick a book at random' })).toHaveCount(0)
+})
+
 Then('the book should offer:', async ({ page }, table: DataTable) => {
   const wanted = table.raw().map((row) => row[0] ?? '')
   await expect(bookActions(page)).toHaveText(wanted)
