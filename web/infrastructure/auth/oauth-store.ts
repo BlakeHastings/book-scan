@@ -345,6 +345,26 @@ export class OAuthStore {
     await this.db.run(revoke.text, revoke.values)
   }
 
+  /**
+   * Delete every registration made before `before` that no person has ever
+   * approved, and answer how many went. A grant keeps its client even once
+   * revoked, because the grant is the record of a connection somebody made. A
+   * consent page still waiting for an answer keeps its client too, so a person
+   * reading one when the sweep runs is not answered "expired" for it.
+   */
+  async sweepUnclaimedClients(before: Date, now: Date): Promise<number> {
+    const sweep = statement(sql`
+      delete from ${oauthClient}
+       where ${oauthClient.createdAt} < ${at(before)}
+         and not exists (select 1 from ${oauthGrant} where ${oauthGrant.clientId} = ${oauthClient.clientId})
+         and not exists (
+           select 1 from ${oauthConsent}
+            where ${oauthConsent.clientId} = ${oauthClient.clientId}
+              and ${oauthConsent.expiresAt} > ${at(now)})
+    `)
+    return (await this.db.run(sweep.text, sweep.values)).changes
+  }
+
   /** A person disconnecting one of their own clients. False when it was not theirs or is already gone. */
   async revokeGrant(grantId: string, userId: string, now: Date): Promise<boolean> {
     const query = statement(

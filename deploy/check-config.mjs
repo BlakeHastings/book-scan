@@ -178,6 +178,24 @@ export function checkConfig(env, contract, options = {}) {
     }
   }
 
+  // A count of proxies, and never `true`: the server refuses anything else at
+  // start, and `true` would let a client choose the address it is rate limited by.
+  if (set(env, 'BOOKSCAN_PROXY_HOPS')) {
+    const hops = env.BOOKSCAN_PROXY_HOPS.trim()
+    if (!/^\d+$/.test(hops)) {
+      errors.push(
+        `BOOKSCAN_PROXY_HOPS is "${hops}", which is not a whole number. It counts the proxies in ` +
+        `front of this server. ${refusal('proxy-hops-that-is-not-a-count').result}`,
+      )
+    } else if (Number(hops) > 0) {
+      notes.push(
+        `BOOKSCAN_PROXY_HOPS is ${Number(hops)}, so a client's address is the entry ${Number(hops)} from the right ` +
+        'of X-Forwarded-For. That is right only if exactly that many proxies, each appending to the ' +
+        'header, stand in front of this server: one more than there are and a client can choose its own address.',
+      )
+    }
+  }
+
   // Secrets only: an absent secret is the one kind of absence that looks like
   // working software and is not. The sign-in names are left out because the
   // notes above already cover them.

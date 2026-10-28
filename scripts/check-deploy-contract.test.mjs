@@ -259,6 +259,18 @@ const has = (name, lines, fragment) => {
   )
   check('a bind that is closed says nothing, because it is the default', checkConfig({ ...ok, BOOKSCAN_BIND: 'loopback' }, contract).notes.some((line) => line.includes('BOOKSCAN_BIND')), false)
 
+  // A hop count, and nothing that trusts the client's own word for its address.
+  has('a proxy setting of true', errors({ ...ok, BOOKSCAN_PROXY_HOPS: 'true' }), 'BOOKSCAN_PROXY_HOPS is "true", which is not a whole number')
+  has('and it says why true is refused', errors({ ...ok, BOOKSCAN_PROXY_HOPS: 'true' }), 'leftmost X-Forwarded-For entry, which the client wrote')
+  has('a negative count', errors({ ...ok, BOOKSCAN_PROXY_HOPS: '-1' }), 'is not a whole number')
+  has('a fraction', errors({ ...ok, BOOKSCAN_PROXY_HOPS: '1.5' }), 'is not a whole number')
+  has('an address, which is the other thing Express would take', errors({ ...ok, BOOKSCAN_PROXY_HOPS: '10.0.0.1' }), 'is not a whole number')
+  check('a count is not an error', errors({ ...ok, BOOKSCAN_PROXY_HOPS: '2' }).length, 0)
+  check('nor a warning', checkConfig({ ...ok, BOOKSCAN_PROXY_HOPS: '2' }, contract).warnings.length, 0)
+  has('and it is said back with what it means', checkConfig({ ...ok, BOOKSCAN_PROXY_HOPS: '2' }, contract).notes, 'the entry 2 from the right of X-Forwarded-For')
+  check('zero is the default and says nothing', checkConfig({ ...ok, BOOKSCAN_PROXY_HOPS: '0' }, contract).notes.some((line) => line.includes('BOOKSCAN_PROXY_HOPS')), false)
+  check('an empty count is an unset count', errors({ ...ok, BOOKSCAN_PROXY_HOPS: ' ' }).length, 0)
+
   // A typo in an optional variable is otherwise completely silent.
   const warnings = checkConfig({ ...ok, BOOKSCAN_DAT: '/data' }, contract).warnings
   has('a misspelt variable', warnings, 'BOOKSCAN_DAT is set and nothing reads it')
