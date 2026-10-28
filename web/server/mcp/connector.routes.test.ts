@@ -16,12 +16,10 @@ import type { AddressInfo } from 'node:net'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import type { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import { auth, UnauthorizedError, type OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js'
-import type {
-  OAuthClientInformationMixed, OAuthClientMetadata, OAuthTokens,
-} from '@modelcontextprotocol/sdk/shared/auth.js'
+import { auth, UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js'
+import type { OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js'
 
 import { removeScratchRoot, scratchRoot } from '../scratchdir'
 import { closeTestDatabase, openTestDatabase } from '../testdb'
@@ -30,6 +28,10 @@ import { createApp, type BookScanApp } from '../index'
 import { devProvider } from '../auth/providers'
 import { signedIn } from '../testauth'
 import { AuthStore } from '../../infrastructure/auth/auth-store'
+import {
+  answerConsent, approveIn as approveInAt, CALLBACK, connect as connectAt, consentTokenIn,
+  mcpUrl as mcpUrlOf, newClient, RememberingClient,
+} from './testclient'
 
 let db: Db
 let scratch: string
@@ -37,8 +39,6 @@ let coverDir: string
 let app: BookScanApp
 let server: Server
 let origin: string
-
-const CALLBACK = 'http://localhost:7777/callback'
 
 beforeAll(() => {
   scratch = scratchRoot('mcp-connector')
@@ -81,86 +81,11 @@ afterAll(async () => {
   removeScratchRoot(scratch)
 })
 
-/** What an MCP client keeps between runs, in memory. */
-class RememberingClient implements OAuthClientProvider {
-  info: OAuthClientInformationMixed | undefined
-  saved: OAuthTokens | undefined
-  verifier = ''
-  sentTo: URL | undefined
-
-  get redirectUrl(): string {
-    return CALLBACK
-  }
-
-  get clientMetadata(): OAuthClientMetadata {
-    return {
-      client_name: 'A test client',
-      redirect_uris: [CALLBACK],
-      grant_types: ['authorization_code', 'refresh_token'],
-      response_types: ['code'],
-      token_endpoint_auth_method: 'none',
-    }
-  }
-
-  clientInformation() { return this.info }
-  saveClientInformation(info: OAuthClientInformationMixed) { this.info = info }
-  tokens() { return this.saved }
-  saveTokens(tokens: OAuthTokens) { this.saved = tokens }
-  redirectToAuthorization(url: URL) { this.sentTo = url }
-  saveCodeVerifier(verifier: string) { this.verifier = verifier }
-  codeVerifier() { return this.verifier }
-}
-
-const mcpUrl = () => new URL('/mcp', origin)
-
-function newClient(): Client {
-  return new Client({ name: 'connector-test', version: '0.0.0' })
-}
-
-/** The consent page's hidden token, out of the HTML this server drew. */
-function consentTokenIn(html: string): string {
-  const found = /name="consent" value="([^"]+)"/.exec(html)?.[1]
-  if (!found) throw new Error(`no consent form on this page:\n${html}`)
-  return found
-}
-
-/** Answer a consent page as a browser would, and say where it was sent. */
-async function answer(token: string, cookie: string, decision: 'approve' | 'deny'): Promise<Response> {
-  return fetch(`${origin}/api/mcp/consent`, {
-    method: 'POST',
-    redirect: 'manual',
-    headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ consent: token, decision }).toString(),
-  })
-}
-
-/** The browser half: open the authorization URL signed in, and approve. */
-async function approveIn(browserCookie: string, authorizationUrl: URL): Promise<string> {
-  const page = await fetch(authorizationUrl, { headers: { cookie: browserCookie }, redirect: 'manual' })
-  expect(page.status).toBe(200)
-  const back = await answer(consentTokenIn(await page.text()), browserCookie, 'approve')
-  expect(back.status).toBe(302)
-  const location = new URL(back.headers.get('location') ?? '')
-  expect(`${location.origin}${location.pathname}`).toBe(CALLBACK)
-  return location.searchParams.get('code') ?? ''
-}
-
-/** A connected SDK client, through the whole flow, as the person behind `cookie`. */
-async function connect(cookie: string): Promise<{ client: Client; remembered: RememberingClient; code: string }> {
-  const remembered = new RememberingClient()
-  const first = newClient()
-  const transport = new StreamableHTTPClientTransport(mcpUrl(), { authProvider: remembered })
-  await expect(first.connect(transport)).rejects.toBeInstanceOf(UnauthorizedError)
-  expect(remembered.info?.client_id).toBeTruthy()
-  expect(remembered.sentTo).toBeDefined()
-
-  const code = await approveIn(cookie, remembered.sentTo!)
-  await transport.finishAuth(code)
-
-  const client = newClient()
-  await client.connect(new StreamableHTTPClientTransport(mcpUrl(), { authProvider: remembered }))
-  return { client, remembered, code }
-}
+const mcpUrl = () => mcpUrlOf(origin)
+const answer = (token: string, cookie: string, decision: 'approve' | 'deny') =>
+  answerConsent(origin, token, cookie, decision)
+const approveIn = (cookie: string, url: URL) => approveInAt(origin, cookie, url)
+const connect = (cookie: string) => connectAt(origin, cookie)
 
 async function whoami(client: Client): Promise<{ id: string; email: string }> {
   const result = await client.callTool({ name: 'whoami', arguments: {} })
