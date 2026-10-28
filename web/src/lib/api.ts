@@ -1396,7 +1396,13 @@ export const api = {
    * One book, and who it credits. The credits come with it because what a name
    * files under is a fact about the alias rather than a column on the book.
    */
-  getBook: (id: number) => request<{ book: BookRow; authors: Credit[] }>(`/api/books/${id}`),
+  /**
+   * `filedUnder` is the name the book's stored sort key files it under, which
+   * is what every list orders it by. It is the first credit's filing name except
+   * for a book saved before that name was corrected.
+   */
+  getBook: (id: number) =>
+    request<{ book: BookRow; authors: Credit[]; filedUnder: string }>(`/api/books/${id}`),
 
   setCheckedOut,
 

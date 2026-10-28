@@ -132,8 +132,12 @@ export const bookDetail = bookSummary.extend({
     position: z.number().int().describe('1 is the first name printed.'),
     author_id: z.number().int().describe('For get_author_books.'),
     name: z.string(),
-    files_under: z.string().describe('The name the shelves sort this credit by.'),
+    files_under: z.string().describe(
+      'What this name files under now. For the first credit it is what the book files under once it is next saved.'),
   })),
+  files_under: z.string().describe(
+    'The name the shelves order this book by, as its last save filed it. It differs from the first ' +
+    'credit\'s files_under only when that name was corrected after this book was saved.'),
   tags: z.array(tagEntry),
 })
 
@@ -171,6 +175,7 @@ export async function describeBook(queries: CatalogueQueries, bookId: number): P
       name: credit.displayName,
       files_under: credit.filingName,
     })),
+    files_under: found.filedUnder,
     tags,
   }
 }

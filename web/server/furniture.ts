@@ -28,7 +28,7 @@ import {
   type PlacementRule, type RuleOperator,
 } from '../domain/placement/rules'
 import { GENRE_RANGES } from '../domain/tagging/genre'
-import { shelfImage, type ShelfRange, type ShelfSlot } from '../shared/shelving'
+import { filedUnder, shelfImage, type ShelfRange, type ShelfSlot } from '../shared/shelving'
 import {
   COLLECTION_STRATEGIES, INHERIT, SORT_STRATEGIES, strategyFor,
   type OrderingStrategy, type SortStrategy,
@@ -541,6 +541,7 @@ interface StandingRow {
   id: number
   title: string
   author_filing: string
+  authors: string
   title_filing: string
   published: string
   sort_key: string
@@ -565,12 +566,12 @@ type StandingPhotographedRow = StandingRow & PhotographFields
  * how thick a book is decides how wide its spine is drawn.
  */
 const STANDING_COLUMNS =
-  `b.id, b.title, b.author_filing, b.title_filing, b.published, b.sort_key, b.pages,
+  `b.id, b.title, b.author_filing, b.authors, b.title_filing, b.published, b.sort_key, b.pages,
           array_remove(array_agg(t.slug ORDER BY t.slug), NULL) AS slugs,
           array_remove(array_agg(t.label ORDER BY t.slug), NULL) AS labels`
 
 const STANDING_GROUP =
-  'b.id, b.title, b.author_filing, b.title_filing, b.published, b.sort_key, b.pages'
+  'b.id, b.title, b.author_filing, b.authors, b.title_filing, b.published, b.sort_key, b.pages'
 
 const asStandingBook = (row: StandingPhotographedRow, rules: PlacementRule[]): AreaBook => {
   const photo = shelfImage({
@@ -589,7 +590,7 @@ const asStandingBook = (row: StandingPhotographedRow, rules: PlacementRule[]): A
   return {
     id: Number(row.id),
     title: row.title,
-    authorFiling: row.author_filing ?? '',
+    authorFiling: filedUnder(row),
     spine: photo.name,
     spineSlot: photo.slot,
     pages: row.pages ?? '',

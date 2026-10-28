@@ -22,6 +22,7 @@ import {
   withPlacements, withPlacementsOf, type PlacementFields,
 } from '../../server/placement-ledger'
 import { resolveIsbnPair } from '../../shared/isbn'
+import { asFiled } from '../../shared/shelving'
 import { CHECKED_OUT, SHELVED } from '../../domain/books/state'
 import { build, statement } from '../db/query'
 import { authorAlias, bookAuthor, bookTag, cataloguedBooks, tag } from '../db/schema'
@@ -101,7 +102,7 @@ export class DrizzleCatalogueReadModel implements CatalogueReadModel {
     const query = statement(rows)
     return {
       books: await withPlacements(this.db, await withPhotographs(
-        this.db, await this.db.all<FiledBookRow>(query.text, query.values),
+        this.db, (await this.db.all<FiledBookRow>(query.text, query.values)).map(asFiled),
       )),
       total: total?.total ?? 0,
     }
@@ -159,7 +160,7 @@ export class DrizzleCatalogueReadModel implements CatalogueReadModel {
              OR (isbn10 != '' AND isbn10 = :isbn10)
           ORDER BY id LIMIT 1`,
         { isbn13, isbn10 },
-      )))) ?? null
+      ).then((row) => row && asFiled(row))))) ?? null
   }
 
   async detail(id: number): Promise<PlacedPhotographedBook | null> {

@@ -32,6 +32,7 @@ export function BookPane() {
 
   const [book, setBook] = useState<BookRow | null>(null)
   const [credits, setCredits] = useState<Credit[]>([])
+  const [filed, setFiled] = useState('')
   const [tags, setTags] = useState<AppliedTag[]>([])
   const [strip, setStrip] = useState<PlacementStrip | null>(null)
   const [theirs, setTheirs] = useState<{ books: BookRow[]; name: string } | null>(null)
@@ -44,7 +45,7 @@ export function BookPane() {
   /** Read the record again, which is what every action here changes. */
   const reread = () => {
     api.getBook(viewing)
-      .then(({ book: found, authors }) => { setBook(found); setCredits(authors) })
+      .then(({ book: found, authors, filedUnder }) => { setBook(found); setCredits(authors); setFiled(filedUnder) })
       .catch((caught) => setError((caught as Error).message))
   }
 
@@ -55,10 +56,11 @@ export function BookPane() {
     setTheirs(null)
 
     api.getBook(viewing)
-      .then(({ book: found, authors }) => {
+      .then(({ book: found, authors, filedUnder }) => {
         if (!live) return
         setBook(found)
         setCredits(authors)
+        setFiled(filedUnder)
       })
       .catch((caught) => { if (live) setError((caught as Error).message) })
 
@@ -101,7 +103,7 @@ export function BookPane() {
   const top = (
     <TopBar
       title={book?.title || 'A book'}
-      sub={book ? (credits[0]?.filingName || book.authors) : undefined}
+      sub={book ? (filed || book.authors) : undefined}
       onBack={() => setRoute('library')}
       action={{ word: 'Edit', icon: <IconEdit />, onPress: () => void openBook(viewing) }}
     />
@@ -221,6 +223,11 @@ export function BookPane() {
           </p>
           {credits[0]?.filingName && (
             <p className="wf-said">Files under {credits[0].filingName}</p>
+          )}
+          {/* The shelves are ordered by what a save wrote, so a corrected name
+              reaches this book only when it is saved again. */}
+          {filed && credits[0]?.filingName && filed !== credits[0].filingName && (
+            <p className="wf-said">This book still files under {filed} until it is saved again.</p>
           )}
 
           <List label="Others by them">

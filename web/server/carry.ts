@@ -17,7 +17,7 @@ import {
 } from '../application/placement/withdraw-assignments'
 import { DrizzlePlacementLedger } from '../infrastructure/placement/ledger-repository'
 import { areaFaces } from '../infrastructure/shelving/areas'
-import { bookCover, shelfImage } from '../shared/shelving'
+import { bookCover, filedUnder, shelfImage } from '../shared/shelving'
 import { withPhotographs, type PhotographFields } from './photographs'
 import type { Db } from './driver'
 
@@ -25,6 +25,8 @@ interface BookRow {
   id: number
   title: string
   author_filing: string
+  authors: string
+  sort_key: string
   /** Text, the way the catalogue holds it: "336", "" or "336 pages". */
   pages: string | null
 }
@@ -48,7 +50,7 @@ const named = (row: PhotographedRow): CarryableBook => {
   return {
     id: Number(row.id),
     title: row.title,
-    authorFiling: row.author_filing ?? '',
+    authorFiling: filedUnder(row),
     spine: shelfImage(images).name,
     cover: bookCover({ ...images, catalogue: row.cover_image }).name,
   }
@@ -67,7 +69,7 @@ const named = (row: PhotographedRow): CarryableBook => {
  */
 async function everyBookTheRulesSee(db: Db): Promise<CarryableBook[]> {
   const rows = await db.all<BookRow>(
-    `SELECT b.id, b.title, b.author_filing, b.pages
+    `SELECT b.id, b.title, b.author_filing, b.authors, b.sort_key, b.pages
        FROM catalogued_books b
       WHERE b.state = 'checked_out'
          OR EXISTS (
@@ -169,7 +171,7 @@ export async function tripAtArea(
   if (!from || !to) return null
 
   const rows = await db.all<BookRow>(
-    `SELECT b.id, b.title, b.author_filing, b.pages
+    `SELECT b.id, b.title, b.author_filing, b.authors, b.sort_key, b.pages
        FROM catalogued_books b
       WHERE b.current_area_id = ?
       ORDER BY b.sort_key`,

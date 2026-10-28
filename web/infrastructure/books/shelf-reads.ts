@@ -29,7 +29,7 @@ import type { Db } from '../../server/driver'
 import type { FiledBookRow } from '../../server/db.pg'
 import { withPhotographs, type FiledPhotographedBook } from '../../server/photographs'
 import { withPlacements, type PlacementFields } from '../../server/placement-ledger'
-import type { Neighbour, ShelfRange } from '../../shared/shelving'
+import { asFiled, type Neighbour, type ShelfRange } from '../../shared/shelving'
 import { CHECKED_OUT } from '../../domain/books/state'
 import { build, statement } from '../db/query'
 import { bookPlacement, cataloguedBooks, shelvedBooks } from '../db/schema'
@@ -96,7 +96,7 @@ export class DrizzleShelfReads {
      */
     const drawn = await withPlacements(this.db, await withPhotographs(
       this.db,
-      [predecessor, successor].filter((row): row is FiledBookRow => Boolean(row)),
+      [predecessor, successor].filter((row): row is FiledBookRow => Boolean(row)).map(asFiled),
     ))
 
     return {
@@ -159,7 +159,7 @@ export class DrizzleShelfReads {
    * in is assembled.
    */
   private async draw(rows: FiledBookRow[]): Promise<FiledPlacedBook[]> {
-    return withPlacements(this.db, await withPhotographs(this.db, rows))
+    return withPlacements(this.db, await withPhotographs(this.db, rows.map(asFiled)))
   }
 }
 

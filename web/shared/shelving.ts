@@ -162,6 +162,11 @@ export function filedUnder(book: { sort_key: string; author_filing?: string | nu
   return candidates.find((name) => name && padNumbers(normalise(name)) === keyed) ?? keyed
 }
 
+/** A row read off one of the views, with its `author_filing` made `filedUnder`'s answer. */
+export function asFiled<T extends { sort_key: string; author_filing: string; authors?: string | null }>(row: T): T {
+  return { ...row, author_filing: filedUnder(row) }
+}
+
 export interface ParsedLocation {
   shelf: number
   section: string

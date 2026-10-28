@@ -19,6 +19,7 @@ import {
   type FiledPhotographedBook, type PhotographedBook, type PhotographFields,
 } from './photographs'
 import {
+  asFiled,
   buildPlacement,
   buildSortKey,
   filingName,
@@ -405,16 +406,17 @@ export class Store {
      * index rather than in it scoring 64 against everything.
      */
     const rows = await this.db.all<{
-      id: number; title: string; author_filing: string; checked_out: boolean
+      id: number; title: string; author_filing: string; authors: string; sort_key: string
+      checked_out: boolean
     }>(
-      `SELECT id, title, author_filing, state = '${CHECKED_OUT}' AS checked_out
+      `SELECT id, title, author_filing, authors, sort_key, state = '${CHECKED_OUT}' AS checked_out
          FROM catalogued_books b
         WHERE EXISTS (
                 SELECT 1 FROM capture c WHERE c.book_id = b.id AND c.hash != '')`,
     )
     // The hashes that matter are the ones on the current front photograph and
     // the current artwork; a hash on a spine is compared against nothing.
-    return (await withPhotographs(this.db, rows))
+    return (await withPhotographs(this.db, rows.map(asFiled)))
       .filter((row) => row.front_hash !== '' || row.cover_hash !== '')
   }
 
