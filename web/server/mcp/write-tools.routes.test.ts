@@ -22,6 +22,7 @@ import { signedIn } from '../testauth'
 import { lookupIsbn, type LookupResult } from '../lookup'
 import { FICTION_SLUG, NON_FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
 import { connect } from './testclient'
+import { DrizzleCatalogueReadModel } from '../../infrastructure/books/catalogue-read-model'
 
 vi.mock('../lookup', () => ({
   lookupIsbn: vi.fn(),
@@ -283,18 +284,27 @@ describe('add_book', () => {
   })
 
   it('answers the book the app saved after its lookup and before its save', async () => {
-    // The app's save lands in the gap between add_book's lookup and its save.
-    let theAppSaved!: Promise<number>
-    vi.mocked(lookupIsbn).mockImplementation(async () => {
-      theAppSaved = saveFromTheApp({ title: 'Dune', authors: ['Frank Herbert'], isbn13: DUNE.isbn13, genre: FICTION_SLUG })
-      await theAppSaved
-      return DUNE_RECORD
-    })
+    // The app's save lands just after the lookup's duplicate check has found
+    // nothing, so only the check the save makes under the number's lock can
+    // see it.
+    const lookupsCheck = DrizzleCatalogueReadModel.prototype.findByIsbn
+    let theAppSaved: Promise<number> | undefined
+    const spy = vi.spyOn(DrizzleCatalogueReadModel.prototype, 'findByIsbn')
+      .mockImplementation(async function (this: DrizzleCatalogueReadModel, isbn: string) {
+        const found = await lookupsCheck.call(this, isbn)
+        theAppSaved ??= saveFromTheApp({ title: 'Dune', authors: ['Frank Herbert'], isbn13: DUNE.isbn13, genre: FICTION_SLUG })
+        await theAppSaved
+        return found
+      })
 
-    const added = await call<Added>('add_book', { isbn: DUNE.isbn13 })
-    expect(added).toMatchObject({ added: false, record_from: 'existing' })
-    expect(added.book.book_id).toBe(await theAppSaved)
-    expect(await bookCount()).toBe(1)
+    try {
+      const added = await call<Added>('add_book', { isbn: DUNE.isbn13 })
+      expect(added).toMatchObject({ added: false, record_from: 'existing' })
+      expect(added.book.book_id).toBe(await theAppSaved)
+      expect(await bookCount()).toBe(1)
+    } finally {
+      spy.mockRestore()
+    }
   })
 })
 

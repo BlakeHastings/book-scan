@@ -1462,6 +1462,18 @@ A save's is on the save's unit of work, so the book and where it went commit
 together: `CatalogueBookHandler` records the plank named, or where the book lands;
 `ReviseBookHandler` records only a plank named.
 
+**A save of a book with an ISBN holds `isbn:<isbn13>` from its first statement**
+(#637), and that is first in `LOCK_ORDER` (`web/application/locks.ts`): `isbn:`,
+`book:`, `shelf:`, `furniture`. A new book has no id until its row is written,
+so the number is the only thing two saves of it can meet on. A save out of the
+queue names it beside `book:<scanId>` at the start rather than mid-work, since
+taking it behind the book would be refused. **What a catalogued book already
+carrying the number means is the caller's to say**, in `ifCatalogued`, and it is
+not defaulted: `POST /api/books` says `'add-a-copy'`, because the review pane
+tells the person "Saving adds a second copy" and somebody can own two, and
+`add_book` says `'answer-it'`. There is no unique index, on purpose: second
+copies and ISBN-less books are real.
+
 There used to be a fourth, `Store.addBook`'s insert and `Store.updateBook`'s
 update. No route or script called them after #616, and #634 deleted them: tests
 save books through `testBooks` in `web/server/testbooks.ts`, which calls the two

@@ -403,11 +403,15 @@ one listing was widened rather than a second one written, as AGENTS.md asks.
   has ... fill the rest in by hand"), so refusing outright would leave some real
   books impossible to add here. The not-found record's default genre is not
   used, because nothing stated it.
-- **Two `add_book` calls for one ISBN at the same moment both add it.** The
-  duplicate check is the lookup handler's read, outside any unit of work, and a
-  new book takes no lock until its range's. A test records this as it stands.
-  That is why `add_book` says `idempotentHint: false` although a repeat after an
-  answer is harmless.
+- **Two `add_book` calls for one ISBN at the same moment add it once** (#637).
+  The lookup's duplicate check is a read outside any unit of work, so
+  `add_book` asks `CatalogueBookHandler` to answer a book already catalogued
+  (`ifCatalogued: 'answer-it'`), and the handler asks again inside its unit of
+  work under an `isbn:<isbn13>` lock. The second call waits for the first to
+  commit and answers its book with `added: false`. A save from the app takes
+  the same lock, so `add_book` also answers a book the app saved in that gap.
+  `idempotentHint` is still `false`, as it was set by #618; whether to raise it
+  now that a repeat at any moment is harmless is a separate decision.
 - **`update_book` is PATCH over `ReviseBookHandler`**: the current record is
   read through `GetBookHandler`, which also answers the printed names
   (`printed`), because `authors` joined with a comma cannot be split back when a
