@@ -239,6 +239,8 @@ const has = (name, lines, fragment) => {
   has('an origin that is not https', errors({ ...ok, BOOKSCAN_PUBLIC_ORIGIN: 'http://books.example' }), 'is not https')
   check('http://localhost is a secure context', errors({ ...ok, BOOKSCAN_PUBLIC_ORIGIN: 'http://localhost:5173' }).length, 0)
   has('an origin that is not a URL', errors({ ...ok, BOOKSCAN_PUBLIC_ORIGIN: 'books.example' }), 'not an absolute URL')
+  has('an origin with a path, which would be the MCP issuer', errors({ ...ok, BOOKSCAN_PUBLIC_ORIGIN: 'https://books.example/catalogue' }), 'has a path')
+  check('a trailing slash is still an origin', errors({ ...ok, BOOKSCAN_PUBLIC_ORIGIN: 'https://books.example/' }).length, 0)
 
   has('a port that is not a port', errors({ ...ok, PORT: 'three thousand' }), 'PORT is set to something that is not a number')
 

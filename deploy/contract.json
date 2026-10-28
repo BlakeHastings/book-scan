@@ -128,7 +128,8 @@
         "which database it opened, host, port and name, never the credentials",
         "whether a backup directory is watched",
         "whether it is serving a built client",
-        "whether the development sign-in door is open or shut"
+        "whether the development sign-in door is open or shut",
+        "whether the MCP connector is on, and the /mcp it answers at"
       ],
       "notMultiProcessSafe": "The advisory lock covers the schema and nothing else. The capture queue, the background crop worker and the cover downloader were written for one process. Two containers can safely start; that is not a claim that two should run."
     },
@@ -370,9 +371,9 @@
       "secret": false,
       "default": "",
       "readAt": "web/server/auth/providers.ts",
-      "is": "the origin a browser reaches this app on, scheme and host, used to build the provider's redirect URI",
-      "whenAbsent": "Fine while no provider is configured. With one configured the process throws at start, because a redirect URI is an absolute URL and the server cannot invent its own origin.",
-      "note": "This is the one variable whose value is site-specific. Its value belongs to the consumer and must never appear in this repository."
+      "is": "the origin a browser reaches this app on, scheme and host and nothing else, used to build the provider's redirect URI, and the issuer of the MCP connector's OAuth authorization server, whose protected resource is this origin's /mcp",
+      "whenAbsent": "Fine while no provider is configured, and the MCP connector is then off: /mcp, /authorize, /token, /register, /revoke and the two /.well-known documents are not mounted, and the start log says so. With a provider configured the process throws at start, because a redirect URI is an absolute URL and the server cannot invent its own origin.",
+      "note": "This is the one variable whose value is site-specific. Its value belongs to the consumer and must never appear in this repository. It is read from configuration rather than from the request because the request arrives through whatever terminates TLS, so its scheme and host are that proxy's view rather than the public one. Changing it invalidates every MCP token issued under the old value, because each token is bound to the /mcp it was issued for (RFC 8707). docs/the-mcp-connector.md."
     },
     {
       "name": "BOOKSCAN_DEV_SIGN_IN",

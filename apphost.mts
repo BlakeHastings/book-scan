@@ -186,6 +186,16 @@ for (const name of stubbed) {
 
 const api = await apiBuilder;
 
+/*
+ * The api's own address as its public origin, which turns the MCP connector on
+ * in a checkout: `/mcp`, `/authorize` and the rest answer on this port, and an
+ * MCP client (the Inspector, `claude mcp add --transport http`) is pointed at
+ * `<this>/mcp`. Not Vite's address, which proxies `/api` and nothing else.
+ * Set after the chain above clears it, so a value in a shell still decides
+ * nothing; there is no real provider here for it to be a redirect URI for.
+ */
+await api.withEnvironment('BOOKSCAN_PUBLIC_ORIGIN', api.getEndpoint('http'));
+
 const web = await builder
   .addViteApp('web', './web', { runScriptName: 'dev:client' })
   // Same directory as `api`, same install: see `npmInstall` above.
