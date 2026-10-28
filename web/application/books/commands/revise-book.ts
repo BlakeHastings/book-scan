@@ -7,10 +7,13 @@
  * the genre, file, save, and say where it now goes.
  *
  * An edit is not a person standing at the shelf, so it records where the book
- * went only when it names a plank; it never records where the book lands.
+ * went only when it names a plank; it never records where the book lands. What
+ * it does record is where the rules now want it, when the edit re-keyed it onto
+ * another plank: that is an assignment, which the carry list reads, and not a
+ * placement.
  */
 
-import { bookLock, rangeLock } from '../../locks'
+import { bookLock, FURNITURE_LOCK, rangeLock } from '../../locks'
 import type { UnitOfWork } from '../../ports'
 import type { TagRepository } from '../../tagging/ports'
 import { defaultLabel } from '../../tagging/restate-tags'
@@ -51,6 +54,7 @@ export class ReviseBookHandler {
       const book = await this.books.load(bookId)
       if (!book) return null
 
+      const was = { range: book.shelfRange, sortKey: book.filing.sortKey }
       book.revise(description)
       await creditNames(this.authors, book, book.record.authors, command.authorFilingOverride)
 
@@ -65,10 +69,16 @@ export class ReviseBookHandler {
       if (range) await scope.serialiseOn(rangeLock(range))
 
       const filing = await fileBook(this.authors, book, command.authorFilingOverride)
+      const refiled = was.range !== range || was.sortKey !== filing.sortKey
+      // Both answers are read off the furniture, so it cannot be rearranged between them.
+      if (refiled) await scope.serialiseOn(FURNITURE_LOCK)
       await this.books.save(book)
 
       const label = command.location?.trim()
       if (label) await this.placements.recordSave({ id: bookId, sortKey: filing.sortKey, range }, { label }, now)
+      if (refiled) {
+        await this.placements.recordWhereItNowBelongs(bookId, was, { range, sortKey: filing.sortKey }, now)
+      }
 
       return {
         id: bookId,

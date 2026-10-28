@@ -10,7 +10,7 @@
  * before it touches it.
  */
 
-import type { Store } from './store'
+import type { ResolvedKey, Store } from './store'
 
 export interface Refiled {
   id: number
@@ -43,7 +43,7 @@ export async function refileBooks(
 ): Promise<RefileReport> {
   const rows = await store.filingInputs()
   const moved: Refiled[] = []
-  let written = 0
+  const keys: { id: number; resolved: ResolvedKey }[] = []
 
   for (const row of rows) {
     // The first-listed author, from the positional table where there is one;
@@ -75,11 +75,9 @@ export async function refileBooks(
       sortKey: [row.sort_key, resolved.sortKey],
     })
 
-    if (options.apply) {
-      await store.refile(row.id, resolved)
-      written += 1
-    }
+    keys.push({ id: row.id, resolved })
   }
 
-  return { examined: rows.length, moved, written }
+  if (options.apply) await store.refile(keys, new Date().toISOString())
+  return { examined: rows.length, moved, written: options.apply ? keys.length : 0 }
 }

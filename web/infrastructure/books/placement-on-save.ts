@@ -11,6 +11,7 @@
 import type { PlacementOnSave, ShelvedOn } from '../../application/books/ports'
 import type { Db } from '../../server/driver'
 import { recordPlaced, recordPlacedIn } from '../../server/placement-ledger'
+import { recordWhereItNowBelongs } from '../../server/what-moved'
 import { locationLabel } from '../../shared/layout'
 import { buildPlacement, type Placement, type ShelfRange } from '../../shared/shelving'
 import { bandOf } from '../shelving/areas'
@@ -46,5 +47,14 @@ export class DrizzlePlacementOnSave implements PlacementOnSave {
     if (book.range === null) return
     const landed = await this.areaOf(book.range, book.id)
     if (landed !== null) await recordPlacedIn(this.db, { id: book.id, sortKey: book.sortKey, location: '' }, landed, at)
+  }
+
+  async recordWhereItNowBelongs(
+    bookId: number,
+    was: { range: ShelfRange | null; sortKey: string },
+    now: { range: ShelfRange | null; sortKey: string },
+    at: string,
+  ): Promise<void> {
+    await recordWhereItNowBelongs(this.db, bookId, was, now, 'an edit changed where it files', at)
   }
 }

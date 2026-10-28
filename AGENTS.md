@@ -1354,6 +1354,13 @@ changes at once is what the catalogue *says* the book files under, because that
 is read from the alias. The next save of that book puts it where the corrected
 name says.
 
+**A save or a refile that re-keys a shelved book onto another plank writes an
+`assigned` row** (#646), through `recordWhereItNowBelongs` and `recordWhatMoved`
+in `server/what-moved.ts`, the same recorder the boundary and furniture writes
+use. That is an assignment and not a placement: the book stays where it was put,
+and the carry list, which reads `assigned` against `placed`, now names the same
+book the needs-attention list derives from its key.
+
 **A save that changes the ISBN is a different thing from a save that edits the
 book**, and it is the only one that takes a person's tags off
 (`Book.reidentify` in `web/domain/books/book.ts`, #194). Correcting the ISBN is
