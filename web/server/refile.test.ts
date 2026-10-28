@@ -11,6 +11,7 @@
 
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeTestDatabase, openTestDatabase } from './testdb'
+import { testBooks } from './testbooks'
 import type { Db } from './driver'
 import { SEP } from '../shared/shelving'
 import { Store, type DraftBook } from './store'
@@ -54,8 +55,8 @@ async function asOldCodeSavedIt(id: number, authorFiling: string): Promise<void>
 
 describe('recomputing the keys of books saved by older code', () => {
   it('leaves a catalogue nothing has changed under it completely alone', async () => {
-    await store.addBook(draft({ title: 'Dune', authors: ['Frank Herbert'], location: '1A' }))
-    await store.addBook(draft({ title: 'Persuasion', authors: ['Jane Austen'], location: '1A' }))
+    await testBooks(db).catalogue(draft({ title: 'Dune', authors: ['Frank Herbert'], location: '1A' }))
+    await testBooks(db).catalogue(draft({ title: 'Persuasion', authors: ['Jane Austen'], location: '1A' }))
 
     const report = await refileBooks(store, { apply: true })
 
@@ -65,7 +66,7 @@ describe('recomputing the keys of books saved by older code', () => {
   })
 
   it('finds the book that was filed under nobody, and says where it belongs', async () => {
-    const { id } = await store.addBook(
+    const { id } = await testBooks(db).catalogue(
       draft({ title: 'Crime and Punishment', authors: ['Фёдор Достоевский'], location: '1A' }),
     )
     await asOldCodeSavedIt(id, '')
@@ -82,7 +83,7 @@ describe('recomputing the keys of books saved by older code', () => {
   })
 
   it('writes the recomputed key only when told to, and counts what it wrote', async () => {
-    const { id } = await store.addBook(
+    const { id } = await testBooks(db).catalogue(
       draft({ title: 'Crime and Punishment', authors: ['Фёдор Достоевский'], location: '1A' }),
     )
     await asOldCodeSavedIt(id, '')
@@ -99,8 +100,8 @@ describe('recomputing the keys of books saved by older code', () => {
   })
 
   it('moves the book out of first place in the range', async () => {
-    await store.addBook(draft({ title: 'Persuasion', authors: ['Jane Austen'], location: '1A' }))
-    const { id } = await store.addBook(
+    await testBooks(db).catalogue(draft({ title: 'Persuasion', authors: ['Jane Austen'], location: '1A' }))
+    const { id } = await testBooks(db).catalogue(
       draft({ title: 'Crime and Punishment', authors: ['Фёдор Достоевский'], location: '1A' }),
     )
     await asOldCodeSavedIt(id, '')
@@ -115,7 +116,7 @@ describe('recomputing the keys of books saved by older code', () => {
   })
 
   it('honours a name somebody has filed, the same way a save would', async () => {
-    const { id } = await store.addBook(
+    const { id } = await testBooks(db).catalogue(
       draft({ title: 'Norwegian Wood', authors: ['村上春樹'], location: '1A' }),
     )
     await asOldCodeSavedIt(id, '')

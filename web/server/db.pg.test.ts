@@ -2,6 +2,7 @@
 
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeTestDatabase, openTestDatabase } from './testdb'
+import { testBooks } from './testbooks'
 import { connectionConfig, describeConnection, SORT_KEY_COLUMNS } from './db.pg'
 import { lockKey, type Db, type TxOptions } from './driver'
 import { Store, type DraftBook } from './store'
@@ -117,7 +118,7 @@ describe('collation, which the entire shelving order rests on', () => {
   })
 
   it('returns the shelf in byte order, which is the order SQLite returns', async () => {
-    for (const book of FIXTURE) await store.addBook(book)
+    for (const book of FIXTURE) await testBooks(db).catalogue(book)
 
     const keys = (await store.listRange('fiction')).map((row) => row.sort_key)
     expect(keys).toEqual(byBytes(keys))
@@ -127,7 +128,7 @@ describe('collation, which the entire shelving order rests on', () => {
     // A negative control: the same fixture read through the database's own
     // collation. If this ever stops finding a difference, the database is not
     // the one described above and the checks here are hollow.
-    for (const book of FIXTURE) await store.addBook(book)
+    for (const book of FIXTURE) await testBooks(db).catalogue(book)
     const keys = (await store.listRange('fiction')).map((row) => row.sort_key)
 
     await db.run('DROP TABLE IF EXISTS ordering_control')
@@ -157,7 +158,7 @@ describe('collation, which the entire shelving order rests on', () => {
      * answers with one book too many, a real book drawn on the wrong plank of
      * a diagram somebody is holding.
      */
-    for (const book of FIXTURE) await store.addBook(book)
+    for (const book of FIXTURE) await testBooks(db).catalogue(book)
     const keys = (await store.listRange('fiction')).map((row) => row.sort_key)
     const anchor = keys.find((key) => key.startsWith('SMITHERS ED'))!
 
@@ -203,7 +204,7 @@ describe('collation, which the entire shelving order rests on', () => {
     // Placement seeks either side of a key with two inequalities rather than
     // sorting; a comparison under a different collation from the ORDER BY
     // would answer the two questions inconsistently.
-    for (const book of FIXTURE) await store.addBook(book)
+    for (const book of FIXTURE) await testBooks(db).catalogue(book)
 
     const shelf = await store.listRange('fiction')
     const zenith = shelf.find((row) => row.title === 'Zenith')!
@@ -466,10 +467,12 @@ describe('the parameters with nothing to take a type from', () => {
 
 describe('aggregates, which come back as strings without a cast', () => {
   it('hands back numbers from the statements the stores actually run', async () => {
-    await store.addBook({ title: 'A', authors: ['Ann Author'], genre: FICTION_SLUG })
+    await testBooks(db).catalogue({ title: 'A', authors: ['Ann Author'], genre: FICTION_SLUG })
     const counts = await store.counts()
 
-    expect(counts).toEqual({ total: 1, fiction: 1, nonfiction: 0, checkedOut: 0, unplaced: 1 })
+    // Saved at the shelf, so recorded where it landed and not waiting to be
+    // placed. A count of nought comes back as '0' without the cast all the same.
+    expect(counts).toEqual({ total: 1, fiction: 1, nonfiction: 0, checkedOut: 0, unplaced: 0 })
     for (const [name, value] of Object.entries(counts)) {
       expect(typeof value, name).toBe('number')
     }
@@ -480,7 +483,7 @@ describe('aggregates, which come back as strings without a cast', () => {
     // JavaScript number because it does not fit. /api/health and every save
     // response carry these, and a total of "57" renders identically while
     // failing every piece of arithmetic downstream.
-    await store.addBook({ title: 'A', authors: ['Ann Author'], genre: FICTION_SLUG })
+    await testBooks(db).catalogue({ title: 'A', authors: ['Ann Author'], genre: FICTION_SLUG })
     const row = await db.get<{ n: unknown }>('SELECT COUNT(*) AS n FROM books')
 
     expect(typeof row!.n).toBe('string')
