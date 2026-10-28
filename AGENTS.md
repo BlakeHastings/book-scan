@@ -171,6 +171,14 @@ If you add a test that needs a database, take one from `web/server/testdb.ts`
 like the existing ones do (see `web/server/store.test.ts`). Never write a test
 that touches a path outside the repository.
 
+**A test that needs books saves them through `testBooks(db)`** in
+`web/server/testbooks.ts` (#634). It calls `CatalogueBookHandler` and
+`ReviseBookHandler`, the handlers the save routes call, so a fixture's book has
+its genre tag, its credits and its ledger row exactly as a real save leaves them.
+A state the save path cannot produce, such as a shelved book with no ledger row,
+is written by hand in the test that needs it, with a comment saying why:
+`unplaced.routes.test.ts` is the example.
+
 **`openTestDatabase()` in a `beforeEach` is the whole reset, and a file should
 not write its own.** It copies every table in the catalogue when the file's
 database is made and puts every table back between tests, so there is no list of
@@ -1444,7 +1452,7 @@ in one statement, and the moment a book left is the `created_at` of the
 `server/placement-ledger.ts` puts the two back together for the wire. Nothing else
 moves a book between those two states.
 
-### There are four statements that change where a book is, and there is no fifth
+### There are three statements that change where a book is, and there is no fourth
 
 `DrizzlePlacementOnSave.recordSave` (`web/infrastructure/books/placement-on-save.ts`),
 which is a save's, and `Store.setLocation` and `Store.setCheckedOut`. Every one of
@@ -1454,19 +1462,19 @@ A save's is on the save's unit of work, so the book and where it went commit
 together: `CatalogueBookHandler` records the plank named, or where the book lands;
 `ReviseBookHandler` records only a plank named.
 
-The fourth is `Store.addBook`'s insert and `Store.updateBook`'s update, which no
-route and no script calls any more (#616): they survive as the fixture the store,
-shelf and queue tests build rows with, write through the same ledger file, and
-should not gain a caller outside a test.
+There used to be a fourth, `Store.addBook`'s insert and `Store.updateBook`'s
+update. No route or script called them after #616, and #634 deleted them: tests
+save books through `testBooks` in `web/server/testbooks.ts`, which calls the two
+handlers, so a fixture cannot stand on a row the save path could not write.
 
 `Store.setLocationIn` is `setLocation` with the label already resolved to the
 plank, writing the same row through the same file on the same handle, so it is
-that statement rather than a fifth. It exists because a screen acting on a list
+that statement rather than a fourth. It exists because a screen acting on a list
 the server drew sends the area id, not the label the row showed: a label is a
 rendering of where a piece stands and what it is called, and #356 is what
 happened when identity was carried on one.
 
-**If you add a fifth, it goes beside those four and it records a placement.** A route that writes a location without one is the defect #200 found
+**If you add a fourth, it goes beside those three and it records a placement.** A route that writes a location without one is the defect #200 found
 in `capture`, where the recording lived where the request was handled and the
 writing lived somewhere else, so a background write and two CLIs silently skipped
 it. `applySchema` folds the ledger back out on every start and says whether

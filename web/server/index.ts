@@ -1934,8 +1934,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   /**
    * Where a book has been.
    *
-   * Read only, by construction. There are four statements that write a placement
-   * and all four are in `Store`; this is not a fifth and cannot become one.
+   * Read only, by construction. There are three statements that write a
+   * placement (a save's, `Store.setLocation` and `Store.setCheckedOut`); this is
+   * not a fourth and cannot become one.
    */
   app.get('/api/books/:id/placements', asyncRoute(async (req, res) => {
     const id = idIn(req.params.id, res, 'No such book.')

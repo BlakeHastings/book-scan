@@ -36,7 +36,7 @@ function reader(map: Map<string, Buffer>): ReadImage {
   }
 }
 
-async function addBook(
+async function saveBook(
   title: string,
   author: string,
   names: { front?: string; cover?: string },
@@ -96,7 +96,7 @@ describe('telling a stale hash from a current one', () => {
 
 describe('a dry run', () => {
   it('reports the work without touching a single row', async () => {
-    const id = await addBook(
+    const id = await saveBook(
       'Dune', 'Frank Herbert',
       { front: 'dune_front.jpg', cover: 'dune_cover.jpg' },
       { front: OLD_FRONT, cover: OLD_COVER },
@@ -118,7 +118,7 @@ describe('a dry run', () => {
 
 describe('applying', () => {
   it('replaces a stale hash with one the matcher accepts', async () => {
-    const id = await addBook(
+    const id = await saveBook(
       'Dune', 'Frank Herbert',
       { front: 'dune_front.jpg' },
       { front: OLD_FRONT },
@@ -138,12 +138,12 @@ describe('applying', () => {
   })
 
   it('leaves the books it has already done alone on a second run', async () => {
-    await addBook(
+    await saveBook(
       'Dune', 'Frank Herbert',
       { front: 'dune_front.jpg', cover: 'dune_cover.jpg' },
       { front: OLD_FRONT, cover: OLD_COVER },
     )
-    await addBook(
+    await saveBook(
       'Neuromancer', 'William Gibson',
       { front: 'neuro_front.jpg' },
       { front: OLD_FRONT },
@@ -162,12 +162,12 @@ describe('applying', () => {
   })
 
   it('picks up where an interrupted run left off', async () => {
-    const done = await addBook(
+    const done = await saveBook(
       'Dune', 'Frank Herbert',
       { front: 'dune_front.jpg' },
       { front: await coverHash(await frontCover('Dune', 'Frank Herbert')) },
     )
-    const todo = await addBook(
+    const todo = await saveBook(
       'Neuromancer', 'William Gibson',
       { front: 'neuro_front.jpg' },
       { front: OLD_FRONT },
@@ -181,7 +181,7 @@ describe('applying', () => {
   })
 
   it('redoes current hashes when forced', async () => {
-    await addBook(
+    await saveBook(
       'Dune', 'Frank Herbert',
       { front: 'dune_front.jpg' },
       { front: await coverHash(await frontCover('Dune', 'Frank Herbert')) },
@@ -195,7 +195,7 @@ describe('applying', () => {
   })
 
   it('hashes an image that was never hashed at all', async () => {
-    const id = await addBook('Dune', 'Frank Herbert', { front: 'dune_front.jpg' })
+    const id = await saveBook('Dune', 'Frank Herbert', { front: 'dune_front.jpg' })
 
     const report = await rehashCovers(store, { read, apply: true })
     expect(report.rehashed).toBe(1)
@@ -208,7 +208,7 @@ describe('applying', () => {
    * photograph would be drift from a tool the server never runs.
    */
   it('writes the new hash onto the photograph, not only onto the book row', async () => {
-    const id = await addBook(
+    const id = await saveBook(
       'Dune', 'Frank Herbert',
       { front: 'dune_front.jpg', cover: 'dune_cover.jpg' },
       { front: OLD_FRONT, cover: OLD_COVER },
@@ -226,14 +226,14 @@ describe('applying', () => {
 
 describe('images that cannot be read', () => {
   it('counts and names the missing file, and keeps going', async () => {
-    const gone = await addBook(
+    const gone = await saveBook(
       'Dune', 'Frank Herbert',
       { front: 'dune_front.jpg' },
       { front: OLD_FRONT },
     )
     images.delete('dune_front.jpg')
 
-    const fine = await addBook(
+    const fine = await saveBook(
       'Neuromancer', 'William Gibson',
       { front: 'neuro_front.jpg' },
       { front: OLD_FRONT },
@@ -255,7 +255,7 @@ describe('images that cannot be read', () => {
   })
 
   it('does not blank the other image on the same book', async () => {
-    const id = await addBook(
+    const id = await saveBook(
       'Dune', 'Frank Herbert',
       { front: 'dune_front.jpg', cover: 'dune_cover.jpg' },
       { front: OLD_FRONT, cover: OLD_COVER },
@@ -277,7 +277,7 @@ describe('images that cannot be read', () => {
      * book with no artwork records nothing at all, which is the honest
      * answer rather than a refusal.
      */
-    const id = await addBook('Dune', 'Frank Herbert', {}, { cover: OLD_COVER })
+    const id = await saveBook('Dune', 'Frank Herbert', {}, { cover: OLD_COVER })
     expect(await photographHashes(id)).toEqual({})
 
     const report = await rehashCovers(store, { read, apply: true })

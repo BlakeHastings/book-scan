@@ -56,7 +56,7 @@ describe('the genre a save states', () => {
   })
 
   it('reads a saved edit as a person and everything else as a guess', () => {
-    // 'manual' is what Store.updateBook records when somebody saved an edit.
+    // 'manual' is what `Book.revise` records when somebody saved an edit.
     expect(genreStatedBy({ genre: FICTION_SLUG, classificationSource: 'manual' }).tag!.source)
       .toBe('person')
     expect(genreStatedBy({ genre: FICTION_SLUG, classificationSource: 'auto' }).tag!.source)
