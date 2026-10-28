@@ -41,6 +41,7 @@ import type { Db } from '../driver'
 import { cookieFrom } from '../auth/gate'
 import type { SignInConfig } from '../auth/providers'
 import { consentGone } from './pages'
+import type { DocumentFetchOptions } from './client-document'
 import { approve, ConnectorProvider, deny, digest } from './provider'
 import { catalogueServer, type CatalogueCommands, type CatalogueQueries } from './tools'
 
@@ -87,6 +88,12 @@ export interface ConnectorMountDeps {
   /** Built once by `createApp`, so a request's fresh server shares them rather than making its own. */
   queries: CatalogueQueries
   commands: CatalogueCommands
+  /**
+   * How a client's metadata document is fetched. Absent is the real network
+   * with every special-use address refused; a test passes its own resolver
+   * and certificate to reach a server of its own.
+   */
+  clientDocuments?: DocumentFetchOptions
 }
 
 /**
@@ -113,15 +120,16 @@ export function mountMcp(app: express.Express, deps: ConnectorMountDeps): void {
   const resource = connectorResource(deps.signIn.publicOrigin)
   if (!resource) return
 
-  const provider = new ConnectorProvider({
-    auth: deps.auth, oauth, resource, providers: deps.signIn.providers, now,
-  })
+  const base = { auth: deps.auth, oauth, resource, providers: deps.signIn.providers, now }
+  const provider = new ConnectorProvider({ ...base, fetchesDocuments: false })
+  const authorizing = new ConnectorProvider({ ...base, fetchesDocuments: deps.clientDocuments ?? {} })
   const issuer = new URL(deps.signIn.publicOrigin)
 
   const oauthMetadata = {
     ...createOAuthMetadata({ provider, issuerUrl: issuer }),
     token_endpoint_auth_methods_supported: ['none'],
     revocation_endpoint_auth_methods_supported: ['none'],
+    client_id_metadata_document_supported: true,
   }
   const resourceMetadata: OAuthProtectedResourceMetadata = {
     resource: resource.href,
@@ -132,7 +140,13 @@ export function mountMcp(app: express.Express, deps: ConnectorMountDeps): void {
 
   app.use('/.well-known/oauth-authorization-server', connectorNoStore, metadataHandler(oauthMetadata))
   app.use(new URL(resourceMetadataUrl).pathname, connectorNoStore, metadataHandler(resourceMetadata))
-  app.use('/authorize', connectorNoStore, authorizationHandler({ provider }))
+  app.use(
+    '/authorize',
+    connectorNoStore,
+    express.urlencoded({ extended: false, limit: '16kb' }),
+    authorizing.holdDocumentClients(),
+    authorizationHandler({ provider: authorizing }),
+  )
   app.use('/token', connectorNoStore, tokenHandler({ provider }))
   app.use('/register', connectorNoStore, clientRegistrationHandler({
     clientsStore: provider.clientsStore,

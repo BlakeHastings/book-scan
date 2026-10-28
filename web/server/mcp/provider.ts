@@ -16,7 +16,7 @@ import type { OAuthServerProvider, AuthorizationParams } from '@modelcontextprot
 import type { OAuthRegisteredClientsStore } from '@modelcontextprotocol/sdk/server/auth/clients.js'
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js'
 import {
-  CustomOAuthError, InvalidGrantError, InvalidTargetError, InvalidTokenError,
+  CustomOAuthError, InvalidClientError, InvalidGrantError, InvalidTargetError, InvalidTokenError,
 } from '@modelcontextprotocol/sdk/server/auth/errors.js'
 import type {
   OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens,
@@ -29,6 +29,10 @@ import { cookieFrom } from '../auth/gate'
 import { opaque } from '../auth/oidc'
 import type { SignInProviderConfig } from '../auth/providers'
 import { consent, notLetInYet, signInFirst } from './pages'
+import {
+  clientFromDocument, documentUrl, DocumentRefused, fetchClientDocument, isDocumentClientId,
+  type DocumentFetchOptions,
+} from './client-document'
 
 /** The digest every credential here is stored as. Never the credential. */
 export function digest(token: string): string {
@@ -69,7 +73,27 @@ export interface ConnectorDeps {
   resource: URL
   providers: SignInProviderConfig[]
   now: () => Date
+  /**
+   * Whether this provider may fetch a client's metadata document, and how.
+   * Only the one answering `/authorize` does: at `/token` and `/revoke` a
+   * document client is answered from the row its approval was made against,
+   * so nothing a stranger posts there makes this server send a request.
+   */
+  fetchesDocuments: false | DocumentFetchOptions
 }
+
+/** A document client's row: what the document said, and until when it may be reused. */
+type StoredDocument = OAuthClientInformationFull & { document_fresh_until: string }
+
+/** The host a metadata document was fetched from, which is what vouches for its name. */
+export function documentHost(client: OAuthClientInformationFull): string | undefined {
+  return isDocumentClientId(client.client_id) ? new URL(client.client_id).host : undefined
+}
+
+const AUTHORIZATION_PARAMETERS = [
+  'response_type', 'client_id', 'redirect_uri', 'code_challenge', 'code_challenge_method',
+  'state', 'scope', 'resource',
+] as const
 
 export function clientName(client: OAuthClientInformationFull): string {
   const named = (client.client_name ?? '').trim()
@@ -83,6 +107,7 @@ export class ConnectorProvider implements OAuthServerProvider {
     const { oauth, now } = this.deps
     return {
       getClient: async (clientId: string) => {
+        if (isDocumentClientId(clientId)) return this.documentClient(clientId)
         const stored = await oauth.clientMetadata(clientId)
         return stored ? (JSON.parse(stored) as OAuthClientInformationFull) : undefined
       },
@@ -106,9 +131,95 @@ export class ConnectorProvider implements OAuthServerProvider {
           client_secret: undefined,
           client_secret_expires_at: undefined,
         } as OAuthClientInformationFull
+        // The SDK names the client with a UUID; this keeps that true if it ever stops.
+        if (isDocumentClientId(client.client_id)) {
+          throw new CustomOAuthError('invalid_client_metadata', 'A registered client cannot take an https URL as its id.')
+        }
         await oauth.registerClient(client.client_id, JSON.stringify(client), now())
         return client
       },
+    }
+  }
+
+  /**
+   * A client named by its metadata document: the stored row while it is fresh,
+   * otherwise the document fetched again, checked and stored. A refusal is
+   * `invalid_client` with the reason, and is not stored, so the next request
+   * fetches again. A provider that does not fetch answers the stored row
+   * however old, or nothing.
+   */
+  private async documentClient(clientId: string): Promise<OAuthClientInformationFull | undefined> {
+    const { oauth, now, fetchesDocuments } = this.deps
+    const stored = await oauth.clientMetadata(clientId)
+    if (stored) {
+      const { document_fresh_until: freshUntil, ...client } = JSON.parse(stored) as StoredDocument
+      if (!fetchesDocuments || new Date(freshUntil) > now()) return client
+    }
+    if (!fetchesDocuments) return undefined
+
+    try {
+      const fetched = await fetchClientDocument(documentUrl(clientId), fetchesDocuments)
+      const client = clientFromDocument(clientId, fetched.body, acceptableRedirect)
+      const freshUntil = new Date(now().getTime() + fetched.freshSeconds * 1000).toISOString()
+      await oauth.saveClientDocument(clientId, JSON.stringify({ ...client, document_fresh_until: freshUntil }), now())
+      return client
+    } catch (error) {
+      if (error instanceof DocumentRefused) {
+        throw new InvalidClientError(`This client's metadata document was refused: ${error.message}`)
+      }
+      throw error
+    }
+  }
+
+  private async person(cookieHeader: string | undefined) {
+    const token = cookieFrom(cookieHeader, SESSION_COOKIE)
+    const live = token ? await this.deps.auth.liveSession(digest(token), this.deps.now()) : undefined
+    return { token, live }
+  }
+
+  private signInWays(next: string) {
+    return this.deps.providers.map((one) => ({
+      label: one.label,
+      start: `/api/auth/${one.id}/start?next=${encodeURIComponent(next)}`,
+    }))
+  }
+
+  /**
+   * In front of the SDK's `/authorize`: a request naming a metadata document is
+   * not let through to the fetch until an enabled person is signed in. Anybody
+   * else is drawn the sign-in or the not-let-in page, naming the client by its
+   * host, and no request leaves this server on a stranger's say-so.
+   */
+  holdDocumentClients(): express.RequestHandler {
+    return (req, res, next) => {
+      void (async () => {
+        const asked = ((req.method === 'POST' ? req.body : req.query) ?? {}) as Record<string, unknown>
+        const clientId = typeof asked.client_id === 'string' ? asked.client_id : ''
+        if (!isDocumentClientId(clientId)) return next()
+        const { live } = await this.person(req.headers.cookie)
+        if (live?.enabled) return next()
+
+        let host: string
+        try {
+          host = documentUrl(clientId).host
+        } catch (error) {
+          res.status(400).json(new InvalidClientError(
+            `This client's metadata document was refused: ${(error as Error).message}`,
+          ).toResponseObject())
+          return
+        }
+        const label = `the client at ${host}`
+        if (live) {
+          notLetInYet(res, label)
+          return
+        }
+        const again = new URLSearchParams()
+        for (const name of AUTHORIZATION_PARAMETERS) {
+          const value = asked[name]
+          if (typeof value === 'string') again.set(name, value)
+        }
+        signInFirst(res, label, this.signInWays(`/authorize?${again.toString()}`))
+      })().catch(next)
     }
   }
 
@@ -123,15 +234,14 @@ export class ConnectorProvider implements OAuthServerProvider {
     params: AuthorizationParams,
     res: express.Response,
   ): Promise<void> {
-    const { auth, oauth, resource, providers, now } = this.deps
+    const { auth, oauth, resource, now } = this.deps
 
     if (params.resource && !sameResource(params.resource, resource)) {
       throw new InvalidTargetError(`This server issues tokens for ${resource.href} and nothing else.`)
     }
 
     const name = clientName(client)
-    const token = cookieFrom(res.req.headers.cookie, SESSION_COOKIE)
-    const live = token ? await auth.liveSession(digest(token), now()) : undefined
+    const { token, live } = await this.person(res.req.headers.cookie)
 
     if (!live) {
       /*
@@ -149,11 +259,7 @@ export class ConnectorProvider implements OAuthServerProvider {
       if (params.state !== undefined) again.set('state', params.state)
       if (params.scopes?.length) again.set('scope', params.scopes.join(' '))
       if (params.resource) again.set('resource', params.resource.href)
-      const next = `/authorize?${again.toString()}`
-      signInFirst(res, name, providers.map((one) => ({
-        label: one.label,
-        start: `/api/auth/${one.id}/start?next=${encodeURIComponent(next)}`,
-      })))
+      signInFirst(res, name, this.signInWays(`/authorize?${again.toString()}`))
       return
     }
 
@@ -178,6 +284,7 @@ export class ConnectorProvider implements OAuthServerProvider {
 
     consent(res, {
       clientName: name,
+      clientHost: documentHost(client),
       redirectUri: params.redirectUri,
       who: identity?.email || identity?.name || live.user_id,
       consentToken,
