@@ -187,6 +187,8 @@ question as a criticism and re-audited something that was fine.
 
 ## Things that will bite you
 
+**The hooks load only when the session starts inside this repository.** `.claude/settings.json` is project settings, read once at start, from the directory the session was started in. A session started in the folder above the checkout reads none of it, so the merge guard and the live-data guard are simply absent, for the orchestrator and for every subagent it starts, and nothing says so. Seen on 2026-10-29: a whole night of merges ran from `~/source/repos` with neither loaded, and it was found only because one builder ran `node scripts/guard-merge.mjs --probe` and reported that it printed instead of being refused. **Run that probe first thing in any session.** If it prints, the guards are not there. Restart the session inside the checkout, and until then lean on the detection: `scripts/check-main-provenance.mjs`, and the `Provenance` workflow after every merge. Both were clean that night.
+
 **A stack of pull requests closes itself when its base merges.** `merge-pr.mjs` squashes and deletes the head branch, and GitHub then **closes**, rather than retargets, every pull request whose base was that branch. A closed PR whose base is gone cannot be reopened or retargeted. Seen on 2026-10-29 with #628 and #630. **Retarget each child to `master` before merging its base**, then replay only the child's own commits with `git rebase --onto origin/master <old base head>` in a throwaway worktree, because the squash rewrote the commits it shares with the base. If it has already happened: recreate the deleted branch at the merged PR's `headRefOid`, reopen, retarget, and delete the branch again.
 
 
