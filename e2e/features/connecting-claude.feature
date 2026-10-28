@@ -44,3 +44,16 @@ Feature: Connecting Claude to the catalogue
     And I deny the client
     Then the client should be told access was denied
     And the catalogue should hold no book called "The Dispossessed"
+
+  Scenario: A client the person disconnects in Settings stops working at once
+    Given an MCP client has registered itself and asked to be approved
+    When I open the page it sent me to, signed out
+    And I sign in through the development door
+    And I allow the client
+    And the client exchanges the code for a token
+    And I open the app
+    And I open the settings
+    Then the settings should list the client beside the address it connected through
+    When I disconnect the client and confirm
+    Then the settings should no longer list the client
+    And the client's token should be refused at the connector

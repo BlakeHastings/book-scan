@@ -32,10 +32,12 @@ interface Props {
   lookups: LookupStandings | null
   /** The resets, drawn by the screen that holds their state. */
   resets?: ReactNode
+  /** The apps connected as this person, drawn by the screen that holds their state. */
+  connections?: ReactNode
 }
 
 export function SettingsPane({
-  room, hand, firstPicture, busy, error, tabs, lookups, resets,
+  room, hand, firstPicture, busy, error, tabs, lookups, resets, connections,
   onBack, onOrder, onHand, onFirstPicture,
 }: Props) {
   const top = <TopBar title="Settings" onBack={onBack} />
@@ -115,6 +117,8 @@ export function SettingsPane({
           <Said>{roll.keyed}</Said>
         </Card>
       )}
+
+      {connections}
 
       {resets}
 

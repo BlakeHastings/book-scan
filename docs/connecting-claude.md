@@ -233,27 +233,21 @@ when you mean it.
 
 ### In book-scan, one connection
 
-There is not a screen for this yet, so it is two requests from a browser that
-is signed in to book-scan:
+1. In book-scan, open the corner menu and choose **Settings**.
+2. Under **Apps that use your books as you**, find the client. Each row shows
+   the name the client gave itself and, boxed beside it, the address its
+   approval was sent to. Any app can call itself "Claude", so the address is
+   what tells two of them apart: `claude.ai` for claude.ai and the Claude apps,
+   `localhost:<port>` or `127.0.0.1:<port>` for Claude Code.
+3. Press **Disconnect** under it, and **Disconnect** again when asked.
 
-1. Open `https://<your host>/api/mcp/connections`. It lists your own
-   connections, each with an `id`, the client's name and where it was sent:
+Every token that connection held stops working at once, and the card says
+**Nothing is connected** when it was the only one.
 
-   ```json
-   {"connections":[{"id":"adefd675-…","client":{"id":"a88bb09f-…","name":"Claude Code (book-scan)"},"redirectHost":"localhost:51799","connectedAt":"…","lastUsedAt":"…"}]}
-   ```
-
-2. On any page of the app, open the browser's developer console and run, with
-   that `id`:
-
-   ```js
-   await fetch('/api/mcp/connections/<id>', { method: 'DELETE' }).then((r) => r.status)
-   ```
-
-   `204` means it is gone: every token that connection held stops working at
-   once. `404` means there is no such connection of yours.
-
-Opening the list again shows `{"connections":[]}` when it was the only one.
+Without the screen, the same two requests work from a browser signed in to
+book-scan: `GET /api/mcp/connections` lists your own connections with an `id`
+each, and `DELETE /api/mcp/connections/<id>` answers `204` when it is gone and
+`404` when there is no such connection of yours.
 
 ### In book-scan, every connection a person has
 

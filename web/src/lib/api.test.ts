@@ -445,6 +445,43 @@ describe('what the client is told when the gate refuses', () => {
     stop()
   })
 
+  /*
+   * The connections list is the one place a signed-out phone could otherwise
+   * read as "nothing is connected", which is a claim about somebody's
+   * credentials that would be false.
+   */
+  it('carries "anonymous" out of the connections list and the disconnect alike', async () => {
+    const heard: string[] = []
+    const stop = whenTheGateRefuses((state) => heard.push(state))
+    answerWith(401, { state: 'anonymous', error: 'Sign in to use this.' })
+
+    const listed = await api.connections().catch((caught: unknown) => caught)
+    const gone = await api.disconnect('a-grant').catch((caught: unknown) => caught)
+
+    expect(heard).toEqual(['anonymous', 'anonymous'])
+    expect((listed as Refusal).authState).toBe('anonymous')
+    expect((gone as Refusal).authState).toBe('anonymous')
+    stop()
+  })
+
+  it('takes a disconnect\'s 204 as done, and its 404 as a refusal the gate did not make', async () => {
+    const heard: string[] = []
+    const stop = whenTheGateRefuses((state) => heard.push(state))
+    const asked: string[] = []
+    vi.stubGlobal('fetch', async (path: string, init?: RequestInit) => {
+      asked.push(`${init?.method ?? 'GET'} ${path}`)
+      return new Response(null, { status: 204 })
+    })
+    await expect(api.disconnect('a/b')).resolves.toBeUndefined()
+    expect(asked).toEqual(['DELETE /api/mcp/connections/a%2Fb'])
+
+    answerWith(404, { error: 'Not found.' })
+    const refusal = await api.disconnect('a-grant').catch((caught: unknown) => caught)
+    expect((refusal as Refusal).status).toBe(404)
+    expect(heard).toEqual([])
+    stop()
+  })
+
   it('stops telling a listener that has stopped listening', async () => {
     const heard: string[] = []
     whenTheGateRefuses((state) => heard.push(state))()

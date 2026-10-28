@@ -937,6 +937,33 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 }
 
 .wf-field { display: grid; gap: var(--s1); }
+/* An app that acts as somebody: the name it gave itself, and boxed beside it the
+   host that says which app it really is. Both wrap anywhere, since a
+   registration can make either as long as it likes. */
+.wf-connection { display: grid; gap: var(--s2); }
+.wf-connection__who {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  min-width: 0;
+}
+.wf-connection__name {
+  font-weight: 700;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.wf-connection__host {
+  padding: 0 var(--s2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  font-size: var(--size-small);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.wf-said a { color: var(--ink); text-decoration: underline; }
+
 .wf-field__label {
   font-size: var(--size-label);
   font-weight: 700;

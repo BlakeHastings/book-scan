@@ -47,6 +47,8 @@ import { Shots, threeSlots, type Shot } from '../Shots'
 import { Sure } from '../Sure'
 import { Trouble } from '../Trouble'
 import { Corner, FIXTURES_WORD, Portrait, TopBar, type TabName } from '../Chrome'
+import { Connections } from '../Connections'
+import { connectionSaid } from '../../lib/connectionWords'
 
 export type Go = (screen: string) => void
 
@@ -1655,7 +1657,42 @@ function RoomMenu(go: Go) {
  * collection name, an account) is deliberately left off: each already has
  * a home elsewhere or nothing real behind it.
  */
-function SettingsScreen(go: Go) {
+/*
+ * Two apps that both call themselves Claude, which is the case the host is
+ * there for: one went through claude.ai, the other through a program on
+ * somebody's own computer, and only the second line tells them apart.
+ */
+const DRAWN_TODAY = new Date('2026-10-28T15:00:00')
+const CONNECTED = [
+  connectionSaid({
+    id: 'one',
+    client: { id: 'a', name: 'Claude' },
+    redirectHost: 'claude.ai',
+    connectedAt: '2026-10-21T19:04:00',
+    lastUsedAt: '2026-10-28T09:12:00',
+  }, DRAWN_TODAY),
+  connectionSaid({
+    id: 'two',
+    client: { id: 'b', name: 'Claude' },
+    redirectHost: 'localhost:53682',
+    connectedAt: '2026-10-27T22:40:00',
+    lastUsedAt: '2026-10-27T23:05:00',
+  }, DRAWN_TODAY),
+]
+
+function SettingsConnected(go: Go) {
+  return SettingsScreen(go, <Connections rows={CONNECTED} />)
+}
+
+function SettingsUnconnected(go: Go) {
+  return SettingsScreen(go, <Connections rows={[]} said="Claude is disconnected. Nothing it held works any more." />)
+}
+
+function SettingsDisconnecting(go: Go) {
+  return SettingsScreen(go, <Connections rows={CONNECTED} books={1204} asking={CONNECTED[1]!} />)
+}
+
+function SettingsScreen(go: Go, connections: ReactNode) {
   return (
     <Phone tab="home" go={go} top={<TopBar title="Settings" onBack={() => go('menu')} />}>
       <div>
@@ -1713,6 +1750,8 @@ function SettingsScreen(go: Go) {
         A book with no downloaded cover opens on the photograph you took, either
         way.
       </Said>
+
+      {connections}
 
       <Card kind="Nobody signs in" title="Everybody in the house shares one collection">
         <p>
@@ -3784,7 +3823,9 @@ export const SCREENS: Screen[] = [
   { id: 'queuestuck', name: 'Four kinds of stuck', group: 'Cataloguing', render: QueueStuck },
   { id: 'empty', name: 'An empty queue', group: 'Cataloguing', render: Empty },
   { id: 'menu', name: 'The corner opened', group: 'The corner', render: RoomMenu },
-  { id: 'settings', name: 'Settings', group: 'The corner', render: SettingsScreen },
+  { id: 'settings', name: 'Settings', group: 'The corner', render: SettingsConnected },
+  { id: 'settingsnone', name: 'Settings, nothing connected', group: 'The corner', render: SettingsUnconnected },
+  { id: 'settingsdisconnect', name: 'Disconnecting an app', group: 'The corner', render: SettingsDisconnecting },
   /* The ids are the URLs and must not change once shipped; the names are
      read, and use the neutral word since not every piece in the room is
      a bookcase. */
