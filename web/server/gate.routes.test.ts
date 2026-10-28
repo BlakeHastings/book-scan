@@ -214,8 +214,8 @@ function outsideApi(stack: Layer[]): { listed: string[]; unlisted: string[] } {
   for (const layer of stack) {
     if (underApi(layer) || everywhere(layer)) continue
     const door = MCP_DOORS.find((one) => layer.match(one.path))
-    const methods = door?.door.split(' ')[0].split('|') ?? []
-    const routeOk = named(layer).every((said) => methods.includes(said.split(' ')[0]))
+    const methods = door?.door.split(' ')[0]?.split('|') ?? []
+    const routeOk = named(layer).every((said) => methods.includes(said.split(' ')[0] ?? ''))
     if (door && routeOk) listed.push(door.door)
     else unlisted.push(layer.route ? named(layer).join(', ') : `${layer.name} (a mount)`)
   }
@@ -273,6 +273,13 @@ describe('outside /api', () => {
   it('mounts none of the connector\'s doors when there is no public origin to name them with', () => {
     const off = createApp({ db, coverDir, startBackgroundWork: false })
     expect(outsideApi(stackOf(off))).toEqual({ listed: [], unlisted: [] })
+  })
+
+  it('mounts none of them on a plain http origin that is not this machine', () => {
+    const plain = createApp({
+      db, coverDir, startBackgroundWork: false, signIn: { providers: [], publicOrigin: 'http://books.example' },
+    })
+    expect(outsideApi(stackOf(plain))).toEqual({ listed: [], unlisted: [] })
   })
 })
 

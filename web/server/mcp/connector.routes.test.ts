@@ -257,7 +257,7 @@ describe('the SDK client, through the whole flow', () => {
     // The development door signs in and sends the browser back to the same request.
     const signIn = await fetch(`${origin}${start}`, { redirect: 'manual' })
     expect(signIn.status).toBe(302)
-    const cookie = (signIn.headers.get('set-cookie') ?? '').split(';')[0]
+    const cookie = (signIn.headers.get('set-cookie') ?? '').split(';')[0] ?? ''
     const back = new URL(signIn.headers.get('location') ?? '', origin)
     expect(back.pathname).toBe('/authorize')
 
@@ -270,7 +270,7 @@ describe('the SDK client, through the whole flow', () => {
 })
 
 /** A client registered by hand, a PKCE pair, and an approved code. */
-async function rawCode(cookie: string, options: { resource?: string } = {}) {
+async function rawCode(options: { resource?: string } = {}) {
   const registered = await fetch(`${origin}/register`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -311,7 +311,7 @@ function exchange(clientId: string, code: string, verifier: string): Promise<Res
 describe('the refusals the token endpoint owes', () => {
   it('refuses a code presented twice, and revokes what the first exchange issued', async () => {
     const person = await signedIn(db)
-    const { clientId, verifier, url } = await rawCode(person.cookie)
+    const { clientId, verifier, url } = await rawCode()
     const code = await approveIn(person.cookie, url)
 
     const first = await exchange(clientId, code, verifier)
@@ -329,7 +329,7 @@ describe('the refusals the token endpoint owes', () => {
 
   it('refuses a verifier that does not match the challenge', async () => {
     const person = await signedIn(db)
-    const { clientId, url } = await rawCode(person.cookie)
+    const { clientId, url } = await rawCode()
     const code = await approveIn(person.cookie, url)
 
     const wrong = await exchange(clientId, code, randomBytes(32).toString('base64url'))
@@ -339,7 +339,7 @@ describe('the refusals the token endpoint owes', () => {
 
   it('refuses a refresh token used twice, and ends the connection', async () => {
     const person = await signedIn(db)
-    const { clientId, verifier, url } = await rawCode(person.cookie)
+    const { clientId, verifier, url } = await rawCode()
     const tokens = await (await exchange(clientId, await approveIn(person.cookie, url), verifier)).json() as OAuthTokens
 
     const refresh = () => fetch(`${origin}/token`, {
@@ -359,7 +359,7 @@ describe('the refusals the token endpoint owes', () => {
 
   it('refuses to authorize a token for any resource but its own /mcp', async () => {
     const person = await signedIn(db)
-    const { url } = await rawCode(person.cookie, { resource: 'https://another-server.example/mcp' })
+    const { url } = await rawCode({ resource: 'https://another-server.example/mcp' })
     const answered = await fetch(url, { headers: { cookie: person.cookie }, redirect: 'manual' })
     expect(answered.status).toBe(302)
     const back = new URL(answered.headers.get('location') ?? '')
@@ -371,7 +371,7 @@ describe('the refusals the token endpoint owes', () => {
 describe('the browser half', () => {
   it('answers a person who is not let in with the waiting page, and no code', async () => {
     const waiting = await signedIn(db, { enabled: false })
-    const { url } = await rawCode(waiting.cookie)
+    const { url } = await rawCode()
     const page = await fetch(url, { headers: { cookie: waiting.cookie }, redirect: 'manual' })
     expect(page.status).toBe(403)
     expect(await page.text()).not.toContain('name="consent"')
@@ -379,7 +379,7 @@ describe('the browser half', () => {
 
   it('sends a denial back to the client as access_denied', async () => {
     const person = await signedIn(db)
-    const { url } = await rawCode(person.cookie)
+    const { url } = await rawCode()
     const page = await (await fetch(url, { headers: { cookie: person.cookie } })).text()
     const back = await answer(consentTokenIn(page), person.cookie, 'deny')
     const location = new URL(back.headers.get('location') ?? '')
@@ -390,7 +390,7 @@ describe('the browser half', () => {
   it('refuses an approval posted from a session the page was not drawn for', async () => {
     const person = await signedIn(db)
     const somebodyElse = await signedIn(db)
-    const { url } = await rawCode(person.cookie)
+    const { url } = await rawCode()
     const token = consentTokenIn(await (await fetch(url, { headers: { cookie: person.cookie } })).text())
 
     expect((await answer(token, '', 'approve')).status).toBe(401)
@@ -401,7 +401,7 @@ describe('the browser half', () => {
 
   it('draws the consent page so it cannot be framed, and names where the answer goes', async () => {
     const person = await signedIn(db)
-    const { url } = await rawCode(person.cookie)
+    const { url } = await rawCode()
     const page = await fetch(url, { headers: { cookie: person.cookie } })
     expect(page.headers.get('x-frame-options')).toBe('DENY')
     expect(page.headers.get('content-security-policy')).toContain("frame-ancestors 'none'")
@@ -435,7 +435,7 @@ describe('what each door accepts', () => {
 
   it('does not take a bearer token as a session under /api', async () => {
     const person = await signedIn(db)
-    const { clientId, verifier, url } = await rawCode(person.cookie)
+    const { clientId, verifier, url } = await rawCode()
     const tokens = await (await exchange(clientId, await approveIn(person.cookie, url), verifier)).json() as OAuthTokens
     expect((await fetch(`${origin}/api/health`, { headers: { authorization: `Bearer ${tokens.access_token}` } })).status).toBe(401)
   })
@@ -474,7 +474,7 @@ describe('a person and their connections', () => {
     expect(listed.connections).toHaveLength(1)
     expect(listed.connections[0]).toMatchObject({ client: { name: 'A test client' }, redirectHost: 'localhost:7777' })
 
-    const id = listed.connections[0].id
+    const id = listed.connections[0]?.id ?? ''
     // Somebody else cannot disconnect it, and is told nothing about it.
     expect((await fetch(`${origin}/api/mcp/connections/${id}`, { method: 'DELETE', headers: { cookie: other.cookie } })).status).toBe(404)
     expect((await fetch(`${origin}/api/mcp/connections/${id}`, { method: 'DELETE', headers: { cookie: person.cookie } })).status).toBe(204)

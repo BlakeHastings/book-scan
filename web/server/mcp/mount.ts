@@ -86,9 +86,19 @@ export interface ConnectorMountDeps {
   now?: () => Date
 }
 
-/** The canonical `/mcp`, or undefined when no public origin is configured. */
+/**
+ * The canonical `/mcp`, or undefined when there is no origin it may be named
+ * with. OAuth 2.1 requires every authorization server endpoint on `https`, and
+ * the SDK refuses any other issuer except `localhost` and `127.0.0.1`, so an
+ * `http` origin elsewhere leaves the connector off rather than the process
+ * unable to start.
+ */
 export function connectorResource(publicOrigin: string): URL | undefined {
-  return publicOrigin ? new URL(MCP_PATH, publicOrigin) : undefined
+  if (!publicOrigin) return undefined
+  const origin = new URL(publicOrigin)
+  const local = origin.hostname === 'localhost' || origin.hostname === '127.0.0.1'
+  if (origin.protocol !== 'https:' && !local) return undefined
+  return new URL(MCP_PATH, origin)
 }
 
 export function mountMcp(app: express.Express, deps: ConnectorMountDeps): void {
@@ -245,5 +255,7 @@ export function describeMcp(signIn: SignInConfig): string[] {
   const resource = connectorResource(signIn.publicOrigin)
   return [resource
     ? `[mcp] the MCP connector is at ${resource.href}, its own OAuth authorization server at ${signIn.publicOrigin}`
-    : '[mcp] the MCP connector is off: BOOKSCAN_PUBLIC_ORIGIN is empty, and the issuer and /mcp are absolute URLs this server will not guess']
+    : signIn.publicOrigin
+      ? `[mcp] the MCP connector is off: ${signIn.publicOrigin} is neither https nor localhost, and OAuth 2.1 serves an authorization server over https only`
+      : '[mcp] the MCP connector is off: BOOKSCAN_PUBLIC_ORIGIN is empty, and the issuer and /mcp are absolute URLs this server will not guess']
 }
