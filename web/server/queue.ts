@@ -33,8 +33,10 @@ import { resolveIsbnPair } from '../shared/isbn'
 import type { GenreSlug } from '../domain/tagging/genre'
 import {
   countFailures, PROCESSING_ERROR_NOTE, READING_TIMEOUT_NOTE,
-  type FailureCounts,
 } from '../shared/captureFailure'
+import type {
+  CaptureStatus, QueueCounts, QueueProjection, QueuedBookView, QueueReadModel,
+} from '../application/capture/read-models'
 import {
   DISCARDED, QUEUED_STATES, QUEUE_STATUS_OF_STATE, STATE_OF_QUEUE_STATUS,
 } from '../domain/books/state'
@@ -91,63 +93,23 @@ export type Slot = 'front' | 'back' | 'edge'
 /** Read in this order: the back carries the identifier. */
 const SLOT_ORDER: Slot[] = ['back', 'front', 'edge']
 
-export type CaptureStatus = 'pending' | 'ready' | 'failed' | 'done'
-
-export interface QueueCounts extends Record<CaptureStatus, number> {
-  failures: FailureCounts
-}
+export type { CaptureStatus, QueueCounts, QueueProjection }
 
 /**
- * A book in the queue, in the shape the queue has always handed one out. There
- * is no row of this shape in the database: it is `books`, projected by
- * `QUEUE_ROW` above.
- */
-export interface QueueProjection {
-  /** The book's own id. There is no second identity for a queued book. */
-  id: number
-  /**
-   * Where this book is, in the queue's four names rather than the seven states
-   * underneath. `done` means it has left the queue, whether it was shelved or
-   * discarded.
-   */
-  status: CaptureStatus
-  isbn13: string
-  isbn10: string
-  isbn_source: string
-  /**
-   * The first line OCR read off the front cover. A machine's reading of a
-   * photograph and never anything else: nobody's stated title is written here,
-   * so a caller holding this row can always tell the two apart.
-   */
-  title_guess: string
-  cover_text: string
-  analysed: string
-  draft_json: string
-  /** What a person stated, as JSON. Never written by the worker. */
-  edit_json: string
-  edited_by: string
-  edited_at: string | null
-  /** What the worker has to say about reading these photographs, not a person's note. */
-  note: string
-  claimed_by: string
-  claimed_at: string | null
-  /**
-   * The book this scan became, or null while it is still in the queue. Its own
-   * id, since a scan and the book it becomes are one row.
-   */
-  book_id: number | null
-  /** When the first photograph arrived. */
-  created_at: string
-  processed_at: string | null
-}
-
-/**
- * A queued book as this class hands one out: the projection above, with the
- * current photograph of each kind joined onto it. See `PhotographFields` in
+ * A queued book as this class hands one out: the projection, with the current
+ * photograph of each kind joined onto it. See `PhotographFields` in
  * `server/photographs.ts`, which is the one place the flat names and the rows
  * meet.
  */
 export type CaptureRow = QueueProjection & PhotographFields
+
+/*
+ * `implements QueueReadModel` below proves a row carries everything the port
+ * names; this proves the port names everything a row carries, so a photograph
+ * field added to one and not the other fails to compile.
+ */
+const portNamesEveryField: (view: QueuedBookView) => CaptureRow = (view) => view
+void portNamesEveryField
 
 /**
  * The fields a person may state about a capture while it is still in the queue.
@@ -250,7 +212,7 @@ export function editsOn(capture: Pick<CaptureRow, 'edit_json'>): CaptureEdit {
   }
 }
 
-export class CaptureQueue {
+export class CaptureQueue implements QueueReadModel {
   private draining = false
   /**
    * A drain that was asked for while one was running, so the running one looks
