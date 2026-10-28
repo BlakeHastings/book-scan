@@ -209,6 +209,30 @@ describe('two units of work at once', () => {
     expect(secondOut!.at - first!.at).toBeGreaterThanOrEqual(2 * HOLD_MS - 5)
   })
 
+  it('refuses the one taking a book after its range, rather than deadlocking against the other', async () => {
+    await warmTheConnections()
+    let bothHoldTheirFirst = () => {}
+    const ready = new Promise<void>((resolve) => { bothHoldTheirFirst = resolve })
+    let holding = 0
+    const holdThenTake = (first: LockName, then: LockName) => work.run(async (scope) => {
+      holding += 1
+      if (holding === 2) bothHoldTheirFirst()
+      await ready
+      await scope.serialiseOn(then)
+      return `${first} then ${then}`
+    }, { serialiseOn: [first] })
+
+    const outcomes = await Promise.allSettled([
+      holdThenTake(rangeLock('fiction'), bookLock(7)),
+      holdThenTake(bookLock(7), rangeLock('fiction')),
+    ])
+    expect(outcomes.map((one) => one.status === 'fulfilled' ? one.value : String(one.reason)))
+      .toEqual([
+        'Error: book:7 cannot be taken while holding shelf:fiction: the order is book, shelf, furniture',
+        'book:7 then shelf:fiction',
+      ])
+  })
+
   it('on the same book take turns when the second only names the book mid-work', async () => {
     await warmTheConnections()
     const log: Entry[] = []
