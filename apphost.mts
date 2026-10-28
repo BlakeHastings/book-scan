@@ -214,3 +214,4 @@ const web = await builder
   .waitFor(api);
 
 await builder.build().run();
+const deliberateBreakage: number = "not a number";
