@@ -16,7 +16,7 @@ import { byPrecedence, entryAreaOf, entryAreas } from '../domain/placement/rules
 import { sharedNumberOf, type AreaFace } from '../domain/placement/carry'
 import type { LabelChange } from '../domain/placement/arrangement'
 import { relabellingWithout } from './furniture'
-import { FURNITURE_LOCK, rangeLock, type LockName } from '../application/locks'
+import { boundaryLocks } from '../application/locks'
 import {
   areasForSortKeys, recordWhatMoved, whereTheRunPutsThem, type RunAnswer,
 } from './what-moved'
@@ -30,7 +30,7 @@ import type {
 } from '../application/shelving/ports'
 import { DrizzleOutstandingMoveRepository } from '../infrastructure/shelving/outstanding-move-repository'
 import { DrizzleSeparatorRepository } from '../infrastructure/shelving/separator-repository'
-import { DbTransactions } from '../infrastructure/shelving/transactions'
+import { DbUnitOfWork } from '../infrastructure/db/unit-of-work'
 import {
   boundaryMove, carryOn, diffLayout, groupByShelf, layoutRange, locationLabel,
   NEWCOMER_ID, overflow, shelfLoads, stripAround, stripAt, stripWithGap,
@@ -44,14 +44,6 @@ import {
   reviewShelving,
   type AreaStanding, type FiledBook, type ShelfRange, type ShelvingReview,
 } from '../shared/shelving'
-
-/**
- * What a write to a range's boundaries serialises on. A boundary is the area it
- * opens, so moving one rewrites the furniture, and the plan it writes from is
- * read off the furniture too: both locks are held from the first read.
- */
-export const boundaryLocks = (range: ShelfRange): readonly LockName[] =>
-  [rangeLock(range), FURNITURE_LOCK]
 
 /**
  * A book row plus the camelCase key the pure layout code expects.
@@ -260,7 +252,7 @@ export class Shelves {
     private readonly db: Db,
     private readonly separators: SeparatorRepository = new DrizzleSeparatorRepository(db),
     private readonly removeSeparator: RemoveSeparatorHandler =
-      new RemoveSeparatorHandler(separators, new DbTransactions(db, boundaryLocks)),
+      new RemoveSeparatorHandler(separators, new DbUnitOfWork(db)),
     private readonly outstanding: OutstandingMoveRepository =
       new DrizzleOutstandingMoveRepository(db),
   ) {}

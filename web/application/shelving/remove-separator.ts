@@ -7,7 +7,9 @@
 
 import { RangeSeparators } from '../../domain/shelving/separators'
 import type { ShelfRange } from '../../shared/shelving'
-import type { SeparatorRepository, Transactions } from './ports'
+import { boundaryLocks } from '../locks'
+import type { UnitOfWork } from '../ports'
+import type { SeparatorRepository } from './ports'
 
 /** Take out the boundary with this id, wherever it turns out to be. */
 export interface RemoveSeparator {
@@ -32,26 +34,25 @@ export type SeparatorRemoval =
 export class RemoveSeparatorHandler {
   constructor(
     private readonly separators: SeparatorRepository,
-    private readonly transactions: Transactions,
+    private readonly unitOfWork: UnitOfWork,
   ) {}
 
   /**
    * Remove a boundary, if this range still has one with that id.
    *
-   * The first read is outside the transaction, only to find which range to
-   * lock; the second, inside the transaction, is authoritative. A boundary
-   * removed by someone else in between comes back missing there and this call
-   * is a no-op.
+   * The first read is outside the unit of work, only to find which range to
+   * lock; the second, inside it, is authoritative. A boundary removed by
+   * someone else in between comes back missing there and this call is a no-op.
    *
    * Reentrant: called both on its own and from inside
-   * `Shelves.moveAcrossBoundary`'s transaction, where `Db.tx` opens a savepoint
-   * and the advisory lock allows re-entry.
+   * `Shelves.moveAcrossBoundary`'s transaction, which already holds the same
+   * `boundaryLocks`, so the nested run joins it and re-takes them in order.
    */
   async handle(command: RemoveSeparator): Promise<SeparatorRemoval> {
     const range = await this.separators.rangeOf(command.separatorId)
     if (!range) return { ok: true, removed: null }
 
-    return this.transactions.inRange(range, async (): Promise<SeparatorRemoval> => {
+    return this.unitOfWork.run(async (): Promise<SeparatorRemoval> => {
       const boundaries = RangeSeparators.of(range, await this.separators.inRange(range))
       const removal = boundaries.without(command.separatorId)
       if (!removal) return { ok: true, removed: null }
@@ -68,6 +69,6 @@ export class RemoveSeparatorHandler {
         return { ok: false, reason: 'refused', status: taken.status, error: taken.error }
       }
       return { ok: true, removed: removal.id }
-    })
+    }, { serialiseOn: boundaryLocks(range) })
   }
 }
