@@ -6,6 +6,7 @@
 
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { closeTestDatabase, openTestDatabase } from './testdb'
+import { testBooks } from './testbooks'
 import { ReadingTimedOut } from './deadline'
 import type { Db } from './driver'
 import { CaptureQueue, editsOn } from './queue'
@@ -17,7 +18,6 @@ import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-rep
 // A recorded location names an existing `area` row, so a test that sets one on
 // a plank the seeded furniture lacks must create that plank first.
 import { DrizzleSeparatorRepository } from '../infrastructure/shelving/separator-repository'
-import { genreStatedBy } from '../domain/tagging/genre'
 import { FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
 vi.mock('./identify', () => ({ identify: vi.fn() }))
@@ -82,15 +82,12 @@ async function add() {
 }
 
 /**
- * Goes through `Store.updateBook`, the same method the save route calls,
+ * Goes through `CatalogueBookHandler`, the handler the save route calls,
  * rather than a raw UPDATE, since these tests want to know the queue agrees
  * with what actually shelves books.
  */
 async function shelve(id: number) {
-  const draft = { title: 'A Book', authors: ['Ann Author'], genre: FICTION_SLUG }
-  // The range is settled from the draft's own genre; see store.test.ts for why
-  // that is the answer here.
-  await store.updateBook(id, draft, genreStatedBy(draft).range)
+  await testBooks(db).catalogue({ title: 'A Book', authors: ['Ann Author'], genre: FICTION_SLUG }, id)
   return id
 }
 
@@ -395,7 +392,7 @@ describe('naming a duplicate already on the shelf (#233)', () => {
   it('names it when a person corrects the ISBN on a queued capture', async () => {
     vi.mocked(lookupIsbn).mockResolvedValue(found(DUNE, 'Dune', ['Frank Herbert']))
     await giveFictionASecondBookcase()
-    const { id: shelvedId } = await store.addBook({
+    const { id: shelvedId } = await testBooks(db).catalogue({
       isbn13: DUNE, title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, location: '2B',
     })
     const running = withCatalogue()
@@ -420,7 +417,7 @@ describe('naming a duplicate already on the shelf (#233)', () => {
 
   it('names it on the automatic pass too, not only a manual correction', async () => {
     await giveFictionASecondBookcase()
-    const { id: shelvedId } = await store.addBook({
+    const { id: shelvedId } = await testBooks(db).catalogue({
       isbn13: DUNE, title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, location: '2B',
     })
     vi.mocked(identify).mockResolvedValue(readBarcode(DUNE))

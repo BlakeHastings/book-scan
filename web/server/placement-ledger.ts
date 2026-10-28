@@ -6,12 +6,11 @@
  * shape the wire still speaks in, where `location` and `checked_out_at` keep the
  * names the dropped columns had.
  *
- * There are exactly four statements in this repository that change where a book
- * is: a save's (`DrizzlePlacementOnSave.recordSave`), `Store.setLocation`,
- * `Store.setCheckedOut`, and the insert and update in `Store.addBook` and
- * `Store.updateBook`, which only tests call. Every one of them calls into this
- * file, inside its own transaction, so a placement cannot be written without a
- * row. A fifth would have to be added beside them.
+ * There are exactly three statements in this repository that change where a
+ * book is: a save's (`DrizzlePlacementOnSave.recordSave`), `Store.setLocation`
+ * and `Store.setCheckedOut`. Every one of them calls into this file, inside its
+ * own transaction, so a placement cannot be written without a row. A fourth
+ * would have to be added beside them.
  *
  * Beside them are the two resets in Settings, `Store.unplaceEveryBook` and
  * `Store.eraseEveryPlacement`, which move every book at once rather than one.

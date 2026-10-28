@@ -19,17 +19,12 @@ import { closeTestDatabase, keepThisCatalogue, openTestDatabase } from './testdb
 import type { Db } from './driver'
 import { createApp, type BookScanApp } from './index'
 import { signedIn } from './testauth'
+import { testBooks } from './testbooks'
 import { Store, type DraftBook } from './store'
 import { Shelves } from './shelves'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
-import { DrizzleTagRepository } from '../infrastructure/tagging/tag-repository'
 import { DrizzlePlacementLedger } from '../infrastructure/placement/ledger-repository'
-import { DbUnitOfWork } from '../infrastructure/db/unit-of-work'
-import { RestateTagsHandler } from '../application/tagging/restate-tags'
-import { CreditBookHandler } from '../application/authorship/credit-book'
-import { GENRE, NON_FICTION_SLUG } from '../domain/tagging/catalogue-claims'
-import { genreStatedBy } from '../domain/tagging/genre'
-import type { ShelfRange } from '../shared/shelving'
+import { NON_FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
 let db: Db
 let store: Store
@@ -41,29 +36,24 @@ let cookie: string
 let scratch: string
 let coverDir: string
 
-/**
- * The row, its genre tag and its credits, and no plank: a shelved book nobody has
- * put anywhere, which the save path no longer leaves behind but a reset does.
- */
-async function save(draft: DraftBook): Promise<{ id: number; range: ShelfRange | null }> {
-  const authors = new DrizzleAuthorRepository(db)
-  const tags = new DrizzleTagRepository(db)
-  const { id, placement } = await store.addBook(draft)
-  const { tag } = genreStatedBy(draft)
-  if (tag) {
-    await new RestateTagsHandler(tags, new DbUnitOfWork(db)).handle({
-      bookId: id, source: tag.source, claims: [tag], within: GENRE, now: new Date().toISOString(),
-    })
-  }
-  await new CreditBookHandler(authors).handle({ bookId: id, authors: draft.authors })
-  return { id, range: placement?.range ?? null }
-}
+/** Saved at the shelf, which records the plank it lands on. */
+const shelve = async (draft: DraftBook): Promise<number> => (await testBooks(db).catalogue(draft)).id
 
-/** Saved and then put on the plank the shelves say it belongs on. */
-async function shelve(draft: DraftBook): Promise<number> {
-  const { id, range } = await save(draft)
-  const landed = range && await shelves.labelFor(range, id)
-  if (landed) await store.setLocation(id, landed)
+/**
+ * A shelved book with no ledger row at all: saved, and never put anywhere.
+ *
+ * The save path cannot leave one of these behind, since it records where the
+ * book lands in the same commit as the row (#632), and the reset leaves a row
+ * saying the book came off its plank. A catalogue written before the ledger
+ * existed can still hold one, so this saves the book through the handler and
+ * then takes away, by hand and in the open, the one thing that says where it
+ * went. Everything else about it (the row, its genre tag, its credits) is what
+ * a real save wrote.
+ */
+async function neverPlaced(draft: DraftBook): Promise<number> {
+  const id = await shelve(draft)
+  await db.run('DELETE FROM book_placement WHERE book_id = ?', [id])
+  await db.run('UPDATE books SET current_area_id = NULL WHERE id = ?', [id])
   return id
 }
 
@@ -92,7 +82,7 @@ async function buildWorld(): Promise<World> {
   const returned = await shelve(draft('Carter', 'Came back'))
   const out = await shelve(draft('Dunn', 'Still out'))
   const withdrawn = await shelve(draft('Evans', 'Given away'))
-  const never = (await save(draft('Baker', 'Never placed'))).id
+  const never = await neverPlaced(draft('Baker', 'Never placed'))
   await store.setCheckedOut(out, true)
 
   // The reset, through the writer Settings presses, then two of the books put

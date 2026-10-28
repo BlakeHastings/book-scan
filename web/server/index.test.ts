@@ -26,6 +26,7 @@ import { closeTestDatabase, openTestDatabase, testDatabaseUrl } from './testdb'
 import type { Db } from './driver'
 import { createApp, openCatalogue } from './index'
 import { signedIn } from './testauth'
+import { testBooks, type TestBooks } from './testbooks'
 import { lookupIsbn } from './lookup'
 import { Shelves } from './shelves'
 import { Store } from './store'
@@ -33,7 +34,6 @@ import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-rep
 import { DrizzleSeparatorRepository } from '../infrastructure/shelving/separator-repository'
 import { plankAt, type SeparatorKind } from '../shared/layout'
 import type { ShelfRange } from '../shared/shelving'
-import { genreStatedBy } from '../domain/tagging/genre'
 import { coverHash } from './imagehash'
 import { CaptureQueue } from './queue'
 import { backCover, frontCover, photographedBook } from './fixtures'
@@ -96,6 +96,8 @@ beforeAll(() => {
 interface Running {
   db: Db
   store: Store
+  /** Books saved the way the save routes save them. See server/testbooks.ts. */
+  books: TestBooks
   coverDir: string
   baseUrl: string
   /** The session every request in this file carries. See server/testauth.ts. */
@@ -124,6 +126,7 @@ async function startApp(): Promise<Running> {
   return {
     db,
     store: new Store(db, new DrizzleAuthorRepository(db)),
+    books: testBooks(db),
     coverDir,
     baseUrl: `http://127.0.0.1:${port}`,
     cookie,
@@ -225,15 +228,12 @@ async function splitFiction(...kinds: SeparatorKind[]): Promise<void> {
 }
 
 /**
- * Shelving is `Store.updateBook`, the same method `POST /api/books` calls:
- * the capture and the book are one row, so there is nothing left to pair.
+ * Shelving is `CatalogueBookHandler` confirming the scan, the same handler
+ * `POST /api/books` calls: the capture and the book are one row, so there is
+ * nothing left to pair.
  */
-const shelve = (id: number) => {
-  const draft = { title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG }
-  // This shelves a book without going through the route, so it states the
-  // genre the draft states rather than reading it back from book_tag.
-  return running.store.updateBook(id, draft, genreStatedBy(draft).range)
-}
+const shelve = (id: number) =>
+  running.books.catalogue({ title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG }, id)
 
 /** The state a queued book is in, said in the queue's own vocabulary. */
 const stateFor = (status: string) =>
@@ -444,7 +444,7 @@ describe('a database hiccup in the work a save started', () => {
 
 describe('updating a book', () => {
   it('edits an existing book in place', async () => {
-    const { id } = await running.store.addBook({
+    const { id } = await running.books.catalogue({
       title: 'Old Title', authors: ['Ann Author'], genre: FICTION_SLUG,
     })
 
@@ -469,7 +469,7 @@ describe('updating a book', () => {
   })
 
   it('400s when the edit drops the title, and leaves the row untouched', async () => {
-    const { id } = await running.store.addBook({
+    const { id } = await running.books.catalogue({
       title: 'Keep Me', authors: ['Ann Author'], genre: FICTION_SLUG,
     })
 
@@ -563,7 +563,7 @@ describe('cropping a saved book to the book', () => {
 
 describe('deleting a book', () => {
   it('removes it from the catalogue', async () => {
-    const { id } = await running.store.addBook({
+    const { id } = await running.books.catalogue({
       title: 'Gone Soon', authors: ['Ann Author'], genre: FICTION_SLUG,
     })
 
@@ -585,7 +585,7 @@ describe('deleting a book', () => {
 describe('updating a location', () => {
   it('records where a person says the book actually is', async () => {
     await splitFiction('shelf', 'area', 'area')
-    const { id } = await running.store.addBook({
+    const { id } = await running.books.catalogue({
       title: 'X', authors: ['Ann Author'], genre: FICTION_SLUG, location: '1A',
     })
 
@@ -602,7 +602,7 @@ describe('updating a location', () => {
    * away and `checked_out` means it is in somebody's bag.
    */
   it('refuses an empty label rather than taking the book back to never-placed', async () => {
-    const { id } = await running.store.addBook({
+    const { id } = await running.books.catalogue({
       title: 'X', authors: ['Ann Author'], genre: FICTION_SLUG, location: '1A',
     })
 
@@ -618,7 +618,7 @@ describe('updating a location', () => {
    * it; the write refuses rather than half-happening.
    */
   it('refuses a plank the furniture does not have, and names it', async () => {
-    const { id } = await running.store.addBook({
+    const { id } = await running.books.catalogue({
       title: 'X', authors: ['Ann Author'], genre: FICTION_SLUG, location: '1A',
     })
 
@@ -630,7 +630,7 @@ describe('updating a location', () => {
   })
 
   it('refuses a label that is not a real location, and does not touch the row', async () => {
-    const { id } = await running.store.addBook({
+    const { id } = await running.books.catalogue({
       title: 'X', authors: ['Ann Author'], genre: FICTION_SLUG, location: '1A',
     })
 
@@ -652,7 +652,7 @@ describe('updating a location', () => {
    */
   it('takes the plank as an id, which is what a list the server drew sends', async () => {
     await splitFiction('shelf', 'area', 'area')
-    const { id } = await running.store.addBook({
+    const { id } = await running.books.catalogue({
       title: 'X', authors: ['Ann Author'], genre: FICTION_SLUG, location: '1A',
     })
     const area = await running.db.get<{ id: number }>(
@@ -668,7 +668,7 @@ describe('updating a location', () => {
   })
 
   it('refuses an area id nothing has, and leaves the book where it was', async () => {
-    const { id } = await running.store.addBook({
+    const { id } = await running.books.catalogue({
       title: 'X', authors: ['Ann Author'], genre: FICTION_SLUG, location: '1A',
     })
 
@@ -680,7 +680,7 @@ describe('updating a location', () => {
 
   it('still takes a positional label once the bookcase has a name', async () => {
     await splitFiction('shelf', 'area', 'area')
-    const { id } = await running.store.addBook({
+    const { id } = await running.books.catalogue({
       title: 'X', authors: ['Ann Author'], genre: FICTION_SLUG, location: '1A',
     })
     const fixture = await running.db.get<{ id: number }>(
@@ -697,7 +697,7 @@ describe('updating a location', () => {
 
 describe('checking a book out and back in by id', () => {
   it('takes it off the shelf the first time', async () => {
-    const { id } = await running.store.addBook({ title: 'X', authors: ['Ann Author'], genre: FICTION_SLUG })
+    const { id } = await running.books.catalogue({ title: 'X', authors: ['Ann Author'], genre: FICTION_SLUG })
 
     const { status, body } = await post(`/api/books/${id}/checkout`, { out: true })
 
@@ -708,7 +708,7 @@ describe('checking a book out and back in by id', () => {
   })
 
   it('reports already-out on a second checkout and keeps the original timestamp', async () => {
-    const { id } = await running.store.addBook({ title: 'X', authors: ['Ann Author'], genre: FICTION_SLUG })
+    const { id } = await running.books.catalogue({ title: 'X', authors: ['Ann Author'], genre: FICTION_SLUG })
     const first = await post(`/api/books/${id}/checkout`, { out: true })
 
     const second = await post(`/api/books/${id}/checkout`, { out: true })
@@ -718,7 +718,7 @@ describe('checking a book out and back in by id', () => {
   })
 
   it('checks it back in, clearing the timestamp', async () => {
-    const { id } = await running.store.addBook({ title: 'X', authors: ['Ann Author'], genre: FICTION_SLUG })
+    const { id } = await running.books.catalogue({ title: 'X', authors: ['Ann Author'], genre: FICTION_SLUG })
     await post(`/api/books/${id}/checkout`, { out: true })
 
     const { status, body } = await post(`/api/books/${id}/checkout`, { out: false })
@@ -729,7 +729,7 @@ describe('checking a book out and back in by id', () => {
   })
 
   it('reports already-in for a book already on the shelf, as a no-op', async () => {
-    const { id } = await running.store.addBook({ title: 'X', authors: ['Ann Author'], genre: FICTION_SLUG })
+    const { id } = await running.books.catalogue({ title: 'X', authors: ['Ann Author'], genre: FICTION_SLUG })
 
     const { body } = await post(`/api/books/${id}/checkout`, { out: false })
 
@@ -1101,7 +1101,7 @@ describe('shelving a book onto a bookcase', () => {
 describe('the row a shelved book stands in', () => {
   const seedWith = async (title: string, author: string, images: {
     front?: string; back?: string; edge?: string
-  }) => (await running.store.addBook({
+  }) => (await running.books.catalogue({
     title,
     authors: [author],
     genre: FICTION_SLUG,
@@ -1671,7 +1671,7 @@ describe('scanning a book at the shelf', () => {
     const hash = await coverHash(buffer)
     // A hash is a fact about a photograph and lands on that photograph's row;
     // a book with no photographs has nowhere to put one.
-    const { id } = await running.store.addBook({
+    const { id } = await running.books.catalogue({
       title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG,
       frontImage: 'dune_front.jpg',
     })
@@ -1710,7 +1710,7 @@ describe('scanning a book at the shelf', () => {
   }, 20_000)
 
   it('identifies a catalogued book by its barcode and leaves it exactly as it was', async () => {
-    const { id } = await running.store.addBook({
+    const { id } = await running.books.catalogue({
       title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, isbn13: DUNE,
     })
     const before = await running.store.getBook(id)
@@ -1730,7 +1730,7 @@ describe('scanning a book at the shelf', () => {
 
   it('takes no direction, so a body asking for one changes nothing', async () => {
     // A client still sending the old `out` field must not be able to make this route write.
-    const { id } = await running.store.addBook({
+    const { id } = await running.books.catalogue({
       title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, isbn13: DUNE,
     })
     const buffer = await backCover(DUNE)
@@ -1754,10 +1754,10 @@ describe('scanning a book at the shelf', () => {
   it('reads the barcode the fast pass missed instead of offering a lookalike', async () => {
     // A barcode validates; a hash distance is a guess.
     const buffer = await distantBackCover(DUNE)
-    const { id } = await running.store.addBook({
+    const { id } = await running.books.catalogue({
       title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, isbn13: DUNE,
     })
-    const decoy = await running.store.addBook({
+    const decoy = await running.books.catalogue({
       title: 'Children of Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG,
     })
     await running.store.setHashes(decoy.id, nudgeHash(await coverHash(buffer), 12), '')
@@ -1773,7 +1773,7 @@ describe('scanning a book at the shelf', () => {
     // The other half of the trade: waiting for the barcode must not cost the
     // person the shortlist when there was never a barcode to read.
     const buffer = await frontCover('Dune', 'Frank Herbert')
-    const { id } = await running.store.addBook({
+    const { id } = await running.books.catalogue({
       title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG,
       frontImage: 'dune_front.jpg',
     })
@@ -1892,7 +1892,7 @@ describe('a book already waiting in the queue', () => {
     // rather than being sent off to the queue for a book already on a shelf.
     const buffer = await frontCover('Dune', 'Frank Herbert')
     await waitingCapture(buffer)
-    const { id } = await running.store.addBook({
+    const { id } = await running.books.catalogue({
       title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG,
       frontImage: 'dune_front.jpg',
     })
@@ -1910,7 +1910,7 @@ describe('a book already waiting in the queue', () => {
     // the check digit named.
     const buffer = await backCover(DUNE)
     await waitingCapture(buffer)
-    const { id } = await running.store.addBook({
+    const { id } = await running.books.catalogue({
       title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, isbn13: DUNE,
     })
 
@@ -2068,7 +2068,7 @@ describe('a capture of a book already in the queue', () => {
     // the queue answer is asked only after the catalogue has said no.
     const buffer = await backCover(DUNE)
     await queuedWith(DUNE)
-    const { id } = await running.store.addBook({
+    const { id } = await running.books.catalogue({
       title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, isbn13: DUNE,
     })
 
@@ -2102,7 +2102,7 @@ describe('a capture of a book already on a shelf', () => {
   }
 
   /** A book on a shelf, at a plank the seeded furniture actually has. */
-  const shelvedDune = () => running.store.addBook({
+  const shelvedDune = () => running.books.catalogue({
     title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG,
     isbn13: DUNE, location: '1A',
   })
@@ -2142,7 +2142,7 @@ describe('a capture of a book already on a shelf', () => {
     const draft = {
       title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG, isbn13: DUNE,
     }
-    await running.store.updateBook(mine, draft, genreStatedBy(draft).range)
+    await running.books.catalogue(draft, mine)
 
     expect((await queueOf(mine)).isbn13).toBe(DUNE)
     expect(await cataloguedFor(mine)).toBeNull()
@@ -2460,7 +2460,7 @@ describe('discarding a capture', () => {
     writeFileSync(join(running.coverDir, 'r_front_crop.jpg'), Buffer.from('a crop'))
     await queue.setCrop(capture.id, 'front', 'r_front_crop.jpg')
 
-    const { id } = await running.store.addBook({
+    const { id } = await running.books.catalogue({
       title: 'Dune', authors: ['Frank Herbert'], genre: FICTION_SLUG,
       frontImage: 'r_front.jpg',
     })

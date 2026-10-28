@@ -10,7 +10,7 @@ import { createApp, type BookScanApp } from './index'
 import { signedIn } from './testauth'
 import { Store, type DraftBook } from './store'
 import { Shelves } from './shelves'
-import { bookCommands, catalogueCommandOf } from './book-commands'
+import { testBooks } from './testbooks'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
 import { DrizzleSeparatorRepository } from '../infrastructure/shelving/separator-repository'
 import { DrizzleTagRepository } from '../infrastructure/tagging/tag-repository'
@@ -32,8 +32,7 @@ let coverDir: string
 const COMICS = TagSlug.of('subject/comic-books')
 
 async function shelve(draft: DraftBook): Promise<number> {
-  const { catalogueBook } = bookCommands(db, (range, id) => shelves.areaOf(range, id))
-  return (await catalogueBook.handle(catalogueCommandOf(draft, new Date().toISOString()))).id
+  return (await testBooks(db).catalogue(draft)).id
 }
 
 const draft = (at: number, genre = NON_FICTION_SLUG): DraftBook => ({

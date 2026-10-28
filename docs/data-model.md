@@ -974,10 +974,10 @@ answers "is this the same place". This is the same rule the labels-are-derived
 note above states, applied to the comparison rather than to the storage.
 
 **This one is written on every move, the way #200 taught.** There are exactly
-four statements in this repository that change where a book is: a save's
+three statements in this repository that change where a book is: a save's
 (`PlacementOnSave.recordSave`, on the save's unit of work, since #616),
-`Store.setLocation`, `Store.setCheckedOut`, and the insert and update in
-`Store.addBook` and `Store.updateBook`, which only tests still call. `setLocationIn` is not a fifth: it is `setLocation` with the
+`Store.setLocation` and `Store.setCheckedOut`. The insert and update in
+`Store.addBook` and `Store.updateBook` were a fourth until #634 deleted them. `setLocationIn` is not a fourth: it is `setLocation` with the
 label already resolved to the plank, writing the same row through the same file
 on the same handle, and it exists because a caller acting on a list the server
 drew should not have to hand a rendering back to be read again (#356). Each calls

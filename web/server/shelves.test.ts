@@ -6,6 +6,7 @@
 
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeTestDatabase, openTestDatabase } from './testdb'
+import { testBooks, type TestBooks } from './testbooks'
 import type { Db } from './driver'
 import { CaptureQueue } from './queue'
 import { outstandingWork } from './carry'
@@ -25,6 +26,7 @@ import { FICTION_SLUG, NON_FICTION_SLUG } from '../domain/tagging/catalogue-clai
 
 let store: Store
 let shelves: Shelves
+let books: TestBooks
 let db: Db
 
 // openTestDatabase may return either backing database; nothing below knows which.
@@ -32,6 +34,7 @@ beforeEach(async () => {
   db = await openTestDatabase()
   store = new Store(db, new DrizzleAuthorRepository(db))
   shelves = new Shelves(db)
+  books = testBooks(db)
 })
 
 afterAll(closeTestDatabase)
@@ -41,7 +44,7 @@ const plank = (label: string): PlankAt => plankAt(label)!
 
 /** Authors chosen so alphabetical order matches the argument order. */
 const add = async (author: string, title = 'Book') =>
-  (await store.addBook({ title, authors: [author], genre: FICTION_SLUG })).id
+  (await books.catalogue({ title, authors: [author], genre: FICTION_SLUG })).id
 
 /** The range the draft's own genre files it into. A draft here always states one. */
 const rangeOf = (of: DraftBook): ShelfRange => {
@@ -52,9 +55,6 @@ const rangeOf = (of: DraftBook): ShelfRange => {
 
 const placementFor = (of: DraftBook, excludeId?: number) =>
   store.placementFor(of, rangeOf(of), excludeId)
-
-const updateBook = (id: number, of: DraftBook) =>
-  store.updateBook(id, of, rangeOf(of))
 
 const labels = async () => (await shelves.layout('fiction')).map((p) => p.label)
 
@@ -428,7 +428,7 @@ describe('ranges are independent', () => {
   it('does not let a fiction boundary move non-fiction books', async () => {
     await add('Ann Author')
     await add('Bob Baker')
-    await store.addBook({ title: 'Sapiens', authors: ['Yuval Harari'], genre: NON_FICTION_SLUG })
+    await books.catalogue({ title: 'Sapiens', authors: ['Yuval Harari'], genre: NON_FICTION_SLUG })
 
     await shelves.overflow('fiction', plank('1A'), 'shelf')
     expect((await shelves.layout('nonfiction')).map((p) => p.label)).toEqual(['4A'])
@@ -457,12 +457,13 @@ describe('every catalogued book has a shelf', () => {
     expect(placed.every((p) => /^\d+[A-Z]+$/.test(p.label))).toBe(true)
   })
 
-  it('places a book saved without ever touching the location column', async () => {
-    // Locations are derived; the location column stays empty for every book saved this way.
+  it('places a book saved without naming a plank where its sort key lands', async () => {
+    // Locations are derived. A save at the shelf that names no plank records the
+    // one the layout derives, so the two agree.
     const id = await add('Zola, Émile')
     const placed = await shelves.layout('fiction')
     expect(placed.find((p) => p.book.id === id)?.label).toBe('1A')
-    expect((await store.getBook(id))?.location).toBe('')
+    expect((await store.getBook(id))?.location).toBe('1A')
   })
 })
 
@@ -630,8 +631,9 @@ describe('a book taken off the shelf', () => {
     await add('Jane Austen')
     const id = await add('Emily Bronte')
     await store.setCheckedOut(id, true)
+    // Austen was recorded where she landed, so nothing waits to be placed.
     expect(await store.counts()).toEqual({
-      total: 2, fiction: 2, nonfiction: 0, checkedOut: 1, unplaced: 1,
+      total: 2, fiction: 2, nonfiction: 0, checkedOut: 1, unplaced: 0,
     })
   })
 })
@@ -1061,7 +1063,7 @@ describe('moving a book across an area boundary', () => {
 
   it('never lets a fiction move touch non-fiction', async () => {
     await shelve('Ann Author')
-    const harari = (await store.addBook({
+    const harari = (await books.catalogue({
       title: 'Sapiens', authors: ['Yuval Harari'], genre: NON_FICTION_SLUG,
     })).id
 
@@ -1676,12 +1678,15 @@ describe('misfile detection', () => {
     await store.setLocation(id, '1B')
     expect(await flagged()).toEqual([])
 
-    await updateBook(id, { title: 'Book', authors: ['Al Adams'], genre: FICTION_SLUG })
+    await books.revise(id, { title: 'Book', authors: ['Al Adams'], genre: FICTION_SLUG })
     expect(await flagged()).toEqual([[id, '1B', '1A']])
   })
 
-  it('leaves a book nobody ever placed out of it', async () => {
-    await add('Ann Author')                                // saved, never confirmed
+  it('leaves a book standing on no plank out of it', async () => {
+    // A save records where the book lands, so the reset in Settings is what
+    // leaves a shelved book on no plank.
+    await add('Ann Author')
+    await store.unplaceEveryBook()
     await shelve('Bob Baker')
 
     expect(await flagged()).toEqual([])
@@ -1707,7 +1712,7 @@ describe('misfile detection', () => {
     // Bookcase 4 is non-fiction's own. A non-fiction book at 4A is not ahead
     // of or behind a fiction book at 1A; the two runs never interact.
     await shelve('Ann Author')
-    const harari = (await store.addBook({
+    const harari = (await books.catalogue({
       title: 'Sapiens', authors: ['Yuval Harari'], genre: NON_FICTION_SLUG,
     })).id
     await store.setLocation(harari, await shelves.labelFor('nonfiction', harari))
@@ -1789,24 +1794,15 @@ describe('misfile detection', () => {
  * and once as the rules claim it; `applySchema` runs it on every start.
  */
 describe('the drift check the app makes about itself on every start', () => {
-  /**
+  /*
    * `areaDisagreements` asks the rules (the book's tag) rather than the
-   * `shelf_range` column, and `store.addBook` alone does not write a tag, so
-   * this inserts one directly.
+   * `shelf_range` column. A save writes the genre tag beside the column, so
+   * every book `add` saves is one the rules can answer for.
    */
-  const tagged = async (author: string) => {
-    const id = await add(author)
-    await db.run(
-      `INSERT INTO book_tag (book_id, tag_id, source, confidence, added_at)
-       SELECT ?, id, 'person', 'stated', '2026-08-16' FROM tag WHERE slug = ?`,
-      [id, FICTION_SLUG],
-    )
-    return id
-  }
 
   it('says nothing about the books on a bookcase that has a name', async () => {
-    await tagged('Ann Author')
-    await tagged('Bob Baker')
+    await add('Ann Author')
+    await add('Bob Baker')
     await shelves.overflow('fiction', plank('1A'), 'area')
     expect(await areaDisagreements(db)).toEqual([])
 

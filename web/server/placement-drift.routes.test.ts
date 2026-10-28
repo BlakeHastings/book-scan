@@ -30,12 +30,10 @@ import type { Db } from './driver'
 import { createApp, type BookScanApp } from './index'
 import { signedIn } from './testauth'
 import type { DraftBook } from './store'
-import { Shelves } from './shelves'
-import { bookCommands, catalogueCommandOf } from './book-commands'
+import { testBooks } from './testbooks'
 import { FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
 let db: Db
-let shelves: Shelves
 let app: BookScanApp
 let server: Server
 let baseUrl: string
@@ -47,8 +45,7 @@ let coverDir: string
 
 /** A save, all of the steps `POST /api/books` performs, so the tag is written. */
 async function shelve(draft: DraftBook): Promise<number> {
-  const { catalogueBook } = bookCommands(db, (range, id) => shelves.areaOf(range, id))
-  return (await catalogueBook.handle(catalogueCommandOf(draft, new Date().toISOString()))).id
+  return (await testBooks(db).catalogue(draft)).id
 }
 
 const draft = (at: number): DraftBook => ({
@@ -88,7 +85,6 @@ beforeAll(() => { scratch = scratchRoot('placement-drift') })
 
 beforeEach(async () => {
   db = await openTestDatabase()
-  shelves = new Shelves(db)
 
   coverDir = mkdtempSync(join(scratch, 'drift-test-'))
   cookie = (await signedIn(db)).cookie

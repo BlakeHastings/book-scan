@@ -120,7 +120,7 @@ successor.
 settle it: on the statement that writes the column, never on the caller. #214
 moved `capture` there after finding five paths that wrote the image columns
 without it, and #185 put the placement ledger there from the start, beside the
-four statements that change where a book is. A caller cannot forget what it
+statements that change where a book is. A caller cannot forget what it
 never had to remember. Copy that shape.
 
 **#185 also brought a check for the thing that rots.** `books.current_area_id`

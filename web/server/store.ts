@@ -12,7 +12,7 @@ import type { Db } from './driver'
  * vocabularies meet, in both directions.
  */
 import {
-  coverDownloaded, photographsTaken, recordCrop, recordHashes,
+  coverDownloaded, recordCrop, recordHashes,
   withPhotographs,
   type FiledPhotographedBook, type PhotographedBook, type PhotographFields,
 } from './photographs'
@@ -29,24 +29,16 @@ import {
 // answers it. See `filingFor`.
 import type { AuthorRepository } from '../application/authorship/ports'
 import { PrintedName } from '../domain/authorship/authors'
-import { resolveIsbnPair } from '../shared/isbn'
 import { locationLabel } from '../shared/layout'
 // Where a range begins is a rule pointing at a fixture, not a row in
 // `shelf_ranges`. See `bandsOf`.
 import { bandOf } from '../infrastructure/shelving/areas'
-import { CHECKED_OUT, DISCARDED, QUEUED_STATES, SHELVED } from '../domain/books/state'
-// Which range a book joins is decided by its genre tags, and this is the rule
-// that decides it. See docs/data-model.md.
-import { genreStatedBy, type GenreSlug } from '../domain/tagging/genre'
-
-const QUEUED_SQL = QUEUED_STATES.map((state) => `'${state}'`).join(', ')
-// A book being filed into a range and a boundary moving inside it are the two
-// halves of one contention, so both serialise on this name.
-import { rangeLock } from '../application/locks'
+import { CHECKED_OUT, DISCARDED, SHELVED } from '../domain/books/state'
+import type { GenreSlug } from '../domain/tagging/genre'
 /*
  * The placement ledger, which is where a book is: there is no `location`,
  * `shelved_at` or `checked_out_at` column left to give a second answer. Each
- * call is made on the transaction handle the rest of the save is on, so a book
+ * call is made on the transaction handle the rest of the write is on, so a book
  * and where it went commit together.
  */
 import {
@@ -142,9 +134,9 @@ export class Store {
 
   /**
    * What this name files under: the alias's answer, or the heuristic's. The
-   * fallback is the same answer arriving early, because `addBook` files a book
-   * before its credits are written, so a name with no alias yet gets exactly
-   * what `AuthorRepository.introduce` is about to store against it.
+   * fallback is the same answer arriving early, because a preview files a book
+   * nobody has saved yet, so a name with no alias yet gets exactly what
+   * `AuthorRepository.introduce` will store against it when the save happens.
    */
   async filingFor(displayName: string): Promise<string> {
     const printed = PrintedName.parse(displayName)
@@ -239,288 +231,8 @@ export class Store {
     return { ...placement, ...resolved }
   }
 
-  /**
-   * Not the save path: `CatalogueBookHandler` is, and no route or script calls
-   * this. It stays as the fixture tests build a shelved row with, and must not
-   * gain a caller outside one.
-   *
-   * File a book, and say where it goes. Reading the shelf and writing to it are
-   * one unit: the filing key is resolved once inside the transaction, and both
-   * the placement and the insert use that value. `serialiseOn` is the part a
-   * transaction does not give; see `TxOptions`.
-   */
-  async addBook(draft: DraftBook): Promise<{ id: number; placement: Placement | null }> {
-    const now = new Date().toISOString()
-    const location = draft.location?.trim() ?? ''
-
-    // Both columns are populated from whichever form we have, because duplicate
-    // detection searches both: a book scanned from its barcode still matches one
-    // entered by ISBN-10.
-    const isbn = resolveIsbnPair(draft.isbn13 || draft.isbn10 || '')
-
-    /*
-     * The range this book's genre tags put it in, taken from the save rather
-     * than from `book_tag`: a book this method is inserting carries no tags yet,
-     * and knowing the range before anything is read is what lets the lock be
-     * taken first. Null when the save states no genre, and a book in neither run
-     * has no placement and serialises on nothing.
-     */
-    const { range } = genreStatedBy(draft)
-
-    /*
-     * Nests: `Db.tx` opens a savepoint when the caller is already inside one.
-     *
-     * The range's lock alone, although `rangeStart` reads the furniture: a save
-     * does not wait for a furniture write, so it can place a book by a room that
-     * is being rearranged. Known and deliberately left open, because taking
-     * `FURNITURE_LOCK` here makes every save queue behind every furniture edit,
-     * and that is #604's to decide. `updateBook` is the same.
-     */
-    const { id, placement } = await this.db.tx(async (tx) => {
-      const resolved = await this.resolveKey(draft)
-      let placed: (Placement & ResolvedKey) | null = null
-      if (range !== null) {
-        const { predecessor, successor } = await this.neighbours(range, resolved.sortKey)
-        placed = {
-          ...buildPlacement(
-            range,
-            predecessor,
-            successor,
-            await this.rangeStart(range),
-          ),
-          ...resolved,
-        }
-      }
-      const id = await this.insertBook(tx, draft, resolved, range, isbn, now, location)
-      return { id, placement: placed }
-    }, range === null ? {} : { serialiseOn: rangeLock(range) })
-
-    return { id, placement }
-  }
-
-  /**
-   * Every statement here runs on the handle it is given, which is the open
-   * transaction's.
-   */
-  private async insertBook(
-    tx: Db,
-    draft: DraftBook,
-    resolved: ResolvedKey,
-    /** Null when no genre tag files this book, which is written as `''`. */
-    range: ShelfRange | null,
-    isbn: { isbn13: string; isbn10: string },
-    now: string,
-    location: string,
-  ): Promise<number> {
-    // RETURNING id rather than lastInsertRowid: the id comes back from the
-    // statement that produced it, which every dialect can do.
-    const inserted = await tx.get<{ id: number }>(
-      `INSERT INTO books (
-         isbn13, isbn10, title, subtitle, authors, publisher, published,
-         pages, notes, shelf_range, classification_source,
-         classification_confidence, series_name,
-         series_index, title_filing, sort_key, lookup_source,
-         isbn_source, scanned_at, state
-       ) VALUES (
-         @isbn13, @isbn10, @title, @subtitle, @authors, @publisher,
-         @published, @pages, @notes, @shelf_range,
-         @classification_source, @classification_confidence,
-         @series_name, @series_index, @title_filing,
-         @sort_key, @lookup_source,
-         @isbn_source, @scanned_at, @state
-       )
-       RETURNING id`,
-      {
-        isbn13: isbn.isbn13 || draft.isbn13 || '',
-        isbn10: isbn.isbn10 || draft.isbn10 || '',
-        title: draft.title,
-        subtitle: draft.subtitle ?? '',
-        authors: draft.authors.filter(Boolean).join(', '),
-        publisher: draft.publisher ?? '',
-        published: draft.published ?? '',
-        pages: draft.pages ?? '',
-        notes: draft.notes ?? '',
-        // The empty range keeps the row out of every `shelf_range = ?` there is,
-        // rather than putting it in one of them.
-        shelf_range: range ?? '',
-        classification_source: draft.classificationSource ?? 'auto',
-        classification_confidence: draft.classificationConfidence ?? 'unknown',
-        series_name: draft.seriesName ?? '',
-        series_index: draft.seriesIndex ?? null,
-        title_filing: resolved.titleFilingValue,
-        sort_key: resolved.sortKey,
-        lookup_source: draft.lookupSource ?? '',
-        isbn_source: draft.isbnSource ?? '',
-        scanned_at: now,
-        /*
-         * `shelved`, stated rather than left to the column's default. This route
-         * is reached by somebody being told where a book goes, so writing
-         * anything else here would take books off a shelf they are on.
-         */
-        state: SHELVED,
-      },
-    )
-
-    // An INSERT ... RETURNING that inserted a row always has one to return, so
-    // the absence of one is a broken statement rather than a case to handle.
-    if (!inserted) throw new Error('the insert returned no id')
-
-    const bookId = Number(inserted.id)
-
-    /*
-     * On the same handle as the insert, so a book and its photographs commit
-     * together or neither does. Dated from the save because that is all this
-     * path knows: a book that came through the queue already has its rows and
-     * takes this branch not at all.
-     */
-    await photographsTaken(tx, bookId, {
-      front: draft.frontImage,
-      back: draft.backImage,
-      edge: draft.edgeImage,
-    }, now)
-
-    const authors = draft.authors.map((name) => name.trim()).filter(Boolean)
-    for (const [index, name] of authors.entries()) {
-      await tx.run(
-        'INSERT INTO book_authors (book_id, position, name) VALUES (?, ?, ?)',
-        [bookId, index + 1, name],
-      )
-    }
-
-    // A save with no location writes no row: nobody has said where the book is.
-    await recordPlaced(tx, { id: bookId, sortKey: resolved.sortKey, location }, now)
-
-    return bookId
-  }
-
   async getBook(id: number): Promise<PlacedPhotographedBook | undefined> {
     return (await this.catalogue.detail(id)) ?? undefined
-  }
-
-  /**
-   * Not the save path: `ReviseBookHandler` and `CatalogueBookHandler` are, and no
-   * route or script calls this. It stays as a fixture for tests.
-   *
-   * Update an existing book, recomputing everything derived from it. The key,
-   * the write and the placement are one unit serialised on the range. This is
-   * also how a book leaves the queue: a book exists from its first photograph,
-   * so shelving one is an update, and the state moves in the statement below
-   * beside the sort key.
-   */
-  async updateBook(
-    id: number,
-    draft: DraftBook,
-    /**
-     * The range the book's genre tags put it in, settled by the caller: the
-     * answer is in `book_tag`, which is written through the tagging layer and
-     * not through this class. Null when no genre tag claims the book, and then
-     * the column takes the empty range and there is no placement to hand back.
-     */
-    range: ShelfRange | null,
-  ): Promise<(Placement & ResolvedKey) | null> {
-    const isbn = resolveIsbnPair(draft.isbn13 || draft.isbn10 || '')
-    const location = draft.location?.trim() ?? ''
-
-    return this.db.tx(async (tx) => {
-      const resolved = await this.resolveKey(draft)
-      await tx.run(
-        `UPDATE books SET
-           isbn13 = @isbn13, isbn10 = @isbn10, title = @title,
-           subtitle = @subtitle, authors = @authors, publisher = @publisher,
-           published = @published, pages = @pages, notes = @notes,
-           shelf_range = @shelf_range,
-           classification_source = @classification_source,
-           classification_confidence = @classification_confidence,
-           series_name = @series_name,
-           series_index = @series_index, title_filing = @title_filing,
-           sort_key = @sort_key,
-           lookup_source = @lookup_source, isbn_source = @isbn_source,
-           /*
-            * Saving a book at the shelf is what takes it out of the queue.
-            *
-            * Identified and shelved are two steps, and this is the second
-            * one: knowing what a book is and knowing where it went are separate
-            * facts, and this statement is the moment somebody standing at a
-            * shelf says the second. The state is written in the statement that
-            * writes the sort key, so a book cannot be in the shelf order under
-            * one and out of it under the other.
-            *
-            * The CASE rather than a bare assignment, because this method is
-            * also how a book already on a shelf is edited, and a checked-out
-            * book edited from the library must not be quietly put back. Every
-            * state that is not queued keeps itself.
-            */
-           "state" = CASE WHEN "state" IN (${QUEUED_SQL}) THEN '${SHELVED}' ELSE "state" END
-         WHERE id = @id`,
-        {
-          id,
-          isbn13: isbn.isbn13 || draft.isbn13 || '',
-          isbn10: isbn.isbn10 || draft.isbn10 || '',
-          title: draft.title,
-          subtitle: draft.subtitle ?? '',
-          authors: draft.authors.filter(Boolean).join(', '),
-          publisher: draft.publisher ?? '',
-          published: draft.published ?? '',
-          pages: draft.pages ?? '',
-          notes: draft.notes ?? '',
-          // See `insertBook`: the empty range is a book in no run, not a book
-          // in the other one.
-          shelf_range: range ?? '',
-          classification_source: draft.classificationSource ?? 'manual',
-          classification_confidence: draft.classificationConfidence ?? 'unknown',
-          series_name: draft.seriesName ?? '',
-          series_index: draft.seriesIndex ?? null,
-          title_filing: resolved.titleFilingValue,
-          sort_key: resolved.sortKey,
-          lookup_source: draft.lookupSource ?? '',
-          isbn_source: draft.isbnSource ?? '',
-        },
-      )
-
-      /*
-       * An edit that carries no photographs says nothing about them and writes
-       * nothing. A file this book has no row for is a new photograph and gets
-       * its own row rather than replacing what it was shot to improve on.
-       */
-      await photographsTaken(tx, id, {
-        front: draft.frontImage,
-        back: draft.backImage,
-        edge: draft.edgeImage,
-      }, new Date().toISOString())
-
-      await tx.run('DELETE FROM book_authors WHERE book_id = ?', [id])
-      const authors = draft.authors.map((name) => name.trim()).filter(Boolean)
-      for (const [index, name] of authors.entries()) {
-        await tx.run(
-          'INSERT INTO book_authors (book_id, position, name) VALUES (?, ?, ?)',
-          [id, index + 1, name],
-        )
-      }
-
-      // An edit that carries no location moved no book, so it records no
-      // placement and the book stays where the ledger already has it.
-      await recordPlaced(
-        tx, { id, sortKey: resolved.sortKey, location }, new Date().toISOString(),
-      )
-
-      // No run to be in, so no gap in one to point at. The book is saved either
-      // way; what it is not is filed.
-      if (range === null) return null
-
-      // Exclude the book from its own neighbour search, or it would be told to
-      // sit next to itself. Read inside the transaction, and after the update,
-      // so it describes the shelf this edit produced.
-      const { predecessor, successor } = await this.neighbours(range, resolved.sortKey, id)
-      return {
-        ...buildPlacement(
-          range,
-          predecessor,
-          successor,
-          await this.rangeStart(range),
-        ),
-        ...resolved,
-      }
-    }, range === null ? {} : { serialiseOn: rangeLock(range) })
   }
 
   async findByIsbn(value: string): Promise<FiledPlacedBook | undefined> {

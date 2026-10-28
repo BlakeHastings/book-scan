@@ -29,8 +29,7 @@ import { createApp, type BookScanApp } from './index'
 import { signedIn } from './testauth'
 import type { Db } from './driver'
 import type { DraftBook } from './store'
-import { Shelves } from './shelves'
-import { bookCommands, catalogueCommandOf } from './book-commands'
+import { testBooks } from './testbooks'
 import { applyRunMove } from './relocate-run'
 import { addAreaTo, addFixture, describeFurniture, editFixture } from './furniture'
 import { applyRuleChange } from './place-rule'
@@ -59,7 +58,6 @@ vi.mock('./covers', () => ({
 }))
 
 let db: Db
-let shelves: Shelves
 let scratch: string
 let coverDir: string
 let app: BookScanApp
@@ -79,8 +77,7 @@ const draft = (at: number, genre = NON_FICTION_SLUG): DraftBook => ({
 
 /** A book put on a shelf the way a save puts one there. `carry.test.ts`'s. */
 async function shelve(of: DraftBook): Promise<number> {
-  const { catalogueBook } = bookCommands(db, (range, id) => shelves.areaOf(range, id))
-  return (await catalogueBook.handle(catalogueCommandOf(of, new Date().toISOString()))).id
+  return (await testBooks(db).catalogue(of)).id
 }
 
 /**
@@ -132,7 +129,6 @@ async function buildTheWorld(): Promise<void> {
 
 beforeAll(async () => {
   db = await openTestDatabase()
-  shelves = new Shelves(db)
   scratch = scratchRoot('carry-placing')
 
   await buildTheWorld()

@@ -558,10 +558,10 @@ export class CaptureQueue {
          -- is left alone: the worker is mid-pass and settles it itself,
          -- with this overlay applied.
          --
-         -- The CAST is the point made at Store.updateBook: this parameter is
-         -- compared against a bare literal, with no column to take a type
-         -- from, so a database that types parameters before it plans refuses
-         -- the statement rather than guessing. Identity on SQLite.
+         -- The CAST because this parameter is compared against a bare
+         -- literal, with no column to take a type from, so a database that
+         -- types parameters before it plans refuses the statement rather than
+         -- guessing. Identity on SQLite.
          state = CASE
            WHEN "state" IN ('${STATE_OF_QUEUE_STATUS.ready}', '${STATE_OF_QUEUE_STATUS.failed}')
                 AND CAST(@resolved AS INTEGER) = 1

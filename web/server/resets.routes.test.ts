@@ -16,7 +16,7 @@ import { createApp, type BookScanApp } from './index'
 import { signedIn } from './testauth'
 import { Store, type DraftBook } from './store'
 import { Shelves } from './shelves'
-import { bookCommands, catalogueCommandOf } from './book-commands'
+import { testBooks } from './testbooks'
 import { photographTaken } from './photographs'
 import { UNPLACED_BY_RESET } from './placement-ledger'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
@@ -37,8 +37,7 @@ let scratch: string
 let coverDir: string
 
 async function shelve(draft: DraftBook): Promise<number> {
-  const { catalogueBook } = bookCommands(db, (range, id) => shelves.areaOf(range, id))
-  return (await catalogueBook.handle(catalogueCommandOf(draft, new Date().toISOString()))).id
+  return (await testBooks(db).catalogue(draft)).id
 }
 
 const draft = (at: number, genre = NON_FICTION_SLUG): DraftBook => ({
