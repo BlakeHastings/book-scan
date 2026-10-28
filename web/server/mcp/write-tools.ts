@@ -19,15 +19,16 @@ import type { ApplyTagHandler } from '../../application/tagging/commands/apply-t
 import type { RemoveTagHandler } from '../../application/tagging/commands/remove-tag'
 import { namesADifferentBook, type BookDescription } from '../../domain/books/book'
 import { CATALOGUED_STATES } from '../../domain/books/state'
-import { FICTION_SLUG, NON_FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
+import { FICTION_SLUG, GENRE, NON_FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
 import type { GenreSlug } from '../../domain/tagging/genre'
+import { nameIn, nameTag, offerable } from '../../domain/tagging/naming'
 import { TagSlug } from '../../domain/tagging/tags'
 import { resolveIsbnPair } from '../../shared/isbn'
 import type { Neighbour, Placement } from '../../shared/shelving'
 import { catalogueCommandOf, draftFromRecord } from '../book-commands'
 import type { DraftBook } from '../store'
 import { actingFor, answer, refuse } from './answers'
-import { bookDetail, describeBook, tagEntry, tagsOf, type CatalogueQueries } from './read-tools'
+import { FINISHED_IN_THE_APP, bookDetail, describeBook, tagEntry, tagsOf, type CatalogueQueries } from './read-tools'
 
 /** The book commands the write tools call, built once by `createApp`. */
 export interface CatalogueCommands {
@@ -69,6 +70,11 @@ const now = () => new Date().toISOString()
 const NOT_AN_ISBN = (isbn: string) =>
   `"${isbn}" is not a valid ISBN-10 or ISBN-13. Check the digits and the check digit.`
 
+const GENRE_IS_NOT_A_TAG =
+  'Nothing was tagged: a genre is not a tag tag_book puts on, as the app\'s tag box will not either. ' +
+  'Which run a book files into, fiction or nonfiction, is update_book\'s genre, passed when the person ' +
+  'has said which.'
+
 export function registerWriteTools(
   server: McpServer,
   queries: CatalogueQueries,
@@ -82,10 +88,13 @@ export function registerWriteTools(
       'and records it as standing in the gap where it lands on the shelf. Answers the book as get_book does ' +
       'and the two books it now stands between. If this collection already has a book with that ISBN, ' +
       'nothing is added and the existing book is answered with added false, so asking again for a book ' +
-      'that was added answers it rather than adding a copy. If neither catalogue knows the number, nothing is added ' +
+      'that was added answers it rather than adding a copy. When the person says they have another copy ' +
+      'of a book they already own, pass second_copy true and it is added as a book of its own, as the app ' +
+      'does when it says "Saving adds a second copy". If neither catalogue knows the number, nothing is added ' +
       'unless you pass title (and authors) as the person read them off the book; never fill them in from ' +
       'memory. Pass genre only when the person has said which; it is then their answer and outranks the ' +
-      'catalogues\' guess. lookup_isbn previews the record without adding anything.',
+      'catalogues\' guess. lookup_isbn previews the record without adding anything. list_queue shows the books ' +
+      'still in the scanning queue. ' + FINISHED_IN_THE_APP,
     inputSchema: {
       isbn: z.string().max(20).describe('An ISBN-10 or ISBN-13, hyphens and spaces allowed.'),
       genre: genreInput.optional()
@@ -97,9 +106,11 @@ export function registerWriteTools(
         .describe('Used only when neither catalogue knows the ISBN: the title as printed, from the person.'),
       authors: z.array(z.string().max(200)).max(20).optional()
         .describe('Used only with title: the names as printed, in printed order.'),
+      second_copy: z.boolean().optional()
+        .describe('true only when the person has said this is another copy of a book already here. Defaults to false, which answers the book already here instead.'),
     },
     outputSchema: {
-      added: z.boolean().describe('false when the collection already had this ISBN and nothing was written.'),
+      added: z.boolean().describe('false when the collection already had this ISBN, second_copy was not passed, and nothing was written.'),
       record_from: z.enum(['catalogue', 'person', 'existing'])
         .describe('Where the record came from: the outside catalogues, the title you passed, or the book already here.'),
       book: bookDetail,
@@ -121,7 +132,8 @@ export function registerWriteTools(
     // Answered here without a lock, since a book already catalogued stays so; a
     // book catalogued after this read is found again by the handler, under the
     // number's lock (#637).
-    if (duplicateOf) return existing(duplicateOf.id)
+    const ifCatalogued = args.second_copy ? 'add-a-copy' : 'answer-it'
+    if (duplicateOf && ifCatalogued === 'answer-it') return existing(duplicateOf.id)
 
     const given = args.title?.trim()
     let draft: DraftBook
@@ -154,7 +166,7 @@ export function registerWriteTools(
     if (args.notes !== undefined) draft.notes = args.notes
     if (args.files_under?.trim()) draft.authorFilingOverride = args.files_under.trim()
 
-    const saved = await commands.catalogueBook.handle(catalogueCommandOf(draft, now(), 'answer-it'))
+    const saved = await commands.catalogueBook.handle(catalogueCommandOf(draft, now(), ifCatalogued))
     if (!saved.added) return existing(saved.id)
     const { id, placement } = saved
     const book = await describeBook(queries, id)
@@ -172,17 +184,23 @@ export function registerWriteTools(
     title: 'Update a book',
     description:
       'Changes the fields you pass on one catalogued book and leaves every other field as it is. Answers ' +
-      'the book as get_book does, and the two books it now stands between. Changing the ISBN says this row ' +
-      'is a different book: every genre and subject tag on it is withdrawn, including ones a person ' +
-      'applied, and the answer says reidentified true and lists them. Pass genre in the same call to file ' +
-      'the corrected book, or it is left in neither run. Other tags (such as "mine/signed") stay. ' +
-      'genre is recorded as the person\'s answer and outranks any guess. A book still in the scanning ' +
-      'queue is refused; it is saved from the app. Moving a book to another plank is not done here. ' +
-      'Find the book_id with search_books.',
+      'the book as get_book does, and the two books it now stands between. Nothing is looked up: a new ' +
+      'ISBN is not looked up, so the title, authors, publisher, published and pages stay as they were ' +
+      'unless you pass them, and the answer says looked_up false. To refill the record from the new ' +
+      'number, call lookup_isbn for it first and pass its fields here. Changing the ISBN also says this ' +
+      'row is a different book: every genre and subject tag on it is withdrawn, a person\'s included, ' +
+      'and that includes the tags tag_book makes, which go under subject. The answer says reidentified ' +
+      'true and lists them in withdrawn_tags; tell the person which went. Pass genre in the same call to ' +
+      'file the corrected book, or it is left in neither run. same_isbn_as names any other book here ' +
+      'already carrying the ISBN you passed; that is allowed, as a second copy is, but tell the person. ' +
+      'Passing genre replaces every genre tag a person put on the book, and the app\'s guess, with that ' +
+      'one answer, even when the run does not change, so pass it only when the person has said which ' +
+      'run the book belongs in. A book still in the scanning queue is refused; it is saved from the app. ' +
+      'Moving a book to another plank is not done here. Find the book_id with search_books.',
     inputSchema: {
       book_id: z.number().int().positive().describe('From search_books or get_book.'),
       isbn: z.string().max(20).optional()
-        .describe('A corrected ISBN-10 or ISBN-13. Withdraws every genre and subject tag; see above.'),
+        .describe('A corrected ISBN-10 or ISBN-13. Nothing is looked up for it, and it withdraws every genre and subject tag; see above.'),
       title: z.string().max(500).optional(),
       subtitle: z.string().max(500).optional(),
       authors: z.array(z.string().max(200)).max(20).optional()
@@ -194,13 +212,17 @@ export function registerWriteTools(
       series_name: z.string().max(500).optional().describe('"" takes it out of a series.'),
       series_index: z.number().min(0).nullable().optional().describe('Its number in the series; null for none.'),
       genre: genreInput.optional()
-        .describe('Which run of bookcases it files into. Moves the book when it changes the run.'),
+        .describe('Which run of bookcases it files into, as the person said. Replaces every genre tag a person put on the book. Moves the book when it changes the run.'),
       files_under: z.string().max(200).optional()
         .describe('What the first-listed author files under, such as "Le Guin, Ursula K.". Re-files every book under that name the next time each is saved.'),
     },
     outputSchema: {
       reidentified: z.boolean().describe('Whether the ISBN changed, so the row is now a different book.'),
+      looked_up: z.boolean()
+        .describe('Always false: update_book never asks the catalogues, so every field is what was there or what you passed.'),
       withdrawn_tags: z.array(tagEntry).describe('The tags this change took off the book.'),
+      same_isbn_as: z.array(z.object({ book_id: z.number().int(), title: z.string() }))
+        .describe('Other books in the collection carrying the ISBN you passed; empty when you passed none or none does.'),
       book: bookDetail,
       goes_between: goesBetween,
     },
@@ -258,9 +280,12 @@ export function registerWriteTools(
     if (!book) return refuse(`There is no book ${bookId}. search_books finds book ids.`)
 
     const kept = new Set(book.tags.map((tag) => `${tag.slug} ${tag.source}`))
+    const sharing = isbn ? (await queries.listBooks.handle({ isbn: isbn.isbn13 })).books : []
     return answer({
       reidentified,
+      looked_up: false,
       withdrawn_tags: before.filter((tag) => !kept.has(`${tag.slug} ${tag.source}`)),
+      same_isbn_as: sharing.filter((one) => one.id !== bookId).map((one) => ({ book_id: one.id, title: one.title })),
       book,
       goes_between: between(revised.placement),
     })
@@ -270,34 +295,87 @@ export function registerWriteTools(
     title: 'Tag a book',
     description:
       'Puts one book under a tag, as the person: their tag outranks anything the catalogues or the app ' +
-      'guessed, and a later lookup never takes it off. A tag the vocabulary does not have yet is made. ' +
-      'Tags are slug paths ("mine/signed", "subject/sand"); words are normalised, so "Lent Out" is ' +
-      '"lent-out". A genre/fiction or genre/non-fiction tag decides which run the book files into, but ' +
-      'only moves it when it is next saved; to move it now use update_book with genre. Tagging a book ' +
-      'that already carries the tag changes nothing. Answers every tag the book now carries. list_tags ' +
-      'shows the slugs in use.',
+      'guessed, and a later lookup never takes it off. Pass the word the person used, such as "signed", ' +
+      '"first edition" or "lent out", and it is named exactly as the app\'s own tag box names it: a word ' +
+      'the collection already keeps is that tag, and a new one is made under subject with the word as ' +
+      'its label ("signed" becomes subject/signed, read as "Signed"). A word this app counts as the ' +
+      'same as one already kept, such as a plural, is refused and names the tag to use instead, so ' +
+      'there is never a second tag for one idea. Or pass a slug list_tags or get_book shows, such as ' +
+      '"subject/signed", to use that tag; a slug nobody has made is refused rather than made. Genre is ' +
+      'not a tag here: fiction, non-fiction and anything under genre/ are refused, and the run a book ' +
+      'files into is set with update_book\'s genre. Tagging a book that already carries the tag changes ' +
+      'nothing. Answers the tag used, whether it was made just now, and every tag the book now carries.',
     inputSchema: {
       book_id: z.number().int().positive().describe('From search_books or get_book.'),
-      tag: z.string().min(1).max(200).describe('A slug such as "mine/signed", or words, which are normalised into one.'),
-      label: z.string().max(200).optional()
-        .describe('How the tag reads, kept only when this makes a new tag. Defaults to what you passed as tag.'),
+      tag: z.string().min(1).max(200)
+        .describe('The word as the person said it, such as "signed"; or a slug the vocabulary already has, such as "subject/signed".'),
     },
-    outputSchema: { book_id: z.number().int(), tag: z.string(), tags: z.array(tagEntry) },
+    outputSchema: {
+      book_id: z.number().int(),
+      tag: z.string().describe('The slug the book is now under.'),
+      label: z.string().describe('How that tag reads in the app.'),
+      made: z.boolean().describe('true when this call added the tag to the vocabulary.'),
+      tags: z.array(tagEntry),
+    },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, async (args, extra) => {
     actingFor(extra.authInfo)
-    const slug = TagSlug.parse(args.tag)
-    if (!slug) return refuse(`"${args.tag}" is not a tag. list_tags shows the slugs this catalogue uses.`)
+    const carried = await tagsOf(queries, args.book_id)
+    if (!carried) return refuse(`There is no book ${args.book_id}. search_books finds book ids.`)
+    const vocabulary = await queries.vocabulary.handle({})
+    const typed = args.tag.trim()
+
+    let chosen: { slug: string; label: string; made: boolean }
+    if (typed.includes('/')) {
+      const slug = TagSlug.parse(typed)
+      if (!slug) return refuse(`"${args.tag}" is not a tag. list_tags shows the slugs this catalogue uses.`)
+      if (slug.isAtOrUnder(GENRE)) {
+        const word = nameIn(slug.value).replace(/-/g, ' ')
+        if (nameTag(word, []).kind !== 'new') return refuse(GENRE_IS_NOT_A_TAG)
+        return refuse(`${GENRE_IS_NOT_A_TAG} To say what kind of book it is, pass the word alone, "${word}".`)
+      }
+      const known = vocabulary.find((tag) => tag.slug === slug.value)
+      if (!known) {
+        return refuse(
+          `There is no tag ${slug.value}, and tag_book does not make one at a path. Pass the word alone, ` +
+          `"${nameIn(slug.value).replace(/-/g, ' ')}", and it is named the way the app names it, or use a ` +
+          'slug list_tags shows.',
+        )
+      }
+      chosen = { slug: known.slug, label: known.label, made: false }
+    } else {
+      const naming = nameTag(typed, offerable(vocabulary, carried.map((tag) => tag.slug)))
+      if (naming.kind === 'nothing') return refuse(`"${args.tag}" is not a word this app can make a tag of.`)
+      if (naming.kind === 'genre') return refuse(GENRE_IS_NOT_A_TAG)
+      if (naming.kind === 'already') {
+        const [only, ...more] = naming.tags
+        if (naming.nearly || more.length || !only) {
+          const kept = naming.tags.map((tag) => `${tag.slug} ("${tag.label}")`).join(', ')
+          return refuse(
+            `This collection already keeps ${kept}, which this app counts as the same word as ` +
+            `"${typed}", so no second tag is made. Call tag_book again with the slug of the one meant.`,
+          )
+        }
+        chosen = { slug: only.slug, label: only.label, made: false }
+      } else {
+        chosen = { slug: naming.slug, label: naming.label, made: !vocabulary.some((tag) => tag.slug === naming.slug) }
+      }
+    }
+
+    const slug = TagSlug.of(chosen.slug)
+    // A word can name a tag a catalogue keeps under genre, which the box would offer.
+    if (slug.isAtOrUnder(GENRE)) return refuse(`"${typed}" is ${slug.value} here. ${GENRE_IS_NOT_A_TAG}`)
 
     const applied = await commands.applyTag.handle({
       bookId: args.book_id,
       slug,
-      label: (args.label ?? args.tag).trim() || slug.value,
+      label: chosen.label,
       now: now(),
     })
     const tags = applied && await tagsOf(queries, args.book_id)
     if (!tags) return refuse(`There is no book ${args.book_id}. search_books finds book ids.`)
-    return answer({ book_id: args.book_id, tag: slug.value, tags })
+    const label = tags.find((tag) => tag.slug === chosen.slug)?.label ?? chosen.label
+    return answer({ book_id: args.book_id, tag: chosen.slug, label, made: chosen.made, tags })
   })
 
   server.registerTool('untag_book', {
@@ -309,7 +387,7 @@ export function registerWriteTools(
       'removed is false when the book did not carry the tag. Answers every tag the book still carries.',
     inputSchema: {
       book_id: z.number().int().positive().describe('From search_books or get_book.'),
-      tag: z.string().min(1).max(200).describe('The slug, as get_book lists it, such as "mine/lent-out".'),
+      tag: z.string().min(1).max(200).describe('The slug, as get_book lists it, such as "subject/lent-out".'),
     },
     outputSchema: { book_id: z.number().int(), removed: z.boolean(), tags: z.array(tagEntry) },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },

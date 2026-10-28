@@ -8,17 +8,13 @@ import { useState } from 'react'
 import { Nothing, Said } from '../design/Card'
 import { Make, Naming } from '../design/Naming'
 import { Suggestion, Suggestions } from '../design/Finding'
-import { FICTION_SLUG, NON_FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
 import { slugSegment } from '../../domain/tagging/tags'
-import { NAMED_UNDER, nameIn, nameTag, sameThing, type Naming as Verdict } from '../../domain/tagging/naming'
+import { NAMED_UNDER, nameIn, nameTag, offerable as offeredFrom, sameThing, type Naming as Verdict } from '../../domain/tagging/naming'
 import type { TagRow } from '../lib/api'
 import { labelOf, underOf } from '../lib/tagTree'
 
 /** How many of the tags a collection uses most are offered before anything is typed. */
 const FEW = 6
-
-/** The two the buttons above the box answer, which this panel never offers. */
-const GENRE_ANSWERS: string[] = [FICTION_SLUG, NON_FICTION_SLUG]
 
 /**
  * A bundle of strings rather than a single `forBook` flag: a boolean that
@@ -71,12 +67,7 @@ export function TagNaming({
 }) {
   const [typed, setTyped] = useState('')
 
-  const has = new Set(carried)
-  // Excludes the two genre answers and tags this book already carries, since
-  // offering either would draw a target that does nothing.
-  const offerable = vocabulary.filter(
-    (tag) => !GENRE_ANSWERS.includes(tag.slug) && !has.has(tag.slug),
-  )
+  const offerable = offeredFrom(vocabulary, carried)
 
   const answer = nameTag(typed, offerable)
 

@@ -108,6 +108,17 @@ export function labelTyped(typed: string): string {
  */
 export const NAMED_UNDER = SUBJECT
 
+/**
+ * The tags a box about one book may offer: never the two genre answers, which
+ * are asked above it, and never a tag the book already carries, which would be
+ * a choice that does nothing. `nameTag` is asked against these, so a word the
+ * book already carries comes back as that same tag, applied again to no effect.
+ */
+export function offerable<T extends KnownTag>(vocabulary: readonly T[], carried: readonly string[]): T[] {
+  const has = new Set(carried)
+  return vocabulary.filter((tag) => tag.slug !== FICTION.value && tag.slug !== NON_FICTION.value && !has.has(tag.slug))
+}
+
 /** The two slugs this box may never write, as the fold sees them. */
 const GENRE_KEYS = [FICTION, NON_FICTION].map((slug) => sameThing(nameIn(slug.value)))
 

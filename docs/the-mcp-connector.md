@@ -544,11 +544,11 @@ tool answers is `web/server/mcp/answers.ts`.
 | `list_tags` | `VocabularyHandler` | The vocabulary, or the part under one slug, with rolled-up counts |
 | `list_authors` | `ListAuthorsHandler` | People, each with every name they publish under, paged and optionally narrowed by name |
 | `get_author_books` | `BooksByAuthorHandler` | One person and every book crediting them, in any state, paged |
-| `lookup_isbn` | `LookupIsbnHandler` | What Open Library and Google Books hold for a number, and whether this collection has it. Writes nothing |
+| `lookup_isbn` | `LookupIsbnHandler` | What Open Library and Google Books hold for a number, and whether this collection has it. Writes nothing. No genre when nothing was found |
 | `whoami` | `AuthStore` | Which person the connection acts for |
-| `add_book` | `LookupIsbnHandler`, then `CatalogueBookHandler` | Looks the ISBN up and catalogues it where it lands, or answers the book already here with `added: false` |
-| `update_book` | `GetBookHandler`, then `ReviseBookHandler` | Changes only the fields passed; `reidentified` and `withdrawn_tags` say what an ISBN change took off |
-| `tag_book` | `ApplyTagHandler` | Puts a book under a tag as the person |
+| `add_book` | `LookupIsbnHandler`, then `CatalogueBookHandler` | Looks the ISBN up and catalogues it where it lands, or answers the book already here with `added: false`; `second_copy` adds another copy instead |
+| `update_book` | `GetBookHandler`, then `ReviseBookHandler` | Changes only the fields passed and looks nothing up (`looked_up: false`); `reidentified` and `withdrawn_tags` say what an ISBN change took off, `same_isbn_as` which other books carry the new number |
+| `tag_book` | `VocabularyHandler`, then `ApplyTagHandler` | Puts a book under a tag as the person, naming a new word as the app's tag box does. Refuses a genre |
 | `untag_book` | `RemoveTagHandler` | Takes a book out of a tag, whoever applied it |
 
 Every one takes its handlers from `createApp`, which builds them once; `/mcp`
@@ -657,7 +657,10 @@ stays apart because it is the camera's reading, never a title.
   heading is saved as the classifier's guess, as a scan saves it. The ISBN
   source is `manual`, the value the app writes for a typed number.
 - **A number already catalogued adds nothing**: the existing book comes back
-  with `added: false`, and nothing passed with it is applied.
+  with `added: false`, and nothing passed with it is applied. **Unless
+  `second_copy` is `true`** (#644), which passes `ifCatalogued: 'add-a-copy'`,
+  the value `POST /api/books` passes, so a person who owns two can say so
+  through Claude as they can in the review pane. It defaults to `false`.
 - **A number neither catalogue knows is refused unless the caller passes
   `title`** (and `authors`), which the description says must come from the
   person and never from memory. The app allows the same thing ("No catalogue
@@ -679,6 +682,29 @@ stays apart because it is the camera's reading, never a title.
   name has a comma in it. Absent `genre` states nothing, so the book keeps its
   tags and its run. A book in the queue, or discarded, is refused: revising it
   would shelve it with no plank. Moving a book is not offered.
+- **`update_book` looks nothing up and says so** (#644). A new ISBN leaves the
+  record as it was, the answer carries `looked_up: false`, and the description
+  points at `lookup_isbn` then `update_book` with the fields. A hunting pass
+  watched Claude tell somebody the record had been "filled in from the new
+  ISBN" when it had not. A number another catalogued book already carries is
+  allowed, as a second copy is, and answered in `same_isbn_as` rather than
+  refused. The description also says what an ISBN change withdraws, which
+  includes every tag `tag_book` makes, and that a `genre` replaces every genre
+  tag a person put on the book. Both are the save path's rules, reported here
+  rather than changed; whether a word about a copy should survive an ISBN
+  correction is #643.
+- **`tag_book` names a word as the app's tag box does** (#644).
+  `domain/tagging/naming.ts` decides it, against the same vocabulary and the
+  same `offerable` filter the box (`src/components/TagNaming.tsx`) asks with:
+  a new word goes under `subject` with `labelTyped` as its label, a word the
+  collection already keeps exactly is that tag, a second spelling of one
+  (`sameThing`) is refused naming the tag meant, and anything meaning fiction
+  or non-fiction is refused. A slug is taken only when the vocabulary has it,
+  so a model cannot invent a heading such as `mine/`; and nothing at or under
+  `genre` is applied, because a later `update_book` with a genre restates a
+  person's genre tags. There is no `label` argument, since the box takes none.
+  `write-tools.routes.test.ts` runs the same words through the box and the
+  tool and compares what each would write.
 - **Nobody is recorded by name**, because no command takes a person: a tag says
   `source = 'person'` and a placement `actor = 'person'`, which is what the app
   writes. `edited_by` belongs to the queue and holds a device, and no save
