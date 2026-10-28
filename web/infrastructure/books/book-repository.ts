@@ -97,6 +97,35 @@ export class DrizzleBookRepository implements BookRepository {
     return Book.restore(stored)
   }
 
+  async add(book: Book, scannedAt: string): Promise<number> {
+    if (book.id !== null) throw new Error(`book ${book.id} already has a row`)
+
+    const inserted = await this.db.get<{ id: number }>(
+      `INSERT INTO books (
+         isbn13, isbn10, title, subtitle, authors, publisher, published, pages,
+         notes, shelf_range, classification_source, classification_confidence,
+         series_name, series_index, title_filing, sort_key, lookup_source,
+         isbn_source, scanned_at, "state"
+       ) VALUES (
+         @isbn13, @isbn10, @title, @subtitle, @authors, @publisher, @published,
+         @pages, @notes, @shelf_range, @classification_source,
+         @classification_confidence, @series_name, @series_index, @title_filing,
+         @sort_key, @lookup_source, @isbn_source, @scanned_at, @state
+       )
+       RETURNING id`,
+      { ...columnsOf(book.record), ...derivedOf(book), scanned_at: scannedAt, state: book.state },
+    )
+    // An INSERT ... RETURNING that inserted a row always has one to return.
+    if (!inserted) throw new Error('the insert returned no id')
+    const id = Number(inserted.id)
+
+    await this.writePrintedNames(id, book.record.authors)
+    if (book.changes.credits) await this.writeCredits(id, book.credits)
+    await this.writeTags(id, book.changes.tags)
+    book.saved(id)
+    return id
+  }
+
   async save(book: Book): Promise<void> {
     const id = book.id
     if (id === null) throw new Error('a book nobody has added cannot be saved')

@@ -1217,9 +1217,16 @@ Epic #169 separates the domain from the data store. **Four slices have been
 converted**: the shelf boundaries (#172), which is where the pattern was judged
 and which were `separators` then and are `area` now, `tag` with `book_tag`
 (#179), `author` with `author_alias` and `book_author` (#180), and `capture`
-(#181), the last three of which were built that way from the start. Books, the
-queue and the rest still go through `Store`, `Shelves` and `CaptureQueue` exactly
-as they did. Do not convert another table as a side effect of doing something
+(#181), the last three of which were built that way from the start. **A book's
+save is the fifth, since #616**: `POST /api/books`, `PUT /api/books/:id` and the
+book's tag routes call `CatalogueBookHandler`, `ReviseBookHandler`,
+`ApplyTagHandler` and `RemoveTagHandler`, which load and save the `Book`
+aggregate (`web/domain/books/book.ts`, whose header says which method holds
+which invariant) through `DrizzleBookRepository`, each in one unit of work.
+`server/book-commands.ts` builds them, for `createApp`, `seed-world.ts` and the
+tests that build a room through the save path alike. The queue, reads by range
+and the rest still go through `Store`, `Shelves` and `CaptureQueue` exactly as
+they did. Do not convert another table as a side effect of doing something
 else.
 
 **`capture` is not `captures`.** The singular one is a photograph, added by
@@ -1286,12 +1293,12 @@ hand-written, and stage I removed SQLite.
 
 **Tags and authors are both cut over, and two columns are gone.** `book_tag` is
 what decides which shelf range a book files into, since the first half of #223:
-`settleGenre` in `server/index.ts` writes the genre **before** the row, and
-`rangeOfGenre` in `web/domain/tagging/genre.ts` reads the book's tags back and
-answers the range that `Store` then writes. `author_alias.filing_name` is what
+`Book.stateGenre` restates the genre and reads the book's tags back through
+`rangeOfGenre` in `web/domain/tagging/genre.ts`, and that range is what the save
+writes. `author_alias.filing_name` is what
 the first component of every `sort_key` is built from, since #227:
-`Store.filingFor` asks the authorship port what the first-listed name files
-under, and falls back to `filingName` only for a name this collection has never
+`fileBook` (`web/application/books/commands/saving.ts`) asks the authorship
+port what the first-listed name files under, and falls back to `filingName` only for a name this collection has never
 seen, which is the value the alias is about to be given anyway.
 
 **`books.is_fiction` and `books.author_filing` no longer exist.** #227 dropped
@@ -1327,9 +1334,9 @@ restates nothing, which is not the same as withdrawing. Stripping the tags every
 book saved before #304 carries is a separate decision and it is the owner's.
 
 **`books.sort_key` is still the only thing that decides where a book sits**, and
-a save still writes it by `Store`, from the filing name the alias answers. The
-credits are written by `recordCredits` from the same draft, immediately after,
-and that is also where a filing name somebody typed reaches the alias:
+a save still writes it, through `Book.file`, from the filing name the alias
+answers. The credits are written by `creditNames` in the same unit of work, just
+before, and that is also where a filing name somebody typed reaches the alias:
 `Store.saveFilingOverride` is gone and its job is `FileAliasHandler`.
 
 **Filing a name does not move a book, and that sentence changed meaning.**
@@ -1439,15 +1446,18 @@ moves a book between those two states.
 
 ### There are four statements that change where a book is, and there is no fifth
 
-`Store.addBook`'s insert, `Store.updateBook`'s update, `Store.setLocation` and
-`Store.setCheckedOut`. Every one of them writes a row to `book_placement` and the
-`books.current_area_id` projection, through `server/placement-ledger.ts`, **on its
-own transaction handle** (#185).
+`DrizzlePlacementOnSave.recordSave` (`web/infrastructure/books/placement-on-save.ts`),
+which is a save's, and `Store.setLocation` and `Store.setCheckedOut`. Every one of
+them writes a row to `book_placement` and the `books.current_area_id` projection,
+through `server/placement-ledger.ts`, **on its own transaction handle** (#185).
+A save's is on the save's unit of work, so the book and where it went commit
+together: `CatalogueBookHandler` records the plank named, or where the book lands;
+`ReviseBookHandler` records only a plank named.
 
-**`DrizzlePlacementOnSave.recordSave`** (`web/infrastructure/books/placement-on-save.ts`)
-is the save commands' half of the first two: `ReviseBookHandler` records a plank
-somebody named through it, on the save's own unit of work, through the same
-ledger file. It is those statements moved, not a fifth.
+The fourth is `Store.addBook`'s insert and `Store.updateBook`'s update, which no
+route and no script calls any more (#616): they survive as the fixture the store,
+shelf and queue tests build rows with, write through the same ledger file, and
+should not gain a caller outside a test.
 
 `Store.setLocationIn` is `setLocation` with the label already resolved to the
 plank, writing the same row through the same file on the same handle, so it is
@@ -1456,8 +1466,7 @@ the server drew sends the area id, not the label the row showed: a label is a
 rendering of where a piece stands and what it is called, and #356 is what
 happened when identity was carried on one.
 
-**If you add a fifth, it goes in `Store` beside those four and it records a
-placement.** A route that writes a location without one is the defect #200 found
+**If you add a fifth, it goes beside those four and it records a placement.** A route that writes a location without one is the defect #200 found
 in `capture`, where the recording lived where the request was handled and the
 writing lived somewhere else, so a background write and two CLIs silently skipped
 it. `applySchema` folds the ledger back out on every start and says whether

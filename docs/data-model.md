@@ -720,7 +720,7 @@ Drizzle repository in `web/infrastructure/tagging/`, and the routes under
 **The genre tag is what decides a shelf range, since #223.** `0002` copied
 `books.is_fiction` into tags carrying its provenance and left the column
 authoritative; the first half of #223 turns that round. A save settles the genre
-first, through `settleGenre` in `server/index.ts`, and the range it writes is
+first, through `Book.stateGenre` in `web/domain/books/book.ts`, and the range it writes is
 `rangeOfGenre`'s answer over what `book_tag` holds afterwards.
 `domain/tagging/genre.ts` is the whole of the rule.
 
@@ -974,9 +974,10 @@ answers "is this the same place". This is the same rule the labels-are-derived
 note above states, applied to the comparison rather than to the storage.
 
 **This one is written on every move, the way #200 taught.** There are exactly
-four statements in this repository that change where a book is, and all four are
-in `Store`: the insert in `addBook`, the update in `updateBook`, `setLocation`
-and `setCheckedOut`. `setLocationIn` is not a fifth: it is `setLocation` with the
+four statements in this repository that change where a book is: a save's
+(`PlacementOnSave.recordSave`, on the save's unit of work, since #616),
+`Store.setLocation`, `Store.setCheckedOut`, and the insert and update in
+`Store.addBook` and `Store.updateBook`, which only tests still call. `setLocationIn` is not a fifth: it is `setLocation` with the
 label already resolved to the plank, writing the same row through the same file
 on the same handle, and it exists because a caller acting on a list the server
 drew should not have to hand a rendering back to be read again (#356). Each calls

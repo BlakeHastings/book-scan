@@ -240,6 +240,10 @@ export class Store {
   }
 
   /**
+   * Not the save path: `CatalogueBookHandler` is, and no route or script calls
+   * this. It stays as the fixture tests build a shelved row with, and must not
+   * gain a caller outside one.
+   *
    * File a book, and say where it goes. Reading the shelf and writing to it are
    * one unit: the filing key is resolved once inside the transaction, and both
    * the placement and the insert use that value. `serialiseOn` is the part a
@@ -394,6 +398,9 @@ export class Store {
   }
 
   /**
+   * Not the save path: `ReviseBookHandler` and `CatalogueBookHandler` are, and no
+   * route or script calls this. It stays as a fixture for tests.
+   *
    * Update an existing book, recomputing everything derived from it. The key,
    * the write and the placement are one unit serialised on the range. This is
    * also how a book leaves the queue: a book exists from its first photograph,

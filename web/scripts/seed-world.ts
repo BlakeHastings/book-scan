@@ -31,15 +31,8 @@ import { STATE_OF_QUEUE_STATUS } from '../domain/books/state'
 import {
   FICTION_SLUG, NON_FICTION_SLUG, type GenreSlug,
 } from '../domain/tagging/catalogue-claims'
-// The same two steps every real save takes beyond writing the row: a genre
-// tag settled and author credits recorded. Reused from `server/book-save.ts`
-// rather than restated here. See `shelveBook` below.
-import { recordCredits, settleGenre } from '../server/book-save'
-import { RestateTagsHandler } from '../application/tagging/restate-tags'
-import { DrizzleTagRepository } from '../infrastructure/tagging/tag-repository'
-import { DbUnitOfWork } from '../infrastructure/db/unit-of-work'
-import { CreditBookHandler } from '../application/authorship/credit-book'
-import { FileAliasHandler } from '../application/authorship/curate-authors'
+// The one save path, the same handler `POST /api/books` calls. See `shelveBook`.
+import { bookCommands, catalogueCommandOf, type BookCommands } from '../server/book-commands'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const WEB_DIR = resolve(HERE, '..')
@@ -237,28 +230,13 @@ function draftFor(book: BookSeed, isbn13: string, photos: Photos): DraftBook {
   }
 }
 
-interface SaveDeps {
-  restateTags: RestateTagsHandler
-  tags: DrizzleTagRepository
-  creditBook: CreditBookHandler
-  authors: DrizzleAuthorRepository
-  fileAlias: FileAliasHandler
-}
-
 /**
- * Shelve one book: save it, settle its genre tag, record its author credits,
- * then record where it landed, in that order, exactly as `POST /api/books`
- * does when nobody sends an explicit location. Returns the new row's id.
+ * Shelve one book through `CatalogueBookHandler`, exactly as `POST /api/books`
+ * does when nobody sends an explicit location: the row, its genre tag, its
+ * credits and the plank it landed on, in one unit of work. Returns the new id.
  */
-async function shelveBook(
-  store: Store, shelves: Shelves, deps: SaveDeps, draft: DraftBook,
-): Promise<number> {
-  const { id, placement } = await store.addBook(draft)
-  await settleGenre(deps.restateTags, deps.tags, id, draft)
-  await recordCredits(deps.creditBook, deps.authors, deps.fileAlias, id, draft)
-  // The plank, exactly as the save route records one.
-  const landed = placement && await shelves.areaOf(placement.range, id)
-  if (landed !== null && landed !== undefined) await store.setLocationIn(id, landed)
+async function shelveBook(commands: BookCommands, draft: DraftBook): Promise<number> {
+  const { id } = await commands.catalogueBook.handle(catalogueCommandOf(draft, new Date().toISOString()))
   return id
 }
 
@@ -444,24 +422,11 @@ async function main(): Promise<void> {
     for (const statement of RESTORE_VOCABULARY) await db.run(statement)
   }
 
-  // Named rather than inlined so the same instance passed to `deps.creditBook`
-  // is the one `Store` uses, mirroring how `createApp` builds one repository
-  // for the whole server.
-  const authorsRepo = new DrizzleAuthorRepository(db)
-  const store = new Store(db, authorsRepo)
+  const store = new Store(db, new DrizzleAuthorRepository(db))
   const shelves = new Shelves(db)
-
-  // Rebuilds the same composition `createApp` builds for `settleGenre` and
-  // `recordCredits`: this script writes rows before any app exists to build
-  // it for.
-  const tagsRepo = new DrizzleTagRepository(db)
-  const deps: SaveDeps = {
-    restateTags: new RestateTagsHandler(tagsRepo, new DbUnitOfWork(db)),
-    tags: tagsRepo,
-    creditBook: new CreditBookHandler(authorsRepo),
-    authors: authorsRepo,
-    fileAlias: new FileAliasHandler(authorsRepo),
-  }
+  // The composition `createApp` uses, minus the background work: a seed has no
+  // cover to fetch, and writes its own below.
+  const commands = bookCommands(db, (range, id) => shelves.areaOf(range, id))
 
   console.log('')
   console.log('  Seeding a throwaway world')
@@ -479,7 +444,7 @@ async function main(): Promise<void> {
     const isbn13 = nextIsbn13()
     const photos = await photograph(book, isbn13)
     const draft = draftFor(book, isbn13, photos)
-    const id = await shelveBook(store, shelves, deps, draft)
+    const id = await shelveBook(commands, draft)
     if (!book.noCover) await store.setCoverImage(id, photos.cover)
     else await store.setCoverImage(id, '') // looked for, found nothing: matches a real backfill result
     fictionIds.push(id)
@@ -495,7 +460,7 @@ async function main(): Promise<void> {
     const isbn13 = nextIsbn13()
     const photos = await photograph(book, isbn13)
     const draft = draftFor(book, isbn13, photos)
-    const id = await shelveBook(store, shelves, deps, draft)
+    const id = await shelveBook(commands, draft)
     if (!book.noCover) await store.setCoverImage(id, photos.cover)
     else await store.setCoverImage(id, '')
     nonfictionIds.push(id)
