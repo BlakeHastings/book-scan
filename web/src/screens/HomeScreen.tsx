@@ -28,10 +28,10 @@ export function HomeScreen() {
     setPicked('')
     try {
       const { id } = await api.randomBook()
-      if (id === null) setPicked('There is nothing on the shelves to pick from.')
+      if (id === null) setPicked('Every book is checked out or gone, so there is none to pick.')
       else viewBook(id)
     } catch {
-      setPicked('The shelves could not be asked just now. Try again.')
+      setPicked('Your library could not be asked just now. Try again.')
     }
   }
 

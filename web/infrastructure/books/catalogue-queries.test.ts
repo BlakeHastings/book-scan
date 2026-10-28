@@ -21,6 +21,7 @@ import { PAGE_LIMIT } from '../../application/books/read-models'
 import { ListBooksHandler } from '../../application/books/queries/list-books'
 import { CountBooksHandler } from '../../application/books/queries/count-books'
 import { GetBookHandler } from '../../application/books/queries/get-book'
+import { RandomBookHandler } from '../../application/books/queries/random-book'
 import { VocabularyHandler } from '../../application/tagging/queries/vocabulary'
 import { TagsOfBookHandler } from '../../application/tagging/queries/tags-of-book'
 import { ListAuthorsHandler } from '../../application/authorship/queries/list-authors'
@@ -133,6 +134,44 @@ describe('CountBooksHandler', () => {
     expect(await new CountBooksHandler(catalogue).handle()).toEqual({
       total: 2, fiction: 1, nonfiction: 1, checkedOut: 0, unplaced: 1,
     })
+  })
+})
+
+describe('RandomBookHandler', () => {
+  /*
+   * Randomness is asserted by what can never happen and what must happen
+   * across many draws, not by a distribution: every draw is a shelved book,
+   * and fifty draws over four shelved books come back with more than one of
+   * them. The chance of fifty draws all landing on one of four is 4 x
+   * (1/4)^50, which is not a flake anybody will see.
+   */
+  it('answers only shelved books, more than one of them, and null when none are shelved', async () => {
+    const random = new RandomBookHandler(catalogue)
+    expect(await random.handle(), 'an empty catalogue picked something').toBeNull()
+
+    const shelved = new Set<number>()
+    for (const title of ['Dune', 'Emma', 'Kindred', 'Beloved']) {
+      shelved.add(await shelve({ title, authors: ['Somebody'] }))
+    }
+    const out = await shelve({ title: 'Out', authors: ['Somebody'] })
+    await new Store(db, authors).setCheckedOut(out, true)
+    const gone = await shelve({ title: 'Gone', authors: ['Somebody'] })
+    // Written straight to the row: nothing in the app withdraws a book yet.
+    await db.run(`UPDATE books SET state = 'withdrawn' WHERE id = ?`, [gone])
+    await queued('Waiting')
+
+    const drawn = new Set<number>()
+    for (let draw = 0; draw < 50; draw += 1) {
+      const picked = await random.handle()
+      expect(picked, 'a draw over a shelved catalogue answered nothing').not.toBeNull()
+      expect(shelved, `drew ${picked!.id}, which is not on the shelves`).toContain(picked!.id)
+      drawn.add(picked!.id)
+    }
+    expect(drawn.size, 'fifty draws answered one book every time').toBeGreaterThan(1)
+
+    // Nothing shelved, with books still catalogued: out and withdrawn are not on the shelves.
+    for (const id of shelved) await db.run(`UPDATE books SET state = 'withdrawn' WHERE id = ?`, [id])
+    expect(await random.handle(), 'picked a book that is out or withdrawn').toBeNull()
   })
 })
 

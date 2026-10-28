@@ -826,7 +826,13 @@ describe('the first screen is counts, and every count goes somewhere', () => {
     const doors = doorsOf(screen(), (to) => { went = to })
 
     expect(doors.length, 'the first screen offers nothing to do at all').toBeGreaterThan(0)
-    expect(doors.length, 'the first screen is becoming a screen of buttons').toBeLessThanOrEqual(3)
+    /*
+     * Four since #657, when the owner asked for one more by name: "a random
+     * book generator ... we should put it on the homepage". Three was the
+     * number #361 drew, not a number he set; the rule is that this screen does
+     * not become a screen of buttons, and a fifth door is where to ask him.
+     */
+    expect(doors.length, 'the first screen is becoming a screen of buttons').toBeLessThanOrEqual(4)
 
     const tabs = Object.values(TAB_SCREENS)
     for (const door of doors) {

@@ -17,7 +17,7 @@ import { Card, Confirmation, Instruction, Nothing, Said } from '../Card'
 import { Trip, Trips } from '../Carrying'
 import { Cat } from '../Cat'
 import {
-  Button, CarryBooks, Choice, Doors, Field, InHand, IN_HAND, SayWhat, Segmented,
+  Button, CarryBooks, Choice, Doors, Field, InHand, IN_HAND, PickABook, SayWhat, Segmented,
 } from '../Controls'
 import { Covers, covers } from '../Covers'
 import {
@@ -109,7 +109,7 @@ function Phone({
   )
 }
 
-function Home(go: Go, over?: ReactElement, trouble?: ReactElement) {
+function Home(go: Go, over?: ReactElement, trouble?: ReactElement, picked?: string) {
   return (
     <Phone
       tab="home"
@@ -133,9 +133,22 @@ function Home(go: Go, over?: ReactElement, trouble?: ReactElement) {
         <InHand onPress={() => go('inhand')} />
         <CarryBooks onPress={() => go('carry')} />
         <SayWhat onPress={() => go('unclaimed')} />
+        {/* Opens one book's own page, whichever the server pulled off the shelves. */}
+        <PickABook onPress={() => go('book')} />
       </Doors>
+      {picked && <Said>{picked}</Said>}
     </Phone>
   )
+}
+
+/**
+ * The random door pressed on a catalogue whose every book is off the shelves
+ * but not all out: withdrawn ones are not counted on this screen, so the door
+ * is drawn and the server's answer of nothing is said under it rather than
+ * opening an empty page.
+ */
+function NothingToPick(go: Go) {
+  return Home(go, undefined, undefined, 'Every book is checked out or gone, so there is none to pick.')
 }
 
 function FirstDay(go: Go) {
@@ -3714,6 +3727,7 @@ export const SCREENS: Screen[] = [
   { id: 'adrift', name: 'Not where claimed', group: 'Every day', render: Adrift },
   { id: 'unanswered', name: 'Nothing answered', group: 'Every day', render: Unanswered },
   { id: 'firstday', name: 'The first evening', group: 'Every day', render: FirstDay },
+  { id: 'nothingtopick', name: 'Nothing to pick', group: 'Every day', render: NothingToPick },
   { id: 'library', name: 'Library', group: 'Every day', render: Library },
   { id: 'covers', name: 'Covers, and two tags', group: 'Every day', render: CoverView },
   { id: 'listing', name: 'A list of books', group: 'Every day', render: ListView },
