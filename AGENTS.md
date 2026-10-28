@@ -1481,7 +1481,7 @@ it. `applySchema` folds the ledger back out on every start and says whether
 `current_area_id` still agrees, which is how a missing writer is found rather
 than discovered a week later.
 
-**Beside the four are the resets on the Settings screen** (#599), which move
+**Beside the three are the resets on the Settings screen** (#599), which move
 every book at once: `Store.unplaceEveryBook` writes a `checked_in` row for each
 shelved book, pins included, and `Store.eraseEveryPlacement` deletes the whole
 ledger, which is the one place anything deletes from it. The third reset,
