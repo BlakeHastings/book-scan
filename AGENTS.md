@@ -1341,7 +1341,7 @@ name says.
 
 **A save that changes the ISBN is a different thing from a save that edits the
 book**, and it is the only one that takes a person's tags off
-(`web/application/tagging/reidentify-book.ts`, #194). Correcting the ISBN is
+(`Book.reidentify` in `web/domain/books/book.ts`, #194). Correcting the ISBN is
 somebody saying the row is a different book, so what was on record about the old
 one is withdrawn. That is not the precedence rule being relaxed, and the
 precedence rule is not negotiable: automation may never retract a person's
@@ -1349,7 +1349,9 @@ judgement.
 
 **That withdrawal runs before the genre is settled, and the order is now load
 bearing rather than tidy.** The old book's genre tag has to be off the row before
-the new one is read back, or a corrected book files under what it used to be.
+the new one is read back, or a corrected book files under what it used to be. `Book.revise` calls `reidentify` before anything else, and `ReviseBookHandler`
+(`web/application/books/commands/revise-book.ts`) calls `stateGenre` only after
+it, in one unit of work.
 
 Dependencies point inwards. `domain/` may import `domain/` and `shared/` and
 nothing else, not even an npm package; `application/` adds `application/`;
@@ -1441,6 +1443,11 @@ moves a book between those two states.
 `Store.setCheckedOut`. Every one of them writes a row to `book_placement` and the
 `books.current_area_id` projection, through `server/placement-ledger.ts`, **on its
 own transaction handle** (#185).
+
+**`DrizzlePlacementOnSave.recordSave`** (`web/infrastructure/books/placement-on-save.ts`)
+is the save commands' half of the first two: `ReviseBookHandler` records a plank
+somebody named through it, on the save's own unit of work, through the same
+ledger file. It is those statements moved, not a fifth.
 
 `Store.setLocationIn` is `setLocation` with the label already resolved to the
 plank, writing the same row through the same file on the same handle, so it is
