@@ -63,6 +63,7 @@ import { TagsOfBookHandler } from '../application/tagging/queries/tags-of-book'
 import { ListAuthorsHandler } from '../application/authorship/queries/list-authors'
 import { BooksByAuthorHandler } from '../application/authorship/queries/books-by-author'
 import { CreditsOfBookHandler } from '../application/authorship/queries/credits-of-book'
+import { LookupIsbnHandler } from '../application/lookup/queries/lookup-isbn'
 import { claimsFrom } from '../domain/tagging/catalogue-claims'
 import {
   asConfidence, genreStatedBy, statedGenre,
@@ -406,6 +407,10 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   const listAuthors = new ListAuthorsHandler(authorReads)
   const booksByAuthor = new BooksByAuthorHandler(authorReads, catalogueReads)
   const creditsOfBook = new CreditsOfBookHandler(catalogueReads, authorReads)
+  const lookUpIsbn = new LookupIsbnHandler(
+    { lookup: (isbn) => lookupIsbn(isbn, { googleApiKey }) },
+    catalogueReads,
+  )
 
   /*
    * The work a save starts and nobody waits for.
@@ -873,7 +878,16 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   mountGate(app, signInDeps)
   // The MCP connector: its OAuth doors and `/mcp` outside `/api`, its consent
   // answer and connections list under it. See `server/mcp/mount.ts`.
-  mountMcp(app, { db, auth: signInDeps.store, signIn: signInConfig, now: options.now })
+  mountMcp(app, {
+    db,
+    auth: signInDeps.store,
+    signIn: signInConfig,
+    now: options.now,
+    queries: {
+      listBooks, countBooks, getBook, tagsOfBook, vocabulary, listAuthors, booksByAuthor,
+      lookupIsbn: lookUpIsbn,
+    },
+  })
 
   /**
    * How long a photograph may be held, and by whom. One string, both doors, and
@@ -1307,15 +1321,8 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       return
     }
 
-    const result = await lookupIsbn(raw, { googleApiKey })
-    const existing = await store.findByIsbn(result.isbn13 || pair.isbn13)
-
-    res.json({
-      ...result,
-      duplicateOf: existing
-        ? { id: existing.id, title: existing.title, location: existing.location }
-        : null,
-    })
+    const found = await lookUpIsbn.handle({ isbn: raw })
+    res.json({ ...found.record, duplicateOf: found.duplicateOf })
   }))
 
   app.get('/api/lookup/title', asyncRoute(async (req, res) => {

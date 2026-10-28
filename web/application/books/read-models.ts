@@ -100,6 +100,8 @@ export interface CatalogueFilter {
   isbn?: string
   /** All of which the book must carry, itself or under. */
   tags?: readonly TagSlug[]
+  /** Credited to any of this person's names, at any position. */
+  authorId?: number
   /** One of the three states a catalogued book can be in. Absent means all three. */
   state?: CataloguedState
   /**

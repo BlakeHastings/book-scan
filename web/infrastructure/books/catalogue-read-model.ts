@@ -24,7 +24,7 @@ import {
 import { resolveIsbnPair } from '../../shared/isbn'
 import { CHECKED_OUT, SHELVED } from '../../domain/books/state'
 import { build, statement } from '../db/query'
-import { bookTag, cataloguedBooks, tag } from '../db/schema'
+import { authorAlias, bookAuthor, bookTag, cataloguedBooks, tag } from '../db/schema'
 import type { FiledPlacedBook } from './book-repository'
 
 /** A book read by id: the table's row, which has no filing name, with the rest derived. */
@@ -239,6 +239,17 @@ function conditionsFor(filter: CatalogueFilter): SQL | undefined {
         ),
       ))
     conditions.push(sql`exists (${carried})`)
+  }
+
+  if (filter.authorId !== undefined) {
+    // Asked of the person rather than one name, so a pseudonym's books come back too.
+    const credited = build.select({ one: sql`1` }).from(bookAuthor)
+      .innerJoin(authorAlias, eq(authorAlias.id, bookAuthor.authorAliasId))
+      .where(and(
+        eq(bookAuthor.bookId, cataloguedBooks.id),
+        eq(authorAlias.authorId, filter.authorId),
+      ))
+    conditions.push(sql`exists (${credited})`)
   }
 
   return conditions.length ? and(...conditions) : undefined
