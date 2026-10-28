@@ -11,7 +11,7 @@ import { closeTestDatabase, keepThisCatalogue, openTestDatabase } from './testdb
 import type { Db } from './driver'
 import { Store, type DraftBook } from './store'
 import { Shelves } from './shelves'
-import { bookCommands, catalogueCommandOf } from './book-commands'
+import { testBooks } from './testbooks'
 import { applyRunMove, planRunMove, runMoveOffer } from './relocate-run'
 import {
   addAreaTo, addFixture, booksInArea, booksOnFixture, describeFixture, describeFurniture,
@@ -34,8 +34,7 @@ let shelves: Shelves
 
 /** A save, all four steps of it, exactly as `POST /api/books` performs them. */
 async function shelve(draft: DraftBook): Promise<number> {
-  const { catalogueBook } = bookCommands(db, (range, id) => shelves.areaOf(range, id))
-  return (await catalogueBook.handle(catalogueCommandOf(draft, new Date().toISOString()))).id
+  return (await testBooks(db).catalogue(draft)).id
 }
 
 const draft = (at: number, genre = NON_FICTION_SLUG): DraftBook => ({

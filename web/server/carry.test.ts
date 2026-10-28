@@ -18,7 +18,7 @@ import { closeTestDatabase, keepThisCatalogue, openTestDatabase } from './testdb
 import type { Db } from './driver'
 import { Store, type DraftBook } from './store'
 import { Shelves } from './shelves'
-import { bookCommands, catalogueCommandOf } from './book-commands'
+import { testBooks } from './testbooks'
 import { applyRunMove, planRunMove } from './relocate-run'
 import { leaveWhereTheyAre, outstandingWork, putBackOnTheList, tripAtArea } from './carry'
 import { countProjectionDisagreements } from '../infrastructure/placement/projection'
@@ -33,8 +33,7 @@ let store: Store
 let shelves: Shelves
 
 async function shelve(draft: DraftBook): Promise<number> {
-  const { catalogueBook } = bookCommands(db, (range, id) => shelves.areaOf(range, id))
-  return (await catalogueBook.handle(catalogueCommandOf(draft, new Date().toISOString()))).id
+  return (await testBooks(db).catalogue(draft)).id
 }
 
 const draft = (at: number, genre = NON_FICTION_SLUG): DraftBook => ({
