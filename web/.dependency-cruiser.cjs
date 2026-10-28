@@ -75,6 +75,25 @@ module.exports = {
       to: { path: 'node_modules/(drizzle-orm|pg|better-sqlite3|express)' },
     },
     {
+      name: 'queries-read-through-read-models',
+      comment:
+        'A query handler reads through read models and nothing else: not a repository, ' +
+        'not a command handler, not an aggregate. Read-model ports live in ' +
+        '`read-models.ts`, apart from the repositories in `ports.ts`, so this can tell ' +
+        'the two apart by path. The domain modules allowed are value objects a query ' +
+        'is asked in terms of; `tags.ts` also holds `BookTags`, which this rule cannot ' +
+        'tell from `TagSlug`, so the list stays as short as it can.',
+      severity: 'error',
+      from: { path: '^application/[^/]+/queries/' },
+      to: {
+        path: '^(application|domain)/',
+        pathNot: [
+          '^application/[^/]+/read-models\\.ts$',
+          '^domain/tagging/tags\\.ts$',
+        ],
+      },
+    },
+    {
       name: 'data-store-stays-in-infrastructure',
       comment:
         'The driver and the query builder belong to infrastructure/ and to nothing else. ' +
