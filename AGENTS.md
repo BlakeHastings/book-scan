@@ -1207,6 +1207,8 @@ teach people to skim past it.
 | `docs/publishing.md` | Why the image is public, on GHCR, on a version tag, and what a version means here |
 | `web/server/bind.ts` | Which interface the server listens on: `BOOKSCAN_BIND`, two words, loopback unless a deployment says otherwise |
 | `docs/the-bind.md` | Why the bind is a choice, why the default stays closed, and why the variable takes a word rather than an address |
+| `web/server/mcp/` | The MCP connector: `/mcp`, its OAuth authorization server (the SDK's handlers over a Postgres provider) and its tools. Its doors outside `/api` are listed in `MCP_DOORS`, and `server/gate.routes.test.ts` fails on any other |
+| `docs/the-mcp-connector.md` | How an MCP client signs in as a person, what claude.ai requires, and the spec revision it was built against |
 | `docs/orchestrating.md` | For whoever is running the backlog: where things stand, what bites, and where to go next |
 
 ### The layering, and the tables that go through it
