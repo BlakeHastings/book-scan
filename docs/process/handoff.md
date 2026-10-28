@@ -78,14 +78,14 @@ evaluates.
 
 ## In flight
 
-**Topped up 2026-10-12.** Distrust this table after three merges and read `gh pr list` instead.
+**Topped up 2026-10-29, overnight, with the owner away.** Distrust this table after three merges and read `gh pr list` instead.
 
 | Issue | Where it stands |
 | --- | --- |
-| #604 | **Epic: aggregates, repositories, command and query handlers, and a resource API at `/api/v1`.** Supersedes #169, which is closed. The owner's decisions are in the epic body. **Nothing is dispatched under it until the owner has reviewed the design page**, which he asked for in his own words: "I want to see all of that and I want to be able to give feedback on it before we implement it." The page is a private claude.ai artifact, linked in the session that made it and summarised on #604. Four read-only surveys built it and it maps all 80 current routes. When his comments are in, commit the design as `docs/architecture.md` and file the children from it. |
-| #605 | PR #608, reviewed, verified by reverting the fix (3 of 4 new tests fail), rebasing onto #607 before merge |
-| #609 | an agent. The furniture lock gap #605's builder confirmed with a concurrency test |
-| #606 | **merged as #607.** Four write tools now take `--target` and nothing else |
+| #612 | **Epic: Claude reads and changes the catalogue over MCP, as a signed-in person.** Asked for by the owner on 2026-10-28, who then went away for the night with the words "set them off to a side ... in like a pending file ... make as much progress on this as possible", and "If you need to make any refactors ... make sure that they're following proper architecture." The orchestrator's decisions are listed in the epic body, each one overturnable. Merged: OAuth and `/mcp` (#622, **migration 0032**), the read tools (#629), proxy trust (#631), sign-out revokes connections (#633). Running: write tools (#618), the Settings connections screen (#626). Then: #619, the guide and an end-to-end check. |
+| #604 | **Epic: aggregates, repositories, command and query handlers, and `/api/v1`.** The design page is **still unreviewed by the owner**, and the rule on this line used to be that nothing was dispatched under it until he had reviewed it. **That rule was set aside on 2026-10-28** under the owner's overnight instruction above, and only for the slices MCP needs, built with the design page's own names: UnitOfWork (#620), catalogue query handlers (#623), the separator onto UnitOfWork (#627), and the Book aggregate with its three commands (#628, #630, #632). Running: #634, retiring `Store.addBook`/`updateBook` from the test fixtures. Whatever his review changes applies to those too. `/api/v1`, OpenAPI and Scalar are untouched. |
+
+**Nothing from master after #622 is deployed.** Migration 0032 adds four tables and is the owner's to deploy. The homelab will also need `BOOKSCAN_PROXY_HOPS` (#631).
 
 **Six old agent worktrees hold staged changes and the pruner keeps them**: `agent-a0f53f8e`, `a1222fb2`, `a1f394c7`, `a3a02ff8`, `a9386d83`, `a652a7b9`. Inspected on 2026-10-12: every issue they belong to (#567, #577, #558, #584, #479) is closed, and 49 of their 57 staged files are byte-identical to a version already on master; the remainder are mostly deletions, which that comparison cannot match. **Residue of landed work, not stranded work.** Not swept, because sweeping is a decision and nothing is gained by making it today.
 
