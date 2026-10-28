@@ -1,7 +1,7 @@
 /**
  * `CatalogueReadModel` over Drizzle, executed through `Db`.
  *
- * Every read here but `detail` names `catalogued_books`, which is `shelved`,
+ * Every read here but `detail` and `randomShelvedId` names `catalogued_books`, which is `shelved`,
  * `checked_out` and `withdrawn`: a book that has been scanned and not
  * identified has no title, no author and no shelf range, and it is already on
  * screen in the queue. `detail` is a lookup by id and reads `books`, so it
@@ -168,6 +168,20 @@ export class DrizzleCatalogueReadModel implements CatalogueReadModel {
       this.db,
       await this.db.get<BookRow>('SELECT * FROM books WHERE id = ?', [id]),
     ))) ?? null
+  }
+
+  /**
+   * `ORDER BY random()` reads every shelved row to pick one, which is a scan
+   * of a few hundred rows here and is the plainest uniform pick there is.
+   * If the shelves ever hold enough books for that to show, pick an offset
+   * from a count instead; until then a cleverer statement is one nobody
+   * needs.
+   */
+  async randomShelvedId(): Promise<number | null> {
+    const row = await this.db.get<{ id: number }>(
+      'SELECT id FROM shelved_books ORDER BY random() LIMIT 1',
+    )
+    return row ? Number(row.id) : null
   }
 
   async printedNames(id: number): Promise<string[]> {

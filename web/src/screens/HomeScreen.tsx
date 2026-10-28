@@ -1,4 +1,7 @@
+import { useState } from 'react'
 import { HomePane } from '../components/HomePane'
+import { api } from '../lib/api'
+import { useOpenBook } from '../app/openBook'
 import { useRoomMenu } from '../components/RoomMenu'
 import { useBrowsing } from '../app/browsing'
 import { useNavigation } from '../app/navigation'
@@ -13,6 +16,24 @@ export function HomeScreen() {
   } = useSummary()
   // `HomePane` holds no state, so the corner menu is opened out here and handed down as two props.
   const room = useRoomMenu()
+  const { viewBook } = useOpenBook()
+  const [picked, setPicked] = useState('')
+
+  /*
+   * The server picks, so the phone is never sent the catalogue to choose
+   * from. An answer of nothing is said here rather than on the error line,
+   * which this screen does not draw.
+   */
+  const pick = async () => {
+    setPicked('')
+    try {
+      const { id } = await api.randomBook()
+      if (id === null) setPicked('There is nothing on the shelves to pick from.')
+      else viewBook(id)
+    } catch {
+      setPicked('The shelves could not be asked just now. Try again.')
+    }
+  }
 
   // The page under a converted screen takes the design system's paper. See
   // `app/paper.ts`, which is these three lines with a name on them.
@@ -39,6 +60,8 @@ export function HomeScreen() {
       onQueue={(showing) => (showing ? openQueueOn(showing) : setRoute('queue'))}
       onCarry={() => setRoute('carry')}
       onUnclaimed={() => setRoute('unclaimed')}
+      onPick={() => void pick()}
+      picked={picked}
     />
   )
 }

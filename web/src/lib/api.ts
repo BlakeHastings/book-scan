@@ -1406,6 +1406,9 @@ export const api = {
   getBook: (id: number) =>
     request<{ book: BookRow; authors: Credit[]; filedUnder: string }>(`/api/books/${id}`),
 
+  /** A shelved book chosen at random by the server, or `id: null` when nothing is shelved. */
+  randomBook: () => request<{ id: number | null }>('/api/books/random'),
+
   setCheckedOut,
 
   backfillCovers: (limit = 10) =>

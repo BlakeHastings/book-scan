@@ -7,7 +7,7 @@
 
 import { useEffect, useRef, type ReactNode } from 'react'
 import { Cat } from './Cat'
-import { IconCarry, IconInHand, IconOnward, IconSaying } from './Icons'
+import { IconCarry, IconInHand, IconOnward, IconRandom, IconSaying } from './Icons'
 
 export function Button({
   children,
@@ -363,4 +363,15 @@ export const SAY_WHAT = 'Say what the unfiled books are'
 
 export function SayWhat({ onPress }: { onPress?: () => void }) {
   return <Door word={SAY_WHAT} icon={<IconSaying size={20} />} mark="saying" onPress={onPress} />
+}
+
+/**
+ * The way to one book off the shelves, chosen at random, which opens that
+ * book's own page. Drawn only when something could be on the shelves: a
+ * door that can only answer "nothing" is a door to an empty room.
+ */
+export const PICK_A_BOOK = 'Pick a book at random'
+
+export function PickABook({ onPress }: { onPress?: () => void }) {
+  return <Door word={PICK_A_BOOK} icon={<IconRandom size={20} />} mark="random" onPress={onPress} />
 }

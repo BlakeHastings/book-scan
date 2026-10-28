@@ -1,6 +1,7 @@
 import type { ReactElement, ReactNode } from 'react'
 import { TopBar, type TabName } from '../design/Chrome'
-import { CarryBooks, Doors, InHand, SayWhat } from '../design/Controls'
+import { CarryBooks, Doors, InHand, PickABook, SayWhat } from '../design/Controls'
+import { Said } from '../design/Card'
 import { Stats } from '../design/List'
 import { Phone } from '../design/Phone'
 import { Trouble } from '../design/Trouble'
@@ -63,6 +64,14 @@ interface Props {
   onQueue: (showing?: Which) => void
   onCarry: () => void
   onUnclaimed: () => void
+  /** Ask the server for a book off the shelves and open its page. */
+  onPick: () => void
+  /**
+   * What the last press of the random door came back with when it did not
+   * open a book: nothing on the shelves after all, or no answer. Empty
+   * otherwise, and drawn under the doors only when it says something.
+   */
+  picked: string
 }
 
 function waitingIn(queue: QueueCounts): number {
@@ -71,7 +80,7 @@ function waitingIn(queue: QueueCounts): number {
 
 export function HomePane({
   counts, queue, carrying, unclaimed, backup, drifting, lookups, unreachable,
-  onAdd, onInHand, corner, menu, onLibrary, onQueue, onCarry, onUnclaimed,
+  onAdd, onInHand, corner, menu, onLibrary, onQueue, onCarry, onUnclaimed, onPick, picked,
 }: Props) {
   const tabs: Record<TabName, () => void> = {
     home: () => {},
@@ -122,6 +131,14 @@ export function HomePane({
 
   const waiting = waitingIn(queue)
   const bare = counts.total === 0 && waiting === 0
+  /*
+   * Something could be on the shelves. The counts do not say how many books
+   * are withdrawn, so a catalogue of nothing but withdrawn books still draws
+   * the door, and the server's "nothing" is then said under it (`picked`).
+   * Counting withdrawn books for this one door would put a sixth number on
+   * the wire that nothing else reads.
+   */
+  const shelved = counts.total > counts.checkedOut
 
   return (
     <Screen top={top} tabs={tabs} over={menu}>
@@ -162,8 +179,10 @@ export function HomePane({
           {(counts.total > 0 || waiting > 0) && <InHand onPress={onInHand} />}
           {carrying && carrying.length > 0 && <CarryBooks onPress={onCarry} />}
           {unclaimed !== null && unclaimed > 0 && <SayWhat onPress={onUnclaimed} />}
+          {shelved && <PickABook onPress={onPick} />}
         </Doors>
       )}
+      {picked && <Said>{picked}</Said>}
     </Screen>
   )
 }
