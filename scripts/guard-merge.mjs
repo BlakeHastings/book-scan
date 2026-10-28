@@ -5,11 +5,21 @@
 // arguments, never the text of the line, so the blocked command quoted in a
 // `--body`, a heredoc, an `echo` or a branch name is cargo and is allowed.
 //
+// It refuses only what reaches this repository, which is the one this file was
+// checked out from: every worktree of it, since they share one git directory,
+// and any checkout or URL naming one of its remotes, since that is another
+// clone. Where a command lands decides it, not where it stands, so `-C`,
+// `--git-dir`, `GIT_DIR`, `--repo`, `GH_REPO` and a URL all count. Anything it
+// cannot place, including a payload with no working directory, is treated as
+// this repository's. Master in another repository is not its business.
+//
 // What it does not cover. Any session the harness did not load it into at
 // startup, and everything that session spawns while it lives. A merge assembled
 // from a variable, a base64 `-EncodedCommand`, or a script file the command
 // merely names. A command that runs another command (`sudo`, `env`, `command`,
-// `nohup`, `xargs` and the rest of an open-ended set), left allowed on purpose.
+// `nohup`, `xargs` and the rest of an open-ended set), left allowed on purpose,
+// which includes `env GH_REPO=...` in front of a merge from another checkout.
+// Shell state set by an earlier tool call, such as an exported `GH_REPO`.
 // `git push --all` and `git push --mirror`, which write master without naming
 // it. `scripts/check-main-provenance.mjs` is the layer that notices afterwards.
 //
@@ -391,8 +401,9 @@ const RESOLVES_A_MERGE = new Set(['--abort', '--continue', '--quit'])
 const resolvesAMerge = (args) => args.some((token) => RESOLVES_A_MERGE.has(token))
 
 // Where a command stands: the directory it runs in, the git flags it was given,
-// and the environment it runs with. A null directory is a command the guard
-// cannot place, and every question asked of it answers in the refusing direction.
+// the environment it runs with, and whether something earlier on the line has
+// repointed a remote. A null directory is a command the guard cannot place, and
+// every question asked of it answers in the refusing direction.
 
 // Variables that would point a query about some other path back at the
 // repository the hook or the command happens to sit in.
@@ -503,7 +514,7 @@ const isOurs = (identity) => identity === null || thisRepository() === null || t
 
 // Whether the checkout a command stands in is a checkout of this repository.
 function standsInOurs(place) {
-  if (thisRepository() === null) return true
+  if (place.unsettled || thisRepository() === null) return true
   const common = commonDirOf(place)
   if (common === null) return true
   if (thisRepository().has(`path:${common}`)) return true
@@ -513,6 +524,7 @@ function standsInOurs(place) {
 // Whether `git push <destination> ...` reaches this repository. The destination
 // is a remote's name or a URL, and git rewrites either before using it.
 function pushReachesOurs(destination, place) {
+  if (place.unsettled) return true
   const named = git(place, ['remote', 'get-url', '--push', '--all', destination])
   const urls = named !== null ? named.split('\n') : [git(place, ['ls-remote', '--get-url', destination]) ?? destination]
   return urls.some((url) => isOurs(identityOf(url, base(place))))
@@ -595,14 +607,28 @@ function directoryOf(tokens, current) {
   return current === null ? null : resolve(current, expanded)
 }
 
-function judge(line, depth, cwd, inherited = {}) {
+// The guard asks git where a remote points before the line runs, so a line that
+// repoints one first has to be answered without asking.
+function repoints(tokens) {
+  const invocation = gitInvocation(tokens)
+  if (invocation !== null) {
+    const [subcommand, action] = invocation.args
+    return subcommand === 'config' || (subcommand === 'remote' && ['add', 'set-url', 'rename'].includes(action))
+  }
+  const gh = ghArguments(tokens)
+  return gh !== null && gh[0] === 'repo' && gh[1] === 'set-default'
+}
+
+function judge(line, depth, cwd, inherited = {}, unsettledBefore = false) {
   let directory = cwd
   const exported = { ...inherited }
+  let unsettled = unsettledBefore
   for (const { tokens, bindings } of commandsOf(line)) {
     directory = directoryOf(tokens, directory)
     if (commandName(tokens[0]) === 'export') Object.assign(exported, bindingsIn(tokens.slice(1)))
     const environment = { ...exported, ...bindings }
-    const place = { directory, options: [], environment }
+    const place = { directory, options: [], environment, unsettled }
+    unsettled ||= repoints(tokens)
 
     if (isLivenessProbe(tokens)) {
       deny(
@@ -674,7 +700,7 @@ function judge(line, depth, cwd, inherited = {}) {
     }
 
     const nested = depth > 0 ? shellPayload(tokens) : null
-    if (nested !== null) judge(nested, depth - 1, directory, environment)
+    if (nested !== null) judge(nested, depth - 1, directory, environment, unsettled)
   }
 }
 

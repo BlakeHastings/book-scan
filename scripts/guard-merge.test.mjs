@@ -61,14 +61,24 @@ initFixture(elsewhere, 'master', elsewhereRemote)
 const nowhere = join(fixtureRoot, 'not-a-repo')
 mkdirSync(nowhere)
 
+// A guarded repository with no remote, whose worktree is on master. Nothing but
+// the shared git directory can tell the guard that worktree is its own.
+const unpublished = join(fixtureRoot, 'unpublished')
+initFixture(unpublished, 'trunk')
+mkdirSync(join(unpublished, 'scripts'))
+const UNPUBLISHED_GUARD = join(unpublished, 'scripts', 'guard-merge.mjs')
+copyFileSync(SOURCE, UNPUBLISHED_GUARD)
+const unpublishedWorktree = join(unpublished, '.claude', 'worktrees', 'agent-y')
+git(unpublished, 'worktree', 'add', '-q', '-b', 'master', unpublishedWorktree)
+
 // Where a command with no `cd` in it is taken to run. This is a clone on a
 // feature branch, so a case that is denied is denied for what it says rather
 // than for where it stands.
 const ANYWHERE = onFeature
 
-function decide(command, cwd = ANYWHERE) {
+function decide(command, cwd = ANYWHERE, guard = GUARD) {
   const payload = cwd === null ? { tool_input: { command } } : { tool_input: { command }, cwd }
-  const output = execFileSync('node', [GUARD], {
+  const output = execFileSync('node', [guard], {
     input: JSON.stringify(payload),
     encoding: 'utf8',
   })
@@ -296,6 +306,13 @@ const cases = [
   ['GH_REPO=example/guarded gh api -X PUT repos/{owner}/{repo}/pulls/5/merge', 'deny', elsewhere],
   ['gh api -X PUT repos/example/guarded/pulls/5/merge', 'deny', elsewhere],
   ['GH_REPO=example/guarded bash -c "gh pr merge 5"', 'deny', elsewhere],
+  // The guard asks where a remote points before the line runs, so a line that
+  // repoints one first cannot be answered by asking.
+  ['git remote set-url origin git@github.com:example/guarded.git && git push origin HEAD:master', 'deny', elsewhere],
+  ['git remote add up https://github.com/example/guarded && git push up :master', 'deny', elsewhere],
+  ['git config remote.origin.pushurl git@github.com:example/guarded.git; git push origin HEAD:master', 'deny', elsewhere],
+  ['gh repo set-default example/guarded && gh pr merge 5', 'deny', elsewhere],
+  ['git remote -v && git push origin HEAD:master', 'allow', elsewhere],
 
   // A worktree of this repository is this repository.
   ['git push origin HEAD:master', 'deny', worktree],
@@ -341,6 +358,13 @@ try {
 
   const malformed = execFileSync('node', [GUARD], { input: 'not json', encoding: 'utf8' })
   if (malformed.trim() !== '') fail('a malformed payload produced a decision')
+
+  if (!decide('git merge feature', unpublishedWorktree, UNPUBLISHED_GUARD).denied) {
+    fail('a worktree of a repository with no remote was not recognised as that repository')
+  }
+  if (decide('git merge feature', elsewhere, UNPUBLISHED_GUARD).denied) {
+    fail('a repository with no remote claimed an unrelated one as its own')
+  }
 
   // A deletion is refused for what it is, not as though it wrote code.
   const deletion = decide('git push origin --delete master').reason
