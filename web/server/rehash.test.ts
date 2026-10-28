@@ -9,6 +9,7 @@
 
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeTestDatabase, openTestDatabase } from './testdb'
+import { testBooks } from './testbooks'
 import type { Db } from './driver'
 import { Store } from './store'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
@@ -41,7 +42,7 @@ async function addBook(
   names: { front?: string; cover?: string },
   hashes: { front?: string; cover?: string } = {},
 ): Promise<number> {
-  const { id } = await store.addBook({
+  const { id } = await testBooks(db).catalogue({
     title,
     authors: [author],
     genre: FICTION_SLUG,
