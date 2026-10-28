@@ -142,6 +142,7 @@ describe('GetBookHandler', () => {
     expect(found?.authors).toEqual([expect.objectContaining({
       position: 1, displayName: 'Frank Herbert', filingName: 'Herbert, Frank',
     })])
+    expect(found?.printed).toEqual(['Frank Herbert'])
 
     // A lookup by id is not the catalogue: the queue's book answers too.
     expect((await get.handle({ id: scanned }))?.book.state).toBe('scanned')

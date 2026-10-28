@@ -9,6 +9,7 @@ import {
   CatalogueBookHandler, type CatalogueBook,
 } from '../application/books/commands/catalogue-book'
 import type { BookSave } from '../application/books/commands/saving'
+import type { CatalogueRecord } from '../application/lookup/read-models'
 import { ReviseBookHandler } from '../application/books/commands/revise-book'
 import { ApplyTagHandler } from '../application/tagging/commands/apply-tag'
 import { RemoveTagHandler } from '../application/tagging/commands/remove-tag'
@@ -19,6 +20,7 @@ import { DrizzlePlacementOnSave, type AreaOf } from '../infrastructure/books/pla
 import { DbUnitOfWork } from '../infrastructure/db/unit-of-work'
 import { DrizzleTagRepository } from '../infrastructure/tagging/tag-repository'
 import type { Db } from './driver'
+import { statedGenre } from '../domain/tagging/genre'
 import type { DraftBook } from './store'
 
 export interface BookCommands {
@@ -75,5 +77,36 @@ export function catalogueCommandOf(draft: DraftBook, now: string, scanId?: numbe
     photographs: { front: draft.frontImage, back: draft.backImage, edge: draft.edgeImage },
     shelvedOn: label ? { label } : 'where-it-lands',
     now,
+  }
+}
+
+/**
+ * The draft a lookup the catalogues answered becomes, before anybody has said
+ * anything about it: their record, and the genre their headings point at as the
+ * classifier's guess. The app's review pane starts from the same draft
+ * (`draftFromLookup` in `src/lib/api.ts`), which is what makes a save from
+ * either a save from a scan.
+ *
+ * Only for a record that was found: an empty one still carries the
+ * classifier's default genre, which nothing stated.
+ */
+export function draftFromRecord(record: CatalogueRecord, isbnSource: string): DraftBook {
+  return {
+    isbn13: record.isbn13,
+    isbn10: record.isbn10,
+    title: record.title,
+    subtitle: record.subtitle,
+    authors: record.authors,
+    publisher: record.publisher,
+    published: record.published,
+    pages: record.pages,
+    notes: '',
+    genre: statedGenre(record.classification.genre),
+    classificationSource: 'auto',
+    classificationConfidence: record.classification.confidence,
+    seriesName: record.seriesName,
+    seriesIndex: record.seriesIndex,
+    lookupSource: record.source,
+    isbnSource,
   }
 }

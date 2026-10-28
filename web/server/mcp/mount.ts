@@ -42,7 +42,7 @@ import { cookieFrom } from '../auth/gate'
 import type { SignInConfig } from '../auth/providers'
 import { consentGone } from './pages'
 import { approve, ConnectorProvider, deny, digest } from './provider'
-import { catalogueServer, type CatalogueQueries } from './tools'
+import { catalogueServer, type CatalogueCommands, type CatalogueQueries } from './tools'
 
 export const MCP_PATH = '/mcp'
 
@@ -86,6 +86,7 @@ export interface ConnectorMountDeps {
   now?: () => Date
   /** Built once by `createApp`, so a request's fresh server shares them rather than making its own. */
   queries: CatalogueQueries
+  commands: CatalogueCommands
 }
 
 /**
@@ -162,7 +163,7 @@ export function mountMcp(app: express.Express, deps: ConnectorMountDeps): void {
     })
     .post(function mcpRequest(req, res, next) {
       void (async () => {
-        const server = catalogueServer({ auth: deps.auth, queries: deps.queries })
+        const server = catalogueServer({ auth: deps.auth, queries: deps.queries, commands: deps.commands })
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: undefined,
           enableJsonResponse: true,

@@ -1,7 +1,8 @@
 /**
  * The MCP server's tools: `whoami`, which proves the chain from a bearer token
- * to a person this app owns, and the catalogue's read tools in
- * `read-tools.ts`. Every tool calls application handlers, never `Store`.
+ * to a person this app owns, the catalogue's read tools in `read-tools.ts` and
+ * its write tools in `write-tools.ts`. Every tool calls application handlers,
+ * never `Store`.
  *
  * A fresh `McpServer` per request, because `/mcp` runs the Streamable HTTP
  * transport stateless: nothing about a client is held between requests, so
@@ -15,10 +16,13 @@ import { z } from 'zod'
 import type { AuthStore } from '../../infrastructure/auth/auth-store'
 import { actingFor, answer } from './answers'
 import { registerReadTools, type CatalogueQueries } from './read-tools'
+import { registerWriteTools, type CatalogueCommands } from './write-tools'
 
-export type { CatalogueQueries }
+export type { CatalogueCommands, CatalogueQueries }
 
-export function catalogueServer(deps: { auth: AuthStore; queries: CatalogueQueries }): McpServer {
+export function catalogueServer(
+  deps: { auth: AuthStore; queries: CatalogueQueries; commands: CatalogueCommands },
+): McpServer {
   const server = new McpServer({ name: 'book-scan', version: '0.1.0' })
 
   server.registerTool('whoami', {
@@ -45,6 +49,7 @@ export function catalogueServer(deps: { auth: AuthStore; queries: CatalogueQueri
   })
 
   registerReadTools(server, deps.queries)
+  registerWriteTools(server, deps.queries, deps.commands)
 
   return server
 }

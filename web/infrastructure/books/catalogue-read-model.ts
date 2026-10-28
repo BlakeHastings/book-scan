@@ -168,6 +168,13 @@ export class DrizzleCatalogueReadModel implements CatalogueReadModel {
       await this.db.get<BookRow>('SELECT * FROM books WHERE id = ?', [id]),
     ))) ?? null
   }
+
+  async printedNames(id: number): Promise<string[]> {
+    const rows = await this.db.all<{ name: string }>(
+      'SELECT name FROM book_authors WHERE book_id = ? ORDER BY position', [id],
+    )
+    return rows.map((row) => row.name)
+  }
 }
 
 /*
