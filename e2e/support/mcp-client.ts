@@ -41,8 +41,9 @@ class Loopback {
   async listen(): Promise<void> {
     this.server = createServer((req, res) => {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+      // The browser asks for a favicon too, and a 404 for it reads as trouble in a red scenario's report.
       if (url.pathname !== '/callback') {
-        res.writeHead(404).end()
+        res.writeHead(204).end()
         return
       }
       this.arrived({ code: url.searchParams.get('code'), error: url.searchParams.get('error') })
