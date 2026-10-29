@@ -45,7 +45,7 @@ const FOLD_FROM = 'áàâäãåāéèêëēíìîïīóòôöõøōúùûüūñ�
 const FOLD_TO = 'aaaaaaaeeeeeiiiiiooooooouuuuunccszyy'
 
 /** The same fold in SQL, over whichever column is being searched. */
-function folded(column: SQLWrapper): SQL {
+export function folded(column: SQLWrapper): SQL {
   return sql`translate(lower(${column}), ${FOLD_FROM}, ${FOLD_TO})`
 }
 

@@ -107,6 +107,16 @@
           "privilege": "pgvector is not a trusted extension, so CREATE EXTENSION needs a superuser, or a role a managed service lets create it. A deployment whose app role cannot create it creates it once beforehand, as a role that can, in the catalogue database; IF NOT EXISTS then finds it there and the migration needs nothing more.",
           "why": "Cover embeddings are stored in a vector column and searched through an HNSW index for cosine distance. 0.5.0 is the first release with HNSW. The tested version is the one postgres-version.json pins for every Postgres this repository starts.",
           "withoutIt": "The server does not start. Migration 0033 fails with extension \"vector\" is not available (or permission denied to create extension \"vector\"), the start-up migration applies nothing, and the process exits before it listens. The official postgres image does not carry pgvector: use pgvector/pgvector at the same Postgres major, or a managed Postgres that offers the vector extension."
+        },
+        {
+          "name": "pg_trgm",
+          "project": "PostgreSQL contrib",
+          "atLeast": "1.2",
+          "tested": "1.6",
+          "createdBy": "migration 0035, as CREATE EXTENSION IF NOT EXISTS pg_trgm, inside the start-up migration",
+          "privilege": "pg_trgm is a trusted extension since Postgres 13, so a role with CREATE on the catalogue database can create it without being a superuser.",
+          "why": "The words read off a cover photograph are matched against titles and authors' names by trigram word similarity, through GIN trigram indexes. 1.2 is the first release with word_similarity. It ships with Postgres itself, in the official image and in pgvector's.",
+          "withoutIt": "The server does not start. Migration 0035 fails with extension \"pg_trgm\" is not available, the start-up migration applies nothing, and the process exits before it listens. Every Postgres build that carries contrib has it."
         }
       ]
     },

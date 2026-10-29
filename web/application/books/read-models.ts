@@ -162,3 +162,28 @@ export interface CatalogueReadModel {
    */
   printedNames(id: number): Promise<string[]>
 }
+
+/** One catalogued book, and how much of what it prints on its cover a photograph's text holds. */
+export interface CoverTextMatch {
+  id: number
+  title: string
+  /** The first credit's name as printed, or '' for a book with none. */
+  author: string
+  /** 0 to 1: trigram similarity of the title and the whole text. */
+  titleSimilarity: number
+  /** The same for the first author's printed name; 0 for a book with none. */
+  authorSimilarity: number
+  /** 0 to 1: how much of the title appears as one stretch of the text (trigram word similarity). */
+  titlePrinted: number
+}
+
+/** The catalogue as the words on a cover photograph find it. */
+export interface CoverTextReadModel {
+  /**
+   * The catalogued books among the `candidates` titles nearest `text` and the
+   * books of the `candidates` printed names nearest it, each scored against
+   * the whole of `text`, which is lower case and unaccented. Unordered:
+   * ranking is the handler's.
+   */
+  near(text: string, candidates: number): Promise<CoverTextMatch[]>
+}

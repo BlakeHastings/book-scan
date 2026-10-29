@@ -14,6 +14,7 @@ import { hashMatcher } from './hash-matcher'
 import type { CoverMatcher } from './matcher'
 import { CLIP_B32, DINOV2_SMALL, type Encoder } from './models'
 import type { SetOptions } from './synthetic'
+import { coverTextMatcher } from './text-matcher'
 
 /** Small enough to generate inside one test file's budget, large enough that one photograph is under two points. */
 export const CI_SET: SetOptions = { seed: 1, books: 40, photosPerBook: 2, absent: 10, severity: 1 }
@@ -29,6 +30,8 @@ export interface Registered {
   matcher: CoverMatcher
   /** When set, the matcher needs these weights, and is skipped by the test where they are not cached. */
   encoder?: Encoder
+  /** When set, the matcher keeps its catalogue in Postgres; see `catalogue-database.ts`. */
+  database?: true
   floor: Floor
 }
 
@@ -64,5 +67,19 @@ export const REGISTERED: Registered[] = [
     matcher: embeddingMatcher(CLIP_B32, { floor: 0.75, margin: 0.1 }),
     encoder: CLIP_B32,
     floor: { top1: 0.85, top4: 0.93, confidentWrong: ONE_PHOTO_OF_CI_SET },
+  },
+  /*
+   * Recorded on 2026-10-29, the same way:
+   *
+   *   cover text (paddle, pg_trgm)  top-1 93.8%  top-4 96.3%  confident wrong 0.0%
+   *
+   * Floors five and five photographs under. The bar was chosen on seed 7 the
+   * way the embeddings' were: there, a printed title of 0.8 with any lead
+   * opened no wrong book, 0.7 opened one, and the 0.05 lead is the room.
+   */
+  {
+    matcher: coverTextMatcher({ title: 0.8, margin: 0.05 }),
+    database: true,
+    floor: { top1: 0.87, top4: 0.9, confidentWrong: ONE_PHOTO_OF_CI_SET },
   },
 ]

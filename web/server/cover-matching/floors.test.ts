@@ -7,9 +7,14 @@
  * A matcher that needs an encoder's weights runs only where they are already
  * cached (`npm run eval:covers` fetches them); this file never downloads, so
  * it behaves the same offline and on CI, where those rows are skipped and say so.
+ * A matcher that searches Postgres gets this file's scratch database, emptied
+ * before each one.
  */
 
-import { beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { shutdownPaddle } from '../paddle'
+import { closeTestDatabase, openTestDatabase } from '../testdb'
+import { useCatalogueDatabase } from './catalogue-database'
 import { evaluate } from './evaluate'
 import { hashMatcher } from './hash-matcher'
 import { isCached } from './models'
@@ -20,7 +25,13 @@ let set: CoverSet
 
 beforeAll(async () => {
   set = await coverSet(CI_SET)
+  useCatalogueDatabase(() => openTestDatabase())
 }, 120_000)
+
+afterAll(async () => {
+  await closeTestDatabase()
+  await shutdownPaddle()
+})
 
 describe('the harness itself', () => {
   it('labels every photograph, and holds some books back from the catalogue', () => {

@@ -177,6 +177,11 @@ seconds; Paddle alone is faster. It has to be measured in the harness, at the
 latency the route can afford, before it goes in front of the thorough barcode
 read.
 
+Built in #667, and two of the guesses above did not survive measuring:
+`similarity` ranks better than `word_similarity`, and a GIN index with a
+threshold loses the right book where a GiST nearest-first walk does not. See
+[Cover text, as built](#cover-text-as-built).
+
 ### 5. The perceptual hash: keep only as a weak signal, if at all
 
 pHash-style hashes compare the coarse light-dark layout of the whole frame, so
@@ -237,6 +242,7 @@ bar, both rows in the table.
 | `evaluate.ts` | top-1, top-4, confident right and wrong, timing, and the table |
 | `hash-matcher.ts` | Today's matcher, using `MATCH_CUTOFF` and `confidentPick` from `shared/confidence.ts` so it is what ships |
 | `embedding-matcher.ts`, `models.ts`, `encode.ts` | An encoder's row: in-memory cosine, weights pinned by revision and SHA-256 and cached in `~/.cache/bookscan/models`. `encode.ts` prepares and embeds an image, and the app embeds through it too (below) |
+| `text-matcher.ts`, `catalogue-database.ts` | Cover text (#667): PaddleOCR, then the app's own query handler over a real Postgres the runner provides. See [Cover text, as built](#cover-text-as-built) |
 | `real-covers.ts` | The optional local mode's Open Library download |
 | `registry.ts` | The matchers scored, the floor each is held to, and `CI_SET` |
 | `floors.test.ts` | The CI check |
@@ -287,7 +293,9 @@ recorded. A matcher that needs weights runs only where they are already cached
 and is skipped, by name, where they are not: the test never downloads. CI
 restores both encoders' weights from `actions/cache`, keyed on each pinned
 revision and SHA-256 (`web/scripts/cover-models.ts`), so every row runs on every
-pull request, and a row that would be skipped there fails instead.
+pull request, and a row that would be skipped there fails instead. The
+cover-text row needs no encoder and runs everywhere, in the file's own scratch
+database, with the Paddle models `paddle.test.ts` already fetches.
 
 ### In the app (#666)
 
@@ -452,6 +460,172 @@ real covers it is at 7.8% top-1 against publisher artwork.
 - `--real 200`: 302 s the first time, most of it downloads.
 
 ---
+
+## Cover text, as built
+
+#667, measured 2026-10-29 on the same machine.
+
+**What runs.** PaddleOCR reads the photograph (`server/paddle.ts`, the same
+call the ISBN path makes on it), and `MatchCoverTextHandler`
+(`web/application/books/queries/match-cover-text.ts`) takes the text, not the
+photograph, so the fusion step can hand it the reading the ISBN path already
+made. Its read model (`web/infrastructure/books/cover-text-read-model.ts`):
+
+1. **Candidates**: the 50 titles nearest the reading (`ORDER BY title <->
+   text`) and the books of the 50 printed names nearest it, each a
+   nearest-first walk of a GiST trigram index (migration 0035).
+2. **Scores**, per candidate, against the whole folded reading:
+   `similarity(title, text)`, `similarity(author, text)` for the first credit,
+   and `word_similarity(title, text)`.
+3. **Rank** by the mean of the two similarities. A cover showing only a name
+   still ranks that author's books, because the author half carries it.
+4. **The bar** (the harness's; the scan route has none yet): the best has
+   `word_similarity(title, text) >= 0.8`, which is the title being printed
+   there, and leads the second by 0.05.
+
+A reading with no word of four letters or more outside a short stop list
+answers nothing: "THE OF A" names no book however many titles share its
+trigrams.
+
+**The harness runs it through the real thing.** The catalogue is saved by the
+app's save path into a real Postgres (the suite's scratch database in
+`floors.test.ts`, a container or `BOOKSCAN_TEST_DATABASE_URL` in
+`npm run eval:covers`), so the row is the query that would ship, `pg_trgm`
+and all, not a TypeScript copy of its arithmetic.
+
+### Which OCR
+
+Measured, not assumed. Every photograph of the CI set and of the 200 real
+covers was read by Paddle and by tesseract's whole-frame pass
+(`wide-normalised`, PSM AUTO, as `identify.ts` runs it), and each reading was
+scored by the same formula:
+
+| reader | CI set top-1 / top-4 | real covers top-1 / top-4 | per photograph |
+| --- | --- | --- | --- |
+| Paddle | 91.3% / 96.3% | 55.3% / 67.2% | about 180 ms |
+| tesseract | 7.5% / 15.0% | 4.7% / 7.8% | about 430 ms |
+| both, concatenated | 91.3% / 96.3% | | both |
+
+(The formula there is the earlier `word_similarity` mean, with no candidate
+step; the comparison between readers is what it is for.) Tesseract's layout
+analysis does not find lines that are turned, and every photograph here is
+turned a little; on the CI set it read 15 of 418 words of four letters or more
+exactly, Paddle 257. Paddle alone, then, and tesseract adds nothing to it.
+
+### Which `pg_trgm` function
+
+Ranked by the mean of a title score and an author score, on Paddle's
+readings, with every catalogued book scored (no candidate step):
+
+| title and author each scored by | seed 7 (tuning) top-1 / top-4 | CI set | real covers |
+| --- | --- | --- | --- |
+| `word_similarity` | 89.3% / 98.0% | 91.3% / 96.3% | 55.3% / 67.2% |
+| `strict_word_similarity` | 89.0% / 97.3% | 91.3% / 96.3% | 57.5% / 67.2% |
+| **`similarity`** | **92.3% / 98.7%** | **93.8% / 96.3%** | **61.6% / 68.1%** |
+| `word_similarity` per significant word, by length | 88.7% / 96.7% | | 56.3% / 67.2% |
+| `word_similarity`, stop words stripped both sides | 87.0% / 96.7% | | 56.6% / 66.3% |
+
+`similarity` wins on all three sets, by three to six points of top-1, and
+that is why it ranks. `word_similarity(title, text)` asks how much of the
+title is in the reading, so a short title contained in a longer one ("The
+Hidden Garden" inside "Island of Hidden Gardens") scores as high as the
+longer one; `similarity` also counts what of the reading the title does not
+explain. Stripping stop words from both sides made things slightly worse
+under every function, so short words are handled by refusing a reading made
+only of them rather than by editing what is compared.
+
+On seed 7, weighting the title above the author lost 0.3 points of top-1 at
+2:1 and 1.6 at 3:1, and taking the larger of the two instead of the mean lost
+21, because then every book of a series ties on its author.
+
+### Why GiST and nearest-first, not GIN and a threshold
+
+The first version found candidates the way the issue described: a GIN index,
+and `title %> ANY(words)`, which holds when a word of the reading is within
+`pg_trgm.word_similarity_threshold` (0.6) of a word of the title. On real
+covers that left the right book out of the candidates for 145 of 320
+photographs, and cost ten points of top-1 and fourteen of top-4 against
+scoring every book; at 0.4 it still cost three and six. OCR of a real cover is
+noisier than any threshold that still narrows anything.
+
+GiST answers `ORDER BY title <-> text LIMIT n` nearest first and exactly, so
+nothing is thresholded away. On the 160 real covers, scoring only the ten
+nearest titles and the books of the ten nearest names gave the same top-1 and
+top-4 as scoring every book; the read model takes fifty, for a collection
+larger than 160.
+
+### The measurements
+
+Every row as `npm run eval:covers` printed it, with the cover-text row beside
+the others (the embedding rows as they stood before #666 landed, on the same
+sets):
+
+The synthetic set, default size (150 catalogued, seed 1):
+
+| matcher                      | photos | top-1 | top-4 | confident right | confident wrong       | prepare | per photo |
+|------------------------------|--------|-------|-------|-----------------|-----------------------|---------|-----------|
+| hash (today)                 | 300+30 | 3.0%  | 13.3% | 0.0%            | 0.0% (0 uncatalogued) | 0.7s    | 6ms       |
+| embedding (dinov2-small)     | 300+30 | 23.3% | 44.0% | 0.0%            | 0.0% (0 uncatalogued) | 17.9s   | 118ms     |
+| embedding (clip-b32)         | 300+30 | 91.0% | 98.7% | 49.1%           | 0.0% (0 uncatalogued) | 7.2s    | 47ms      |
+| cover text (paddle, pg_trgm) | 300+30 | 90.0% | 94.3% | 48.5%           | 0.0% (0 uncatalogued) | 3.6s    | 119ms     |
+
+The CI set (what `floors.test.ts` scores):
+
+| matcher                      | photos | top-1 | top-4 | confident right | confident wrong       | prepare | per photo |
+|------------------------------|--------|-------|-------|-----------------|-----------------------|---------|-----------|
+| hash (today)                 | 80+10  | 6.3%  | 16.3% | 0.0%            | 0.0% (0 uncatalogued) | 0.2s    | 6ms       |
+| embedding (dinov2-small)     | 80+10  | 40.0% | 80.0% | 0.0%            | 0.0% (0 uncatalogued) | 4.6s    | 113ms     |
+| embedding (clip-b32)         | 80+10  | 90.0% | 97.5% | 38.9%           | 0.0% (0 uncatalogued) | 2.1s    | 48ms      |
+| cover text (paddle, pg_trgm) | 80+10  | 93.8% | 96.3% | 56.7%           | 0.0% (0 uncatalogued) | 1.4s    | 121ms     |
+
+Real covers, locally (`--real 200`; the cache held 200 covers, of which 170
+were catalogued this time):
+
+| matcher                      | photos | top-1 | top-4 | confident right | confident wrong       | prepare | per photo |
+|------------------------------|--------|-------|-------|-----------------|-----------------------|---------|-----------|
+| hash (today)                 | 340+30 | 8.2%  | 12.6% | 0.0%            | 0.3% (0 uncatalogued) | 0.5s    | 6ms       |
+| embedding (dinov2-small)     | 340+30 | 88.5% | 94.4% | 4.6%            | 0.0% (0 uncatalogued) | 19.8s   | 113ms     |
+| embedding (clip-b32)         | 340+30 | 79.1% | 84.7% | 39.2%           | 0.3% (1 uncatalogued) | 7.7s    | 45ms      |
+| cover text (paddle, pg_trgm) | 340+30 | 58.2% | 65.0% | 17.8%           | 0.0% (0 uncatalogued) | 3.8s    | 147ms     |
+
+Per photo is Paddle's reading plus the query. On real covers the text
+matcher finds the book less often than
+DINOv2 (Open Library's medium covers carry small, stylised type that Paddle
+often cannot read), but it is the only row that opens a book unasked on one
+photograph in six without ever opening the wrong one, and it did not open
+*A Princess of Mars* for *The Warlord of Mars*, which CLIP did. That is the
+agreement the fusion step's bar wants: an embedding's likeness and a printed
+title are independent evidence.
+
+### Series siblings
+
+Photographs of a book with a catalogued series sibling, and how often the
+cover-text matcher ranked the right volume above every one of them (a sibling
+outside the four answered counts as beaten only when the right book is inside
+them):
+
+| set | photographs with a sibling | right volume above every sibling |
+| --- | --- | --- |
+| synthetic, 150 books (series share author, design and the words before the colon) | 104 | 85 (81.7%) |
+| real covers (sibling approximated as another catalogued book by the same first author) | 148 | 94 (63.5%) |
+
+The misses are mostly readings where Paddle read the author and not the
+title: then every volume ties on the author half and the title half is noise.
+None of them was confident: the bar needs the title printed.
+
+### The box over 'll'
+
+The review of #664 saw a missing-glyph box drawn over the 'll' of the embedded
+font, and #667 asked for it to be fixed in the generator. There is no such
+box. The covers it was seen on are the first ones of seed 1, the "Signal Saga"
+series by "Ada Quill", whose shared design puts two translucent rectangles
+(`look.shapes`, a design's artwork) just above the author's name, the smaller
+of them over the end of "Quill". Rendered on their own, "ll", "Hollow",
+"Quill", "HOLLOW" and the ligatures "fi", "fl", "ffi" all draw from the font,
+roman and italic. Paddle read "Quill" exactly on six of the eleven CI-set
+photographs that carry it, and its misreadings ("Qul1", "Quln", "Qail") are
+the photograph's blur and angle, not a glyph. Nothing in the generator
+changed.
 
 ## What this does not settle
 
