@@ -31,7 +31,7 @@ Feature: A book that belongs at the end of a full area
     And I confirm the details and go to shelve it
     Then the shelf drawing should be labelled "1A"
     And it should tell me to put "Dune" in the gap at "1A"
-    And the first answer should read "No room, put it on the next area"
+    And the first answer should read "No room, put it on the next shelf"
 
     When I say there is no room on the shelf
     Then it should tell me the book itself goes on to "1B"

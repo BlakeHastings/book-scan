@@ -291,3 +291,109 @@ describe('a catalogued book a rule wants somewhere', () => {
     expect(drawn(null)).not.toContain('The rules put it')
   })
 })
+
+describe('a book nobody has said is fiction or non-fiction', () => {
+  const asked = (onGenre?: (range: 'fiction' | 'nonfiction') => void) => renderToStaticMarkup(
+    <ShelveView
+      placement={null}
+      stale={false}
+      range={null}
+      title="Middlemarch"
+      saving={false}
+      onShelved={() => {}}
+      onBack={() => {}}
+      cascade={emptyCascade}
+      setCascade={() => {}}
+      onRefresh={async () => {}}
+      onGenre={onGenre}
+    />,
+  )
+
+  it('asks the question here, with two answers that can be pressed', () => {
+    const html = asked(() => {})
+    expect(html).toContain('Is <strong>Middlemarch</strong> fiction or non-fiction?')
+    const buttons = html.match(/<button[^>]*>[^<]*<\/button>/g) ?? []
+    const fiction = buttons.find((one) => />Fiction</.test(one))
+    const nonFiction = buttons.find((one) => />Non-fiction</.test(one))
+    expect(fiction).toBeDefined()
+    expect(nonFiction).toBeDefined()
+    expect(fiction).not.toMatch(/disabled/)
+    expect(nonFiction).not.toMatch(/disabled/)
+  })
+
+  it('does not offer answers that cannot be given yet, or a false reason', () => {
+    const html = asked(() => {})
+    expect(html).not.toContain('It fits, save')
+    expect(html).not.toContain('title and author')
+    expect(html).not.toContain('Go back and say')
+  })
+})
+
+describe('where it goes, on a phone', () => {
+  const placed = {
+    kind: 'between-same-location',
+    range: 'fiction',
+    instruction:
+      '1A: between Children of Dune (Herbert, Frank) and The Dispossessed (Le Guin, Ursula K.)',
+    suggestedLocation: '1A',
+    derivedLocation: '1A',
+    derivedAreaId: 11,
+    authorFiling: 'Ishiguro, Kazuo',
+    sortKey: 'ishiguro kazuo|the remains of the day',
+    predecessor: {
+      id: 1, title: 'Children of Dune', authorFiling: 'Herbert, Frank', authors: '',
+      location: '1A', areaId: 11, sortKey: '', images: { front: '', back: '', edge: '' },
+    },
+    successor: {
+      id: 2, title: 'The Dispossessed', authorFiling: 'Le Guin, Ursula K.', authors: '',
+      location: '1A', areaId: 11, sortKey: '', images: { front: '', back: '', edge: '' },
+    },
+    strip: {
+      label: '1A', gapIndex: 1, placedIndex: null,
+      books: [
+        { id: 1, title: 'Children of Dune', authorFiling: 'Herbert, Frank', spine: '', spineSlot: 'edge' },
+        { id: 2, title: 'The Dispossessed', authorFiling: 'Le Guin, Ursula K.', spine: '', spineSlot: 'edge' },
+      ],
+    },
+  } as unknown as PlacementResponse
+
+  const drawn = renderToStaticMarkup(
+    <ShelveView
+      placement={placed}
+      stale={false}
+      range="fiction"
+      title="The Remains of the Day"
+      saving={false}
+      onShelved={() => {}}
+      onBack={() => {}}
+      cascade={emptyCascade}
+      setCascade={() => {}}
+      onRefresh={async () => {}}
+    />,
+  )
+
+  it('leads with the shelf and the two authors, and nothing longer', () => {
+    expect(drawn).toContain('Shelf 1A, between Herbert and Le Guin')
+    expect(drawn).not.toContain('Children of Dune (Herbert')
+  })
+
+  // `.wf-bleed` pulls its contents out to the screen edge, which is right for
+  // the drawn shelf and leaves a sentence touching the glass.
+  it('keeps the sentence out of the edge-to-edge strip', () => {
+    const bleed = drawn.indexOf('wf-bleed')
+    const sentence = drawn.indexOf('wf-instruction')
+    expect(sentence).toBeGreaterThan(-1)
+    expect(bleed).toBeGreaterThan(-1)
+    expect(sentence).toBeLessThan(bleed)
+  })
+
+  it('says each thing once', () => {
+    expect(drawn).not.toContain('In your hand')
+    expect(drawn).not.toContain('Each time you say there is no room')
+  })
+
+  it('uses none of the words the app keeps for itself', () => {
+    const words = drawn.replace(/<[^>]*>/g, ' ')
+    expect(words).not.toMatch(/\b(plank|boundary|area|ledger)\b/i)
+  })
+})

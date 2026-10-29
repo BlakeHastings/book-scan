@@ -12,13 +12,20 @@ export function PlacementView({
   pending: boolean
   /** The shelving step wants both drawing and words; the detail view does not, since there the drawing is context rather than an instruction to act on. */
   instruction?: boolean
-  /** Falls back to the filing name, the only name a placement carries on its own. */
+  /** Said under the board when given. The shelving step leaves it out: its header already names the book. */
   inHand?: string
   /** The detail view passes this so its neighbours are reachable; the shelving step does not, since walking off to a different record mid-placement would lose the one in hand. */
   onOpen?: (id: number) => void
 }) {
   if (!placement?.strip) {
-    return <PlacementCard placement={placement} pending={pending} saved={false} />
+    return (
+      <PlacementCard
+        placement={placement}
+        pending={pending}
+        saved={false}
+        instruction={instruction}
+      />
+    )
   }
 
   return (
@@ -26,7 +33,7 @@ export function PlacementView({
       {instruction && <Instruction>{placement.instruction}</Instruction>}
       <ShelfStrip
         strip={placement.strip}
-        inHand={inHand || placement.authorFiling}
+        inHand={inHand}
         onOpen={onOpen}
       />
     </div>
@@ -35,8 +42,8 @@ export function PlacementView({
 
 interface Props {
   strip: PlacementStrip
-  /** What the book being placed is called, said under the board. */
-  inHand: string
+  /** What the book being placed is called, said under the board. Left out, nothing is said. */
+  inHand?: string
   onOpen?: (id: number) => void
 }
 
@@ -63,7 +70,7 @@ export function ShelfStrip({ strip, inHand, onOpen }: Props) {
       items={placing(strip, onOpen)}
       // Nothing is in hand once the book stands in the row; this same
       // component also draws that end-of-journey moment.
-      inHand={placed ? undefined : inHand || 'this book'}
+      inHand={placed ? undefined : inHand}
     />
   )
 }

@@ -35,7 +35,7 @@ Feature: Cataloguing a book from its cover
 
     When I confirm the details and go to shelve it
     Then it should tell me to put "Dune" in the gap at "1A"
-    And the placement should read "First book in fiction. Start at 1A."
+    And the placement should read "Shelf 1A, the first book on it"
 
     When I say it fits and save it
     Then the catalogue should hold "Dune" recorded as:

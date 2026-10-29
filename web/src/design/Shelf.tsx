@@ -124,16 +124,21 @@ export function Shelf({
   const scroller = useRef<HTMLDivElement>(null)
 
   /**
-   * A run is wider than a phone, so the marked book has to be brought into
-   * view. `block: 'nearest'` scrolls the strip sideways without moving the page.
+   * A run is wider than a phone, so the marked book or the gap is centred in
+   * it. Only the strip's own `scrollLeft` moves: `scrollIntoView` scrolls every
+   * ancestor too, the page included, whatever `block` says.
    */
   useEffect(() => {
-    const here = scroller.current?.querySelector('.wf-perch')
-    here?.scrollIntoView({ block: 'nearest', inline: 'center' })
+    const strip = scroller.current
+    const here = strip?.querySelector<HTMLElement>('.wf-perch, .wf-gap')
+    if (!strip || !here) return
+    const seen = strip.getBoundingClientRect()
+    const it = here.getBoundingClientRect()
+    strip.scrollLeft += (it.left + it.width / 2) - (seen.left + seen.width / 2)
   }, [items])
 
   return (
-    <section className="wf-shelf" aria-label={`Area ${label}`}>
+    <section className="wf-shelf" aria-label={`Shelf ${label}`}>
       <header className="wf-shelf__head">
         <span className="wf-shelf__label">{label}</span>
         {note && <span className="wf-shelf__note">{note}</span>}
