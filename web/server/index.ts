@@ -13,9 +13,10 @@ import '../instrumentation'
 import express from 'express'
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync, type Stats } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { basename, join, resolve, sep } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import sharp from 'sharp'
+import { forgetVariants, variantDirFor, variantKey, variantOf } from './photo-variants'
+import { isVariantWidth } from '../shared/photos'
 import { catalogueConnection, describeConnection, openPostgres } from './db.pg'
 import type { Db } from './driver'
 
@@ -387,6 +388,7 @@ export interface BookScanApp extends express.Express {
 
 export function createApp(options: CreateAppOptions): BookScanApp {
   const { db, coverDir } = options
+  const variantDir = variantDirFor(coverDir)
   const googleApiKey = options.googleApiKey ?? ''
   const startBackgroundWork = options.startBackgroundWork ?? true
 
@@ -906,6 +908,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       if (await store.imageInUse(name)) continue
       try {
         rmSync(join(coverDir, name), { force: true })
+        forgetVariants(variantDir, name)
         removed.push(name)
       } catch {
         // A missing file is already in the state we want.
@@ -984,28 +987,24 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   const COVER_CACHE = 'private, max-age=300, must-revalidate'
 
   /**
-   * Ask for a picture smaller than the one on disk. Everything stored here is
-   * full size, which is right for a screen showing one book and wrong for the
-   * library's gallery, a grid of a hundred of them at about 120 CSS pixels each.
+   * Ask for a picture smaller than the one on disk, at one of `VARIANT_WIDTHS`
+   * (`shared/photos.ts`). Everything stored here is full size, up to a camera's
+   * eight megapixels, which is right for the picture opened whole and wrong for
+   * anything drawn smaller.
    *
-   * A closed set of widths, because the width is in a URL and a URL is a request
-   * anybody can make: an open one would let a caller ask the server to re-encode
-   * the whole catalogue at a hundred sizes it will never show.
-   *
-   * Nothing is written, and a miss falls through to the static mount below,
-   * which is what turns it into the same 404 as the full size file.
+   * Each width is made once and kept in `variantDir`
+   * (`server/photo-variants.ts`). A miss, or a width not in the set, falls
+   * through to the static mount below, which is what turns it into the same 404
+   * as the full size file.
    */
-  const THUMB_WIDTHS = [160, 320, 640]
-
   app.get('/api/covers/:name', (req, res, next) => {
     const width = Number(req.query.w)
-    if (!THUMB_WIDTHS.includes(width)) return next()
+    if (!isVariantWidth(width)) return next()
 
-    const name = req.params.name
-    // A filename, never a path. `basename` on its own is enough on POSIX and
-    // both separators are refused outright so this reads the same everywhere.
-    if (name.includes('/') || name.includes('\\')) return next()
-    const file = join(coverDir, basename(name))
+    // A filename, never a path: separators and a leading dot are refused.
+    const name = variantKey(req.params.name)
+    if (name === null) return next()
+    const file = join(coverDir, name)
     let source: Stats
     try {
       source = statSync(file)
@@ -1034,10 +1033,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       return
     }
 
-    void sharp(file)
-      .resize({ width, withoutEnlargement: true })
-      .jpeg({ quality: 72 })
-      .toBuffer()
+    void variantOf(variantDir, file, name, width, source)
       .then((body) => {
         res.type('jpeg').send(body)
       })
