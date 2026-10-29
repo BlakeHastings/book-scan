@@ -272,7 +272,7 @@ describe('the worker does it, so nobody waits', () => {
     })
 
     const capture = await queue.attach(null, 'front', 'p_front.jpg')
-    discard = () => queue.discard(capture.id)
+    discard = async () => { await queue.discard(capture.id) }
     await queue.drain()
 
     // The row is still there: a discard is a state, not a delete, so what

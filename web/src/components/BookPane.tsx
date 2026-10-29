@@ -5,6 +5,7 @@ import { Nothing } from '../design/Card'
 import { IconEdit } from '../design/Icons'
 import { List, Place, Row } from '../design/List'
 import { Shelf } from '../design/Shelf'
+import { Sure } from '../design/Sure'
 import { TopBar } from '../design/Chrome'
 import type { Shot } from '../design/Shots'
 import {
@@ -23,12 +24,14 @@ import { grouped } from '../lib/say'
 import { useBrowsing } from '../app/browsing'
 import { useNavigation } from '../app/navigation'
 import { useOpenBook } from '../app/openBook'
+import { useSummary } from '../app/summary'
 import { Frame } from './Frame'
 
 export function BookPane() {
   const { setRoute, openClaim } = useNavigation()
   const { viewing, setTyped } = useBrowsing()
   const { openBook, moveBook, viewBook } = useOpenBook()
+  const { setCounts } = useSummary()
 
   const [book, setBook] = useState<BookRow | null>(null)
   const [credits, setCredits] = useState<Credit[]>([])
@@ -37,6 +40,8 @@ export function BookPane() {
   const [strip, setStrip] = useState<PlacementStrip | null>(null)
   const [theirs, setTheirs] = useState<{ books: BookRow[]; name: string } | null>(null)
   const [busy, setBusy] = useState(false)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState('')
   // Read once on mount; it is changed on another screen, and coming back
   // here mounts this again.
@@ -139,8 +144,38 @@ export function BookPane() {
     }
   }
 
+  const remove = async () => {
+    setDeleting(true)
+    setError('')
+    try {
+      const result = await api.deleteBook(book.id)
+      setCounts(result.counts)
+      setRoute('library')
+    } catch (caught) {
+      setConfirmingDelete(false)
+      setError((caught as Error).message)
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  // The same question, in the same words, as the record's own delete in `BookDetail`.
+  const asking = confirmingDelete ? (
+    <Sure
+      title={`Delete ${book.title || 'this book'}?`}
+      said={
+        'It goes out of the catalogue and its photographs are deleted from '
+        + 'disk. Nothing here can put either back.'
+      }
+      act={deleting ? 'Deleting...' : 'Delete book'}
+      busy={deleting}
+      onAct={() => void remove()}
+      onKeep={() => setConfirmingDelete(false)}
+    />
+  ) : undefined
+
   return (
-    <Frame tab="library" top={top}>
+    <Frame tab="library" top={top} over={asking}>
       <Head
         title={book.title}
         by={book.authors || 'Nobody is credited'}
@@ -256,6 +291,12 @@ export function BookPane() {
           )}
         </Part>
       )}
+
+      {/* Last, and outlined rather than filled: a filled red button invites the
+          press it is warning about. */}
+      <Button tone="danger" block onPress={() => setConfirmingDelete(true)}>
+        Delete this book and its photos
+      </Button>
     </Frame>
   )
 }

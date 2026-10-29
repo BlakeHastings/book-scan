@@ -116,6 +116,11 @@ interface Props {
   /** Pick up a catalogued book that stands on no plank and go to the step that places it. */
   onPlace?: (id: number) => void
   onCatalogueCounts?: (counts: Counts) => void
+  /**
+   * Where a discard sent on the way out of this screen says it failed, since
+   * by then this screen is not there to say it.
+   */
+  onTroubleAfterLeaving?: (said: string) => void
 }
 
 export const UNPLACED_PAGE = 50
@@ -265,7 +270,7 @@ export function QueueRow({
  */
 export function QueuePane({
   onOpen, onCounts, tabs, onPhotograph, returnAnchor, onReturnAnchorConsumed,
-  showing, onPlace, onCatalogueCounts,
+  showing, onPlace, onCatalogueCounts, onTroubleAfterLeaving,
 }: Props) {
   const [captures, setCaptures] = useState<Capture[]>([])
   const [unplaced, setUnplaced] = useState<FiledBookRow[]>([])
@@ -350,10 +355,14 @@ export function QueuePane({
   // timers that a rebuild would strand, deleting something already undone.
   const loadRef = useRef(load)
   loadRef.current = load
+  const left = useRef(false)
+  const troubleAfterLeaving = useRef(onTroubleAfterLeaving)
+  troubleAfterLeaving.current = onTroubleAfterLeaving
   const discards = useRef(createDiscardWindow((id) => {
     setHeld((current) => current.filter((entry) => entry !== id))
     api.deleteCapture(id)
       .then((result) => {
+        if (left.current) return
         if (result.photosRemoved === 0) {
           // Its photos are still in use by the book it became, so they stay.
           setNotice(
@@ -364,15 +373,28 @@ export function QueuePane({
         loadRef.current()
       })
       .catch((caught) => {
-        setError((caught as Error).message)
+        const said = `That book was not discarded: ${(caught as Error).message}`
+        if (left.current) {
+          troubleAfterLeaving.current?.(said)
+          return
+        }
+        setError(said)
         loadRef.current()
       })
   }))
 
-  // Navigating away mid-window keeps the book rather than deleting it; see
-  // `discardWindow.ts` for why that is the direction to fail in.
+  // Leaving the screen while a discard is counting down sends it: the row said
+  // what was going and offered the way back, and walking on past it is not
+  // taking that way back. See `discardWindow.ts`.
   const window_ = discards.current
-  useEffect(() => () => window_.abandon(), [window_])
+  useEffect(() => {
+    // Set again on every mount, since StrictMode runs this cleanup once at mount.
+    left.current = false
+    return () => {
+      left.current = true
+      window_.flush()
+    }
+  }, [window_])
 
   const anyPending = captures.some((c) => c.status === 'pending')
 

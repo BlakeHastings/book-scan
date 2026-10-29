@@ -59,10 +59,13 @@ export interface BookActions {
   /** Write edits to a catalogued book without leaving it. */
   readonly saveEdits: () => Promise<boolean>
   readonly deleteBook: () => Promise<void>
+  /** Throw away the scan in hand and its photographs, and go back where it came from. */
+  readonly discardScan: () => Promise<void>
   readonly checkOut: (out: boolean) => Promise<void>
   readonly relookup: (isbn: string) => Promise<void>
   readonly startBoundaryMove: (direction: 'next' | 'previous') => Promise<void>
   readonly deletingBook: boolean
+  readonly discardingScan: boolean
   readonly checkingOut: boolean
   readonly boundaryMoving: boolean
 }
@@ -82,6 +85,7 @@ export function useBookActions(): BookActions {
    * `saving` and `boundaryMoving`, and both are on the book in hand.
    */
   const [deletingBook, setDeletingBook] = useState(false)
+  const [discardingScan, setDiscardingScan] = useState(false)
   const [checkingOut, setCheckingOut] = useState(false)
 
   const {
@@ -188,6 +192,26 @@ export function useBookActions(): BookActions {
       setError((caught as Error).message)
     } finally {
       setDeletingBook(false)
+    }
+  }
+
+  /**
+   * The same discard a swipe on the queue sends, for the person already looking
+   * at the scan: a second copy they do not want, or a photograph of the wrong
+   * thing. On a refusal the scan stays in hand and the reason is said here.
+   */
+  const discardScan = async () => {
+    if (captureId === null || bookId !== null) return
+    setDiscardingScan(true)
+    setError('')
+    try {
+      const result = await api.deleteCapture(captureId)
+      setQueueCounts(result.counts)
+      returnToOrigin()
+    } catch (caught) {
+      setError((caught as Error).message)
+    } finally {
+      setDiscardingScan(false)
     }
   }
 
@@ -375,7 +399,7 @@ export function useBookActions(): BookActions {
   }
 
   return {
-    save, saveEdits, deleteBook, checkOut, relookup, startBoundaryMove,
-    deletingBook, checkingOut, boundaryMoving,
+    save, saveEdits, deleteBook, discardScan, checkOut, relookup, startBoundaryMove,
+    deletingBook, discardingScan, checkingOut, boundaryMoving,
   }
 }

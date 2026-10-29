@@ -27,6 +27,7 @@ function drawn(over: {
   coverText?: string
   captureNote?: string
   catalogued?: CataloguedBook | null
+  onDiscard?: () => void
 } = {}) {
   return renderToStaticMarkup(
     <CaptureReview
@@ -52,6 +53,7 @@ function drawn(over: {
       onRetake={() => {}}
       onShelve={() => {}}
       onLeave={() => {}}
+      onDiscard={over.onDiscard}
       tabs={tabs}
       tags={over.tags ?? []}
       vocabulary={over.vocabulary ?? []}
@@ -188,5 +190,24 @@ describe('a book the catalogue already holds', () => {
   it('does not refuse the save, because two copies genuinely turn up', () => {
     expect(drawn({ catalogued: shelved, draft: { title: 'Song of Solomon' } }))
       .not.toContain('Type the title off the book to shelve it')
+  })
+})
+
+describe('throwing a scan away from the check-the-details screen', () => {
+  const shelved: CataloguedBook = { id: 45, title: 'Song of Solomon', location: '1B' }
+
+  it('offers it beside a second copy of a book already catalogued', () => {
+    const said = words(drawn({ catalogued: shelved, onDiscard: () => {} }))
+
+    expect(said).toContain('Saving adds a second copy')
+    expect(said).toContain('Discard this scan and its photos')
+  })
+
+  it('offers it for any scan the server holds', () => {
+    expect(words(drawn({ onDiscard: () => {} }))).toContain('Discard this scan and its photos')
+  })
+
+  it('offers nothing where there is no scan to throw away', () => {
+    expect(words(drawn())).not.toContain('Discard')
   })
 })

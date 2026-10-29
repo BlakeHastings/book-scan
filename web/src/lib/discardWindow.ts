@@ -3,9 +3,11 @@
  * browser, and only when the window closes with nobody having taken it back does the
  * delete go out, so while it is held there is nothing on the server to undo.
  *
- * `abandon` is what an unmounted pane or closed tab calls instead of letting the window
- * close, and it does not delete: a capture that stays in the queue costs one more swipe,
- * while a wrongly deleted one costs a book off the shelf and another trip to the camera.
+ * `flush` is what the pane calls when somebody leaves it with a discard still counting
+ * down: the row said what was going and offered the way back, and walking on past it is
+ * not taking it. Dropping the discard instead looked, from the phone, like the swipe had
+ * not worked. `abandon` lets go without deleting, for a caller with no answer to give.
+ * A tab that closes runs neither, and its discards are never sent.
  */
 
 /** Long enough to notice and undo a wrong swipe with hands full of books, short enough to be over before the next photograph. */
@@ -18,8 +20,10 @@ export interface DiscardWindow {
   release(id: number): boolean
   /** Every discard still being held, in the order they were made. */
   held(): number[]
-  /** Let go of everything without deleting: the page is going away. */
+  /** Let go of everything without deleting. */
   abandon(): void
+  /** Close every window now, committing each held discard once, in the order they were made. */
+  flush(): void
 }
 
 /**
@@ -58,6 +62,13 @@ export function createDiscardWindow(
     abandon() {
       for (const timer of timers.values()) clearTimeout(timer)
       timers.clear()
+    },
+
+    flush() {
+      const ids = [...timers.keys()]
+      for (const timer of timers.values()) clearTimeout(timer)
+      timers.clear()
+      for (const id of ids) commit(id)
     },
   }
 }

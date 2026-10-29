@@ -102,6 +102,22 @@ describe('holding a discard open', () => {
     expect(deleted).toEqual([])
     expect(window_.held()).toEqual([])
   })
+
+  it('sends every held discard at once when somebody walks on past it', () => {
+    vi.useFakeTimers()
+    const deleted: number[] = []
+    const window_ = createDiscardWindow((id) => deleted.push(id))
+
+    window_.hold(1)
+    window_.hold(2)
+    window_.release(2)
+    window_.hold(3)
+    window_.flush()
+    vi.advanceTimersByTime(UNDO_WINDOW_MS * 10)
+
+    expect(deleted).toEqual([1, 3])
+    expect(window_.held()).toEqual([])
+  })
 })
 
 describe('what actually reaches the server', () => {

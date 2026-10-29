@@ -30,6 +30,7 @@ import {
   withPhotographs, withPhotographsOf, type PhotographFields,
 } from './photographs'
 import { resolveIsbnPair } from '../shared/isbn'
+import { bookLock } from '../application/locks'
 import type { GenreSlug } from '../domain/tagging/genre'
 import {
   countFailures, PROCESSING_ERROR_NOTE, READING_TIMEOUT_NOTE,
@@ -211,6 +212,9 @@ export function editsOn(capture: Pick<CaptureRow, 'edit_json'>): CaptureEdit {
     return {}
   }
 }
+
+/** What became of a discard: `not-queued` is a book that has been catalogued, so nothing was thrown away. */
+export type Discarded = 'discarded' | 'already-discarded' | 'not-queued' | 'missing'
 
 export class CaptureQueue implements QueueReadModel {
   private draining = false
@@ -567,13 +571,23 @@ export class CaptureQueue implements QueueReadModel {
    * be discarded. The photographs are deleted from disk by the route that calls
    * this, and the filenames stay on the row as the record of what was thrown
    * away; see `Store.imageInUse`.
+   *
+   * Held on the book's lock, so a save of this scan that has already started
+   * finishes first and the discard then finds it catalogued, rather than the
+   * save writing a discarded book back onto a shelf with its photographs gone.
    */
-  async discard(id: number): Promise<void> {
-    await this.db.run(
-      `UPDATE books SET "state" = ?, claimed_by = '', claimed_at = NULL
-        WHERE id = ? AND "state" IN (${QUEUED_SQL})`,
-      [DISCARDED, id],
-    )
+  async discard(id: number): Promise<Discarded> {
+    return this.db.tx(async (tx) => {
+      const result = await tx.run(
+        `UPDATE books SET "state" = ?, claimed_by = '', claimed_at = NULL
+          WHERE id = ? AND "state" IN (${QUEUED_SQL})`,
+        [DISCARDED, id],
+      )
+      if (result.changes > 0) return 'discarded'
+      const row = await tx.get<{ state: string }>('SELECT "state" FROM books WHERE id = ?', [id])
+      if (!row) return 'missing'
+      return row.state === DISCARDED ? 'already-discarded' : 'not-queued'
+    }, { serialiseOn: bookLock(id) })
   }
 
   /**

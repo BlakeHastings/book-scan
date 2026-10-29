@@ -6,6 +6,7 @@ import { IconCamera } from '../design/Icons'
 import { AddTag, Tag, Tags } from '../design/List'
 import { Phone } from '../design/Phone'
 import { Shots, threeSlots, type Shot } from '../design/Shots'
+import { Sure } from '../design/Sure'
 import { IsbnPrompt } from './IsbnPrompt'
 import { Trouble } from './RoomFrame'
 import { TagNaming } from './TagNaming'
@@ -50,6 +51,13 @@ interface Props {
   onShelve: () => void
   /** Put it down and go back where it came from. */
   onLeave: () => void
+  /**
+   * Throw the scan away with its photographs. Absent where there is no scan on
+   * the server to throw away yet, and then nothing offers it.
+   */
+  onDiscard?: () => void
+  /** The discard has been sent and not answered. */
+  discarding?: boolean
   tabs: Record<TabName, () => void>
 
   /**
@@ -88,11 +96,12 @@ export function CaptureReview({
   draft, lookup, catalogued, photos, derivedFiling, saving, relookupBusy, relookupError,
   catalogueCover, coverText, captureNote, notice, error,
   onDismissError, onChange, onRelookup, onClearRelookupError, onRetake,
-  onShelve, onLeave, tabs,
+  onShelve, onLeave, onDiscard, discarding = false, tabs,
   tags, vocabulary, taggingBusy, taggingError, onAddTag, onRemoveTag, canTag,
 }: Props) {
   const [asking, setAsking] = useState(false)
   const [naming, setNaming] = useState(false)
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false)
 
   // Same expression `BookDetail` reads, and for the same reason: a relookup
   // in flight is about to replace the title, authors and ISBN.
@@ -144,6 +153,19 @@ export function CaptureReview({
             initial={draft.isbn13 || draft.isbn10}
             onCancel={() => setAsking(false)}
             onSubmit={(isbn) => { onRelookup(isbn); setAsking(false) }}
+          />
+        ) : confirmingDiscard && onDiscard ? (
+          <Sure
+            title={`Discard ${draft.title || 'this scan'}?`}
+            said={
+              'It comes out of the queue and its photographs are deleted from disk. '
+              + (catalogued ? `The copy already catalogued as #${catalogued.id} stays. ` : '')
+              + 'Nothing here can put the photographs back.'
+            }
+            act={discarding ? 'Discarding...' : 'Discard it'}
+            busy={discarding}
+            onAct={() => { setConfirmingDiscard(false); onDiscard() }}
+            onKeep={() => setConfirmingDiscard(false)}
           />
         ) : naming ? (
           <TagNaming
@@ -322,6 +344,14 @@ export function CaptureReview({
         <Button tone="quiet" block onPress={onLeave}>
           Leave it in the queue
         </Button>
+
+        {/* Outlined rather than filled, as on a catalogued book's page: a filled
+            red button invites the press it is warning about. */}
+        {onDiscard && (
+          <Button tone="danger" block off={discarding} onPress={() => setConfirmingDiscard(true)}>
+            {discarding ? 'Discarding...' : 'Discard this scan and its photos'}
+          </Button>
+        )}
       </Phone>
     </div>
   )
