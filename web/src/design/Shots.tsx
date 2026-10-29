@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Cloth } from './Shelf'
 import { frameAtScroll } from '../lib/gallery'
+import { useSystemBack } from '../app/systemBack'
 
 export interface Shot {
   /** What this photograph is of: Front, Spine, Back. */
@@ -380,6 +381,7 @@ function Whole({ shots, at, onLeave }: {
   onLeave: () => void
 }) {
   const [showing, setShowing] = useState(at)
+  useSystemBack(onLeave, 'over')
   const track = useRef<HTMLSpanElement | null>(null)
   const opened = useRef(at)
 

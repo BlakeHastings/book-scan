@@ -5,9 +5,9 @@
  * writes `window.location`. The screens that matter are not addressable, since
  * review is the book in your hands with what you have typed into it and a claim
  * held on its capture, and the camera is a live media stream and three
- * photographs that are not on the server yet. A history entry per screen would
- * also make the phone's back gesture release a capture lock silently, and that
- * gesture is already spoken for by `putDownOnPageHide`.
+ * photographs that are not on the server yet. So there is no history entry per
+ * screen either: the phone's back gesture is answered by `app/systemBack.tsx`,
+ * which keeps one entry and does what the screen's own back arrow does.
  *
  * The hash is not free to take either: `src/design/gallery/route.ts` owns it.
  */
@@ -125,6 +125,8 @@ export interface Navigation {
   readonly openScanner: () => void
   /** Back to the screen the scanner was opened from. */
   readonly leaveScanner: () => void
+  /** Which screen that is. */
+  readonly scannerFrom: Route
 }
 
 const Context = createContext<Navigation | null>(null)
@@ -229,6 +231,7 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
         leaveRoom: () => setRoute(roomBack),
         openScanner,
         leaveScanner: () => setRoute(scanBack),
+        scannerFrom: scanBack,
       }}
     >
       {children}

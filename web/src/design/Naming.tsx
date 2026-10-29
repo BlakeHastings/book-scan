@@ -15,6 +15,7 @@
 import type { ReactNode } from 'react'
 import { TopBar } from './Chrome'
 import { SearchField } from './Finding'
+import { stay, useSystemBack } from '../app/systemBack'
 
 /**
  * The panel itself. Deliberately dumb: it draws a field and whatever answers
@@ -52,6 +53,7 @@ export function Naming({
   /** The answers: what already exists, and what could be made. */
   children?: ReactNode
 }) {
+  useSystemBack(onClose ?? stay, 'over')
   return (
     <div className="wf-name" role="dialog" aria-modal="true" aria-label={title}>
       <div className="wf-name__panel">

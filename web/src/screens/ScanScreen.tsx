@@ -11,12 +11,15 @@ import { useCameraSession } from '../app/cameraSession'
 import { useErrorBanner } from '../app/errorBanner'
 import { useNavigation } from '../app/navigation'
 import { useOpenBook } from '../app/openBook'
+import { useSystemBack } from '../app/systemBack'
 
 export function ScanScreen() {
   const { leaveScanner, setRoute } = useNavigation()
   const { setError } = useErrorBanner()
   const { setToast } = useCameraSession()
   const { openBook, openCapture } = useOpenBook()
+  // The camera's own way out is drawn by the viewfinder, which every camera shares, so it is named here.
+  useSystemBack(leaveScanner)
 
   /**
    * The detail view reads the book's checked-out state and offers the actions that fit it, so

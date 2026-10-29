@@ -33,7 +33,7 @@ import { useTagging } from '../app/tagging'
 export function ReviewScreen() {
   const { setRoute } = useNavigation()
   const { error, setError } = useErrorBanner()
-  const { leaveFor, returnToOrigin } = useLeaving()
+  const { leaveFor, returnToOrigin, cameFrom } = useLeaving()
   const { openNeighbour } = useOpenBook()
   const book = useBookInHand()
   const {
@@ -153,6 +153,7 @@ export function ReviewScreen() {
         onDiscard={captureId !== null ? discardScan : undefined}
         discarding={discardingScan}
         tabs={tabs}
+        tab={cameFrom}
         tags={tagging.tags}
         vocabulary={tagging.vocabulary}
         taggingBusy={tagging.busy}
@@ -179,6 +180,7 @@ export function ReviewScreen() {
       onClearRelookupError={() => setRelookupError('')}
       saved
       tabs={tabs}
+      tab={cameFrom}
       notice={notice}
       error={error}
       onDismissError={() => setError('')}

@@ -12,6 +12,7 @@
 
 import type { ReactNode } from 'react'
 import { IconBack, IconCamera, IconHome, IconOnward, IconPerson, IconQueue, IconShelves } from './Icons'
+import { stay, useSystemBack } from '../app/systemBack'
 
 export function TopBar({
   title,
@@ -29,6 +30,7 @@ export function TopBar({
    */
   action?: { word: string; icon: ReactNode; onPress?: () => void }
 }) {
+  useSystemBack(onBack)
   return (
     <header className={`wf-top${onBack ? '' : ' wf-top--plain'}`}>
       {onBack && (
@@ -100,6 +102,7 @@ export function Corner({
   out?: { word: string; note?: string; onPress?: () => void }
   onClose?: () => void
 }) {
+  useSystemBack(onClose ?? stay, 'over')
   return (
     <div className="wf-corner" role="dialog" aria-modal="true" aria-label={FIXTURES_WORD}>
       <button

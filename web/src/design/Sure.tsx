@@ -17,6 +17,7 @@
 import type { ReactNode } from 'react'
 import { Button } from './Controls'
 import { Place } from './List'
+import { stay, useSystemBack } from '../app/systemBack'
 
 /**
  * The card a screen is asked over, without the question on it. `Sure` is one
@@ -39,6 +40,7 @@ export function Asked({
   onOut?: () => void
   children?: ReactNode
 }) {
+  useSystemBack(onOut ?? stay, 'over')
   return (
     /* Only the page itself: a press that started on the card is somebody reading it. */
     <div

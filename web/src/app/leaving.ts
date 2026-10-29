@@ -8,6 +8,7 @@
  * saying what happens to the book.
  */
 
+import type { TabName } from '../design/Chrome'
 import { bookStillInHand } from '../lib/cameraReturn'
 import { useBookInHand, type Origin } from './bookInHand'
 import { useNavigation, type Route } from './navigation'
@@ -29,6 +30,18 @@ export const RETURN_TO: Record<Origin, Route> = {
   scan: 'scan',
 }
 
+/**
+ * The tab a screen belongs to, for a screen that is not one itself: the scanner belongs to
+ * wherever it was opened from, and everything reached from the library is the library's.
+ */
+export function tabOf(route: Route, scannerFrom: Route): TabName {
+  if (route === 'scan') return scannerFrom === 'scan' ? 'home' : tabOf(scannerFrom, 'home')
+  if (route === 'home') return 'home'
+  if (route === 'queue') return 'queue'
+  if (route === 'capture') return 'scan'
+  return 'library'
+}
+
 export interface Leaving {
   /** Put the book down and go back to wherever it was picked up. */
   readonly returnToOrigin: () => void
@@ -45,10 +58,16 @@ export interface Leaving {
    * still in hand and goes there itself, off the same table.
    */
   readonly landing: Route
+  /**
+   * The tab the book in hand was picked up under, lit while it is being
+   * looked at and shelved: the place it goes back to is the place it came
+   * from, so the tab bar says the same thing as the back arrow.
+   */
+  readonly cameFrom: TabName
 }
 
 export function useLeaving(): Leaving {
-  const { setRoute, setQueueReturn } = useNavigation()
+  const { setRoute, setQueueReturn, scannerFrom } = useNavigation()
   const { origin, bookId, clearBookInHand } = useBookInHand()
 
   /*
@@ -90,5 +109,5 @@ export function useLeaving(): Leaving {
     setRoute(next)
   }
 
-  return { returnToOrigin, leaveFor, landing }
+  return { returnToOrigin, leaveFor, landing, cameFrom: tabOf(landing, scannerFrom) }
 }

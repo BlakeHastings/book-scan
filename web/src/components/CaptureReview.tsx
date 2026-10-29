@@ -68,6 +68,8 @@ interface Props {
   /** The discard has been sent and not answered. */
   discarding?: boolean
   tabs: Record<TabName, () => void>
+  /** The tab the book was picked up under, which is where `onLeave` goes back to. */
+  tab: TabName
 
   /**
    * Only a person's tags: a book from Open Library can carry up to twelve
@@ -106,7 +108,7 @@ export function CaptureReview({
   catalogueCover, coverText, captureNote, suggestion = null,
   onAcceptSuggestion, onRejectSuggestion, notice, error,
   onDismissError, onChange, onRelookup, onClearRelookupError, onRetake,
-  onShelve, onLeave, onDiscard, discarding = false, tabs,
+  onShelve, onLeave, onDiscard, discarding = false, tabs, tab,
   tags, vocabulary, taggingBusy, taggingError, onAddTag, onRemoveTag, canTag,
 }: Props) {
   const [asking, setAsking] = useState(false)
@@ -157,7 +159,7 @@ export function CaptureReview({
   return (
     <div className="wf">
       <Phone
-        tab="queue"
+        tab={tab}
         onTab={(name) => tabs[name]()}
         top={
           <TopBar

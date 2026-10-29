@@ -43,6 +43,8 @@ interface Props {
   placement?: ReactNode
   /** Where each of the four places goes. The frame knows the places, not the journey. */
   tabs?: Record<TabName, () => void>
+  /** The tab the book was picked up under. */
+  tab?: TabName
   /**
    * Drawn the same way `CaptureReview` draws this pair: a refusal is a
    * dismissible card, a notice is one quiet line the next thing replaces.
@@ -136,7 +138,7 @@ export function BookDetail({
   relookupBusy, relookupError, saved,
   onChange, onRelookup, onClearRelookupError, onShelve, onSaveEdits, onDiscard,
   onDelete, deleting = false, doneLabel = 'Done', placement,
-  tabs, notice = '', error = '', onDismissError,
+  tabs, tab = 'library', notice = '', error = '', onDismissError,
   checkedOutAt = null, onCheckOut, checkingOut = false, catalogueCover = '',
   boundaryMoves = null, onBoundaryMove, boundaryMoving = false,
   misfile = null,
@@ -259,8 +261,8 @@ export function BookDetail({
   return (
     <div className="wf">
       <Phone
-        tab="library"
-        onTab={tabs ? (name) => tabs[name]() : undefined}
+        tab={tab}
+        onTab={tabs ?(name) => tabs[name]() : undefined}
         top={
           <TopBar
             title={editing && saved ? 'Edit the details' : draft.title || 'Untitled'}

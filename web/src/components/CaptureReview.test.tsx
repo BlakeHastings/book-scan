@@ -58,6 +58,7 @@ function drawn(over: {
       onLeave={() => {}}
       onDiscard={over.onDiscard}
       tabs={tabs}
+      tab="queue"
       tags={over.tags ?? []}
       vocabulary={over.vocabulary ?? []}
       taggingBusy={false}

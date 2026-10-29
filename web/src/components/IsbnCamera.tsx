@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api'
 import { Viewfinder, type Hand } from '../design/Camera'
 import { rememberedHand } from '../lib/hand'
+import { useSystemBack } from '../app/systemBack'
 import {
   applyFocusHints, captureStill, listLenses, openCamera, preferredLens,
   rememberedLens, rememberLens, stopStream,
@@ -30,6 +31,7 @@ export function IsbnCamera({ onRead, onCancel }: Props) {
   const [miss, setMiss] = useState('')
   /** Read once, and asked for on the settings screen. See `ScanCamera`. */
   const [hand] = useState<Hand>(rememberedHand)
+  useSystemBack(onCancel, 'over')
 
   // Fills the screen, so the page underneath must not scroll while this is open.
   useEffect(() => {
