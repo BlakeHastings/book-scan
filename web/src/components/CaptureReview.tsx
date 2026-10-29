@@ -11,7 +11,7 @@ import { IsbnPrompt } from './IsbnPrompt'
 import { Trouble } from './RoomFrame'
 import { TagNaming } from './TagNaming'
 import { FICTION_SLUG, NON_FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
-import type { AppliedTag, CataloguedBook, Draft, LookupResponse, TagRow } from '../lib/api'
+import type { AppliedTag, CataloguedBook, Draft, LookupResponse, TagRow, TitleSuggestion } from '../lib/api'
 import { SLOT_SHORT, type Slot } from '../lib/scanner'
 
 interface Props {
@@ -38,6 +38,15 @@ interface Props {
   /** What the photographs produced, quoted rather than filled in (#147). */
   coverText: string
   captureNote: string
+  /**
+   * What looking the cover's title up found. Its match is offered, never
+   * applied, until somebody says it is the book.
+   */
+  suggestion?: TitleSuggestion | null
+  /** "Yes, that is it": fill the record from the match. */
+  onAcceptSuggestion?: (match: LookupResponse) => void
+  /** "No": the match is not this book, so start from what the cover reads. */
+  onRejectSuggestion?: () => void
   /** What the last thing that happened actually did, in its own words. */
   notice: string
   error: string
@@ -94,7 +103,8 @@ const READ_FROM: Record<string, string> = {
 
 export function CaptureReview({
   draft, lookup, catalogued, photos, derivedFiling, saving, relookupBusy, relookupError,
-  catalogueCover, coverText, captureNote, notice, error,
+  catalogueCover, coverText, captureNote, suggestion = null,
+  onAcceptSuggestion, onRejectSuggestion, notice, error,
   onDismissError, onChange, onRelookup, onClearRelookupError, onRetake,
   onShelve, onLeave, onDiscard, discarding = false, tabs,
   tags, vocabulary, taggingBusy, taggingError, onAddTag, onRemoveTag, canTag,
@@ -102,16 +112,26 @@ export function CaptureReview({
   const [asking, setAsking] = useState(false)
   const [naming, setNaming] = useState(false)
   const [confirmingDiscard, setConfirmingDiscard] = useState(false)
+  const [turnedDown, setTurnedDown] = useState(false)
+
+  // Offered only while nothing else has named the book.
+  const offered = !turnedDown && !lookup?.found && !draft.title ? suggestion?.match ?? null : null
+  // The form holds the cover's reading rather than anything a person or a
+  // catalogue said, so it says so beside the fields.
+  const readOffCover = Boolean(
+    suggestion && !lookup?.found && draft.title && draft.title === suggestion.read.title,
+  )
 
   // Same expression `BookDetail` reads, and for the same reason: a relookup
   // in flight is about to replace the title, authors and ISBN.
   const blocked = saving || relookupBusy || !draft.title
   const why = relookupBusy
     ? 'Waiting for the ISBN lookup to finish.'
-    : !draft.title
-      ? 'Type the title off the book to shelve it. Nothing has been filled in '
-        + 'from the photographs; what the cover reads is quoted below.'
-      : ''
+    : offered
+      ? `Say whether it is ${offered.title} above, or type the title off the book.`
+      : !draft.title
+        ? 'Type the title off the book to shelve it.'
+        : ''
 
   // Named in the order they are read, not `SLOTS`' order (the camera's):
   // that is the camera's business, not this screen's.
@@ -197,16 +217,46 @@ export function CaptureReview({
           <Said key={note}>{note}</Said>
         ))}
 
-        {draft.title ? (
+        {offered ? (
+          <Card
+            kind="Found by the title on the cover"
+            title={`Looks like ${offered.title}${offered.authors.length ? ` by ${offered.authors.join(', ')}` : ''}?`}
+            foot={(
+              <>
+                <Button tone="primary" onPress={() => onAcceptSuggestion?.(offered)}>
+                  Yes, that is it
+                </Button>
+                <Button
+                  tone="quiet"
+                  onPress={() => { setTurnedDown(true); onRejectSuggestion?.() }}
+                >
+                  No, type it in
+                </Button>
+              </>
+            )}
+          >
+            <div className="suggestion">
+              {offered.coverUrl && (
+                <img className="suggestion__cover" src={offered.coverUrl} alt={`The cover of ${offered.title}`} />
+              )}
+              <p>
+                {[offered.publisher, offered.published, offered.pages ? `${offered.pages} pages` : '']
+                  .filter(Boolean).join(' · ')
+                  || 'Open Library knows a book by this title.'}
+              </p>
+            </div>
+          </Card>
+        ) : readOffCover ? (
+          <Card weight="quiet" kind="Read off the cover" title={draft.title}>
+            <p>{coverOnlySaid(suggestion!, turnedDown)}</p>
+          </Card>
+        ) : draft.title ? (
           <Card kind={lookup?.source || 'What you have said'} title={draft.title}>
             {found && <p>{found}</p>}
           </Card>
         ) : (
-          <Card weight="quiet" kind="Nothing came back" title="Fill it in from the book">
-            <p>
-              No catalogue answered for this one. What the photographs read is
-              underneath, as evidence rather than as an answer.
-            </p>
+          <Card weight="quiet" kind="Not found" title="Fill it in from the book">
+            <p>{nothingFoundSaid(draft, coverText, suggestion)}</p>
           </Card>
         )}
 
@@ -247,6 +297,9 @@ export function CaptureReview({
           placeholder="Separate two names with a comma"
           onChange={(authors) => onChange({ authors })}
         />
+        {readOffCover && (
+          <Said>Title and author read off the cover. Check them against the book.</Said>
+        )}
         <Field
           label="Files under"
           value={draft.authorFilingOverride}
@@ -338,7 +391,7 @@ export function CaptureReview({
             do, not what is wrong. */}
         {blocked && why && <Said>{why}</Said>}
 
-        <Button tone="primary" block off={blocked} onPress={onShelve}>
+        <Button tone={offered ? 'secondary' : 'primary'} block off={blocked} onPress={onShelve}>
           {saving ? 'Saving...' : 'That is the book'}
         </Button>
         <Button tone="quiet" block onPress={onLeave}>
@@ -357,12 +410,36 @@ export function CaptureReview({
   )
 }
 
+/** What happened, when the form holds what the cover reads rather than a catalogue's record. */
+function coverOnlySaid(suggestion: TitleSuggestion, turnedDown: boolean): string {
+  if (turnedDown && suggestion.match) {
+    return `Not ${suggestion.match.title}, then. The title and author below are what the cover reads.`
+  }
+  const { title, author } = suggestion.read
+  return `No ISBN on the photographs. Looked up ${title}${author ? ` by ${author}` : ''} `
+    + 'and nothing matched, so the title and author below are what the cover reads.'
+}
+
+/** What happened, said plainly, when nothing has named the book and the form is empty. */
+function nothingFoundSaid(draft: Draft, coverText: string, suggestion: TitleSuggestion | null): string {
+  const isbn = draft.isbn13 || draft.isbn10
+  if (isbn) return `No catalogue we asked has ISBN ${isbn}. Type the title and author off the book.`
+  if (suggestion) {
+    return `No ISBN on the photographs. Looked up ${suggestion.read.title} and nothing matched. `
+      + 'Type the title and author off the book.'
+  }
+  if (coverText.trim()) {
+    return 'No ISBN on the photographs. What the cover reads is quoted below; '
+      + 'type the title and author off the book.'
+  }
+  return 'No ISBN and no words could be read off the photographs. Type the title and author off the book.'
+}
+
 /**
- * Shown as evidence and never as a value: nothing here is pre-filled into a
- * field, and there is deliberately no control that copies it across. OCR is
- * a lossy, engine-version-dependent reading of a photograph, and a guess
- * promoted into a box somebody then saves enters the catalogue wearing the
- * clothes of a confirmed value.
+ * The cover's words quoted as the machine read them. OCR is a lossy,
+ * engine-version-dependent reading of a photograph, so a title and author
+ * filled in from it are marked as read off the cover beside the fields, and
+ * this quotation stays to check them against.
  */
 export function CaptureEvidence({ coverText = '', note = '' }: {
   coverText?: string
@@ -395,8 +472,8 @@ export function CaptureEvidence({ coverText = '', note = '' }: {
                 is the app talking about the machine's reading rather than more
                 of the reading. */}
             <Said>
-              Read off the photograph by a machine, and often wrong. Nothing here
-              has been filled in for you: type what the book itself says.
+              Read off the photograph by a machine, and often wrong. Check
+              anything filled in from it against the book itself.
             </Said>
           </div>
         )}

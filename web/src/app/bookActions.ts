@@ -13,7 +13,7 @@ import {
 import { resolveIsbnPair } from '../../shared/isbn'
 import { rangeOfSlug } from '../../domain/tagging/genre'
 import type { ShelfRange } from '../../shared/shelving'
-import { useBookInHand } from './bookInHand'
+import { evidenceOf, useBookInHand } from './bookInHand'
 import { useSummary } from './summary'
 import { useErrorBanner } from './errorBanner'
 import { useLeaving } from './leaving'
@@ -280,7 +280,7 @@ export function useBookActions(): BookActions {
         book.setDraft(settled)
         // The row is the fresh one, and its note may have stopped being true:
         // "use Change ISBN" is stale advice to somebody who just did.
-        book.setEvidence({ coverText: capture.cover_text, note: capture.note })
+        book.setEvidence(evidenceOf(capture))
         book.setLookup(found)
         book.setIdentified(Boolean(found?.found))
         if (found && !found.found) {

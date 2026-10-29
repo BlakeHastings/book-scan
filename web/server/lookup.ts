@@ -42,6 +42,7 @@ const GOOGLE_BOOKS_ORIGIN = process.env.BOOKSCAN_GOOGLE_BOOKS_URL || 'https://ww
 const OPEN_LIBRARY_URL = `${OPEN_LIBRARY_ORIGIN}/api/books`
 const OPEN_LIBRARY_SEARCH_URL = `${OPEN_LIBRARY_ORIGIN}/search.json`
 const GOOGLE_BOOKS_URL = `${GOOGLE_BOOKS_ORIGIN}/books/v1/volumes`
+const COVERS_ORIGIN = process.env.BOOKSCAN_COVERS_URL || 'https://covers.openlibrary.org'
 
 /**
  * How long the two supplementary catalogues get, together, for one book.
@@ -519,23 +520,32 @@ interface OpenLibraryDoc {
   number_of_pages_median?: number
   isbn?: string[]
   subject?: string[]
+  cover_i?: number
 }
 
-/** Fallback for books with no readable barcode. */
+/**
+ * Fallback for books with no readable barcode. Open Library alone, on purpose:
+ * Google Books has no key in development and rate-limits an anonymous caller,
+ * so a search that needed it would fail exactly where it is wanted. `author`
+ * narrows the search when one was read; empty asks by title alone.
+ */
 export async function searchTitle(
   title: string,
   options: LookupOptions = {},
+  author = '',
 ): Promise<LookupResult> {
   const timeoutMs = options.timeoutMs ?? 8000
   const query = (title ?? '').trim()
   if (query.length < 3) return emptyResult(['Title too short to search.'])
+  const by = (author ?? '').trim()
 
   const answer = await getJson(
     OPEN_LIBRARY_SEARCH_URL,
     {
       title: query,
+      ...(by ? { author: by } : {}),
       limit: '5',
-      fields: 'title,author_name,publisher,first_publish_year,number_of_pages_median,isbn,subject',
+      fields: 'title,author_name,publisher,first_publish_year,number_of_pages_median,isbn,subject,cover_i',
     },
     timeoutMs,
   )
@@ -547,7 +557,9 @@ export async function searchTitle(
   // filed as an outage.
   const doc = data?.docs?.[0]
   noteSourceAnswer('Open Library', outcomeOf(answer.answered, Boolean(doc?.title)), answer.why)
-  if (!doc?.title) return emptyResult([`No match for title "${query}".`])
+  if (!doc?.title) {
+    return emptyResult([`No match for title "${query}"${by ? ` by ${by}` : ''}.`])
+  }
 
   const isbns = doc.isbn ?? []
   const classification = classify({ subjects: (doc.subject ?? []).slice(0, 40) })
@@ -564,7 +576,7 @@ export async function searchTitle(
     isbn10: isbns.find((i) => i.length === 10) ?? '',
     seriesName: '',
     seriesIndex: null,
-    coverUrl: '',
+    coverUrl: doc.cover_i ? `${COVERS_ORIGIN}/b/id/${doc.cover_i}-M.jpg` : '',
     source: 'Open Library search',
     classification,
     notes: [`Matched by title "${query}", not by ISBN. Please verify.`],

@@ -4,7 +4,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { CaptureReview } from './CaptureReview'
 import {
-  emptyDraft, type AppliedTag, type CataloguedBook, type Draft, type TagRow,
+  emptyDraft, type AppliedTag, type CataloguedBook, type Draft, type LookupResponse, type TagRow,
+  type TitleSuggestion,
 } from '../lib/api'
 import { FICTION_SLUG } from '../../domain/tagging/catalogue-claims'
 import type { TabName } from '../design/Chrome'
@@ -28,6 +29,7 @@ function drawn(over: {
   captureNote?: string
   catalogued?: CataloguedBook | null
   onDiscard?: () => void
+  suggestion?: TitleSuggestion | null
 } = {}) {
   return renderToStaticMarkup(
     <CaptureReview
@@ -44,6 +46,7 @@ function drawn(over: {
       catalogueCover=""
       coverText={over.coverText ?? ''}
       captureNote={over.captureNote ?? ''}
+      suggestion={over.suggestion ?? null}
       notice=""
       error=""
       onDismissError={() => {}}
@@ -127,13 +130,20 @@ describe('a queued capture with cover text and no title', () => {
     expect(markup).toContain('often wrong')
   })
 
-  // Deliberately not pre-filled: OCR is a lossy reading, and a guess sitting
-  // in the Title box is one save away from becoming a confirmed value.
-  it('leaves the Title box empty rather than filling it with the reading', () => {
+  // Filling the form from the reading is the review screen's, once a title
+  // search has been made of it, and marked when it happens; this component
+  // never does it on its own.
+  it('leaves the Title box empty when nothing has filled it', () => {
     const markup = nameless({ coverText: 'Song of Solomon' })
 
     expect(markup).not.toContain('value="Song of Solomon"')
-    expect(markup).toContain('Nothing here has been filled in for you')
+  })
+
+  it('says what happened rather than that a catalogue was asked', () => {
+    const markup = words(nameless({ coverText: 'Song of Solomon' }))
+
+    expect(markup).not.toContain('No catalogue answered')
+    expect(markup).toContain('No ISBN on the photographs')
   })
 
   it('offers nothing that copies the reading into a field', () => {
@@ -209,5 +219,41 @@ describe('throwing a scan away from the check-the-details screen', () => {
 
   it('offers nothing where there is no scan to throw away', () => {
     expect(words(drawn())).not.toContain('Discard')
+  })
+})
+
+describe('a cover whose title was looked up (#680)', () => {
+  const middlemarch: LookupResponse = {
+    found: true, title: 'Middlemarch', subtitle: '', authors: ['George Eliot'],
+    publisher: 'Penguin', published: '1871', pages: '880', isbn13: '', isbn10: '',
+    seriesName: '', seriesIndex: null, coverUrl: 'https://covers.example/b/id/1-M.jpg',
+    source: 'Open Library search',
+    classification: { genre: FICTION_SLUG, confidence: 'high', reason: 'stub' },
+    notes: [], duplicateOf: null,
+  }
+  const read = { title: 'Middlemarch', author: 'George Eliot' }
+
+  it('asks whether it is the book the search found, with its cover', () => {
+    const markup = drawn({ draft: { title: '' }, suggestion: { read, match: middlemarch } })
+
+    expect(words(markup)).toContain('Looks like Middlemarch by George Eliot?')
+    expect(words(markup)).toContain('Yes, that is it')
+    expect(markup).toContain('src="https://covers.example/b/id/1-M.jpg"')
+  })
+
+  it('stops asking once the form has a title', () => {
+    const markup = words(drawn({ draft: { title: 'Middlemarch' }, suggestion: { read, match: middlemarch } }))
+
+    expect(markup).not.toContain('Looks like')
+  })
+
+  it('marks a title and author that were read off the cover', () => {
+    const markup = words(drawn({
+      draft: { title: 'Middlemarch', authors: 'George Eliot' },
+      suggestion: { read, match: null },
+    }))
+
+    expect(markup).toContain('Title and author read off the cover')
+    expect(markup).toContain('nothing matched')
   })
 })

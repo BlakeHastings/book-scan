@@ -44,6 +44,12 @@ export interface QueueProjection {
   analysed: string
   /** The worker's catalogue lookup, as JSON, or empty when nothing was found. */
   draft_json: string
+  /**
+   * The title search the worker made of the cover when no ISBN identified the
+   * book, as a `TitleSuggestion` in JSON, or empty when it asked nothing. A
+   * suggestion for a person to confirm and never an identification.
+   */
+  title_search_json: string
   /** What a person stated, as JSON. Never written by the worker. */
   edit_json: string
   edited_by: string
