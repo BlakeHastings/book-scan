@@ -25,12 +25,14 @@ import { Trouble } from '../components/RoomFrame'
 import { PlacementView } from '../components/ShelfStrip'
 import { genreOfRange, rangeOfSlug } from '../../domain/tagging/genre'
 import { filingName } from '../../shared/shelving'
-import { api, type AtAPlace, type PlacementResponse } from '../lib/api'
+import { api, deviceName, type AtAPlace, type PlacementResponse } from '../lib/api'
+import { afterShelving, nextOffTheTable, type AfterShelving } from '../app/afterShelving'
 import { useBookActions } from '../app/bookActions'
 import { useBookInHand } from '../app/bookInHand'
 import { useErrorBanner } from '../app/errorBanner'
 import { useLeaving } from '../app/leaving'
 import { useNavigation, type Route } from '../app/navigation'
+import { useOpenBook } from '../app/openBook'
 import { usePaper } from '../app/paper'
 import { useSummary } from '../app/summary'
 
@@ -46,26 +48,32 @@ interface Shelved {
    */
   placement: PlacementResponse | null
   /**
-   * Where "Next book" leads, read off the book while it was still in
-   * hand. Taken before the save rather than asked for after it, since the
-   * origin is put down with the book.
+   * Where finishing leads and the tab it is under, read off the book while
+   * it was still in hand. Taken before the save rather than asked for after
+   * it, since the origin is put down with the book.
    */
   next: Route
+  tab: TabName
+  /** The capture just shelved, and where it sat in the queue listing, so the next one is the one after it. */
+  capture: number | null
+  from: number
 }
 
 export function ShelveScreen() {
-  const { setRoute } = useNavigation()
-  const { error } = useErrorBanner()
-  const { leaveFor, landing } = useLeaving()
+  const { setRoute, queueReturn } = useNavigation()
+  const { error, setError } = useErrorBanner()
+  const { leaveFor, landing, cameFrom } = useLeaving()
   const {
-    draft, setDraft, bookId, saving, placement, placementStale, refreshPlacement,
+    draft, setDraft, bookId, captureId, saving, placement, placementStale, refreshPlacement,
     cascade, setCascade, catalogued,
   } = useBookInHand()
   const { save } = useBookActions()
+  const { openCapture } = useOpenBook()
 
-  const { queueCounts } = useSummary()
+  const { queueCounts, setQueueCounts } = useSummary()
 
   const [shelved, setShelved] = useState<Shelved | null>(null)
+  const [after, setAfter] = useState<AfterShelving | null>(null)
   const [wanted, setWanted] = useState<AtAPlace | null>(null)
 
   // A failed read leaves the run's answer as the only suggestion, which is
@@ -84,6 +92,46 @@ export function ShelveScreen() {
   const waiting = queueCounts
     ? queueCounts.pending + queueCounts.ready + queueCounts.failed
     : null
+
+  /*
+   * A book picked up from the queue is followed by the next one in it, so the
+   * queue is asked once the save has answered: before it, the book just
+   * shelved is still listed as ready.
+   */
+  useEffect(() => {
+    setAfter(null)
+    if (!shelved) return
+    if (shelved.next !== 'queue') {
+      setAfter(afterShelving(shelved.next, null, null))
+      return
+    }
+    let live = true
+    api.listCaptures()
+      .then((listed) => {
+        if (!live) return
+        setQueueCounts(listed.counts)
+        const table = nextOffTheTable(listed.captures, shelved.capture, shelved.from, deviceName())
+        const left = listed.counts.pending + listed.counts.ready + listed.counts.failed
+        setAfter(afterShelving('queue', table, left))
+      })
+      .catch(() => { if (live) setAfter(afterShelving('queue', null, null)) })
+    return () => { live = false }
+  }, [shelved, setQueueCounts])
+
+  const takeUp = async (next: AfterShelving) => {
+    if ('route' in next) {
+      setRoute(next.route)
+      return
+    }
+    try {
+      const { capture } = await api.claimCapture(next.capture.id, deviceName())
+      openCapture(capture, { id: capture.id, index: next.index })
+    } catch (caught) {
+      // Somebody else picked it up in the moment between: the queue says who.
+      setError((caught as Error).message)
+      setRoute('queue')
+    }
+  }
 
   usePaper()
 
@@ -138,6 +186,9 @@ export function ShelveScreen() {
       area: placement?.derivedLocation ?? '',
       placement: withTheBookIn(),
       next: landing,
+      tab: cameFrom,
+      capture: captureId,
+      from: queueReturn?.index ?? 0,
     }
     /*
      * A book that was not in the catalogue a moment ago ends on "Shelved",
@@ -152,7 +203,7 @@ export function ShelveScreen() {
   if (shelved) {
     return (
       <div className="wf">
-        <Phone tab="queue" onTab={(name) => tabs[name]()} top={<TopBar title="Shelved" />}>
+        <Phone tab={shelved.tab} onTab={(name) => tabs[name]()} top={<TopBar title="Shelved" />}>
           {shelved.placement ? (
             /* The same drawing the question was asked on, with the book in it.
                `instruction` off: the sentence naming the neighbours was the
@@ -171,12 +222,15 @@ export function ShelveScreen() {
             <Confirmation said={`${shelved.title} is on ${shelved.area}.`} />
           )}
 
-          {/* Both of these are a route and nothing else. There is no book
-              to put down by the time either can be pressed: the save did
-              that, standing at the bookcase. */}
-          <Button tone="primary" block onPress={() => setRoute(shelved.next)}>
-            Next book
-          </Button>
+          {/* There is no book to put down by the time either can be pressed:
+              the save did that, standing at the bookcase. The first is drawn
+              once it knows what it leads to, so its words never change under
+              a thumb. */}
+          {after && (
+            <Button tone="primary" block onPress={() => void takeUp(after)}>
+              {after.word}
+            </Button>
+          )}
           <Button tone="quiet" block onPress={() => setRoute('home')}>
             That is enough for today
           </Button>
@@ -207,7 +261,7 @@ export function ShelveScreen() {
   return (
     <div className="wf">
       <Phone
-        tab="queue"
+        tab={cameFrom}
         onTab={(name) => tabs[name]()}
         top={<TopBar title="Where it goes" sub={title} onBack={() => setRoute('review')} />}
       >
