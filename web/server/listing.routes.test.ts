@@ -466,3 +466,53 @@ describe('where a book has been', () => {
     expect(status).toBe(404)
   })
 })
+
+describe('a book off the shelves at random (#657)', () => {
+  it('answers id null, not a refusal, when nothing is on the shelves', async () => {
+    const empty = await call('/api/books/random')
+    expect(empty).toEqual({ status: 200, body: { id: null } })
+
+    // Catalogued and out is still nothing on the shelves.
+    const dune = await aBook({ title: 'Dune', isbn13: '9780441013593' })
+    await post(`/api/books/${dune}/checkout`, { out: true })
+    expect(await call('/api/books/random')).toEqual({ status: 200, body: { id: null } })
+  })
+
+  it('answers a shelved book every time, more than one across many asks, and never an out one', async () => {
+    const shelved = [
+      await aBook({ title: 'Dune', isbn13: '9780441013593' }),
+      await aBook({ title: 'Emma', isbn13: '9780141439587' }),
+      await aBook({ title: 'Kindred', isbn13: '9780807083697' }),
+    ]
+    const out = await aBook({ title: 'Cosmos', isbn13: '9780345331359' })
+    await post(`/api/books/${out}/checkout`, { out: true })
+
+    // Not asserting a distribution: thirty asks over three books all landing
+    // on one is 3 x (1/3)^30, and anything else is a pass.
+    const seen = new Set<number>()
+    for (let ask = 0; ask < 30; ask += 1) {
+      const { status, body } = await call('/api/books/random')
+      expect(status).toBe(200)
+      expect(shelved, `answered ${body.id}, which is not on the shelves`).toContain(body.id)
+      seen.add(body.id)
+    }
+    expect(seen.size, 'thirty asks answered the same book').toBeGreaterThan(1)
+  })
+
+  it('is not read as a book id by the route beside it', async () => {
+    await aBook({ title: 'Dune', isbn13: '9780441013593' })
+    const { status, body } = await call('/api/books/random')
+
+    expect(status).toBe(200)
+    expect(body, 'GET /api/books/:id answered "random"').not.toHaveProperty('error')
+    expect(typeof body.id).toBe('number')
+  })
+
+  it('is never kept by the browser as an answer to reuse, and is behind the gate', async () => {
+    const asked = await fetch(`${baseUrl}/api/books/random`, { headers: { cookie } })
+    expect(asked.headers.get('cache-control')).toBe('private, no-cache')
+
+    const stranger = await fetch(`${baseUrl}/api/books/random`)
+    expect(stranger.status).toBe(401)
+  })
+})

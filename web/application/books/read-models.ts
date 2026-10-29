@@ -129,7 +129,8 @@ export interface CatalogueCounts {
 /**
  * The catalogue as `catalogued_books` answers it (`shelved`, `checked_out`,
  * `withdrawn`), except `detail`, which is a lookup by id and answers a book in
- * any state, queued and discarded included.
+ * any state, queued and discarded included, and `randomShelvedId`, which reads
+ * only what is on the shelves.
  */
 export interface CatalogueReadModel {
   /**
@@ -146,6 +147,13 @@ export interface CatalogueReadModel {
 
   /** One book in any state, or null when there is no such row. */
   detail(id: number): Promise<BookView | null>
+
+  /**
+   * One shelved book, chosen uniformly at random, or null when nothing is on
+   * the shelves. Shelved and not catalogued: a book that is out or withdrawn
+   * is not on the shelf to be pulled off it.
+   */
+  randomShelvedId(): Promise<number | null>
 
   /**
    * The names as printed on the book, in printed order. `BookView.authors` is

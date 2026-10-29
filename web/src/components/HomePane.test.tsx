@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type { ReactElement } from 'react'
 import { HomePane } from './HomePane'
-import { CARRY_BOOKS, IN_HAND, SAY_WHAT } from '../design/Controls'
+import { CARRY_BOOKS, IN_HAND, PICK_A_BOOK, PickABook, SAY_WHAT } from '../design/Controls'
 import { Stats } from '../design/List'
 import type { Which } from './QueuePane'
 import type {
@@ -82,6 +82,8 @@ function propsFor(
     onQueue: () => {},
     onCarry: () => {},
     onUnclaimed: () => {},
+    onPick: () => {},
+    picked: '',
     ...over,
   }
 }
@@ -186,8 +188,9 @@ describe('the design rules that reach the app', () => {
     const html = home({ carrying: [toCarry()], unclaimed: 12 })
     const doors = html.match(/class="wf-door[ "]/g) ?? []
 
+    // Four since #657, the random book; `design.test.tsx` says why.
     expect(doors.length, `the first screen offers ${doors.length} things to do`)
-      .toBeLessThanOrEqual(3)
+      .toBeLessThanOrEqual(4)
     expect(words(html), 'a door offers what the tab bar already opens')
       .not.toMatch(/photograph a book|the queue|your library/i)
   })
@@ -331,6 +334,38 @@ describe('the numbers the drawing did not have to survive', () => {
 
   it('offers nothing of the sort until the read has answered', () => {
     expect(words(home({ unclaimed: null }))).not.toContain(SAY_WHAT)
+  })
+
+  it('offers a book at random while something could be on the shelves', () => {
+    expect(words(home())).toContain(PICK_A_BOOK)
+    expect(home(), 'the random door lost its mark').toContain('wf-door--random')
+    // One book in and eleven out is still a book to pull.
+    expect(words(home({ counts: { ...counts, checkedOut: 11 } }))).toContain(PICK_A_BOOK)
+  })
+
+  it('offers nothing to pick when every book is out or nothing is catalogued', () => {
+    const empty = { total: 0, fiction: 0, nonfiction: 0, checkedOut: 0, unplaced: 0 }
+
+    expect(words(home({ counts: { ...counts, checkedOut: counts.total } }))).not.toContain(PICK_A_BOOK)
+    expect(words(home({ counts: empty }))).not.toContain(PICK_A_BOOK)
+    // A book on the table is not on the shelves to be picked.
+    expect(words(home({ counts: empty, queue: queue({ pending: 2 }) }))).not.toContain(PICK_A_BOOK)
+  })
+
+  it('asks for the book when the random door is pressed', () => {
+    let asked = 0
+    const door = elementOf<{ onPress: () => void }>(tree({ onPick: () => { asked += 1 } }), PickABook)
+
+    expect(door, 'the first screen has no random door').not.toBeNull()
+    door!.props.onPress()
+    expect(asked).toBe(1)
+  })
+
+  it('says what the last press came back with when it opened nothing, and only then', () => {
+    const line = 'Every book is checked out or gone, so there is none to pick.'
+
+    expect(words(home({ picked: line }))).toContain(line)
+    expect(home(), 'a line was drawn with nothing to say').not.toContain('wf-said')
   })
 
   it('adds no sixth count for them, because the five are the five he named', () => {

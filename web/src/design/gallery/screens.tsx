@@ -17,7 +17,7 @@ import { Card, Confirmation, Instruction, Nothing, Said } from '../Card'
 import { Trip, Trips } from '../Carrying'
 import { Cat } from '../Cat'
 import {
-  Button, CarryBooks, Choice, Doors, Field, InHand, IN_HAND, SayWhat, Segmented,
+  Button, CarryBooks, Choice, Doors, Field, InHand, IN_HAND, PickABook, SayWhat, Segmented,
 } from '../Controls'
 import { Covers, covers } from '../Covers'
 import {
@@ -133,7 +133,43 @@ function Home(go: Go, over?: ReactElement, trouble?: ReactElement) {
         <InHand onPress={() => go('inhand')} />
         <CarryBooks onPress={() => go('carry')} />
         <SayWhat onPress={() => go('unclaimed')} />
+        {/* Opens one book's own page, whichever the server pulled off the shelves. */}
+        <PickABook onPress={() => go('book')} />
       </Doors>
+    </Phone>
+  )
+}
+
+/**
+ * The random door pressed on a catalogue with nothing on the shelves but not
+ * nothing catalogued: four books, one out and three withdrawn. Withdrawn books
+ * are counted as catalogued and not as out, so this screen cannot tell that
+ * none is in and draws the door, and the server's answer of nothing is said
+ * under it rather than opening an empty page. Rare, and drawn because it is
+ * the one way this door can answer nothing.
+ */
+function NothingToPick(go: Go) {
+  return (
+    <Phone
+      tab="home"
+      go={go}
+      top={<TopBar title="Book scan" action={you(go)} />}
+    >
+      <Stats
+        items={[
+          { n: '4', word: 'catalogued', onPress: () => go('library') },
+          { n: '1', word: 'checked out', onPress: () => go('listing') },
+          { n: '0', word: 'ready to shelve', onPress: () => go('queue') },
+          { n: '0', word: 'to carry', onPress: () => go('carry') },
+          { n: '0', word: 'stuck', onPress: () => go('queue') },
+        ]}
+      />
+
+      <Doors cat="lying">
+        <InHand onPress={() => go('inhand')} />
+        <PickABook onPress={() => go('book')} />
+      </Doors>
+      <Said>Every book is checked out or gone, so there is none to pick.</Said>
     </Phone>
   )
 }
@@ -3714,6 +3750,7 @@ export const SCREENS: Screen[] = [
   { id: 'adrift', name: 'Not where claimed', group: 'Every day', render: Adrift },
   { id: 'unanswered', name: 'Nothing answered', group: 'Every day', render: Unanswered },
   { id: 'firstday', name: 'The first evening', group: 'Every day', render: FirstDay },
+  { id: 'nothingtopick', name: 'Nothing to pick', group: 'Every day', render: NothingToPick },
   { id: 'library', name: 'Library', group: 'Every day', render: Library },
   { id: 'covers', name: 'Covers, and two tags', group: 'Every day', render: CoverView },
   { id: 'listing', name: 'A list of books', group: 'Every day', render: ListView },

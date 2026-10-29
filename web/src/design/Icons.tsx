@@ -1,5 +1,5 @@
 /**
- * Every icon in the redesign, drawn inline. There are fifteen, and that is
+ * Every icon in the redesign, drawn inline. There are sixteen, and that is
  * the whole set on purpose: an icon here exists only where a word is already
  * beside it (the tab bar, a full-width action row), where the target is a
  * corner of the screen (back, the one top-right action), or where the target
@@ -131,6 +131,25 @@ export function IconSaying(p: Props) {
       <path d="M5.2 4.4v15.2" />
       <path d="M14 8.4h6.6a1.4 1.4 0 0 1 1.4 1.4v4.4a1.4 1.4 0 0 1-1.4 1.4H14l-2.4-3.6Z" />
       <circle cx="15.4" cy="12" r="0.9" />
+    </Glyph>
+  )
+}
+
+/**
+ * A book pulled at random: a book, and a die beside it showing three. The die
+ * is turned so it reads as something thrown rather than as a square with
+ * dots in it, which is closer to a domino or a grid than to chance. Three
+ * pips on the diagonal because that is the face nobody mistakes.
+ */
+export function IconRandom(p: Props) {
+  return (
+    <Glyph {...p}>
+      <rect x="2.6" y="4.4" width="8" height="15.2" rx="1.3" />
+      <path d="M5.2 4.4v15.2" />
+      <rect x="13.2" y="8.6" width="8" height="8" rx="1.6" transform="rotate(12 17.2 12.6)" />
+      <circle cx="15.5" cy="10.4" r="0.8" fill="currentColor" stroke="none" />
+      <circle cx="17.2" cy="12.6" r="0.8" fill="currentColor" stroke="none" />
+      <circle cx="18.9" cy="14.8" r="0.8" fill="currentColor" stroke="none" />
     </Glyph>
   )
 }

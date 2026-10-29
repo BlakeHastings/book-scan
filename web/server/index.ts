@@ -58,6 +58,7 @@ import type { CataloguedState } from '../application/books/read-models'
 import { ListBooksHandler } from '../application/books/queries/list-books'
 import { CountBooksHandler } from '../application/books/queries/count-books'
 import { GetBookHandler } from '../application/books/queries/get-book'
+import { RandomBookHandler } from '../application/books/queries/random-book'
 import { VocabularyHandler } from '../application/tagging/queries/vocabulary'
 import { TagsOfBookHandler } from '../application/tagging/queries/tags-of-book'
 import { ListAuthorsHandler } from '../application/authorship/queries/list-authors'
@@ -391,6 +392,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   const listBooks = new ListBooksHandler(catalogueReads)
   const countBooks = new CountBooksHandler(catalogueReads)
   const getBook = new GetBookHandler(catalogueReads, authorReads)
+  const randomBook = new RandomBookHandler(catalogueReads)
   const vocabulary = new VocabularyHandler(tagReads)
   const tagsOfBook = new TagsOfBookHandler(catalogueReads, tagReads)
   const listAuthors = new ListAuthorsHandler(authorReads)
@@ -1925,6 +1927,23 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       moves: await describeMoves(range, await shelves.movesSince(range, before)),
       groups: await shelfGroups(range),
     })
+  }))
+
+  /**
+   * A book pulled off the shelves at random, as its id: the screen that opens
+   * it reads the book itself.
+   *
+   * Nothing on the shelves is an answer rather than a refusal, so it is a
+   * `200` with `id: null`, not a `404`: the question was a fair one and the
+   * shelves are simply empty. Registered before `/api/books/:id`, which would
+   * otherwise read `random` as an id and answer "No such book."
+   *
+   * Never stored by the browser as an answer to reuse: everything under
+   * `/api` carries `private, no-cache` (`apiCache` in `auth/gate.ts`), so a
+   * second press asks again.
+   */
+  app.get('/api/books/random', asyncRoute(async (_req, res) => {
+    res.json({ id: (await randomBook.handle())?.id ?? null })
   }))
 
   /**
