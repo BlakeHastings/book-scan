@@ -9,7 +9,8 @@ import { closeTestDatabase, openTestDatabase } from './testdb'
 import { testBooks } from './testbooks'
 import { ReadingTimedOut } from './deadline'
 import type { Db } from './driver'
-import { CaptureQueue, editsOn } from './queue'
+import { CaptureQueue, editsOn, READINGS_THAT_MAY_DIE } from './queue'
+import { couldBeReadAgain } from '../shared/captureFailure'
 import { identify } from './identify'
 import { lookupIsbn } from './lookup'
 import type { LookupResult } from './lookup'
@@ -759,6 +760,85 @@ describe('a reading that was given up on', () => {
 
   it('says nothing about a capture that never existed', async () => {
     expect(await queue.readAgain(999_999)).toBeUndefined()
+  })
+})
+
+/**
+ * A reading the process does not survive writes nothing afterwards, so the
+ * only evidence is what was written before it. A process is played here by a
+ * `CaptureQueue`: one whose reader never returns is a process that died
+ * mid-reading, and the next one, on the same database, is the restart (#673).
+ */
+describe('a reading that took the process with it', () => {
+  const attemptsOn = async (id: number) =>
+    (await db.get<{ read_attempts: number }>('SELECT read_attempts FROM books WHERE id = ?', [id]))!
+      .read_attempts
+
+  /** Start a process, let it begin reading, and let it die there. */
+  async function dieReading(): Promise<void> {
+    const calls = vi.mocked(identify).mock.calls.length
+    vi.mocked(identify).mockImplementationOnce(() => new Promise(() => {}))
+    void new CaptureQueue(db, () => Buffer.from('a photograph')).drain()
+    await vi.waitFor(() => expect(vi.mocked(identify).mock.calls.length).toBe(calls + 1))
+  }
+
+  it('is written down before the reading starts', async () => {
+    const capture = await queue.attach(null, 'back', 'b.jpg')
+    await dieReading()
+    expect(await attemptsOn(capture.id)).toBe(1)
+    expect((await queue.get(capture.id))!.status).toBe('pending')
+  })
+
+  it('is read again after one death, which may only have been a restart', async () => {
+    const capture = await queue.attach(null, 'back', 'b.jpg')
+    await dieReading()
+
+    vi.mocked(identify).mockResolvedValue(readBarcode(DUNE))
+    vi.mocked(lookupIsbn).mockResolvedValue(found(DUNE, 'Dune', ['Frank Herbert']))
+    await new CaptureQueue(db, () => Buffer.from('a photograph')).drain()
+
+    const after = (await queue.get(capture.id))!
+    expect(after.status).toBe('ready')
+    expect(await attemptsOn(capture.id)).toBe(0)
+  })
+
+  it(`fails the capture without reading it once ${READINGS_THAT_MAY_DIE} readings have died`, async () => {
+    const capture = await queue.attach(null, 'back', 'b.jpg')
+    for (let i = 0; i < READINGS_THAT_MAY_DIE; i += 1) await dieReading()
+    const readsSoFar = vi.mocked(identify).mock.calls.length
+
+    const restarted = new CaptureQueue(db, () => Buffer.from('a photograph'))
+    await restarted.drain()
+
+    expect(vi.mocked(identify)).toHaveBeenCalledTimes(readsSoFar)
+    const after = (await restarted.get(capture.id))!
+    expect(after.status).toBe('failed')
+    expect(after.note).toContain('the server stopped while reading them')
+    // The kind of failure the queue already shows, with "read it again" offered.
+    expect((await restarted.counts()).failures)
+      .toEqual({ noIsbn: 0, uncatalogued: 0, errored: 1, timedOut: 0 })
+    expect(couldBeReadAgain(after)).toBe(true)
+
+    // And it stays failed across the next start rather than coming back round.
+    await new CaptureQueue(db, () => Buffer.from('a photograph')).drain()
+    expect((await restarted.get(capture.id))!.status).toBe('failed')
+    expect(vi.mocked(identify)).toHaveBeenCalledTimes(readsSoFar)
+  })
+
+  it('starts counting again when a person asks for it to be read again', async () => {
+    const capture = await queue.attach(null, 'back', 'b.jpg')
+    for (let i = 0; i < READINGS_THAT_MAY_DIE; i += 1) await dieReading()
+    const restarted = new CaptureQueue(db, () => Buffer.from('a photograph'))
+    await restarted.drain()
+    expect((await restarted.get(capture.id))!.status).toBe('failed')
+
+    vi.mocked(identify).mockResolvedValue(readBarcode(DUNE))
+    vi.mocked(lookupIsbn).mockResolvedValue(found(DUNE, 'Dune', ['Frank Herbert']))
+    await restarted.readAgain(capture.id)
+    await restarted.drain()
+
+    expect((await restarted.get(capture.id))!.status).toBe('ready')
+    expect(await attemptsOn(capture.id)).toBe(0)
   })
 })
 

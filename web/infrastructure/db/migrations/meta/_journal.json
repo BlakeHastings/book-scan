@@ -253,6 +253,13 @@
       "when": 1793239129088,
       "tag": "0035_the_words_on_a_cover_find_the_book",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1793289973759,
+      "tag": "0036_a_reading_that_dies_is_not_retried_forever",
+      "breakpoints": true
     }
   ]
 }

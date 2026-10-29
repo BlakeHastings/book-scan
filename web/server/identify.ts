@@ -5,9 +5,9 @@
  *
  * This runs on the server rather than in the phone, which has the CPU and keeps
  * several megabytes of WASM out of the mobile bundle. It decodes a
- * full-resolution still rather than a motion-blurred video frame, and retries
- * with preprocessed variants instead of giving up on the first look, which is
- * what rescues glossy and low-contrast covers.
+ * high-resolution still (up to `PIXEL_BUDGET`) rather than a motion-blurred
+ * video frame, and retries with preprocessed variants instead of giving up on
+ * the first look, which is what rescues glossy and low-contrast covers.
  */
 
 import { mkdirSync, readFileSync } from 'node:fs'
@@ -50,8 +50,8 @@ export const READING_TIMEOUT_MS = 60_000
  * the pool heals while the reading it belonged to is still running. This is the
  * bound that matters for the pool rather than for the caller: `withWorker` marks
  * a slot busy for the length of a job and has no way to interrupt one, so without
- * it a job that never returns holds its slot forever, and four of those finish
- * OCR for the life of the process.
+ * it a job that never returns holds its slot forever, and one such job per
+ * worker finishes OCR for the life of the process.
  */
 const OCR_JOB_TIMEOUT_MS = 30_000
 
@@ -71,6 +71,44 @@ const OCR_JOB_TIMEOUT_MS = 30_000
 const POOL_START_TIMEOUT_MS = 5 * 60 * 1000
 
 // `ReadingTimedOut` and `withDeadline` live in `server/deadline.ts`.
+
+/**
+ * The most pixels any reader here is given, whatever size the photograph is.
+ *
+ * Every reader's memory grows with the photograph and some of it is never given
+ * back: tesseract's WASM heaps, Paddle's decode and onnxruntime's buffers. One
+ * phone photograph read at full size took a server with 7.75 GB to the OOM
+ * killer. The camera screen already sends at most 2400 pixels wide, which a
+ * portrait 4K frame makes about 8.3 MP, so a photograph from it is read exactly
+ * as before and only a larger upload is scaled down.
+ */
+export const PIXEL_BUDGET = 8_400_000
+
+/**
+ * The photograph scaled to fit `PIXEL_BUDGET`, or the very same buffer when it
+ * already does. Done once, before any reader sees it. The EXIF orientation is
+ * kept rather than applied, so every reader sees the pixels the way it would
+ * have seen the original. Bytes that are not an image come back unchanged, for
+ * the readers to fail on softly as they always have.
+ */
+export async function withinPixelBudget(input: Buffer, budget = PIXEL_BUDGET): Promise<Buffer> {
+  try {
+    const { width = 0, height = 0 } = await sharp(input).metadata()
+    if (!width || !height || width * height <= budget) return input
+    const scale = Math.sqrt(budget / (width * height))
+    return await sharp(input)
+      .resize({
+        width: Math.floor(width * scale),
+        height: Math.floor(height * scale),
+        fit: 'inside',
+      })
+      .keepExif()
+      .jpeg({ quality: 92 })
+      .toBuffer()
+  } catch {
+    return input
+  }
+}
 
 export interface IdentifyResult {
   isbn13: string
@@ -383,11 +421,14 @@ export async function decodeBarcodes(
  * their own, so each job takes a worker for itself, sets the page segmentation
  * mode it needs on that worker alone, and gives it back.
  *
- * Four, which is what the tesseract.js docs suggest, and roughly the number of
- * rungs that matter. Each worker carries its own WASM heap, and that heap only
- * ever grows, so they are recycled after a while.
+ * Two. Each worker carries its own WASM heap, which grows to the largest page it
+ * has read and never shrinks, so every worker is a few hundred megabytes held for
+ * the life of the process. Four cost about 300 MB more than two, idle and at
+ * peak, to finish the ladder a couple of seconds sooner on a reading nobody is
+ * stood waiting for. The heaps only ever grow, so workers are also recycled
+ * after a while.
  */
-const POOL_SIZE = 4
+const POOL_SIZE = 2
 const JOBS_BEFORE_RECYCLE = 400
 
 interface PooledWorker {
@@ -455,7 +496,7 @@ function startPool(): Promise<void> {
         Array.from({ length: POOL_SIZE }, () => newWorker()),
       )
       // A start that was given up on can still come back, after a later one has
-      // already filled the pool. Its workers are four idle WASM heaps nothing
+      // already filled the pool. Its workers are idle WASM heaps nothing
       // will ever hand out, so they go rather than displacing the live ones.
       if (pool.length) {
         await Promise.all(workers.map((worker) => worker.terminate().catch(() => {})))
@@ -957,7 +998,7 @@ export interface IdentifyOptions {
  * detection and one recognition session behind it, so it has the same shape of
  * answer.
  *
- * One reading already uses the whole machine anyway: four tesseract workers,
+ * One reading already uses the whole machine anyway: the tesseract workers,
  * paddle, and sharp on libvips threads. Running two captures at once does not
  * halve the queue, it doubles how long each book takes. A reading that does not
  * come back is abandoned after `READING_TIMEOUT_MS` and the chain moves on.
@@ -993,41 +1034,37 @@ export function identify(
 }
 
 async function identifyNow(
-  input: Buffer,
+  photograph: Buffer,
   options: IdentifyOptions = {},
 ): Promise<IdentifyResult> {
+  const input = await withinPixelBudget(photograph)
   const result: IdentifyResult = {
     isbn13: '', isbn10: '', source: '', barcodes: [], titleGuess: '',
     coverLines: [], isbnCandidates: [], text: '', notes: [],
   }
 
   /*
-   * Look once quickly, then race everything else.
+   * Look once quickly, then race the slow decoder against Paddle.
    *
    * zxing answers in about 160ms and reads most covers, so it goes alone first:
    * when it succeeds nothing else is started and the whole call costs a fifth of
    * a second. Racing OCR from the very beginning makes that common case worse,
    * because the discarded OCR competes for the same cores.
    *
-   * Once it fails, everything left is worth starting at once. The zbar ladder
-   * takes 2.6 seconds to admit it has nothing, and running OCR alongside it makes
-   * the ladder free on exactly the scans that need OCR most.
+   * Once it fails, Paddle runs alongside the zbar ladder, which takes 2.6
+   * seconds to admit it has nothing. The tesseract ladder waits for both rather
+   * than joining them: Paddle and the tesseract workers are the two largest
+   * users of memory here, and started together their peaks add up (#673).
    */
   const effort = options.barcodeEffort ?? 'thorough'
   const wantOcr = options.ocrEnabled !== false
 
   let decoded = await decodeWithZXing(input)
-  let generalPasses: Promise<OcrOutput[]> | null = null
   let paddlePass: Promise<OcrOutput | null> | null = null
 
   if (!decoded.length && effort === 'thorough') {
-    // Paddle answers in about a second and reads more than the ladder does in
-    // five, so it runs alongside both the slow decoder and tesseract, and its
-    // answer is usually back before either of them.
     paddlePass = wantOcr ? paddleOcr(input) : null
     paddlePass?.catch(() => {})
-    generalPasses = wantOcr ? ocrVariants(input, options.wantTitle).then(runAll) : null
-    generalPasses?.catch(() => {})
     decoded = await decodeWithZBar(input)
   }
 
@@ -1050,18 +1087,9 @@ async function identifyNow(
   if (options.ocrEnabled === false) return result
 
   /*
-   * Every rung at once. With a pool the ladder is no longer a queue, so the wall
-   * clock is the slowest rung rather than the sum of them, and rungs that turn
-   * out not to be needed cost CPU nobody is waiting on.
-   *
-   * The results are still read in ladder order below. Which rung a reading came
-   * from is what decides between two disagreeing readings, and that has to stay a
-   * property of the ladder, not of which worker finished first.
-   */
-  /*
    * Paddle first, and often alone. It is the most accurate reader here, so its
    * reading outranks the others when they disagree, and when it produces an ISBN
-   * the rest is abandoned mid-flight rather than waited on.
+   * the tesseract ladder is never started.
    */
   const fromPaddle = await (paddlePass ?? paddleOcr(input))
   if (fromPaddle) {
@@ -1077,12 +1105,20 @@ async function identifyNow(
     return result
   }
 
-  // Ladder order: the region rungs read a label the decoder has already
-  // located, so they come first and settle any disagreement.
-  const passes = [
-    ...await runAll(await regionVariants(input, barcodeBox)),
-    ...await (generalPasses ?? ocrVariants(input, options.wantTitle).then(runAll)),
-  ]
+  /*
+   * Every rung at once, as many as the pool has workers for, so the wall clock is
+   * the slowest rung rather than the sum of them.
+   *
+   * The results are still read in ladder order. Which rung a reading came from is
+   * what decides between two disagreeing readings, and that has to stay a
+   * property of the ladder, not of which worker finished first. The region rungs
+   * read a label the decoder has already located, so they come first.
+   */
+  const [region, general] = await Promise.all([
+    regionVariants(input, barcodeBox).then(runAll),
+    ocrVariants(input, options.wantTitle).then(runAll),
+  ])
+  const passes = [...region, ...general]
   for (const ocr of passes) absorb(result, ocr, options)
 
   harvest(result, passes)

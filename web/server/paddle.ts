@@ -11,6 +11,7 @@
  */
 
 import { PaddleOcrService } from 'ppu-paddle-ocr'
+import sharp from 'sharp'
 
 export interface PaddleLine {
   text: string
@@ -31,7 +32,13 @@ let service: Promise<PaddleOcrService> | null = null
  */
 function ready(): Promise<PaddleOcrService> {
   return (service ??= (async () => {
-    const created = new PaddleOcrService()
+    const created = new PaddleOcrService({
+      // onnxruntime's CPU arena keeps the largest set of tensors any photograph
+      // needed for the life of the session, and Paddle's tensors scale with the
+      // photograph. Without it they are freed after each run, for no measurable
+      // loss of speed (#673).
+      session: { enableCpuMemArena: false },
+    })
     await created.initialize()
     return created
   })().catch((error) => {
@@ -41,21 +48,40 @@ function ready(): Promise<PaddleOcrService> {
   }))
 }
 
+/**
+ * The longest side Paddle is handed. Its detector never looks at more than 1920
+ * pixels on a side, and recognition scales every line to 48 pixels high, so a
+ * larger photograph reads no more text. It does cost more: the library decodes
+ * and crops the photograph at whatever size it arrives, and a 12 MP phone
+ * photograph took it to 2.5 GB above idle where this size takes about 0.9.
+ */
+export const PADDLE_MAX_SIDE = 2400
+
+/**
+ * The photograph at no more than `PADDLE_MAX_SIDE` on its longest side, as an
+ * exact ArrayBuffer. A Node Buffer is neither an ArrayBuffer nor a canvas,
+ * which are the two things Paddle accepts, and `.buffer` alone would hand over
+ * pooled heap.
+ */
+async function forPaddle(input: Buffer): Promise<ArrayBuffer> {
+  const { width = 0, height = 0 } = await sharp(input).metadata()
+  const bytes = Math.max(width, height) > PADDLE_MAX_SIDE
+    ? await sharp(input)
+      .resize({ width: PADDLE_MAX_SIDE, height: PADDLE_MAX_SIDE, fit: 'inside' })
+      .keepExif()
+      .jpeg({ quality: 92 })
+      .toBuffer()
+    : input
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+}
+
 /** Lowest confidence worth passing on, matching the tesseract word filter. */
 const MIN_CONFIDENCE = 0.4
 
 export async function paddleOcr(input: Buffer): Promise<PaddleOutput | null> {
   try {
     const ocr = await ready()
-
-    // A Node Buffer is neither an ArrayBuffer nor a canvas, which are the two
-    // things this accepts, and .buffer alone would hand over pooled heap.
-    const bytes = input.buffer.slice(
-      input.byteOffset,
-      input.byteOffset + input.byteLength,
-    ) as ArrayBuffer
-
-    const result = await ocr.recognize(bytes)
+    const result = await ocr.recognize(await forPaddle(input))
     const raw = (result as { lines?: unknown }).lines
     const flat = Array.isArray(raw) ? raw.flat() : []
 
