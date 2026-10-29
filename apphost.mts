@@ -104,7 +104,12 @@ const databaseName = e2eRun ? `bookscan_${e2eRun.replace(/-/g, '_')}` : 'booksca
 const postgres = await builder
   .addPostgres('postgres')
   .withImage(postgresVersion.image, { tag: postgresVersion.tag })
-  .withDataVolume({ name: volumeName });
+  // `withVolume` at the parent rather than `withDataVolume`: Aspire picks the
+  // data mount from the image tag, reads `0.8.7-pg18-trixie` as older than 18,
+  // and mounts `/var/lib/postgresql/data`, which an 18 image refuses to start
+  // on. 18 keeps its data under `/var/lib/postgresql/18/docker`, and every
+  // existing checkout's volume was written there through this parent mount.
+  .withVolume('/var/lib/postgresql', { name: volumeName });
 
 const catalogue = await postgres.addDatabase('bookscan', { databaseName });
 
