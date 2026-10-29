@@ -7,7 +7,9 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Cloth } from './Shelf'
+import { Photo } from './Photo'
 import { frameAtScroll } from '../lib/gallery'
+import { originalOf, sized } from '../lib/photos'
 
 export interface Shot {
   /** What this photograph is of: Front, Spine, Back. */
@@ -116,11 +118,26 @@ export function Shots({
   /**
    * Whether tapping a picture opens it full screen. Off unless a caller asks:
    * a picture that opens one is a `<button>`, and the queue row that also
-   * draws this is itself one whole button.
+   * draws this is itself one whole button. In a rail, a picture that retakes
+   * (`act` with an `onPress`) does that instead.
    */
   full?: boolean
 }) {
   if (mode === 'book') return <TheBook shots={shots} size={size} first={first} full={full} />
+  return <Rail shots={shots} deck={deck} act={act} size={size} on={on} full={full} />
+}
+
+function Rail({ shots, deck, act, size, on, full }: {
+  shots: Shot[]
+  deck?: Shot[]
+  act: boolean
+  size?: 'small' | 'big'
+  on: 'paper' | 'picture'
+  full: boolean
+}) {
+  const there = [...shots, ...(deck ?? [])].filter((one) => Boolean(one.photo))
+  const whole = useWhole()
+  const drawn = size === 'big' ? 132 : on === 'picture' ? 60 : 78
 
   const className = [
     'wf-shots',
@@ -145,7 +162,7 @@ export function Shots({
 
     const box = (
       <span className={`wf-shot__box${shot.cloth ? ` wf-spine--${shot.cloth}` : ''}`}>
-        {shot.photo && <img className="wf-shot__img" src={shot.photo} alt="" />}
+        {shot.photo && <Photo className="wf-shot__img" src={shot.photo} drawn={drawn} />}
         {press && taken && <span className="wf-shot__again">Retake</span>}
         {!taken && shot.next && <span className="wf-shot__next">Next</span>}
       </span>
@@ -157,6 +174,22 @@ export function Shots({
         {shot.note && <span className="wf-shot__note">{shot.note}</span>}
       </>
     )
+
+    if (!press && full && shot.photo) {
+      return (
+        <button
+          key={shot.word}
+          type="button"
+          role="listitem"
+          className={`${marks} wf-shot--opens`}
+          aria-label={`See the whole ${shot.word.toLowerCase()} picture`}
+          onClick={() => whole.open(there.indexOf(shot))}
+        >
+          {box}
+          {words}
+        </button>
+      )
+    }
 
     if (!press) {
       return (
@@ -187,15 +220,54 @@ export function Shots({
   }
 
   return (
-    <div className={className} role="list" aria-label="Photographs">
-      {shots.map(one)}
-      {deck && deck.length > 0 && (
-        <span className="wf-shot-deck">
-          <Swipe deck={deck} draw={one} />
-        </span>
+    <>
+      <div className={className} role="list" aria-label="Photographs">
+        {shots.map(one)}
+        {deck && deck.length > 0 && (
+          <span className="wf-shot-deck">
+            <Swipe deck={deck} draw={one} />
+          </span>
+        )}
+      </div>
+      {whole.at !== null && there.length > 0 && (
+        <Whole shots={there} at={whole.at} onLeave={whole.leave} />
       )}
-    </div>
+    </>
   )
+}
+
+/**
+ * Which picture is open full screen, if any, and the history entry that lets
+ * the phone's back gesture close it.
+ *
+ * The entry is pushed in the press that opens it rather than in an effect, which
+ * `StrictMode` would run twice. Closing any other way takes the entry back off,
+ * so the next back gesture leaves the screen as it always did. Nothing else in
+ * the app listens for `popstate`: the route is not in the URL.
+ */
+function useWhole() {
+  const [at, setAt] = useState<number | null>(null)
+
+  const open = useCallback((index: number) => {
+    window.history.pushState({ bookscanWhole: true }, '')
+    setAt(index)
+  }, [])
+
+  const leave = useCallback(() => {
+    setAt(null)
+    if ((window.history.state as { bookscanWhole?: boolean } | null)?.bookscanWhole) {
+      window.history.back()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (at === null) return
+    const back = () => setAt(null)
+    window.addEventListener('popstate', back)
+    return () => window.removeEventListener('popstate', back)
+  }, [at])
+
+  return { at, open, leave }
 }
 
 /**
@@ -302,21 +374,17 @@ function TheBook({ shots, size, first, full }: {
   const there = [spine, ...deck].filter(
     (one): one is Shot => Boolean(one && (one.cloth || one.photo)),
   )
-  const [looking, setLooking] = useState<number | null>(null)
-  /*
-  /*
-   * Held still rather than made again each render: `Whole` hangs a key listener
-   * off this, and a listener taken down and put back up on every render has a
-   * gap in it every time.
-   */
-  const leave = useCallback(() => setLooking(null), [])
+  const whole = useWhole()
+  const drawn = size === 'small' ? 96 : 172
 
   const shot = (one: Shot | undefined, where: string) => {
     const taken = Boolean(one?.cloth || one?.photo)
     const marks = `wf-shot wf-shot--${where}${taken ? ' wf-shot--taken' : ''}`
     const box = (
       <span className={`wf-shot__box${one?.cloth ? ` wf-spine--${one.cloth}` : ''}`}>
-        {one?.photo && <img className="wf-shot__img" src={one.photo} alt="" />}
+        {one?.photo && (
+          <Photo className="wf-shot__img" src={one.photo} drawn={drawn} eager={one === deck[0]} />
+        )}
         {where === 'face' && !taken && (
           <span className="wf-shot__none">
             {one?.word && <span className="wf-shot__word">{one.word}</span>}
@@ -340,7 +408,7 @@ function TheBook({ shots, size, first, full }: {
         type="button"
         className={marks}
         aria-label={`See the whole ${one.word.toLowerCase()} picture`}
-        onClick={() => setLooking(there.indexOf(one))}
+        onClick={() => whole.open(there.indexOf(one))}
       >
         {box}
       </button>
@@ -362,8 +430,8 @@ function TheBook({ shots, size, first, full }: {
         draw={(one) => shot(one, 'face')}
         empty={shot(undefined, 'face')}
       />
-      {looking !== null && there.length > 0 && (
-        <Whole shots={there} at={looking} onLeave={leave} />
+      {whole.at !== null && there.length > 0 && (
+        <Whole shots={there} at={whole.at} onLeave={whole.leave} />
       )}
     </span>
   )
@@ -373,6 +441,10 @@ function TheBook({ shots, size, first, full }: {
  * One picture, whole, over everything else. It draws `full` rather than the
  * crop every small picture in the app is drawn from, because this is the one
  * place somebody has gone to in order to look at the photograph itself.
+ *
+ * At first it is a copy the width of the screen; zoomed in, the photograph as
+ * stored. Only the picture showing and its two neighbours are drawn at all, so
+ * opening one does not download every photograph of the book.
  */
 function Whole({ shots, at, onLeave }: {
   shots: Shot[]
@@ -380,8 +452,10 @@ function Whole({ shots, at, onLeave }: {
   onLeave: () => void
 }) {
   const [showing, setShowing] = useState(at)
+  const [zoomed, setZoomed] = useState(false)
   const track = useRef<HTMLSpanElement | null>(null)
   const opened = useRef(at)
+  const away = useRef<HTMLButtonElement | null>(null)
 
   /*
    * A callback ref rather than an effect, and one with a stable identity: a ref
@@ -397,19 +471,30 @@ function Whole({ shots, at, onLeave }: {
     if (frame) node.scrollLeft = frame.offsetLeft
   }, [])
 
-  useEffect(() => {
-    const key = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onLeave()
-    }
-    window.addEventListener('keydown', key)
-    return () => window.removeEventListener('keydown', key)
-  }, [onLeave])
-
   const frameWidth = () => track.current?.firstElementChild?.clientWidth ?? 0
   const goTo = (to: number) => {
     setShowing(to)
     track.current?.scrollTo({ left: to * frameWidth(), behavior: 'smooth' })
   }
+
+  // The way out has the focus while this is open, and the press that opened it
+  // gets it back afterwards.
+  useEffect(() => {
+    const before = document.activeElement as HTMLElement | null
+    away.current?.focus({ preventScroll: true })
+    return () => before?.focus?.({ preventScroll: true })
+  }, [])
+
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onLeave()
+      if (zoomed) return
+      if (event.key === 'ArrowRight' && showing < shots.length - 1) goTo(showing + 1)
+      if (event.key === 'ArrowLeft' && showing > 0) goTo(showing - 1)
+    }
+    window.addEventListener('keydown', key)
+    return () => window.removeEventListener('keydown', key)
+  })
 
   return (
     /*
@@ -422,19 +507,34 @@ function Whole({ shots, at, onLeave }: {
       role="dialog"
       aria-modal="true"
       aria-label="The whole picture"
-      onClick={onLeave}
+      onClick={(event) => {
+        // Not on to whatever this is drawn inside, which may itself be a button.
+        event.stopPropagation()
+        // A tap on the picture showing is `Zoomable`'s to read; anywhere else
+        // on this layer is a way out.
+        if (!(event.target as HTMLElement).closest('.wf-whole__frame--showing .wf-whole__img')) onLeave()
+      }}
     >
       <span
-        className="wf-whole__track"
+        className={`wf-whole__track${zoomed ? ' wf-whole__track--held' : ''}`}
         ref={hold}
         onScroll={(event) => {
           setShowing(frameAtScroll(event.currentTarget.scrollLeft, frameWidth(), shots.length))
         }}
       >
-        {shots.map((one) => (
-          <span className="wf-whole__frame" key={one.word}>
-            {one.photo ? (
-              <img className="wf-whole__img" src={one.full || one.photo} alt={one.word} />
+        {shots.map((one, index) => (
+          <span
+            className={`wf-whole__frame${index === showing ? ' wf-whole__frame--showing' : ''}`}
+            key={one.word}
+          >
+            {Math.abs(index - showing) > 1 ? null : one.photo ? (
+              <Zoomable
+                src={one.full || one.photo}
+                word={one.word}
+                live={index === showing}
+                onZoom={setZoomed}
+                onTap={onLeave}
+              />
             ) : (
               <span className={`wf-whole__cloth wf-spine--${one.cloth}`} aria-hidden="true" />
             )}
@@ -463,9 +563,138 @@ function Whole({ shots, at, onLeave }: {
         </span>
       )}
 
-      <button type="button" className="wf-whole__away" onClick={onLeave}>
+      <button type="button" className="wf-whole__away" ref={away} onClick={onLeave}>
         Close
       </button>
     </span>
+  )
+}
+
+/** How far in a double tap goes, and the furthest a pinch may. */
+const ZOOM_IN = 2.5
+const ZOOM_MOST = 5
+/** Two taps closer together than this are one double tap, not two single ones. */
+const DOUBLE_TAP_MS = 280
+
+const UNZOOMED = { scale: 1, x: 0, y: 0 }
+
+/**
+ * The picture showing, which a pinch or a double tap zooms and one finger then
+ * moves. A single tap closes, once it has waited long enough to know it was
+ * not the first of two.
+ *
+ * The touch listeners are attached by hand because React's are passive, and a
+ * pinch has to `preventDefault` or the page underneath is what moves. One
+ * finger on a picture that is not zoomed is left alone, so the strip still
+ * swipes to the next one.
+ */
+function Zoomable({ src, word, live, onZoom, onTap }: {
+  src: string
+  word: string
+  live: boolean
+  onZoom: (zoomed: boolean) => void
+  onTap: () => void
+}) {
+  const [view, setView] = useState(UNZOOMED)
+  const image = useRef<HTMLImageElement | null>(null)
+  const held = useRef(view)
+  held.current = view
+  const tapTimer = useRef<number | undefined>(undefined)
+  const zoomed = view.scale > 1
+  /*
+   * The stored photograph only once somebody has zoomed in on it, and from then
+   * on, so zooming back out does not fetch the copy again. It is the same
+   * element throughout, so the browser goes on drawing the copy until the
+   * original has arrived.
+   */
+  const [deep, setDeep] = useState(false)
+
+  useEffect(() => {
+    if (live) onZoom(zoomed)
+    if (zoomed) setDeep(true)
+  }, [live, zoomed, onZoom])
+  useEffect(() => {
+    if (!live) setView(UNZOOMED)
+  }, [live])
+  useEffect(() => () => window.clearTimeout(tapTimer.current), [])
+
+  useEffect(() => {
+    const node = image.current
+    if (!node || !live) return
+    let pinch: { distance: number; scale: number } | null = null
+    let drag: { x: number; y: number; fromX: number; fromY: number } | null = null
+
+    const apart = (touches: TouchList) =>
+      Math.hypot(touches[0]!.clientX - touches[1]!.clientX, touches[0]!.clientY - touches[1]!.clientY)
+
+    const start = (event: TouchEvent) => {
+      if (event.touches.length === 2) {
+        event.preventDefault()
+        pinch = { distance: apart(event.touches) || 1, scale: held.current.scale }
+        drag = null
+      } else if (event.touches.length === 1 && held.current.scale > 1) {
+        const touch = event.touches[0]!
+        drag = { x: touch.clientX, y: touch.clientY, fromX: held.current.x, fromY: held.current.y }
+      }
+    }
+    const move = (event: TouchEvent) => {
+      if (pinch && event.touches.length === 2) {
+        event.preventDefault()
+        const scale = Math.min(ZOOM_MOST, Math.max(1, pinch.scale * (apart(event.touches) / pinch.distance)))
+        setView((was) => (scale === 1 ? UNZOOMED : { ...was, scale }))
+      } else if (drag && event.touches.length === 1) {
+        event.preventDefault()
+        const touch = event.touches[0]!
+        const from = drag
+        setView((was) => ({ ...was, x: from.fromX + touch.clientX - from.x, y: from.fromY + touch.clientY - from.y }))
+      }
+    }
+    const end = (event: TouchEvent) => {
+      if (event.touches.length < 2) pinch = null
+      if (event.touches.length === 0) drag = null
+    }
+
+    node.addEventListener('touchstart', start, { passive: false })
+    node.addEventListener('touchmove', move, { passive: false })
+    node.addEventListener('touchend', end)
+    node.addEventListener('touchcancel', end)
+    return () => {
+      node.removeEventListener('touchstart', start)
+      node.removeEventListener('touchmove', move)
+      node.removeEventListener('touchend', end)
+      node.removeEventListener('touchcancel', end)
+    }
+  }, [live])
+
+  const tapped = () => {
+    if (!live) return
+    if (tapTimer.current !== undefined) {
+      window.clearTimeout(tapTimer.current)
+      tapTimer.current = undefined
+      setView((was) => (was.scale > 1 ? UNZOOMED : { scale: ZOOM_IN, x: 0, y: 0 }))
+      return
+    }
+    tapTimer.current = window.setTimeout(() => {
+      tapTimer.current = undefined
+      if (held.current.scale === 1) onTap()
+    }, DOUBLE_TAP_MS)
+  }
+
+  const picked = deep ? { src: originalOf(src) } : sized(src, 1280, '100vw')
+
+  return (
+    // `sizes` and `srcSet` ahead of `src`, as in `Photo`.
+    <img
+      ref={image}
+      className={`wf-whole__img${zoomed ? ' wf-whole__img--zoomed' : ''}`}
+      decoding="async"
+      sizes={picked.sizes}
+      srcSet={picked.srcSet}
+      src={picked.src}
+      alt={word}
+      draggable={false}
+      style={zoomed ? { transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` } : undefined}
+      onClick={tapped}
+    />
   )
 }

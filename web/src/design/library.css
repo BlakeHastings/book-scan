@@ -2691,9 +2691,9 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
  * Big enough to see that a photograph is blurred, which is the whole reason the
  * review screen shows them at all.
  *
- * The row is flexible rather than three equal columns: a third of the screen is
- * a cover's worth of room and what goes in it may be a sliver, so a cropped
- * spine takes the width it needs and the two covers divide what is left.
+ * A cover is drawn the shape of a book, two wide to three tall, and a spine the
+ * width of a tap. Dividing the row between them instead made each cover box
+ * wider than it was tall, which drew every book squat.
  */
 .wf-shots--big {
   display: flex;
@@ -2827,8 +2827,9 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
 .wf-shots--picture .wf-shot--next .wf-shot__word,
 .wf-shots--picture .wf-shot__next { color: var(--picture-ink); }
 
-.wf-shots--big .wf-shot { flex: 1 1 0; width: auto; }
-.wf-shots--big .wf-shot__box { height: 132px; }
+.wf-shots--big .wf-shot { flex: 0 0 112px; width: auto; }
+.wf-shots--big .wf-shot__box { height: auto; aspect-ratio: 2 / 3; }
+.wf-shots--big .wf-shot--sliver .wf-shot__box { height: 168px; aspect-ratio: auto; }
 .wf-shots--big .wf-shot__word { font-size: var(--size-small); }
 .wf-shots--big .wf-shot__again { font-size: var(--size-label); padding: var(--s1); }
 
@@ -2969,7 +2970,7 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
  * true.
  */
 .wf-shot-deck { display: grid; gap: var(--s1); min-width: 0; }
-.wf-shots--big .wf-shot-deck { flex: 1 1 0; }
+.wf-shots--big .wf-shot-deck { flex: 0 0 112px; }
 /* There is deliberately no rule here for a card behind the front, and no card
    drawn either. This slot has a gap on both sides of it rather than the open
    right edge a book's page has, so an edge sticking out would be a picture
@@ -3112,7 +3113,22 @@ button.wf-spine:focus-visible { outline: none; box-shadow: var(--focus); }
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  transition: transform 120ms ease-out;
 }
+
+/*
+ * Zoomed, one finger moves the picture rather than the strip, so the strip
+ * stops scrolling and the frame clips what is pushed past its edge.
+ */
+.wf-whole__frame { overflow: hidden; }
+.wf-whole__track--held { overflow-x: hidden; }
+.wf-whole__img--zoomed { touch-action: none; transition: none; cursor: move; }
+
+/* A picture in a rail that opens whole says so to a pointer. */
+.wf-shot--opens { cursor: zoom-in; }
 
 /* What the gallery has instead of a photograph. Kept to the proportion of a
    book so the room it takes is the room a real one takes. */

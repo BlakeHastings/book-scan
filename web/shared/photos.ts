@@ -6,7 +6,7 @@
  * hundred sizes nothing will ever draw. 1280 is a phone's screen at full size,
  * for the picture opened whole. Ascending, which `widthFor` relies on.
  */
-export const VARIANT_WIDTHS = [160, 320, 640, 1280] as const
+export const VARIANT_WIDTHS = [160, 320, 480, 640, 1280] as const
 
 export type VariantWidth = (typeof VARIANT_WIDTHS)[number]
 

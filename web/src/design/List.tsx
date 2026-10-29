@@ -10,6 +10,7 @@
 import type { ReactNode } from 'react'
 import { Cat } from './Cat'
 import { IconOnward } from './Icons'
+import { Photo } from './Photo'
 import type { Cloth } from './Shelf'
 
 export function List({ children, label }: { children: ReactNode; label?: string }) {
@@ -63,7 +64,7 @@ export function Row({
       onClick={onPress}
     >
       <span className={`wf-row__thumb wf-spine--${cloth ?? 'wood'}`} aria-hidden="true">
-        {photo && <img className="wf-row__photo" src={photo} alt="" loading="lazy" decoding="async" />}
+        {photo && <Photo className="wf-row__photo" src={photo} drawn={46} />}
       </span>
       <span className="wf-row__text">
         <span className="wf-row__title">{title}</span>
