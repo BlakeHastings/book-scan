@@ -397,6 +397,27 @@ export class Store {
     await recordHashes(this.db, id, front, cover)
   }
 
+  /**
+   * Catalogued books by id, in the shape a cover shortlist draws them, in no
+   * particular order. An id that is not a catalogued book is left out.
+   */
+  async shortlisted(ids: readonly number[]): Promise<({
+    id: number; title: string; author_filing: string
+    checked_out: boolean
+  } & PhotographFields)[]> {
+    if (!ids.length) return []
+    const rows = await this.db.all<{
+      id: number; title: string; author_filing: string; authors: string; sort_key: string
+      checked_out: boolean
+    }>(
+      `SELECT id, title, author_filing, authors, sort_key, state = '${CHECKED_OUT}' AS checked_out
+         FROM catalogued_books
+        WHERE id IN (${ids.map(() => '?').join(', ')})`,
+      [...ids],
+    )
+    return withPhotographs(this.db, rows.map(asFiled))
+  }
+
   async hashIndex(): Promise<({
     id: number; title: string; author_filing: string
     checked_out: boolean

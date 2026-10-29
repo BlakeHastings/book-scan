@@ -187,3 +187,51 @@ export interface CoverTextReadModel {
    */
   near(text: string, candidates: number): Promise<CoverTextMatch[]>
 }
+
+/*
+ * The three ways a cover photograph is recognised, as the fused matcher
+ * (`queries/match-cover.ts`) asks them. Each answers catalogued books best
+ * first. They are ports rather than the handlers behind them because a query
+ * may import nothing but read models: the app hands over `NearestCoversHandler`,
+ * `MatchCoverTextHandler` and the hash, and the harness hands over the same
+ * text handler beside its own in-memory picture and hash.
+ */
+
+/** A book as an image model sees the photograph: `similarity` is a cosine, 1 the same direction. */
+export interface PictureMatch {
+  id: number
+  similarity: number
+}
+
+export interface CoverPictures {
+  /** Most alike first, or null when the image model is not loaded, which is a state and not a failure. */
+  nearest(photo: Uint8Array, limit: number): Promise<PictureMatch[] | null>
+}
+
+/** A book as the words read off a photograph find it, scored by `coverTextScore`. */
+export interface WordsMatch {
+  id: number
+  title: string
+  /** The first credit's name as printed, or ''. */
+  author: string
+  /** 0 to 1, what the text ranks by. */
+  score: number
+  /** 0 to 1: how much of the title is printed on the cover as one stretch. */
+  titlePrinted: number
+}
+
+export interface CoverWords {
+  /** Best first; nothing for a reading with no word in it worth finding a book by. */
+  near(reading: string, limit: number): Promise<WordsMatch[]>
+}
+
+/** A book by the perceptual hash: `distance` is differing bits out of 64. */
+export interface HashMatch {
+  id: number
+  distance: number
+}
+
+export interface CoverHashes {
+  /** Nearest first, none past `within` bits. */
+  near(photo: Uint8Array, within: number, limit: number): Promise<HashMatch[]>
+}

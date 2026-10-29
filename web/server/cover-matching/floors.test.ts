@@ -36,12 +36,14 @@ afterAll(async () => {
 describe('the harness itself', () => {
   it('labels every photograph, and holds some books back from the catalogue', () => {
     const ids = new Set(set.catalogue.map((book) => book.id))
-    expect(set.catalogue).toHaveLength(CI_SET.books)
-    expect(set.queries).toHaveLength(CI_SET.books * CI_SET.photosPerBook + CI_SET.absent)
+    // Each contained-title family adds one catalogued volume and holds up the other.
+    const families = CI_SET.contained ?? 2
+    expect(set.catalogue).toHaveLength(CI_SET.books + families)
+    expect(set.queries).toHaveLength((CI_SET.books + families) * CI_SET.photosPerBook + CI_SET.absent + families)
     for (const query of set.queries) {
       if (query.truth !== null) expect(ids.has(query.truth)).toBe(true)
     }
-    expect(set.queries.filter((query) => query.truth === null)).toHaveLength(CI_SET.absent)
+    expect(set.queries.filter((query) => query.truth === null)).toHaveLength(CI_SET.absent + families)
   })
 
   it('finds a book from its own catalogue cover, and never opens the wrong one', async () => {
@@ -57,11 +59,12 @@ describe('the harness itself', () => {
   }, 60_000)
 
   it('is the same set every time for one seed', async () => {
-    const small = { ...CI_SET, books: 3, absent: 1, photosPerBook: 1 }
+    const small = { ...CI_SET, books: 3, absent: 1, photosPerBook: 1, contained: 1 }
     const first = await coverSet(small)
     const second = await coverSet(small)
+    // Three catalogued, one held up, and one contained-title family's two.
     expect(second.queries.map((query, n) => query.photo.equals(first.queries[n]!.photo)))
-      .toEqual([true, true, true, true])
+      .toEqual([true, true, true, true, true, true])
   }, 60_000)
 })
 

@@ -75,7 +75,11 @@ import {
 import { TagSlug } from '../domain/tagging/tags'
 import { CATALOGUED_STATES } from '../domain/books/state'
 import { DrizzleCaptureRepository } from '../infrastructure/capture/capture-repository'
-import { PgvectorCoverEmbeddings } from '../infrastructure/capture/cover-embeddings'
+import { PgvectorCoverEmbeddings, PgvectorCoverSimilarity } from '../infrastructure/capture/cover-embeddings'
+import { DrizzleCoverTextReadModel } from '../infrastructure/books/cover-text-read-model'
+import { NearestCoversHandler } from '../application/capture/queries/nearest-covers'
+import { MatchCoverTextHandler } from '../application/books/queries/match-cover-text'
+import { MatchCoverHandler, type CoverMatchCandidate } from '../application/books/queries/match-cover'
 import { OnnxCoverEncoder } from '../infrastructure/capture/onnx-cover-encoder'
 import { EmbedPhotographsHandler } from '../application/capture/embed-photographs'
 import type { CoverEncoder } from '../application/capture/read-models'
@@ -105,7 +109,7 @@ import { planReset, runReset } from './resets'
 import { isReset } from '../shared/resets'
 import { booksNoRuleClaims, claimOfBook } from './claim'
 import { areaDisagreements } from '../infrastructure/shelving/area-drift'
-import { confidentPick, hasCloseMatch, queueMatches } from '../shared/confidence'
+import { hasCloseMatch, queueMatches } from '../shared/confidence'
 import { normaliseIsbn, resolveIsbnPair } from '../shared/isbn'
 import {
   bookCover, buildPlacement, formatLocation, parseLocation, placementOnAPlank,
@@ -531,6 +535,28 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     const embedded = await embedBook()
     console.log(`[covers] embedded ${embedded} photograph(s) that had no embedding, in ${Date.now() - started} ms`)
   }
+
+  /*
+   * What `POST /api/books/scan` asks when no ISBN was read (#669): the image
+   * model's nearest covers, the words OCR read, and the hash, fused. The image
+   * model answers nothing while it is loading or when it could not be, and the
+   * matcher then works on the words and the hash alone.
+   */
+  const nearestCovers = coverEncoder && new NearestCoversHandler(coverEncoder, new PgvectorCoverSimilarity(db))
+  const coverText = new MatchCoverTextHandler(new DrizzleCoverTextReadModel(db))
+  const matchCover = new MatchCoverHandler(
+    {
+      async nearest(photo, limit) {
+        if (!nearestCovers) return null
+        const answer = await nearestCovers.handle({ photo, limit })
+        return answer.available
+          ? answer.books.map((book) => ({ id: book.bookId, similarity: book.similarity }))
+          : null
+      },
+    },
+    { near: (reading, limit) => coverText.handle({ text: reading, limit }) },
+    { near: async (photo, within, limit) => hashRanking(await queryHash(Buffer.from(photo)), within, limit) },
+  )
 
   const relabelTag = new RelabelTagHandler(tags)
   const defineTag = new DefineTagHandler(tags)
@@ -2946,35 +2972,41 @@ export function createApp(options: CreateAppOptions): BookScanApp {
   }
 
   /**
-   * Books that look like the one in the photo, best first.
-   *
-   * A shortlist, never an answer: it puts a wrong book first and inside the
-   * cutoff on roughly one query in ten, which is why the caller confirms.
+   * Catalogued books by the perceptual hash of the photo, nearest first, none
+   * past `within` bits. One of the three things the fused cover matcher asks,
+   * and the weakest: on publisher artwork it is close to chance.
    */
-  async function looksLike(query: string | null, limit = 4) {
-    // A frame with nothing in it, or bytes that are not an image at all. Either
-    // way there is nothing to compare, and the caller falls through to reading
-    // the page.
+  async function hashRanking(query: string | null, within: number, limit: number) {
+    // A frame with nothing in it, or bytes that are not an image at all.
     if (!query) return []
 
-    const scored = (await store.hashIndex()).map((row) => ({
-      row,
-      // Whichever of the two stored images is the better likeness. A photo of a
-      // book usually resembles another photo of it more than it resembles the
-      // publisher's clean artwork, but not always.
-      d: Math.min(
-        row.front_hash ? distance(query, row.front_hash) : 64,
-        row.cover_hash ? distance(query, row.cover_hash) : 64,
-      ),
-    }))
-
-    // 32 of 64 bits is what two unrelated images average, so anything past
-    // the mid twenties is noise wearing a number.
-    return scored
-      .filter((entry) => entry.d <= 24)
-      .sort((a, b) => a.d - b.d)
+    return (await store.hashIndex())
+      .map((row) => ({
+        id: row.id,
+        // Whichever of the two stored images is the better likeness. A photo of a
+        // book usually resembles another photo of it more than it resembles the
+        // publisher's clean artwork, but not always.
+        distance: Math.min(
+          row.front_hash ? distance(query, row.front_hash) : 64,
+          row.cover_hash ? distance(query, row.cover_hash) : 64,
+        ),
+      }))
+      .filter((entry) => entry.distance <= within)
+      .sort((a, b) => a.distance - b.distance)
       .slice(0, limit)
-      .map(({ row, d }) => ({
+  }
+
+  /**
+   * A shortlisted book as the scanner draws it, with what each strategy said
+   * about it. A book deleted between the match and this read is left out.
+   */
+  async function describeMatches(candidates: readonly CoverMatchCandidate[]) {
+    const rows = new Map((await store.shortlisted(candidates.map((candidate) => candidate.id)))
+      .map((row) => [row.id, row]))
+    return candidates.flatMap((candidate) => {
+      const row = rows.get(candidate.id)
+      if (!row) return []
+      return [{
         id: row.id,
         title: row.title,
         authorFiling: row.author_filing,
@@ -2983,8 +3015,11 @@ export function createApp(options: CreateAppOptions): BookScanApp {
         // person has never seen makes them doubt a correct match.
         ...ownPhoto(row),
         checkedOut: row.checked_out,
-        distance: d,
-      }))
+        distance: candidate.distance,
+        similarity: candidate.similarity,
+        titlePrinted: candidate.titlePrinted,
+      }]
+    })
   }
 
   /**
@@ -3004,7 +3039,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * Captures already waiting to be shelved that look like the book being held
    * up, nearest first.
    *
-   * A different answer from `looksLike` and held to a much tighter bar: these
+   * A different answer from the cover shortlist and held to a much tighter bar: these
    * are photographs compared against photographs taken in the same room, which
    * share a background the hash can see, so two different books land as close as
    * 16 bits apart. `QUEUE_LIMIT` says why in full.
@@ -3124,41 +3159,40 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     }
 
     /*
-     * Barcode only to begin with, and no OCR.
+     * A barcode first, then Paddle's reading of the cover, and nothing slower.
      *
      * Someone is stood at a shelf holding a book, so the order of the fallbacks
      * is the order of their cost. Reading a barcode takes about a fifth of a
-     * second when it works; hashing the cover to shortlist books takes about
-     * fifty milliseconds; a full OCR pass takes five to ten seconds and, for a
-     * book being held front-out, almost always returns nothing. So OCR is last,
-     * and only runs when the cover is not recognised either.
+     * second when it works. Paddle reads the front in about a second, and its
+     * reading is both a chance at a printed ISBN and the words the cover matcher
+     * looks titles up by, handed over below rather than read a second time. The
+     * tesseract ladder, five to ten seconds that on a front cover almost always
+     * return nothing, is last, and only when nothing was recognised at all.
      */
     const read = await identify(buffer, {
       wantTitle: false,
-      ocrEnabled: false,
       // zxing only, and only as a first look: a front held up to the camera has
       // no barcode at all, and the thorough ladder spends seconds proving it.
       // What the fast pass may not do is settle the question, so when it reads
       // nothing the branch below gives the barcode its thorough look before any
       // shortlist that is not certain of itself answers.
       barcodeEffort: 'fast',
+      paddleOnly: true,
     })
 
     if (!read.isbn13) {
-      const query = await queryHash(buffer)
-      const candidates = await looksLike(query)
+      const match = await matchCover.handle({ photo: buffer, reading: read.text, lines: read.paddleLines })
+      const candidates = await describeMatches(match.candidates)
 
       /*
-       * A barcode is evidence. A cover hash is a guess: an ISBN-13 carries a
-       * check digit, so a decoded one either validates or is discarded, while a
-       * hash distance puts the wrong book first about one lookup in ten.
-       *
-       * So only one shortlist may answer before the barcode has had its second
-       * look: a single candidate in the `close` band, which is the same bar the
-       * scanner already opens a book on without asking.
+       * A barcode is evidence and a likeness is a guess, so only one shortlist
+       * may answer before the barcode has had its second look: one the cover
+       * matcher is confident of, which takes the printed words and the picture
+       * agreeing on one book (`BAR` in `application/books/queries/match-cover.ts`).
+       * The client opens `confident` without asking.
        */
-      if (confidentPick(candidates)) {
-        res.json({ outcome: 'candidates', barcodes: read.barcodes, candidates })
+      if (match.confident !== null && candidates[0]?.id === match.confident) {
+        res.json({ outcome: 'candidates', barcodes: read.barcodes, candidates, confident: match.confident })
         return
       }
 
@@ -3167,15 +3201,15 @@ export function createApp(options: CreateAppOptions): BookScanApp {
        * and not shelved yet?
        *
        * A different question rather than a section of the shortlist above: a
-       * capture has no catalogue id and may have no title, and folding it in would
-       * present two very different cutoffs, 24 and 8, as one scale of likeness.
+       * capture has no catalogue id and may have no title, and a queue match is
+       * held to the hash's tightest band, which nothing else on the shortlist is.
        *
-       * After the books and only when no book was close, because a catalogued row
-       * is a settled fact and a capture is work in progress. Before the thorough
-       * barcode read, because this costs a hash comparison per queued capture
-       * against seconds of zbar and OCR.
+       * After the books and only when no book's hash was close, because a
+       * catalogued row is a settled fact and a capture is work in progress. Before
+       * the thorough barcode read, because this costs a hash comparison per queued
+       * capture against seconds of zbar and OCR.
        */
-      const waiting = hasCloseMatch(candidates) ? [] : await alreadyInQueue(query)
+      const waiting = hasCloseMatch(candidates) ? [] : await alreadyInQueue(await queryHash(buffer))
       if (waiting.length) {
         res.json({ outcome: 'in-queue', matches: waiting })
         return
@@ -3187,8 +3221,9 @@ export function createApp(options: CreateAppOptions): BookScanApp {
        * look into a 1.5s one when there is no barcode to find, and it reads
        * small, distant and low-contrast barcodes the fast pass misses.
        *
-       * OCR only when there is no shortlist at all, because reading the printed
-       * page costs five to ten seconds.
+       * The full OCR ladder only when there is no shortlist at all, because
+       * reading the printed page costs five to ten seconds. With the image
+       * model on and anything catalogued, there always is one.
        */
       const slow = await identify(buffer, {
         wantTitle: false,
@@ -3197,7 +3232,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
 
       if (!slow.isbn13) {
         if (candidates.length) {
-          res.json({ outcome: 'candidates', barcodes: slow.barcodes, candidates })
+          res.json({ outcome: 'candidates', barcodes: slow.barcodes, candidates, confident: null })
           return
         }
         res.json({ outcome: 'no-isbn', barcodes: slow.barcodes, candidates: [] })
