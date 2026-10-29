@@ -96,7 +96,19 @@
       "required": true,
       "reachedBy": "the ConnectionStrings__bookscan value, as a TCP connection from the container",
       "why": "postgres-version.json is the one place this major is written in this repository, and CI pins its own service container to it. Collation behaviour is a property of the server and the libc it was built against, so this is what the suite proves rather than a floor.",
-      "schema": "applied by the container on every start, before it listens"
+      "schema": "applied by the container on every start, before it listens",
+      "extensions": [
+        {
+          "name": "vector",
+          "project": "pgvector",
+          "atLeast": "0.5.0",
+          "tested": "0.8.7",
+          "createdBy": "migration 0033, as CREATE EXTENSION IF NOT EXISTS vector, inside the start-up migration",
+          "privilege": "pgvector is not a trusted extension, so CREATE EXTENSION needs a superuser, or a role a managed service lets create it. A deployment whose app role cannot create it creates it once beforehand, as a role that can, in the catalogue database; IF NOT EXISTS then finds it there and the migration needs nothing more.",
+          "why": "Cover embeddings are stored in a vector column and searched through an HNSW index for cosine distance. 0.5.0 is the first release with HNSW. The tested version is the one postgres-version.json pins for every Postgres this repository starts.",
+          "withoutIt": "The server does not start. Migration 0033 fails with extension \"vector\" is not available (or permission denied to create extension \"vector\"), the start-up migration applies nothing, and the process exits before it listens. The official postgres image does not carry pgvector: use pgvector/pgvector at the same Postgres major, or a managed Postgres that offers the vector extension."
+        }
+      ]
     },
     "outboundHttps": {
       "required": true,

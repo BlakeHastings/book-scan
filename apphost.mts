@@ -67,7 +67,9 @@ const builder = await createBuilder();
  * No `withHostPort`: a fixed port stops several checkouts starting side by side,
  * so Aspire assigns one, as it does for every other endpoint here. A data volume
  * named per checkout, so a seeded scratch world survives a restart. And the
- * image tag is pinned from `postgres-version.json`, to the major only, because a
+ * image and tag come from `postgres-version.json`: pgvector's build of the
+ * official image, because the schema needs the `vector` extension, pinned to a
+ * pgvector release and the Postgres major and never to a minor, because a
  * managed Postgres applies its own minor updates and does not ask.
  *
  * The cost is per checkout and not per machine: one Postgres container and one
@@ -101,8 +103,13 @@ const databaseName = e2eRun ? `bookscan_${e2eRun.replace(/-/g, '_')}` : 'booksca
 
 const postgres = await builder
   .addPostgres('postgres')
-  .withImageTag(postgresVersion.tag)
-  .withDataVolume({ name: volumeName });
+  .withImage(postgresVersion.image, { tag: postgresVersion.tag })
+  // `withVolume` at the parent rather than `withDataVolume`: Aspire picks the
+  // data mount from the image tag, reads `0.8.7-pg18-trixie` as older than 18,
+  // and mounts `/var/lib/postgresql/data`, which an 18 image refuses to start
+  // on. 18 keeps its data under `/var/lib/postgresql/18/docker`, and every
+  // existing checkout's volume was written there through this parent mount.
+  .withVolume('/var/lib/postgresql', { name: volumeName });
 
 const catalogue = await postgres.addDatabase('bookscan', { databaseName });
 

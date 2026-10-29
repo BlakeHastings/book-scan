@@ -254,6 +254,34 @@ drops databases, and none of that belongs beside the catalogue.
 `install-backup-task.ps1` refuses to register a task where the two connections
 are the same string.
 
+### A dump restores only into a server that has pgvector
+
+Since migration 0033 the catalogue has the `vector` extension in it, for
+`cover_embedding`, and `pg_dump` writes `CREATE EXTENSION IF NOT EXISTS vector`
+into every dump. `pg_dump` records that the extension is used; it does not carry
+the extension. So a restore into a server built from the plain `postgres` image
+fails on its first statement, and `--exit-on-error` with `--single-transaction`
+leaves the scratch database empty. Seen on 2026-10-28, restoring a dump of a
+pgvector database into `postgres:18`:
+
+```
+pg_restore: error: could not execute query: ERROR:  extension "vector" is not available
+HINT:  The extension must first be installed on the system where PostgreSQL is running.
+Command was: CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
+```
+
+and the same dump into `pgvector/pgvector:0.8.7-pg18-trixie` restored with exit
+0 and gave the row back. **That makes three servers that need pgvector, not
+one:** the live catalogue, before the migration can run on it; the scratch server
+this verification restores into, or every night reads `VERIFICATION FAILED`; and
+whatever a real restore lands in. The image to use is the one
+`postgres-version.json` names, which is the image every Postgres in this
+repository runs.
+
+The client tools are not on that list. `pg_dump` and `pg_restore` never load the
+extension, so the default client image, `postgres:18.3`, still dumps and
+restores a catalogue that uses it.
+
 ### What it compares, and why counts are not enough
 
 | Line | The claim |
@@ -588,11 +616,13 @@ The owner runs this. It needs the live connection string.
 1. **Start a scratch Postgres for the verification.** It must not be the live
    server, and it should be built the same way, or the restore is proving
    something about a different kind of database. The live server is
-   `postgres:18.3` with `en_US.utf8`:
+   `postgres:18.3` with `en_US.utf8`, and once migration 0033 is deployed it has
+   to be an image with pgvector in it, so the scratch server has to be one too
+   (see "A dump restores only into a server that has pgvector" above):
 
    ```
    docker run -d --name book-scan-verify-pg -e POSTGRES_PASSWORD=<pick one> \
-     -p 127.0.0.1:55432:5432 postgres:18.3
+     -p 127.0.0.1:55432:5432 pgvector/pgvector:0.8.7-pg18-trixie
    ```
 
 2. **Run it once by hand and read what it prints.** Do not register a schedule
@@ -932,12 +962,15 @@ The verification is a rehearsal of exactly this, every day, so the steps are
 already known to work.
 
 1. Stop the app.
-2. Create the target database with the collation and encoding in the manifest:
+2. Restore onto a server that has pgvector, the image `postgres-version.json`
+   names. A dump taken since migration 0033 creates the `vector` extension as its
+   first statement and fails on a plain `postgres` server.
+3. Create the target database with the collation and encoding in the manifest:
    `CREATE DATABASE bookscan TEMPLATE template0 ENCODING 'UTF8' LC_COLLATE 'en_US.utf8' LC_CTYPE 'en_US.utf8'`.
-3. `pg_restore --no-owner --no-privileges --single-transaction --exit-on-error`
+4. `pg_restore --no-owner --no-privileges --single-transaction --exit-on-error`
    the chosen dump into it.
-4. Compare against the manifest before believing it. The digest is in the
+5. Compare against the manifest before believing it. The digest is in the
    `.json` beside the dump, in the form the verification prints.
-5. Put the photographs back from wherever they are covered.
-6. Start the app and look at the library: the shelf order, the queue, and one
+6. Put the photographs back from wherever they are covered.
+7. Start the app and look at the library: the shelf order, the queue, and one
    book's photographs.

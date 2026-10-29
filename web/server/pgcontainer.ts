@@ -24,6 +24,10 @@ import type { TestProject } from 'vitest/node'
  * is written. `apphost.mts` and `scripts/check-postgres-version.mjs` also
  * read it; the latter holds `.github/workflows/ci.yml` to the same value,
  * since a workflow's `services:` image cannot be an expression over a file.
+ *
+ * The image is pgvector's build of the official one, because the migrations
+ * create the `vector` extension and a plain `postgres` image refuses that.
+ * A server given in `BOOKSCAN_TEST_DATABASE_URL` needs it too.
  */
 const version = JSON.parse(
   readFileSync(new URL('../../postgres-version.json', import.meta.url), 'utf8'),

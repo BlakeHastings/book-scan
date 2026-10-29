@@ -533,6 +533,22 @@ are rows in Postgres rather than state in the process.
 
 ---
 
+## The Postgres beside it has to have pgvector
+
+Since #660 the schema stores cover embeddings in a pgvector column, and
+migration 0033 creates the `vector` extension. The start-up migration runs it, so
+an image pointed at a Postgres that lacks the extension does not come up: the
+migration refuses with `extension "vector" is not available`, nothing is applied,
+and the process exits naming the catalogue it could not open. The official
+`postgres` image does not include pgvector; `pgvector/pgvector` at the same major
+does, and is what `postgres-version.json` names for every Postgres this
+repository starts. Creating the extension needs a superuser, so a deployment
+whose app role is not one creates it once by hand first.
+`deploy/contract.json` says the same under `dependencies.postgres.extensions`,
+and `deploy/check-config.mjs` repeats it on every run because it cannot look.
+
+---
+
 ## What this does not do
 
 1. **It does not choose a host, and it adds nothing Cloudflare-shaped.** No

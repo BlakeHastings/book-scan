@@ -232,6 +232,13 @@
       "when": 1793165984449,
       "tag": "0032_an_mcp_client_can_be_let_in",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1793231419864,
+      "tag": "0033_a_photograph_can_be_embedded",
+      "breakpoints": true
     }
   ]
 }

@@ -523,6 +523,78 @@ export const capture = pgTable('capture', {
 ])
 
 /**
+ * A pgvector `vector` with no dimension in the type, which Drizzle's own
+ * `vector()` cannot say: it always writes `vector(n)`. The dimension lives in
+ * `cover_embedding.dimensions` instead, so two models of different sizes can sit
+ * in one table while they are compared.
+ *
+ * pgvector reads and writes the text form `[1,2,3]`, and node-postgres hands
+ * back that string untouched, because it knows no parser for an extension type.
+ */
+const vector = customType<{ data: number[]; driverData: string }>({
+  dataType: () => 'vector',
+  toDriver: (value) => `[${value.join(',')}]`,
+  fromDriver: (value) => JSON.parse(value) as number[],
+})
+
+/**
+ * The dimension the HNSW index below is built for. An HNSW index needs a fixed
+ * dimension, and the column has none, so the index is over the column cast to
+ * this size and is partial on rows of this size. A model of another size gets
+ * an index of its own the same way, in the migration that brings it.
+ */
+export const COVER_EMBEDDING_INDEXED_DIMENSIONS = 512
+
+/**
+ * What one image model made of one photograph: a vector to compare photographs
+ * by meaning rather than by pixels.
+ *
+ * Keyed on the photograph and the model, so a second model's embedding of the
+ * same photograph sits beside the first while the two are measured against each
+ * other, and recomputing one replaces it. Which book and which kind of
+ * photograph (`front`, or the downloaded `catalogue` cover) are read through
+ * `capture_id` rather than copied here, so a photograph that moves to another
+ * book takes its embedding with it and nothing can disagree about whose it is.
+ *
+ * `model` names the model and its preprocessing exactly, because two embeddings
+ * are comparable only when both are; `dimensions` is its output size, and the
+ * check holds every row to it. Distances are cosine, through
+ * `vector_cosine_ops`: a query has to say
+ * `embedding::vector(512) <=> $1::vector(512)` and `dimensions = 512` for the
+ * planner to use the index, because both are part of the index's definition.
+ * Two models of the same size share that index, and a search filtered to one of
+ * them then reads past the other's rows; a side by side comparison that long
+ * lived should give each model a partial index on `model` instead.
+ *
+ * The `vector` extension is created by migration 0033, the one that made this
+ * table, so every Postgres this runs on has to offer pgvector. See
+ * `deploy/contract.json`.
+ */
+export const coverEmbedding = pgTable('cover_embedding', {
+  captureId: integer('capture_id').notNull(),
+  model: text('model').notNull(),
+  dimensions: integer('dimensions').notNull(),
+  embedding: vector('embedding').notNull(),
+  // text, not timestamp, for the reason written out on books.cover_checked_at.
+  computedAt: text('computed_at').notNull(),
+}, (table) => [
+  primaryKey({ name: 'cover_embedding_pkey', columns: [table.captureId, table.model] }),
+  foreignKey({
+    name: 'cover_embedding_capture_id_fkey',
+    columns: [table.captureId],
+    foreignColumns: [capture.id],
+  }).onDelete('cascade'),
+  check('cover_embedding_dimensions_check', sql.raw(
+    '"dimensions" > 0 AND vector_dims("embedding") = "dimensions"',
+  )),
+  index(`idx_cover_embedding_hnsw_${COVER_EMBEDDING_INDEXED_DIMENSIONS}`)
+    .using('hnsw', sql.raw(
+      `("embedding"::vector(${COVER_EMBEDDING_INDEXED_DIMENSIONS})) vector_cosine_ops`,
+    ))
+    .where(sql.raw(`"dimensions" = ${COVER_EMBEDDING_INDEXED_DIMENSIONS}`)),
+])
+
+/**
  * The current photograph of each kind, which is `Photographs.latest` said in
  * SQL, for the two statements that cannot load the rows first:
  * `Store.missingHashes` and `CaptureQueue.waiting` want the books whose current
@@ -1215,7 +1287,7 @@ export const oauthToken = pgTable('oauth_token', {
  */
 export const ALL_TABLES = [
   books, bookAuthors, authorFiling, captures, tag, bookTag,
-  author, authorAlias, bookAuthor, capture, outstandingMove,
+  author, authorAlias, bookAuthor, capture, coverEmbedding, outstandingMove,
   sortStrategy, collection, fixture, area, placementRule, ruleCondition,
   bookPlacement,
   // The only tables here that are not about books.

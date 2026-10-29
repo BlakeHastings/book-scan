@@ -1622,6 +1622,11 @@ Three things about that are worth knowing before touching it.
   adding one cannot move the fixed point.
 - **SQLite is gone.** Stage I removed the driver, its hand-written schema and
   the two functions that brought the one legacy catalogue file forward.
+- **Every Postgres here needs pgvector**, since migration 0033 creates the
+  `vector` extension. `postgres-version.json` names `pgvector/pgvector` for the
+  AppHost, the test container and CI, so nothing changes for you under them, but
+  a server you point `BOOKSCAN_TEST_DATABASE_URL` at needs the extension too,
+  and so does anything a dump is restored into (`docs/backup-runbook.md`).
 
 There is no `dbCredentials` block in `drizzle.config.ts`, so `drizzle-kit push`,
 `pull` and `studio` are not configured. `generate` needs no database at all, and
