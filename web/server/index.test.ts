@@ -1785,6 +1785,46 @@ describe('scanning a book at the shelf', () => {
     expect(body.candidates.map((c: { id: number }) => c.id)).toContain(id)
   }, 30_000)
 
+  /*
+   * This app has no image model (no `coverEncoder`), which is the server as it
+   * runs with `[covers] similarity is off`: the fused matcher works on the
+   * words Paddle read and the hash, and its bar is the printed title alone.
+   */
+  it('opens a book by the title printed on its cover with similarity off, and nothing on the hash', async () => {
+    const buffer = await frontCover('Dune Messiah', 'Frank Herbert')
+    const { id } = await running.books.catalogue({
+      title: 'Dune Messiah', authors: ['Frank Herbert'], genre: FICTION_SLUG,
+    })
+    const other = await running.books.catalogue({
+      title: 'Perdido Street Station', authors: ['China Miéville'], genre: FICTION_SLUG,
+      frontImage: 'perdido_front.jpg',
+    })
+    // A hash as close as it gets, on a different book: the hash ranks, it never opens.
+    await running.store.setHashes(other.id, await coverHash(buffer), '')
+
+    const { body } = await post('/api/books/scan', { image: dataUrl(buffer) })
+
+    expect(body.outcome).toBe('candidates')
+    expect(body.confident).toBe(id)
+    expect(body.candidates[0]).toMatchObject({ id, title: 'Dune Messiah', similarity: null, distance: null })
+    expect(body.candidates[0].titlePrinted).toBeGreaterThanOrEqual(0.8)
+    expect(body.candidates.find((c: { id: number }) => c.id === other.id)).toMatchObject({ distance: 0 })
+  }, 30_000)
+
+  it('does not open a book whose words name only its author', async () => {
+    // The shape of #664's "The Warlord of Mars": the author is on every volume.
+    const buffer = await frontCover('The Warlord of Mars', 'Edgar Rice Burroughs')
+    const { id } = await running.books.catalogue({
+      title: 'A Princess of Mars', authors: ['Edgar Rice Burroughs'], genre: FICTION_SLUG,
+    })
+
+    const { body } = await post('/api/books/scan', { image: dataUrl(buffer) })
+
+    expect(body.outcome).toBe('candidates')
+    expect(body.confident).toBeNull()
+    expect(body.candidates.map((c: { id: number }) => c.id)).toContain(id)
+  }, 30_000)
+
   it('reports not-catalogued for a real ISBN nobody has saved, and writes nothing', async () => {
     const buffer = await backCover(DUNE)
 

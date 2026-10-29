@@ -26,12 +26,17 @@ const SHORTLIST = 4
 export const BAR = {
   /**
    * The picture and the words agree: the image model and the text both rank
-   * the book first, at least half of its title is printed there, and the text
+   * the book first, this much of its title is printed there, and the text
    * puts it this far ahead of its own second. On seed 7 a lead of 0.05 opened
    * a series sibling ("The Silent Orchard" for "The Silent Island"), 0.08
-   * opened none, and 0.1 is the room.
+   * opened none, and 0.1 is the room. Seed 7 opened nothing wrong at any
+   * share of the title from 0 up once the lead was 0.1; the share is 0.6
+   * because of #664's sibling, which seed 7 does not have: a reading of "The
+   * Warlord of Mars" by Edgar Rice Burroughs holds 0.48 of "The Gods of Mars"
+   * and 0.42 of "A Princess of Mars", and a catalogue holding only one of
+   * them has no second volume for the lead to stop it on.
    */
-  agreement: { titlePrinted: 0.5, lead: 0.1 },
+  agreement: { titlePrinted: 0.6, lead: 0.1 },
   /**
    * The title is on the cover: the text ranks the book first with this much
    * of its title printed and this lead, #667's own bar, and the image model has

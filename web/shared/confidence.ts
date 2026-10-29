@@ -16,9 +16,10 @@
  */
 
 /**
- * The widest distance the server will offer. Past this it stops returning a
- * candidate at all, so nothing here should ever exceed it. Kept in step with
- * the filter in `looksLike` (`web/server/index.ts`).
+ * The widest distance the hash offered when it was the scanner's only
+ * strategy, and still the harness's baseline row (`hash-matcher.ts`). Since
+ * #669 the scan route's fused matcher asks the hash only inside
+ * `SIMILAR_LIMIT`, because past it the hash is close to chance on real covers.
  */
 export const MATCH_CUTOFF = 24
 
@@ -98,20 +99,53 @@ export function confidenceLine(confidence: MatchConfidence): string {
  * place the `close` band is applied, so the shortlist, the scanner and the queue
  * match cannot drift apart.
  */
-export function closeMatches<T extends { distance: number }>(
+export function closeMatches<T extends { distance: number | null }>(
   candidates: readonly T[],
 ): T[] {
   return candidates.filter(
-    (candidate) => matchConfidence(candidate.distance).strength === 'close',
+    (candidate) => candidate.distance !== null && matchConfidence(candidate.distance).strength === 'close',
   )
 }
 
-export function hasCloseMatch(candidates: readonly { distance: number }[]): boolean {
+/** Whether any candidate's hash is in the `close` band. A candidate the hash did not find has a null distance. */
+export function hasCloseMatch(candidates: readonly { distance: number | null }[]): boolean {
   return closeMatches(candidates).length > 0
 }
 
-export function shortlistPrompt(candidates: readonly { distance: number }[]): string {
-  return hasCloseMatch(candidates)
+/**
+ * How much of its title a cover photograph has to show for the scanner to say
+ * the title is on it: the printed-title half of the fused matcher's bar
+ * (`BAR.printedTitle` in `application/books/queries/match-cover.ts`).
+ */
+export const TITLE_ON_COVER = 0.8
+
+/**
+ * What one book on a cover shortlist is there because of, in words. The
+ * strongest evidence first: its title read off the photograph, then a hash
+ * near enough identical, then the picture, then words that found it without
+ * its title (usually the author's name). Never a percentage for the picture
+ * or the words: neither has a scale where chance reads as 0%, which is what
+ * the hash's percentage means.
+ */
+export function coverMatchLine(match: {
+  distance: number | null
+  similarity: number | null
+  titlePrinted: number | null
+}): string {
+  if (match.titlePrinted !== null && match.titlePrinted >= TITLE_ON_COVER) return 'title on the cover'
+  if (match.distance !== null && matchConfidence(match.distance).strength === 'close') {
+    return confidenceLine(matchConfidence(match.distance))
+  }
+  if (match.similarity !== null) return 'cover looks alike'
+  if (match.titlePrinted !== null) return 'words on the cover'
+  return match.distance !== null ? confidenceLine(matchConfidence(match.distance)) : BAND_WORDS.loose
+}
+
+export function shortlistPrompt(
+  candidates: readonly { distance: number | null, titlePrinted?: number | null }[],
+): string {
+  const titleRead = candidates.some((candidate) => (candidate.titlePrinted ?? 0) >= TITLE_ON_COVER)
+  return hasCloseMatch(candidates) || titleRead
     ? 'No barcode. Is it one of these?'
     : 'No barcode, and nothing looks close. Compare carefully, or shoot again.'
 }
@@ -123,9 +157,9 @@ export function shortlistPrompt(candidates: readonly { distance: number }[]): st
  * hands, and picking the nearer one would be exactly the relative grading the
  * bands exist to refuse, so ambiguity goes back to the person as a shortlist.
  *
- * The server asks the same question: a barcode is self-validating and a cover
- * hash is a guess, so a shortlist may only pre-empt the thorough barcode read
- * when it is this confident.
+ * The hash's own bar, and since #669 only the harness's baseline row asks it:
+ * the scan route's shortlist is fused, and the server says which book, if
+ * any, it is confident of.
  */
 export function confidentPick<T extends { distance: number }>(
   candidates: readonly T[],

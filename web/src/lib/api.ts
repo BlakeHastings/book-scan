@@ -445,8 +445,14 @@ export interface CoverMatch {
   /** True when no photo exists and this is the catalogue's cover instead. */
   fromCatalogue: boolean
   checkedOut: boolean
-  /** Differing bits out of 64. Lower is more alike. */
-  distance: number
+  /**
+   * What each of the three strategies said, null where it did not find this
+   * book. The hash's differing bits out of 64, lower more alike; the image
+   * model's cosine; and how much of the title was read off the cover, 0 to 1.
+   */
+  distance: number | null
+  similarity: number | null
+  titlePrinted: number | null
 }
 
 /**
@@ -462,7 +468,8 @@ export type CheckoutOutcome = 'checked-out' | 'already-out' | 'checked-in' | 'al
  */
 export type ScanResult =
   | { outcome: 'no-isbn'; barcodes: string[]; candidates: CoverMatch[] }
-  | { outcome: 'candidates'; barcodes: string[]; candidates: CoverMatch[] }
+  /** `confident` is the one candidate the server would open without asking, or null. */
+  | { outcome: 'candidates'; barcodes: string[]; candidates: CoverMatch[]; confident: number | null }
   | { outcome: 'in-queue'; matches: QueueMatch[] }
   | { outcome: 'not-catalogued'; isbn13: string }
   | { outcome: 'identified'; book: FiledBookRow }

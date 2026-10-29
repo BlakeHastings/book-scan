@@ -914,6 +914,14 @@ export interface IdentifyOptions {
   wantTitle?: boolean
   ocrEnabled?: boolean
   /**
+   * Read with Paddle and stop there, rather than going on to the tesseract
+   * ladder when Paddle finds no ISBN. About a second rather than five to ten,
+   * and Paddle's reading is what the cover-text matcher was measured on, so
+   * `text` is then the reading the scan route hands it (#669). An ISBN Paddle
+   * reads is still harvested and still has to pass its check digit.
+   */
+  paddleOnly?: boolean
+  /**
    * How hard to look for a barcode. 'fast' is zxing alone, one pass of about
    * 160ms; 'thorough' adds the zbar ladder underneath, which finds a few more and
    * costs 2.6 seconds to discover it has found nothing, which is what a front
@@ -1056,6 +1064,10 @@ async function identifyNow(
       noteReading(result)
       return result
     }
+  }
+  if (options.paddleOnly) {
+    noteReading(result)
+    return result
   }
 
   // Ladder order: the region rungs read a label the decoder has already

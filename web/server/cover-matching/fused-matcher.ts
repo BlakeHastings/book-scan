@@ -48,7 +48,7 @@ export function fusedMatcher({ pictures }: { pictures: boolean }): CoverMatcher 
   return {
     name: pictures ? 'fused (dinov2 + text + hash)' : 'fused, similarity off (text + hash)',
     bar: pictures
-      ? 'the words rank it first with >= 0.5 of its title printed and a 0.1 lead and the picture ranks it first; '
+      ? 'the words rank it first with >= 0.6 of its title printed and a 0.1 lead and the picture ranks it first; '
         + 'or >= 0.8 of its title printed with a 0.05 lead and the picture has it in its four'
       : 'the words rank it first with >= 0.8 of its title printed and a 0.05 lead',
 

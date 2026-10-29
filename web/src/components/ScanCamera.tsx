@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api, type Capture, type CoverMatch, type QueueMatch } from '../lib/api'
 import { coverUrl } from './PlacementCard'
 import { QueuedAlready } from './QueuedAlready'
-import { confidenceLine, confidentPick, matchConfidence, shortlistPrompt } from '../../shared/confidence'
+import { coverMatchLine, shortlistPrompt } from '../../shared/confidence'
 import { Card, Said } from '../design/Card'
 import { Button } from '../design/Controls'
 import { List, Row } from '../design/List'
@@ -140,11 +140,11 @@ export function ScanCamera({ onIdentified, onWaiting, onClose }: Props) {
           return
 
         case 'candidates': {
-          // One candidate in the close band is a good enough guess to open a
-          // page on, since opening a page writes nothing; anything else is a list.
-          const sure = confidentPick(result.candidates)
-          if (sure) {
-            onIdentified(sure.id)
+          // A book the server is confident of is a good enough guess to open a
+          // page on, since opening a page writes nothing; anything else is a
+          // list. The bar is the server's, where all three strategies are.
+          if (result.confident !== null) {
+            onIdentified(result.confident)
             return
           }
           setChoices(result.candidates)
@@ -245,9 +245,9 @@ export function ScanCamera({ onIdentified, onWaiting, onClose }: Props) {
 
                   <List label="Books this could be">
                     {choices.map((match) => {
-                      // Percentage is scaled so chance itself reads as 0%,
-                      // so it is honest rather than decorative.
-                      const confidence = matchConfidence(match.distance)
+                      // Words for what found it. A percentage only for the
+                      // hash, whose scale puts chance at 0%.
+                      const why = coverMatchLine(match)
                       return (
                         <Row
                           key={match.id}
@@ -260,13 +260,13 @@ export function ScanCamera({ onIdentified, onWaiting, onClose }: Props) {
                           // who cannot see it, so both end marks are in it.
                           label={[
                             `${match.title} by ${match.authorFiling}`,
-                            confidenceLine(confidence),
+                            why,
                             match.fromCatalogue ? 'catalogue image' : '',
                             match.checkedOut ? 'checked out' : '',
                           ].filter(Boolean).join(', ')}
                           meta={
                             <>
-                              <span>{confidenceLine(confidence)}</span>
+                              <span>{why}</span>
                               {match.fromCatalogue && <span>catalogue image</span>}
                               {match.checkedOut && <span>checked out</span>}
                             </>
