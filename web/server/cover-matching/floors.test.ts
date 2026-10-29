@@ -33,12 +33,15 @@ describe('the harness itself', () => {
     expect(set.queries.filter((query) => query.truth === null)).toHaveLength(CI_SET.absent)
   })
 
-  it('scores a book against its own catalogue cover as found, and confidently', async () => {
-    // The plumbing check: if the very image the catalogue holds is not top-1
-    // for the hash, the harness is scoring something other than the matcher.
+  it('finds a book from its own catalogue cover, and never opens the wrong one', async () => {
+    // The plumbing check: if the very image the catalogue holds is not on the
+    // hash's shortlist, the harness is scoring something other than the
+    // matcher. Not top-1: two volumes of one series can hash identically, and
+    // a tie at distance 0 goes to whichever sorts first. `confidentPick`
+    // refuses that tie, which is what the second assertion holds it to.
     const flat = { catalogue: set.catalogue, queries: set.catalogue.map((book) => ({ photo: book.cover, truth: book.id, book: book.title })) }
     const score = await evaluate(hashMatcher, flat)
-    expect(score.top1).toBe(1)
+    expect(score.top4).toBe(1)
     expect(score.confidentWrong).toBe(0)
   }, 60_000)
 
@@ -59,6 +62,7 @@ describe('each registered matcher holds its floor', () => {
       expect.soft(score.top1, 'top-1').toBeGreaterThanOrEqual(entry.floor.top1)
       expect.soft(score.top4, 'top-4').toBeGreaterThanOrEqual(entry.floor.top4)
       expect.soft(score.confidentWrong, 'confident wrong').toBeLessThanOrEqual(entry.floor.confidentWrong)
-    }, 120_000)
+      // DINOv2 in fp32 took 102 s of this beside the rest of the suite.
+    }, 300_000)
   }
 })

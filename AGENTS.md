@@ -166,6 +166,9 @@ The safety here is structural, not just a request:
   `web/server/identify.ts`, cached under
   the user's home directory, not the data directory), so it cannot land
   anywhere near the catalogue either.
+  The cover-matching harness keeps image encoders in `~/.cache/bookscan/models`
+  and the optional real covers in `~/.cache/bookscan/cover-eval` on the same
+  footing, and its floor test never downloads either.
 
 If you add a test that needs a database, take one from `web/server/testdb.ts`
 like the existing ones do (see `web/server/store.test.ts`). Never write a test
@@ -1200,6 +1203,8 @@ teach people to skim past it.
 | `web/server/driver.ts` | The `Db` seam the stores are written against |
 | `web/server/identify.ts` | Barcode decoding then OCR of the printed ISBN |
 | `web/server/paddle.ts` | PaddleOCR, the primary OCR engine |
+| `web/server/cover-matching/` | The harness that scores ways of recognising a book from a photo of its cover, on a generated set; `npm run eval:covers` prints the table. Not wired into the app |
+| `docs/the-cover-matcher.md` | What others do to recognise a cover, what the harness measured, and which strategy to build |
 | `web/server/lookup.ts` | Open Library primary, Google Books top-up |
 | `web/server/store.ts` | All SQL |
 | `web/server/backup.ts` | The backup digest and retention, and the shelf order hash |
