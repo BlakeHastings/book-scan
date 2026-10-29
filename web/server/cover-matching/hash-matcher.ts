@@ -1,16 +1,16 @@
 /**
- * Today's matcher, restated behind `CoverMatcher` so it is the baseline row.
- *
- * It has to answer exactly as `looksLike` and `confidentPick` do for
- * `POST /api/books/scan`, or the baseline measures something nobody ships. The
- * cutoff and the bar come from `shared/confidence.ts` rather than being copied.
+ * The scanner's matcher until #669, restated behind `CoverMatcher` so it is
+ * the baseline row: every catalogued cover within `MATCH_CUTOFF` bits, and
+ * `confidentPick`'s one candidate within 8 as the bar. The cutoff and the bar
+ * come from `shared/confidence.ts` rather than being copied. The scan route now
+ * asks the fused matcher, which reads the hash only inside its similar band.
  */
 
 import { coverHash, distance } from '../imagehash'
 import { MATCH_CUTOFF, confidentPick } from '../../shared/confidence'
 import type { CoverMatcher } from './matcher'
 
-/** What `looksLike` returns by default. */
+/** The shortlist the scanner shows. */
 const SHORTLIST = 4
 
 async function hashOrNull(image: Buffer): Promise<string | null> {

@@ -9,11 +9,21 @@ import type { CoverHashes, CoverPictures, CoverWords, HashMatch, PictureMatch, W
  */
 export const RRF_K = 60
 
-/** How deep into each strategy's ranking the fusion reads. */
+/** How deep into the picture's and the hash's rankings the fusion reads. */
 const DEPTH = 10
 
 /** The shortlist a person is shown, and the candidates the bar is asked of. */
 const SHORTLIST = 4
+
+/**
+ * The words take part with their own shortlist of four, and only books they
+ * found something of. The text handler answers its nearest titles whatever
+ * the reading, so in a small catalogue every book is somewhere on its list,
+ * and a tail of books scoring 0.05 was outvoting the one book whose title is
+ * printed there. Chosen on seed 7, where it moved the fused top-1 from 75.0%
+ * to 79.7% (`docs/the-cover-matcher.md`).
+ */
+const WORDS = { depth: SHORTLIST, score: 0.1 } as const
 
 /**
  * When one book may be opened without asking. Chosen on synthetic seed 7 and
@@ -39,10 +49,13 @@ export const BAR = {
   agreement: { titlePrinted: 0.6, lead: 0.1 },
   /**
    * The title is on the cover: the text ranks the book first with this much
-   * of its title printed and this lead, #667's own bar, and the image model has
-   * it on its shortlist too. With the image model off, the words alone.
+   * of its title printed and this lead, #667's own bar, and the image model
+   * has it among the ten it ranks. On seed 7 nothing wrong opened with the
+   * picture asked to rank it fourth or better, tenth or better, or not at all;
+   * ten is the loosest of the three that still asks the picture at all. With
+   * the image model off, the words alone.
    */
-  printedTitle: { titlePrinted: 0.8, lead: 0.05, pictureWithin: SHORTLIST },
+  printedTitle: { titlePrinted: 0.8, lead: 0.05, pictureWithin: DEPTH },
 } as const
 
 export interface MatchCover {
@@ -147,7 +160,8 @@ export class MatchCoverHandler {
     ])
     const evidence: Evidence = { pictures, words, hashes }
 
-    const ranked = [...fuse([pictures ?? [], words, hashes]).entries()]
+    const telling = words.filter((entry) => entry.score >= WORDS.score).slice(0, WORDS.depth)
+    const ranked = [...fuse([pictures ?? [], telling, hashes]).entries()]
       // By id on a tie, so one photograph always answers the same way.
       .sort((a, b) => b[1] - a[1] || a[0] - b[0])
       .slice(0, SHORTLIST)

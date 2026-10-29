@@ -86,20 +86,20 @@ export const REGISTERED: Registered[] = [
   /*
    * Recorded on 2026-10-29, the same way (#669):
    *
-   *   fused (dinov2 + text + hash)         top-1 78.8%  top-4 97.5%  confident wrong 0.0%
+   *   fused (dinov2 + text + hash)         top-1 87.5%  top-4 98.8%  confident wrong 0.0%
    *   fused, similarity off (text + hash)  top-1 93.8%  top-4 96.3%  confident wrong 0.0%
    *
    * The bar is `BAR` in `application/books/queries/match-cover.ts`, the one the
    * scan route ships, chosen on seed 7. On these synthetic covers DINOv2 cannot
-   * read and drags the fused top-1 below the words alone; on real covers it is
-   * the other way round, which `docs/the-cover-matcher.md` shows. The second
-   * row is the app with `[covers] similarity is off`.
+   * read and pulls the fused top-1 below the words alone; on real covers the
+   * fusion beats every strategy in it, which `docs/the-cover-matcher.md` shows.
+   * The second row is the app with `[covers] similarity is off`.
    */
   {
     matcher: fusedMatcher({ pictures: true }),
     encoder: DINOV2_SMALL,
     database: true,
-    floor: { top1: 0.72, top4: 0.91, confidentWrong: ONE_PHOTO_OF_CI_SET },
+    floor: { top1: 0.81, top4: 0.92, confidentWrong: ONE_PHOTO_OF_CI_SET },
   },
   {
     matcher: fusedMatcher({ pictures: false }),

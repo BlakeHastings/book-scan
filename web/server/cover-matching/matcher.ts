@@ -3,9 +3,10 @@
  * is measured in, so that a hash, an embedding, cover text and any fusion of
  * them can sit in one table and be compared on the same photographs.
  *
- * Nothing here is wired into the app. `POST /api/books/scan` still calls
- * `looksLike` in `server/index.ts`; a matcher earns its way there by its row in
- * `scripts/cover-matchers.ts`.
+ * `POST /api/books/scan` asks `MatchCoverHandler`
+ * (`application/books/queries/match-cover.ts`), which earned its way there by
+ * the fused rows in `scripts/cover-matchers.ts` (#669); `fused-matcher.ts`
+ * scores that same handler here. Any other matcher earns its way the same way.
  */
 
 /** One catalogued book, as a matcher is allowed to see it. */

@@ -3039,7 +3039,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
    * Captures already waiting to be shelved that look like the book being held
    * up, nearest first.
    *
-   * A different answer from `looksLike` and held to a much tighter bar: these
+   * A different answer from the cover shortlist and held to a much tighter bar: these
    * are photographs compared against photographs taken in the same room, which
    * share a background the hash can see, so two different books land as close as
    * 16 bits apart. `QUEUE_LIMIT` says why in full.
