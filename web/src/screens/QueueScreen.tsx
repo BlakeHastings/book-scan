@@ -9,6 +9,7 @@ import type { TabName } from '../design/Chrome'
 import { usePaper } from '../app/paper'
 import { useSummary } from '../app/summary'
 import { useLeaving } from '../app/leaving'
+import { useErrorBanner } from '../app/errorBanner'
 import { useNavigation } from '../app/navigation'
 import { useOpenBook } from '../app/openBook'
 
@@ -17,6 +18,7 @@ export function QueueScreen() {
   const { setQueueCounts, setCounts } = useSummary()
   const { leaveFor } = useLeaving()
   const { openCapture, moveBook } = useOpenBook()
+  const { setError } = useErrorBanner()
 
   usePaper()
 
@@ -44,6 +46,7 @@ export function QueueScreen() {
       showing={queueShowing}
       onPlace={(id) => { void moveBook(id, 'queue') }}
       onCatalogueCounts={setCounts}
+      onTroubleAfterLeaving={setError}
     />
   )
 }

@@ -37,8 +37,8 @@ export function ReviewScreen() {
   const { openNeighbour } = useOpenBook()
   const book = useBookInHand()
   const {
-    saveEdits, deleteBook, checkOut, relookup, startBoundaryMove,
-    deletingBook, checkingOut, boundaryMoving,
+    saveEdits, deleteBook, discardScan, checkOut, relookup, startBoundaryMove,
+    deletingBook, discardingScan, checkingOut, boundaryMoving,
   } = useBookActions()
 
   const {
@@ -131,6 +131,8 @@ export function ReviewScreen() {
         onRetake={(slot) => { setActiveSlot(slot); leaveFor('capture') }}
         onShelve={() => setRoute('shelve')}
         onLeave={returnToOrigin}
+        onDiscard={captureId !== null ? discardScan : undefined}
+        discarding={discardingScan}
         tabs={tabs}
         tags={tagging.tags}
         vocabulary={tagging.vocabulary}

@@ -36,6 +36,7 @@ import { plankAt, type SeparatorKind } from '../shared/layout'
 import type { ShelfRange } from '../shared/shelving'
 import { coverHash } from './imagehash'
 import { CaptureQueue } from './queue'
+import { bookLock } from '../application/locks'
 import { backCover, frontCover, photographedBook } from './fixtures'
 import { FICTION_SLUG, NON_FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 
@@ -580,6 +581,40 @@ describe('deleting a book', () => {
     expect(status).toBe(404)
     expect(body.error).toContain('No such book')
   })
+
+  it('takes a shelved book with everything that names it, and its photographs off disk', async () => {
+    writeFileSync(join(running.coverDir, 'd_front.jpg'), Buffer.from('a photograph'))
+    const { id } = await running.books.catalogue({
+      title: 'Placed', authors: ['Ann Author'], genre: FICTION_SLUG, frontImage: 'd_front.jpg',
+    })
+    const rows = async (table: string) =>
+      (await running.db.get<{ n: number }>(`SELECT count(*)::int AS n FROM ${table} WHERE book_id = ?`, [id]))!.n
+    expect(await rows('book_placement')).toBeGreaterThan(0)
+    expect(await rows('capture')).toBe(1)
+    expect(await rows('book_tag')).toBeGreaterThan(0)
+
+    const { status, body } = await del(`/api/books/${id}`)
+
+    expect(status).toBe(200)
+    expect(body.photosRemoved).toBe(1)
+    for (const table of ['book_placement', 'capture', 'book_tag', 'book_author']) {
+      expect(await rows(table)).toBe(0)
+    }
+    expect(existsSync(join(running.coverDir, 'd_front.jpg'))).toBe(false)
+  })
+
+  it.each(['scanned', 'identified', 'unidentified', 'discarded', 'checked_out'])(
+    'takes a book that is %s',
+    async (state) => {
+      const capture = await new CaptureQueue(running.db, () => null).add({ front: `s_${state}.jpg` })
+      await running.db.run('UPDATE books SET "state" = ? WHERE id = ?', [state, capture.id])
+
+      const { status } = await del(`/api/books/${capture.id}`)
+
+      expect(status).toBe(200)
+      expect(await running.store.getBook(capture.id)).toBeUndefined()
+    },
+  )
 })
 
 describe('updating a location', () => {
@@ -2513,6 +2548,44 @@ describe('discarding a capture', () => {
     expect(existsSync(join(running.coverDir, 'r_front.jpg'))).toBe(true)
     expect(existsSync(join(running.coverDir, 'r_front_crop.jpg'))).toBe(true)
     expect(existsSync(join(running.coverDir, 'r_back.jpg'))).toBe(false)
+  })
+
+  it('refuses a book that has been catalogued since, and keeps its photographs', async () => {
+    const { capture } = await queuedWithFiles(['c_front.jpg', 'c_back.jpg'])
+    await shelve(capture.id)
+
+    const { status, body } = await del(`/api/captures/${capture.id}`)
+
+    expect(status).toBe(409)
+    expect(body.error).toContain('catalogued')
+    expect((await running.store.getBook(capture.id))!.state).toBe('shelved')
+    expect(existsSync(join(running.coverDir, 'c_front.jpg'))).toBe(true)
+  })
+
+  it('answers a discard sent twice the same way both times', async () => {
+    const { capture } = await queuedWithFiles(['t_front.jpg', 't_back.jpg'])
+
+    expect((await del(`/api/captures/${capture.id}`)).status).toBe(200)
+    const again = await del(`/api/captures/${capture.id}`)
+
+    expect(again.status).toBe(200)
+    expect((await running.store.getBook(capture.id))!.state).toBe('discarded')
+  })
+
+  it('waits for a save of the same book already under way, and then finds it catalogued', async () => {
+    const { capture } = await queuedWithFiles(['w_front.jpg', 'w_back.jpg'])
+
+    let discard: Promise<{ status: number }> | undefined
+    await running.db.tx(async (tx) => {
+      discard = del(`/api/captures/${capture.id}`)
+      await new Promise((done) => setTimeout(done, 300))
+      // What a save out of the queue writes, on the lock a save holds.
+      await tx.run('UPDATE books SET "state" = \'shelved\' WHERE id = ?', [capture.id])
+    }, { serialiseOn: bookLock(capture.id) })
+
+    expect((await discard!).status).toBe(409)
+    expect((await running.store.getBook(capture.id))!.state).toBe('shelved')
+    expect(existsSync(join(running.coverDir, 'w_front.jpg'))).toBe(true)
   })
 })
 

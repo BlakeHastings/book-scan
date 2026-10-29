@@ -6,7 +6,7 @@
 import type { CatalogueCounts } from '../application/books/read-models'
 import type { Db } from './driver'
 import { recordWhatTheRoomMoved, whereEveryRunPutsThem } from './what-moved'
-import { FURNITURE_LOCK, rangeLock } from '../application/locks'
+import { bookLock, FURNITURE_LOCK, rangeLock } from '../application/locks'
 /*
  * Photographs are rows in `capture`, not columns on `books`. The flat
  * one-per-slot shape the wire speaks in is derived from those rows by
@@ -284,8 +284,25 @@ export class Store {
     })
   }
 
-  async deleteBook(id: number): Promise<void> {
-    await this.db.run('DELETE FROM books WHERE id = ?', [id])
+  /**
+   * Every row that names the book goes with it by cascade: photographs, tags,
+   * credits, placements and an outstanding move. Held on the book's lock so a
+   * save or a discard of it already under way finishes first. False when there
+   * was no such book.
+   */
+  async deleteBook(id: number): Promise<boolean> {
+    return this.db.tx(async (tx) => {
+      const row = await tx.get<{ shelf_range: string }>(
+        'SELECT shelf_range FROM books WHERE id = ?', [id],
+      )
+      if (!row) return false
+      // A book leaving a run closes a gap somebody else may be reading the run to fill.
+      const range = row.shelf_range === 'fiction' || row.shelf_range === 'nonfiction'
+        ? row.shelf_range
+        : null
+      const remove = async (on: Db) => (await on.run('DELETE FROM books WHERE id = ?', [id])).changes > 0
+      return range ? tx.tx(remove, { serialiseOn: rangeLock(range) }) : remove(tx)
+    }, { serialiseOn: bookLock(id) })
   }
 
   /**

@@ -1311,7 +1311,22 @@ export function createApp(options: CreateAppOptions): BookScanApp {
      * two rows, and both were taken of the thing being thrown away.
      */
     const images = await filesOf(db, id)
-    await queue.discard(id)
+    const outcome = await queue.discard(id)
+    if (outcome === 'missing') {
+      res.status(404).json({ error: 'No such capture.' })
+      return
+    }
+    // A catalogued book is not thrown away from the queue, and saying "removed"
+    // would hide that it is still in the catalogue with every photograph.
+    if (outcome === 'not-queued') {
+      res.status(409).json({
+        error: 'That book has been catalogued since, so it is no longer in the queue to discard. '
+          + 'Open it from the library to delete it.',
+      })
+      return
+    }
+    // A retry of a discard that already happened is answered the same way, and
+    // sweeps again in case the first sweep was cut short.
     const removed = await deleteOrphanedImages(images)
 
     res.json({ ok: true, counts: await queue.counts(), photosRemoved: removed.length })
@@ -2837,7 +2852,10 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     // derived, but nothing else will ever name them once this row and its
     // photographs are gone.
     const images = await filesOf(db, id)
-    await store.deleteBook(id)
+    if (!(await store.deleteBook(id))) {
+      res.status(404).json({ error: 'No such book.' })
+      return
+    }
     const removed = await deleteOrphanedImages(images)
 
     res.json({ ok: true, counts: await store.counts(), photosRemoved: removed.length })
