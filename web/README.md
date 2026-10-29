@@ -649,6 +649,26 @@ had rather than blanking it, and the run finishes the rest.
 Back the catalogue up before a run with `--apply`. See
 `docs/backup-runbook.md`.
 
+### Embedding the covers
+
+A book's front photograph and its catalogue cover are each embedded by an image
+model (DINOv2 ViT-S/14, 384 dimensions) and stored in `cover_embedding`, so the
+book can be found from a photograph of it. The server does this after every
+save, in the background, and once at start for any photograph without one,
+after the model has loaded. The weights come from a pinned Hugging Face revision,
+are checked against a recorded SHA-256 and are cached in
+`~/.cache/bookscan/models`; a server that cannot fetch them says
+`[covers] similarity is off` at start and saves books exactly as before.
+
+The same backfill, for a catalogue no server is running on:
+
+```bash
+npx tsx server/embed-covers.ts --target '<connection>'            # counts, writes nothing
+npx tsx server/embed-covers.ts --target '<connection>' --apply    # load the model and write
+```
+
+`--target` and `BOOKSCAN_DATA` as for the rehash above.
+
 ### Cropping the photographs to the book
 
 A photograph taken with a book held up to a phone has a room in it. Each of

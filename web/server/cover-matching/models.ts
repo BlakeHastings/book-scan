@@ -33,6 +33,8 @@ export interface Encoder {
    * vector is the first token, the class token, this many values long.
    */
   classToken?: number
+  /** How long a vector it answers, which is what `cover_embedding.dimensions` records. */
+  dimensions: number
   /** The side of the square the encoder takes. */
   side: number
   mean: [number, number, number]
@@ -51,6 +53,7 @@ export const DINOV2_SMALL: Encoder = {
   // after the final layer norm, which is what the pooled output would be.
   output: 'last_hidden_state',
   classToken: 384,
+  dimensions: 384,
   side: 224,
   mean: [0.485, 0.456, 0.406],
   std: [0.229, 0.224, 0.225],
@@ -65,6 +68,7 @@ export const CLIP_B32: Encoder = {
   bytes: 89_117_001,
   sha256: '583fd1110a514667812fee7d684952aaf82a99b959760c8d7dca7e0ab9839299',
   output: 'image_embeds',
+  dimensions: 512,
   side: 224,
   mean: [0.48145466, 0.4578275, 0.40821073],
   std: [0.26862954, 0.26130258, 0.27577711],
@@ -88,10 +92,23 @@ async function sha256(path: string): Promise<string> {
   return hash.digest('hex')
 }
 
+export interface EnsureOptions {
+  /**
+   * Check the digest of weights already cached too, not only of a fresh
+   * download, and fetch them again when it is wrong. A long-running server
+   * asks for this once at start; the harness, which loads the weights per
+   * matcher, does not pay for it every time.
+   */
+  verify?: boolean
+}
+
 /** The path to the weights, fetching them first if this machine has never had them. */
-export async function ensureModel(encoder: Encoder): Promise<string> {
+export async function ensureModel(encoder: Encoder, options: EnsureOptions = {}): Promise<string> {
   const path = cachedPath(encoder)
-  if (isCached(encoder)) return path
+  if (isCached(encoder)) {
+    if (!options.verify || await sha256(path) === encoder.sha256) return path
+    rmSync(path, { force: true })
+  }
 
   mkdirSync(dirname(path), { recursive: true })
   const url = `https://huggingface.co/${encoder.repo}/resolve/${encoder.revision}/${encoder.file}`

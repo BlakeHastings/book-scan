@@ -538,12 +538,16 @@ const vector = customType<{ data: number[]; driverData: string }>({
 })
 
 /**
- * The dimension the HNSW index below is built for. An HNSW index needs a fixed
- * dimension, and the column has none, so the index is over the column cast to
- * this size and is partial on rows of this size. A model of another size gets
- * an index of its own the same way, in the migration that brings it.
+ * The dimensions the HNSW indexes below are built for, one index each. An HNSW
+ * index needs a fixed dimension, and the column has none, so each index is over
+ * the column cast to its size and is partial on rows of that size. 512 is CLIP's
+ * and 384 is DINOv2 ViT-S/14's, the model the app embeds with. A model of
+ * another size gets an index of its own the same way, in the migration that
+ * brings it.
  */
-export const COVER_EMBEDDING_INDEXED_DIMENSIONS = 512
+export const COVER_EMBEDDING_INDEXED_DIMENSIONS = [512, 384] as const
+
+export type IndexedDimensions = (typeof COVER_EMBEDDING_INDEXED_DIMENSIONS)[number]
 
 /**
  * What one image model made of one photograph: a vector to compare photographs
@@ -560,8 +564,8 @@ export const COVER_EMBEDDING_INDEXED_DIMENSIONS = 512
  * are comparable only when both are; `dimensions` is its output size, and the
  * check holds every row to it. Distances are cosine, through
  * `vector_cosine_ops`: a query has to say
- * `embedding::vector(512) <=> $1::vector(512)` and `dimensions = 512` for the
- * planner to use the index, because both are part of the index's definition.
+ * `embedding::vector(384) <=> $1::vector(384)` and `dimensions = 384` for the
+ * planner to use that size's index, because both are part of its definition.
  * Two models of the same size share that index, and a search filtered to one of
  * them then reads past the other's rows; a side by side comparison that long
  * lived should give each model a partial index on `model` instead.
@@ -587,11 +591,9 @@ export const coverEmbedding = pgTable('cover_embedding', {
   check('cover_embedding_dimensions_check', sql.raw(
     '"dimensions" > 0 AND vector_dims("embedding") = "dimensions"',
   )),
-  index(`idx_cover_embedding_hnsw_${COVER_EMBEDDING_INDEXED_DIMENSIONS}`)
-    .using('hnsw', sql.raw(
-      `("embedding"::vector(${COVER_EMBEDDING_INDEXED_DIMENSIONS})) vector_cosine_ops`,
-    ))
-    .where(sql.raw(`"dimensions" = ${COVER_EMBEDDING_INDEXED_DIMENSIONS}`)),
+  ...COVER_EMBEDDING_INDEXED_DIMENSIONS.map((size) => index(`idx_cover_embedding_hnsw_${size}`)
+    .using('hnsw', sql.raw(`("embedding"::vector(${size})) vector_cosine_ops`))
+    .where(sql.raw(`"dimensions" = ${size}`))),
 ])
 
 /**

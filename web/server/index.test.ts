@@ -422,7 +422,7 @@ describe('a database hiccup in the work a save started', () => {
       // nobody ever went looking for.
       const said = reported.mock.calls.map((call) => String(call[0])).join('\n')
       expect(said).toContain(
-        `background work failed, filling in the cover, hashes and crops of book ${id}`,
+        `background work failed, filling in the cover, hashes, crops and embeddings of book ${id}`,
       )
 
       const health = await fetch(`${base}/api/health`, { headers: { cookie: running.cookie } })

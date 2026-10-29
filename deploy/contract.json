@@ -85,8 +85,8 @@
       "required": false,
       "writable": true,
       "mustOutliveTheContainer": false,
-      "holds": "the OCR models tesseract.js and ppu-paddle-ocr download on first use",
-      "whenMissing": "Nothing is lost. A replaced container downloads a few megabytes again. A deployment that restarts often may want this mounted; it is deliberately not part of /data, because it is not data."
+      "holds": "the OCR models tesseract.js and ppu-paddle-ocr download on first use, and the cover embedding model (DINOv2, about 89 MB under bookscan/models, fetched at start from a pinned revision and checked against its SHA-256)",
+      "whenMissing": "Nothing is lost. A replaced container downloads the OCR models and the cover model again, about 100 MB. A container that cannot reach Hugging Face starts with cover similarity off and logs `[covers] similarity is off`; saves are unaffected. A deployment that restarts often may want this mounted; it is deliberately not part of /data, because it is not data."
     }
   ],
 

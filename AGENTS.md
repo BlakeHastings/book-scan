@@ -130,7 +130,7 @@ The safety here is structural, not just a request:
   app's connection.** None of them reads `ConnectionStrings__bookscan`, so the
   connection the app is running on cannot become the thing a script overwrites
   by being in scope. Each is told which Postgres to write on its own command
-  line, and there are eight:
+  line, and there are nine:
 
   | Tool | Where its target comes from |
   | --- | --- |
@@ -138,9 +138,9 @@ The safety here is structural, not just a request:
   | `web/scripts/rebuild-projection.ts` (`npm run rebuild-projection`) | `--target`, or `BOOKSCAN_REBUILD_TARGET` |
   | `web/scripts/enable-user.ts` (`npm run enable-user`) | `--target`, or `BOOKSCAN_ENABLE_TARGET` |
   | `web/server/backup-catalogue.ts` | `--source`, or `BOOKSCAN_BACKUP_SOURCE` only when `--source-from-env` says so |
-  | `web/server/refile-books.ts`, `crop-books.ts`, `crop-captures.ts`, `rehash-covers.ts` | `--target`, and nothing else |
+  | `web/server/refile-books.ts`, `crop-books.ts`, `crop-captures.ts`, `rehash-covers.ts`, `embed-covers.ts` | `--target`, and nothing else |
 
-  The last four read the app's variable until #606, which is the shape #215
+  Four of the last five read the app's variable until #606, which is the shape #215
   had already been fixed once for the backup. Each variable in the first four
   rows is named for one tool and nothing in this repository sets it;
   `BOOKSCAN_BACKUP_SOURCE` is the one with a history, told in the backup
@@ -150,7 +150,7 @@ The safety here is structural, not just a request:
   `web/server/write-target.ts`** and refuses to start without it.
   `catalogueConnection()` in `web/server/db.pg.ts` is the server's and nobody
   else's: `web/server/write-tools.test.ts` fails when any other source file
-  calls it or reads the variable, and starts each of the four with the variable
+  calls it or reads the variable, and starts each of the five with the variable
   set and no `--target` to prove the refusal. That scan reads text, so a name
   assembled at run time goes past it.
 
@@ -168,7 +168,12 @@ The safety here is structural, not just a request:
   anywhere near the catalogue either.
   The cover-matching harness keeps image encoders in `~/.cache/bookscan/models`
   and the optional real covers in `~/.cache/bookscan/cover-eval` on the same
-  footing, and its floor test never downloads either.
+  footing, and its floor test never downloads either. The app embeds covers
+  with the DINOv2 weights from that same directory (`OnnxCoverEncoder` in
+  `web/infrastructure/capture/`), fetched at start from a pinned revision and
+  checked against the SHA-256 in `models.ts`; a server that cannot fetch them
+  starts with cover similarity off and says so. CI restores both encoders from
+  `actions/cache`, so the tests that need them fail there rather than skip.
 
 If you add a test that needs a database, take one from `web/server/testdb.ts`
 like the existing ones do (see `web/server/store.test.ts`). Never write a test
@@ -1203,7 +1208,8 @@ teach people to skim past it.
 | `web/server/driver.ts` | The `Db` seam the stores are written against |
 | `web/server/identify.ts` | Barcode decoding then OCR of the printed ISBN |
 | `web/server/paddle.ts` | PaddleOCR, the primary OCR engine |
-| `web/server/cover-matching/` | The harness that scores ways of recognising a book from a photo of its cover, on a generated set; `npm run eval:covers` prints the table. Not wired into the app |
+| `web/server/cover-matching/` | The harness that scores ways of recognising a book from a photo of its cover, on a generated set; `npm run eval:covers` prints the table. `encode.ts` is also how the app embeds a cover, so the floors measure what the app stores |
+| `web/infrastructure/capture/cover-embeddings.ts` | `cover_embedding` written after a save and searched by pgvector for the nearest books (`NearestCoversHandler`). Nothing in `/api/books/scan` reads it yet |
 | `docs/the-cover-matcher.md` | What others do to recognise a cover, what the harness measured, and which strategy to build |
 | `web/server/lookup.ts` | Open Library primary, Google Books top-up |
 | `web/server/store.ts` | All SQL |

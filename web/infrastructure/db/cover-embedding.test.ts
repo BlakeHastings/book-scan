@@ -9,7 +9,10 @@ import { drizzle } from 'drizzle-orm/node-postgres'
 import type pg from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { compareDigests, readDigest } from '../../server/backup'
-import { COVER_EMBEDDING_INDEXED_DIMENSIONS as D, coverEmbedding } from './schema'
+import { COVER_EMBEDDING_INDEXED_DIMENSIONS, coverEmbedding } from './schema'
+
+/** CLIP's size, which 0033 indexed first. 0034's 384 is read through the app's own query in `infrastructure/capture`. */
+const D = 512
 import { closeScratchDatabases, migratedDatabase } from './testdb'
 
 let pool: pg.Pool
@@ -78,6 +81,19 @@ describe('migration 0033', () => {
     expect(found.rows[0]?.indexdef).toContain('USING hnsw')
     expect(found.rows[0]?.indexdef).toContain(`vector(${D})) vector_cosine_ops`)
     expect(found.rows[0]?.indexdef).toContain(`WHERE (dimensions = ${D})`)
+  })
+})
+
+describe('migration 0034', () => {
+  it('keeps the 512 index and adds one for every other indexed size', async () => {
+    const found = await pool.query<{ indexname: string; indexdef: string }>(
+      "SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'cover_embedding' AND indexdef LIKE '%hnsw%' ORDER BY indexname",
+    )
+    expect(found.rows.map((row) => row.indexname))
+      .toEqual(COVER_EMBEDDING_INDEXED_DIMENSIONS.map((size) => `idx_cover_embedding_hnsw_${size}`).sort())
+    const of384 = found.rows.find((row) => row.indexname === 'idx_cover_embedding_hnsw_384')
+    expect(of384?.indexdef).toContain('vector(384)) vector_cosine_ops')
+    expect(of384?.indexdef).toContain('WHERE (dimensions = 384)')
   })
 })
 

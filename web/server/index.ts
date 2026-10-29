@@ -12,6 +12,7 @@ import '../instrumentation'
 
 import express from 'express'
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync, type Stats } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { basename, join, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import sharp from 'sharp'
@@ -74,6 +75,10 @@ import {
 import { TagSlug } from '../domain/tagging/tags'
 import { CATALOGUED_STATES } from '../domain/books/state'
 import { DrizzleCaptureRepository } from '../infrastructure/capture/capture-repository'
+import { PgvectorCoverEmbeddings } from '../infrastructure/capture/cover-embeddings'
+import { OnnxCoverEncoder } from '../infrastructure/capture/onnx-cover-encoder'
+import { EmbedPhotographsHandler } from '../application/capture/embed-photographs'
+import type { CoverEncoder } from '../application/capture/read-models'
 import { shownFile, verdictOf } from '../domain/capture/photographs'
 import { filesOf } from './photographs'
 import { PAGE_LIMIT, Store, type DraftBook } from './store'
@@ -343,6 +348,19 @@ export interface CreateAppOptions {
    * See `server/mcp/client-document.ts`.
    */
   clientDocuments?: DocumentFetchOptions
+  /**
+   * The image model a book's front and catalogue cover are embedded with after
+   * a save, so the book can be found from a photograph of it. Absent means no
+   * photograph is embedded, which is every test that does not pass one. Loaded
+   * by the background work, after the port is open; a model that cannot be
+   * loaded leaves similarity off and says so, and every save carries on.
+   */
+  coverEncoder?: LoadableCoverEncoder
+}
+
+export interface LoadableCoverEncoder extends CoverEncoder {
+  /** Resolves with a line saying what was loaded, or rejects saying why it could not be. */
+  load(): Promise<string>
 }
 
 /**
@@ -467,11 +485,53 @@ export function createApp(options: CreateAppOptions): BookScanApp {
       start: (id) => inTheBackground(
         fetchCoverFor(id)
           .then(() => hashBook(id))
-          .then(() => cropBookPhotos(id)),
-        `filling in the cover, hashes and crops of book ${id}`,
+          .then(() => cropBookPhotos(id))
+          .then(() => embedBook(id)),
+        `filling in the cover, hashes, crops and embeddings of book ${id}`,
       ),
     },
   )
+  /*
+   * Off when no model was given, and quietly skipped while the given one is
+   * still loading: the backfill that runs once it has loaded picks up whatever
+   * was saved meanwhile.
+   */
+  const coverEncoder = options.coverEncoder
+  const embedPhotographs = coverEncoder && new EmbedPhotographsHandler(
+    coverEncoder,
+    new PgvectorCoverEmbeddings(db),
+    { read: (file) => readFile(join(coverDir, file)) },
+  )
+
+  async function embedBook(bookId?: number): Promise<number> {
+    if (!embedPhotographs) return 0
+    const done = await embedPhotographs.handle({ bookId, now: () => new Date().toISOString() })
+    for (const { photograph, reason } of done.failed) {
+      console.warn(
+        `[covers] photograph ${photograph.captureId} (${photograph.file}) of book ${photograph.bookId} ` +
+        `was not embedded, so a photograph of this cover will not find it until it is: ${reason}`,
+      )
+    }
+    return done.embedded
+  }
+
+  /** Never rejects for a model that will not load: that is a state the app runs in, said once. */
+  async function loadCoverModelThenBackfill(): Promise<void> {
+    if (!coverEncoder) return
+    try {
+      console.log(`[covers] similarity is on: ${await coverEncoder.load()}`)
+    } catch (reason) {
+      console.warn(
+        `[covers] similarity is off: ${(reason as Error).message} ` +
+        'Saves carry on; their photographs are embedded once the model loads on a later start.',
+      )
+      return
+    }
+    const started = Date.now()
+    const embedded = await embedBook()
+    console.log(`[covers] embedded ${embedded} photograph(s) that had no embedding, in ${Date.now() - started} ms`)
+  }
+
   const relabelTag = new RelabelTagHandler(tags)
   const defineTag = new DefineTagHandler(tags)
   /* The rules are read per request rather than once, because a rule naming a
@@ -3520,6 +3580,10 @@ export function createApp(options: CreateAppOptions): BookScanApp {
         .catch((caught) => {
           console.error('[covers] backfill stopped:', (caught as Error).message)
         })
+      // Beside that chain rather than in it: a model download is no reason to
+      // hold up OCR warming, and an OCR failure is no reason to leave covers
+      // unembedded.
+      inTheBackground(loadCoverModelThenBackfill(), 'embedding the photographs that have no embedding')
     }, 3_000)
   }
 
@@ -3636,6 +3700,7 @@ if (isMainModule) {
       clientDir: CLIENT_BUILT ? CLIENT_DIR : undefined,
       signIn: SIGN_IN,
       proxyHops: PROXY_HOPS,
+      coverEncoder: new OnnxCoverEncoder(),
     })
 
     const server = app.listen(PORT, BIND.address, () => {

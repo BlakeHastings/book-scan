@@ -57,6 +57,11 @@ describe('the harness itself', () => {
 describe('each registered matcher holds its floor', () => {
   for (const entry of REGISTERED) {
     const missing = entry.encoder && !isCached(entry.encoder)
+    // CI restores the weights from its cache, so a row skipped there is a
+    // floor nobody is checking any more.
+    if (entry.encoder) it.runIf(missing && process.env.CI === 'true')(`${entry.matcher.name} has its weights on CI`, () => {
+      expect.fail(`${entry.encoder!.repo} is not cached; the "Cover models" steps in ci.yml should have restored or fetched it`)
+    })
     it.skipIf(missing)(`${entry.matcher.name}${missing ? ' (weights not cached; npm run eval:covers fetches them)' : ''}`, async () => {
       const score = await evaluate(entry.matcher, set)
       expect.soft(score.top1, 'top-1').toBeGreaterThanOrEqual(entry.floor.top1)

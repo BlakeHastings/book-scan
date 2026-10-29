@@ -239,6 +239,13 @@
       "when": 1793231419864,
       "tag": "0033_a_photograph_can_be_embedded",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1793236878503,
+      "tag": "0034_a_cover_is_embedded_by_dinov2",
+      "breakpoints": true
     }
   ]
 }

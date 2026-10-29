@@ -107,6 +107,30 @@ jobs:
         working-directory: web
         run: node ../scripts/npm-install.mjs
 
+      # The image models the cover matchers and the app embed with, so the
+      # embedding floors in `floors.test.ts` and `onnx-cover-encoder.test.ts`
+      # run on every pull request; both fail on CI when the weights are absent
+      # rather than skipping. The key is each pinned revision and SHA-256, read
+      # out of `server/cover-matching/models.ts`, so a new pin is a miss and
+      # nothing else is. `fetch` checks every digest, restored or downloaded.
+      - name: Cover models, which revision
+        id: cover_models
+        if: steps.scope.outputs.docs_only != 'true'
+        working-directory: web
+        run: npx tsx scripts/cover-models.ts key >> "$GITHUB_OUTPUT"
+
+      - name: Cover models, cached
+        if: steps.scope.outputs.docs_only != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/bookscan/models
+          key: ${{ steps.cover_models.outputs.key }}
+
+      - name: Cover models, fetched and checked
+        if: steps.scope.outputs.docs_only != 'true'
+        working-directory: web
+        run: npx tsx scripts/cover-models.ts fetch
+
       - name: Typecheck
         if: steps.scope.outputs.docs_only != 'true'
         working-directory: web

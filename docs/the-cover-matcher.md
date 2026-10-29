@@ -236,7 +236,7 @@ bar, both rows in the table.
 | `synthetic.ts` | The labelled set, from a seed |
 | `evaluate.ts` | top-1, top-4, confident right and wrong, timing, and the table |
 | `hash-matcher.ts` | Today's matcher, using `MATCH_CUTOFF` and `confidentPick` from `shared/confidence.ts` so it is what ships |
-| `embedding-matcher.ts`, `models.ts` | The embedding prototype: in-memory cosine, weights pinned by revision and SHA-256 and cached in `~/.cache/bookscan/models` |
+| `embedding-matcher.ts`, `models.ts`, `encode.ts` | An encoder's row: in-memory cosine, weights pinned by revision and SHA-256 and cached in `~/.cache/bookscan/models`. `encode.ts` prepares and embeds an image, and the app embeds through it too (below) |
 | `real-covers.ts` | The optional local mode's Open Library download |
 | `registry.ts` | The matchers scored, the floor each is held to, and `CI_SET` |
 | `floors.test.ts` | The CI check |
@@ -284,8 +284,32 @@ test calls it, and CI never runs it. Covers are copyrighted: do not commit them.
 ten uncatalogued), scores each registered matcher and fails when top-1 or top-4
 falls below, or the confident-wrong rate rises above, what `registry.ts`
 recorded. A matcher that needs weights runs only where they are already cached
-and is skipped, by name, where they are not: the test never downloads, so it
-behaves the same offline and on CI, where only the hash row runs.
+and is skipped, by name, where they are not: the test never downloads. CI
+restores both encoders' weights from `actions/cache`, keyed on each pinned
+revision and SHA-256 (`web/scripts/cover-models.ts`), so every row runs on every
+pull request, and a row that would be skipped there fails instead.
+
+### In the app (#666)
+
+The app embeds with DINOv2 ViT-S/14, through the same `openEncoder`, so a
+photograph is prepared one way (squashed to 224, the measured choice) at save,
+at query and in the floors:
+
+- **After a save**, the background chain that fetches the cover, hashes it and
+  crops the photographs ends by embedding the book's `front` and `catalogue`
+  photographs into `cover_embedding`, one at a time and two threads each, so
+  the quarter second each costs is never on a request.
+- **At start**, once the weights are loaded and verified, every catalogued
+  book's photograph without an embedding is embedded. `npx tsx
+  server/embed-covers.ts --target` is the same backfill from the command line.
+- **The weights** are fetched from the pinned revision at start, checked
+  against the recorded SHA-256 whether fetched or already cached, and kept in
+  `~/.cache/bookscan/models`. When that fails the server says
+  `[covers] similarity is off` and nothing else changes.
+- **`NearestCoversHandler`** embeds a photograph and asks Postgres for the
+  nearest catalogued books, one entry per book, through the partial HNSW index
+  migration 0034 builds for 384 dimensions. Nothing calls it from a route yet;
+  fusing it into `/api/books/scan` is the next step of #658.
 
 ## The measurements
 

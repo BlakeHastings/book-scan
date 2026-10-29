@@ -86,3 +86,33 @@ export interface QueueReadModel {
   list(): Promise<QueuedBookView[]>
   counts(): Promise<QueueCounts>
 }
+
+/**
+ * An image model: photograph bytes in, a unit-length vector out. Here rather
+ * than in `ports.ts` because a query asks it, and a query may import nothing
+ * but read models.
+ */
+export interface CoverEncoder {
+  /** What `cover_embedding.model` records, naming the weights and the preparation. */
+  readonly model: string
+  readonly dimensions: number
+  /** False until the weights are loaded, and for the life of the process when they could not be. */
+  ready(): boolean
+  embed(image: Uint8Array): Promise<number[]>
+}
+
+/** A catalogued book, by whichever of its photographs is most like the one asked about. */
+export interface NearCover {
+  bookId: number
+  title: string
+  authors: string
+  /** Cosine similarity: 1 is the same direction. */
+  similarity: number
+  /** Which of the book's photographs it was. */
+  kind: 'front' | 'catalogue'
+}
+
+export interface CoverSimilarityReadModel {
+  /** Catalogued books, most alike first, one entry per book. */
+  nearest(model: string, dimensions: number, vector: readonly number[], limit: number): Promise<NearCover[]>
+}

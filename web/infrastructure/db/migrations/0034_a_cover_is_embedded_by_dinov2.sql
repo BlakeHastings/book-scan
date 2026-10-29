@@ -1,0 +1,1 @@
+CREATE INDEX "idx_cover_embedding_hnsw_384" ON "cover_embedding" USING hnsw (("embedding"::vector(384)) vector_cosine_ops) WHERE "dimensions" = 384;

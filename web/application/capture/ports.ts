@@ -51,3 +51,36 @@ export interface CaptureRepository {
    */
   record(bookId: number, photographs: readonly NewPhotograph[]): Promise<void>
 }
+
+/**
+ * A photograph that identifies a book (its `front`, or the `catalogue`
+ * artwork) and has no embedding yet from the model asked about.
+ */
+export interface UnembeddedPhotograph {
+  captureId: number
+  bookId: number
+  file: string
+}
+
+/**
+ * The embeddings of photographs. Recording one again replaces it; nothing here
+ * deletes one, because an embedding goes when its photograph does, by the
+ * foreign key.
+ */
+export interface CoverEmbeddingRepository {
+  /**
+   * Catalogued books' front and catalogue photographs that `model` has not
+   * embedded, by photograph id ascending and after `after` when given, so a
+   * backfill visits each one once however many of them fail.
+   */
+  unembedded(
+    model: string,
+    which: { bookId?: number; after?: number; limit: number },
+  ): Promise<UnembeddedPhotograph[]>
+  record(captureId: number, model: string, vector: readonly number[], at: string): Promise<void>
+}
+
+/** A photograph's bytes, by the file name `capture` records. */
+export interface PhotographBytes {
+  read(file: string): Promise<Uint8Array>
+}
