@@ -72,43 +72,56 @@ const PHOTOGRAPHS_PER_BOOK = 4
 /** pgvector's own `hnsw.ef_search` default, below which this never asks. */
 const EF_SEARCH = 40
 
-export class PgvectorCoverSimilarity implements CoverSimilarityReadModel {
-  constructor(private readonly db: Db) {}
+function photographsFor(limit: number): number {
+  return Math.max(EF_SEARCH, limit * PHOTOGRAPHS_PER_BOOK)
+}
 
-  async nearest(model: string, dimensions: number, vector: readonly number[], limit: number): Promise<NearCover[]> {
-    // Interpolated, because a cast's size cannot be a parameter, and refused
-    // unless an index exists for it, because without one this is a scan.
-    if (!(COVER_EMBEDDING_INDEXED_DIMENSIONS as readonly number[]).includes(dimensions)) {
-      throw new Error(`no index is built for ${dimensions}-dimension embeddings; add one beside ${COVER_EMBEDDING_INDEXED_DIMENSIONS.join(' and ')}`)
-    }
-    const d = dimensions
-    const photographs = Math.max(EF_SEARCH, limit * PHOTOGRAPHS_PER_BOOK)
+/** The values `nearestStatement` reads. */
+export function nearestValues(model: string, vector: readonly number[], limit: number) {
+  return { vector: asVector(vector), model, photographs: photographsFor(limit), limit }
+}
 
-    // An HNSW scan answers at most `ef_search` rows, whatever the LIMIT says.
-    return this.db.tx(async (tx) => {
-      await tx.run(`SET LOCAL hnsw.ef_search = ${photographs}`)
-      const rows = await tx.all<{
-        book_id: number; title: string; authors: string; kind: 'front' | 'catalogue'; similarity: number
-      }>(
-        `WITH near AS (
-           SELECT c.book_id, c.kind,
-                  e.embedding::vector(${d}) <=> CAST(:vector AS vector(${d})) AS distance
-             FROM cover_embedding e
-             JOIN capture c ON c.id = e.capture_id
-            WHERE e.dimensions = ${d} AND e.model = :model
-            ORDER BY e.embedding::vector(${d}) <=> CAST(:vector AS vector(${d}))
+/**
+ * The search, for one indexed size, exported so a test can read its plan. The
+ * size is interpolated, because a cast's size cannot be a parameter, and
+ * refused unless an index exists for it, because without one this is a scan.
+ */
+export function nearestStatement(dimensions: number): string {
+  if (!(COVER_EMBEDDING_INDEXED_DIMENSIONS as readonly number[]).includes(dimensions)) {
+    throw new Error(`no index is built for ${dimensions}-dimension embeddings; add one beside ${COVER_EMBEDDING_INDEXED_DIMENSIONS.join(' and ')}`)
+  }
+  const d = dimensions
+  // `near` reads `cover_embedding` alone: joined to `capture` inside it, the
+  // planner sorts the join instead of walking the index.
+  return `WITH near AS (
+           SELECT capture_id, embedding::vector(${d}) <=> CAST(:vector AS vector(${d})) AS distance
+             FROM cover_embedding
+            WHERE dimensions = ${d} AND model = :model
+            ORDER BY embedding::vector(${d}) <=> CAST(:vector AS vector(${d}))
             LIMIT :photographs
          ), best AS (
-           SELECT DISTINCT ON (book_id) book_id, kind, distance
-             FROM near ORDER BY book_id, distance
+           SELECT DISTINCT ON (c.book_id) c.book_id, c.kind, near.distance
+             FROM near JOIN capture c ON c.id = near.capture_id
+            ORDER BY c.book_id, near.distance
          )
          SELECT b.id AS book_id, b.title, b.authors, best.kind, 1 - best.distance AS similarity
            FROM best
            JOIN catalogued_books b ON b.id = best.book_id
           ORDER BY best.distance, b.id
-          LIMIT :limit`,
-        { vector: asVector(vector), model, photographs, limit },
-      )
+          LIMIT :limit`
+}
+
+export class PgvectorCoverSimilarity implements CoverSimilarityReadModel {
+  constructor(private readonly db: Db) {}
+
+  async nearest(model: string, dimensions: number, vector: readonly number[], limit: number): Promise<NearCover[]> {
+    const statement = nearestStatement(dimensions)
+    // An HNSW scan answers at most `ef_search` rows, whatever the LIMIT says.
+    return this.db.tx(async (tx) => {
+      await tx.run(`SET LOCAL hnsw.ef_search = ${photographsFor(limit)}`)
+      const rows = await tx.all<{
+        book_id: number; title: string; authors: string; kind: 'front' | 'catalogue'; similarity: number
+      }>(statement, nearestValues(model, vector, limit))
       return rows.map((row) => ({
         bookId: row.book_id,
         title: row.title,

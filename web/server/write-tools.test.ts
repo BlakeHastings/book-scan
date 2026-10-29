@@ -1,11 +1,11 @@
 /**
- * The four maintenance tools that write rows must take their catalogue from
+ * The five maintenance tools that write rows must take their catalogue from
  * `--target` and never from the environment the app runs in. The variable is
  * set here, to a server nobody is listening on, because the defect is a tool
  * that reads it: with it unset, a tool falling back to it would refuse for the
  * wrong reason and pass.
  *
- * The last block is a text scan for the next tool rather than these four. It
+ * The last block is a text scan for the next tool rather than these five. It
  * sees a call to `catalogueConnection` and a read spelled `env.` or `env['`;
  * a variable name assembled at run time, or copied into another variable
  * first, is invisible to it.
@@ -22,12 +22,14 @@ import { main as refileBooks } from './refile-books'
 import { main as cropBooks } from './crop-books'
 import { main as cropCaptures } from './crop-captures'
 import { main as rehashCovers } from './rehash-covers'
+import { main as embedCovers } from './embed-covers'
 
 const tools = [
   ['refile-books', refileBooks],
   ['crop-books', cropBooks],
   ['crop-captures', cropCaptures],
   ['rehash-covers', rehashCovers],
+  ['embed-covers', embedCovers],
 ] as const
 
 /** Port 1 on loopback: nothing answers, so even a tool that reached for it writes nothing. */
