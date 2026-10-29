@@ -1510,15 +1510,15 @@ function Queue(go: Go) {
           name="Never Let Me Go"
           sub="Ishiguro, Kazuo"
           shots={queued('moss')}
-          state="Identified"
+          state="Ready"
         />
         <QueueRow
           go={go}
           name="Cloud Atlas"
           sub="Mitchell, David"
           shots={queued('sky', 'wood2')}
-          state="Identified"
-          device="Kitchen phone"
+          state="Ready"
+          device="Open on another phone"
         />
         <QueueRow
           go={go}
@@ -1534,7 +1534,7 @@ function Queue(go: Go) {
           shots={queued('plum', 'plum')}
           state="Stuck"
           wants="needs an ISBN"
-          device="Kitchen phone"
+          device="Open on another phone"
         />
       </div>
     </Phone>
@@ -1585,7 +1585,7 @@ function QueueStuck(go: Go) {
           shots={queued('plum', 'plum')}
           state="Stuck"
           wants="could not be read"
-          device="Kitchen phone"
+          device="Open on another phone"
         />
         <QueueRow
           go={go}
@@ -1643,8 +1643,8 @@ function QueueMany(go: Go) {
               name={title}
               sub={who}
               shots={queued(cloths[at % cloths.length]!, cloths[(at + 3) % cloths.length]!)}
-              state="Identified"
-              device={at % 7 === 3 ? 'Kitchen phone' : undefined}
+              state="Ready"
+              device={at % 7 === 3 ? 'Open on another phone' : undefined}
             />
           )
         })}

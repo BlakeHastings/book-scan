@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { PointerEvent as ReactPointerEvent } from 'react'
+import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import {
   api, captureName, deviceName, draftFromCapture,
-  type Capture, type CaptureStatus, type Counts, type FiledBookRow, type QueueCounts,
+  type CataloguedBook, type Capture, type CaptureStatus, type Counts, type FiledBookRow,
+  type QueueCounts,
 } from '../lib/api'
+import { groupByIsbn, othersThan, sameBookSaid } from '../lib/queueGroups'
 import { newestFirst } from '../lib/queueOrder'
 import { filterQueue } from '../lib/queueSearch'
 import { shotsOf } from '../lib/queuePhoto'
@@ -14,6 +16,7 @@ import { createDiscardWindow, UNDO_WINDOW_MS } from '../lib/discardWindow'
 import {
   couldBeReadAgain, FAILURE_LABEL, failureOf,
 } from '../../shared/captureFailure'
+import { CLAIM_LEASE_MS } from '../../shared/claimLease'
 import { Nothing, Said } from '../design/Card'
 import { TopBar, type TabName } from '../design/Chrome'
 import { Button, Segmented } from '../design/Controls'
@@ -24,11 +27,12 @@ import { Trouble } from './RoomFrame'
 
 /**
  * `failed` is `Stuck` here and nothing more; what is actually wrong with it
- * is a separate pill, `whatItNeeds` below.
+ * is a separate pill, `whatItNeeds` below. `ready` is the word the filter above
+ * the list uses for the same books, and the two must stay one word.
  */
-const STATE_LABEL: Record<CaptureStatus, string> = {
+export const STATE_LABEL: Record<CaptureStatus, string> = {
   pending: 'Reading photos',
-  ready: 'Identified',
+  ready: 'Ready',
   done: 'Shelved',
   failed: 'Stuck',
 }
@@ -55,9 +59,19 @@ export function whatItNeeds(capture: Capture): string {
   return capture.status === 'failed' ? FAILURE_LABEL[failureOf(capture)] : ''
 }
 
-/** The claim wins over the edit: a claim is somebody working the book right now. */
-export function deviceOn(capture: Capture): string {
-  return capture.claimed_by || capture.edited_by || ''
+/**
+ * Which phone has a book open, in words, and only when a second phone really
+ * is working the queue. A claim older than the lease says nothing: it is
+ * somebody who walked away, very often this same phone before its storage was
+ * cleared and it came back under a new name, and naming it would introduce her
+ * to herself as a stranger. What somebody once edited is history and is not
+ * said here. The device's own name is a random id and is never shown.
+ */
+export function deviceWord(capture: Capture, me: string, now: number = Date.now()): string {
+  if (!capture.claimed_by || capture.claimed_by === me || !capture.claimed_at) return ''
+  const at = Date.parse(capture.claimed_at)
+  if (Number.isNaN(at) || now - at > CLAIM_LEASE_MS) return ''
+  return 'Open on another phone'
 }
 
 /**
@@ -177,6 +191,10 @@ interface RowProps {
   held: boolean
   /** The capture the server's worker is holding, so a row can say which. */
   reading: number | null
+  /** Which other phone has it, from `deviceWord`, or '' to say nothing. */
+  device?: string
+  /** What sits under the book on its card: a choice about this scan, where there is one. */
+  aside?: ReactNode
   onOpen: (capture: Capture) => void
   onUndo: (id: number) => void
   gesture: RowGesture
@@ -189,13 +207,19 @@ export function photoCount(capture: Capture): number {
     .filter(Boolean).length
 }
 
+/** The photographs a scan has against the three it can have, said only when some are missing. */
+export function photosWord(capture: Capture): string {
+  const n = photoCount(capture)
+  return n < 3 ? `${n} of 3 photos` : ''
+}
+
 /**
  * Holds no state of its own: the swipe lives in the pane, which paints the
  * drag straight onto the DOM rather than through React, so dragging a row
  * does not re-render a list that can be a hundred books long.
  */
 export function QueueRow({
-  capture, held, reading, onOpen, onUndo, gesture, registerRow,
+  capture, held, reading, device = '', aside, onOpen, onUndo, gesture, registerRow,
 }: RowProps) {
   // Shows the corrected draft, not the raw OCR title, so the person shelving
   // sees the same title as the person who fixed it.
@@ -211,6 +235,7 @@ export function QueueRow({
       role="listitem"
       className={
         `queue__row queue__row--${capture.status}${held ? ' queue__row--going' : ''}`
+        + (aside && !held ? ' queue__row--aside' : '')
       }
     >
       {held ? (
@@ -252,9 +277,11 @@ export function QueueRow({
                 shots={shotsOf(capture)}
                 state={stateWord(capture, reading)}
                 wants={whatItNeeds(capture)}
-                device={deviceOn(capture)}
+                photos={photosWord(capture)}
+                device={device}
               />
             </button>
+            {aside && <div className="queue__aside">{aside}</div>}
           </div>
         </>
       )}
@@ -292,6 +319,8 @@ export function QueuePane({
    * is the safe direction to be wrong in.
    */
   const [reading, setReading] = useState<number | null>(null)
+  /** The shelved book each capture repeats, by capture id, for the ones that repeat one. */
+  const [catalogued, setCatalogued] = useState<Record<number, CataloguedBook>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -314,6 +343,7 @@ export function QueuePane({
         // first is what the display shows.
         setCaptures(newestFirst(result.captures))
         setReading(result.reading ?? null)
+        setCatalogued(result.catalogued ?? {})
         onCounts(result.counts)
       })
       .catch((caught) => setError((caught as Error).message))
@@ -512,6 +542,11 @@ export function QueuePane({
     setHeld((current) => (current.includes(capture.id) ? current : [...current, capture.id]))
   }
 
+  /** Every other scan in the group goes the way a swipe sends one: held, undoable, then sent. */
+  const keepOne = (kept: Capture, group: Capture[]) => {
+    for (const other of othersThan(kept, group)) startDiscard(other)
+  }
+
   const undoDiscard = (id: number) => {
     discards.current.release(id)
     setHeld((current) => current.filter((entry) => entry !== id))
@@ -593,6 +628,84 @@ export function QueuePane({
 
   const counted = (word: string, n: number) => (n > 0 ? `${word} ${n}` : word)
 
+  const entries = useMemo(() => groupByIsbn(visible), [visible])
+  const now = Date.now()
+
+  const rowOf = (capture: Capture, aside?: ReactNode) => (
+    <QueueRow
+      key={capture.id}
+      capture={capture}
+      held={held.includes(capture.id)}
+      reading={reading}
+      device={deviceWord(capture, me, now)}
+      aside={aside}
+      onOpen={openRow}
+      onUndo={undoDiscard}
+      gesture={gestureFor(capture)}
+      registerRow={registerRow}
+    />
+  )
+
+  const alreadyHave = (book: CataloguedBook) =>
+    `You already have this${book.location ? `, on shelf ${book.location}` : ''}.`
+
+  /** A scan of a book already on a shelf, on its own: a second copy, or a scan to throw away. */
+  const secondCopy = (capture: Capture) => {
+    const book = catalogued[capture.id]
+    if (!book) return undefined
+    return (
+      <>
+        <span className="queue__aside-said">{alreadyHave(book)}</span>
+        <span className="queue__aside-choices">
+          <Button small tone="secondary" onPress={() => openRow(capture)}>
+            Another copy: shelve it
+          </Button>
+          <Button small tone="danger" onPress={() => startDiscard(capture)}>
+            Discard this scan
+          </Button>
+        </span>
+      </>
+    )
+  }
+
+  const sameBook = (isbn13: string, group: Capture[]) => {
+    const live = group.filter((capture) => !held.includes(capture.id))
+    const book = group.map((capture) => catalogued[capture.id]).find(Boolean)
+    const name = captureName(group[0]!).text
+    return (
+      <div
+        key={`isbn-${isbn13}`}
+        role="listitem"
+        className="queue__same"
+        aria-label={`${group.length} scans of ${name}`}
+      >
+        {book && <p className="queue__same-have">{alreadyHave(book)}</p>}
+        <p className="queue__same-said">
+          {live.length > 1
+            ? sameBookSaid(live.length)
+            : live.length === 1
+              ? 'Keeping one. Undo below brings a scan back.'
+              : 'Discarding every scan of this book. Undo below keeps one.'}
+        </p>
+        {book && live.length > 1 && (
+          <Button small tone="danger" onPress={() => { for (const c of live) startDiscard(c) }}>
+            {`Discard all ${live.length} scans`}
+          </Button>
+        )}
+        <div className="wf-qlist" role="list" aria-label={`Scans of ${name}`}>
+          {group.map((capture) => rowOf(
+            capture,
+            live.length > 1 ? (
+              <Button small tone="secondary" onPress={() => keepOne(capture, live)}>
+                Keep this one
+              </Button>
+            ) : undefined,
+          ))}
+        </div>
+      </div>
+    )
+  }
+
   const toShelve = unplacedCount ?? 0
   const capturesShown = showsCaptures(which)
   const unplacedShown = showsUnplaced(which) && toShelve > 0
@@ -616,7 +729,7 @@ export function QueuePane({
           onPick={setWhich}
           options={[
             { value: 'all', word: counted('All', captures.length) },
-            { value: 'ready', word: counted('Ready', captures.filter(SHOWING.ready).length) },
+            { value: 'ready', word: counted(STATE_LABEL.ready, captures.filter(SHOWING.ready).length) },
             { value: 'processing', word: counted('Reading', captures.filter(SHOWING.processing).length) },
             { value: 'stuck', word: counted('Stuck', failed.length) },
           ]}
@@ -688,18 +801,9 @@ export function QueuePane({
       <div className="wf-qlist" role="list" aria-label="Books on the table">
         {/* `SHOWING.unplaced` matches no capture, so under that filter this
             draws only a discard still being held open, whose undo must stay. */}
-        {visible.map((capture) => (
-          <QueueRow
-            key={capture.id}
-            capture={capture}
-            held={held.includes(capture.id)}
-            reading={reading}
-            onOpen={openRow}
-            onUndo={undoDiscard}
-            gesture={gestureFor(capture)}
-            registerRow={registerRow}
-          />
-        ))}
+        {entries.map((entry) => (entry.kind === 'one'
+          ? rowOf(entry.capture, secondCopy(entry.capture))
+          : sameBook(entry.isbn13, entry.captures)))}
       </div>
 
       {/* Reached from the count on the first screen, and not a fifth segment:
