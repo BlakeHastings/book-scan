@@ -428,16 +428,26 @@ export async function photograph(cover: Buffer, random: Random, severity = 1): P
   return shot.jpeg({ quality: Math.round(90 - random() * 40 * severity) }).toBuffer()
 }
 
-/**
- * The whole set. Catalogued books get ids `b0`, `b1`, ...; the absent books
- * come from the same invention so they look like they belong on the shelf.
- */
-export async function coverSet(options: SetOptions): Promise<CoverSet> {
-  const random = seeded(options.seed)
-  const books = inventBooks(random, options.books + options.absent)
+/** A book with a cover, before anybody has decided whether it is catalogued. */
+export interface Covered {
+  title: string
+  author: string
+  cover: Buffer
+}
 
-  // Absent books are drawn from across the list, series included, so that a
-  // book whose siblings are catalogued is among the things held up.
+/**
+ * Photograph a list of covered books: `absent` of them, drawn from across the
+ * list, are held up but left out of the catalogue, and every other one is
+ * catalogued and photographed `photosPerBook` times. Catalogued books get ids
+ * `b0`, `b1`, ... by their position in `books`.
+ */
+export async function photographed(
+  books: readonly Covered[],
+  options: Omit<SetOptions, 'books'>,
+  random: Random = seeded(options.seed),
+): Promise<CoverSet> {
+  // From across the list rather than its tail, so that a book whose series
+  // siblings are catalogued is among the things held up.
   const order = books.map((_, i) => i)
   for (let i = order.length - 1; i > 0; i -= 1) {
     const j = Math.floor(random() * (i + 1))
@@ -448,17 +458,26 @@ export async function coverSet(options: SetOptions): Promise<CoverSet> {
   const catalogue: CatalogueBook[] = []
   const queries: Query[] = []
   for (let i = 0; i < books.length; i += 1) {
-    const book = books[i]!
-    const cover = await renderCover(book)
-    const id = `b${i}`
+    const { title, author, cover } = books[i]!
     if (absent.has(i)) {
-      queries.push({ photo: await photograph(cover, random, options.severity), truth: null, book: book.title })
+      queries.push({ photo: await photograph(cover, random, options.severity), truth: null, book: title })
       continue
     }
-    catalogue.push({ id, title: book.title, author: book.author, cover })
+    const id = `b${i}`
+    catalogue.push({ id, title, author, cover })
     for (let n = 0; n < options.photosPerBook; n += 1) {
-      queries.push({ photo: await photograph(cover, random, options.severity), truth: id, book: book.title })
+      queries.push({ photo: await photograph(cover, random, options.severity), truth: id, book: title })
     }
   }
   return { catalogue, queries }
+}
+
+/** The whole synthetic set: invented books, their covers, and photographs of them. */
+export async function coverSet(options: SetOptions): Promise<CoverSet> {
+  const random = seeded(options.seed)
+  const books: Covered[] = []
+  for (const book of inventBooks(random, options.books + options.absent)) {
+    books.push({ title: book.title, author: book.author, cover: await renderCover(book) })
+  }
+  return photographed(books, options, random)
 }
