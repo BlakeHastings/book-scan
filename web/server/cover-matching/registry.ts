@@ -32,19 +32,37 @@ export interface Registered {
   floor: Floor
 }
 
+/*
+ * Recorded on 2026-10-28 from `npm run eval:covers -- --ci` on Linux x64:
+ *
+ *   hash (today)              top-1  6.3%  top-4 16.3%  confident wrong 0.0%
+ *   embedding (dinov2-small)  top-1 40.0%  top-4 80.0%  confident wrong 0.0%
+ *   embedding (clip-b32)      top-1 90.0%  top-4 97.5%  confident wrong 0.0%
+ *
+ * One photograph is 1.25 points of top-1 here, so each floor sits four to
+ * six photographs under what was measured, and each ceiling lets one
+ * photograph through, which is the machine-to-machine wobble and not more.
+ *
+ * The embedding bars were chosen on seed 7, which no table reports, as the
+ * loosest pair that opened no wrong book there with room to spare. DINOv2's
+ * best cosine for a wrong book reached 0.80 there with a lead of up to 0.06,
+ * so its bar is set past both and it is never confident on this set.
+ */
+const ONE_PHOTO_OF_CI_SET = 1 / 90
+
 export const REGISTERED: Registered[] = [
   {
     matcher: hashMatcher,
-    floor: { top1: 0, top4: 0, confidentWrong: 0 },
+    floor: { top1: 0.04, top4: 0.1, confidentWrong: ONE_PHOTO_OF_CI_SET },
   },
   {
-    matcher: embeddingMatcher(DINOV2_SMALL, { floor: 0.8, margin: 0.05 }),
+    matcher: embeddingMatcher(DINOV2_SMALL, { floor: 0.85, margin: 0.08 }),
     encoder: DINOV2_SMALL,
-    floor: { top1: 0, top4: 0, confidentWrong: 0 },
+    floor: { top1: 0.33, top4: 0.72, confidentWrong: ONE_PHOTO_OF_CI_SET },
   },
   {
-    matcher: embeddingMatcher(CLIP_B32, { floor: 0.9, margin: 0.03 }),
+    matcher: embeddingMatcher(CLIP_B32, { floor: 0.75, margin: 0.1 }),
     encoder: CLIP_B32,
-    floor: { top1: 0, top4: 0, confidentWrong: 0 },
+    floor: { top1: 0.85, top4: 0.93, confidentWrong: ONE_PHOTO_OF_CI_SET },
   },
 ]
