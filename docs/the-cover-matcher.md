@@ -589,8 +589,7 @@ were catalogued this time):
 | cover text (paddle, pg_trgm) | 340+30 | 58.2% | 65.0% | 17.8%           | 0.0% (0 uncatalogued) | 3.8s    | 147ms     |
 
 Per photo is Paddle's reading plus the query. On real covers the text
-matcher finds the book less often than
-DINOv2 (Open Library's medium covers carry small, stylised type that Paddle
+matcher finds the book less often than DINOv2 (Open Library's medium covers carry small, stylised type that Paddle
 often cannot read), but it is the only row that opens a book unasked on one
 photograph in six without ever opening the wrong one, and it did not open
 *A Princess of Mars* for *The Warlord of Mars*, which CLIP did. That is the
