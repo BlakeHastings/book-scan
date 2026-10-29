@@ -6,6 +6,7 @@
  */
 
 import type { Cloth } from './Shelf'
+import { Photo } from './Photo'
 
 export interface CoverItem {
   title: string
@@ -67,7 +68,7 @@ export function Covers({
           <span className={`wf-cover__art wf-spine--${item.cloth ?? 'wood'}`}>
             {item.photo ? (
               /* `alt` is empty on purpose: the title and author are read out via `aria-label` above, so a title on the image too would say everything twice. */
-              <img className="wf-cover__photo" src={item.photo} alt="" loading="lazy" decoding="async" />
+              <Photo className="wf-cover__photo" src={item.photo} drawn={135} />
             ) : (
               <span className="wf-cover__printed">{item.title}</span>
             )}

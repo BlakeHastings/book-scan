@@ -17,7 +17,7 @@
 
 import type { AddressInfo } from 'node:net'
 import type { Server } from 'node:http'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import sharp from 'sharp'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -25,6 +25,7 @@ import { removeScratchRoot, scratchRoot } from './scratchdir'
 import { closeTestDatabase, openTestDatabase, testDatabaseUrl } from './testdb'
 import type { Db } from './driver'
 import { createApp, openCatalogue } from './index'
+import { variantDirFor } from './photo-variants'
 import { signedIn } from './testauth'
 import { testBooks, type TestBooks } from './testbooks'
 import { lookupIsbn } from './lookup'
@@ -149,6 +150,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await running.close()
   rmSync(running.coverDir, { recursive: true, force: true })
+  rmSync(variantDirFor(running.coverDir), { recursive: true, force: true })
 })
 
 afterAll(async () => {
@@ -601,6 +603,20 @@ describe('deleting a book', () => {
       expect(await rows(table)).toBe(0)
     }
     expect(existsSync(join(running.coverDir, 'd_front.jpg'))).toBe(false)
+  })
+
+  it('takes the smaller copies of its photographs with them', async () => {
+    await storeCover('v_front.jpg')
+    const { id } = await running.books.catalogue({
+      title: 'Copied', authors: ['Ann Author'], genre: FICTION_SLUG, frontImage: 'v_front.jpg',
+    })
+    expect((await fetchCover('/api/covers/v_front.jpg?w=160')).status).toBe(200)
+    const copies = join(variantDirFor(running.coverDir), 'v_front.jpg')
+    expect(existsSync(copies)).toBe(true)
+
+    expect((await del(`/api/books/${id}`)).status).toBe(200)
+
+    expect(existsSync(copies)).toBe(false)
   })
 
   it.each(['scanned', 'identified', 'unidentified', 'discarded', 'checked_out'])(
@@ -2729,6 +2745,67 @@ describe('failure paths', () => {
 
       expect(res.status).toBe(403)
       expect(await res.text()).not.toContain('book-scan-web')
+    })
+
+    it('refuses a name that is the parent directory, and writes nothing for it', async () => {
+      const res = await fetchCover('/api/covers/%2E%2E?w=320')
+
+      expect(res.status).not.toBe(200)
+      expect(existsSync(variantDirFor(running.coverDir))).toBe(false)
+    })
+
+    it('offers a width as wide as a phone screen, for the picture opened whole', async () => {
+      // A camera's eight megapixels, which is what the reading pipeline keeps.
+      const full = await storeCover('camera.jpg', 2448, 3264)
+
+      const res = await fetchCover('/api/covers/camera.jpg?w=1280')
+      const body = Buffer.from(await res.arrayBuffer())
+      const drawn = await sharp(body).metadata()
+
+      expect(res.status).toBe(200)
+      expect(res.headers.get('content-type')).toContain('image/jpeg')
+      expect(res.headers.get('cache-control')).toBe('private, max-age=300, must-revalidate')
+      expect(drawn.width).toBe(1280)
+      // The proportions are the photograph's: never stretched to a box.
+      expect(drawn.height).toBe(Math.round((3264 * 1280) / 2448))
+      expect(body.length).toBeLessThan(full.length)
+    })
+
+    it('keeps the copy it made beside the cover directory, never inside it', async () => {
+      await storeCover('kept.jpg')
+
+      expect((await fetchCover('/api/covers/kept.jpg?w=160')).status).toBe(200)
+
+      const kept = join(variantDirFor(running.coverDir), 'kept.jpg')
+      expect(readdirSync(kept)).toHaveLength(1)
+      expect(readdirSync(running.coverDir)).toEqual(['kept.jpg'])
+    })
+
+    it('answers the second request from the kept copy rather than resizing again', async () => {
+      await storeCover('again.jpg')
+      await fetchCover('/api/covers/again.jpg?w=320')
+
+      // Put a different picture where the copy is: only a reader of the copy
+      // can send it back.
+      const kept = join(variantDirFor(running.coverDir), 'again.jpg')
+      const marker = await sharp({
+        create: { width: 7, height: 11, channels: 3, background: '#000000' },
+      }).jpeg().toBuffer()
+      writeFileSync(join(kept, readdirSync(kept)[0]!), marker)
+
+      const res = await fetchCover('/api/covers/again.jpg?w=320')
+      expect(Buffer.from(await res.arrayBuffer()).equals(marker)).toBe(true)
+    })
+
+    it('never answers a replaced photograph with a copy of what was there before', async () => {
+      await storeCover('replaced.jpg', 1000, 1500)
+      await fetchCover('/api/covers/replaced.jpg?w=320')
+
+      await storeCover('replaced.jpg', 1500, 1000)
+      const res = await fetchCover('/api/covers/replaced.jpg?w=320')
+
+      const drawn = await sharp(Buffer.from(await res.arrayBuffer())).metadata()
+      expect(drawn.height).toBe(Math.round((1000 * 320) / 1500))
     })
   })
 
