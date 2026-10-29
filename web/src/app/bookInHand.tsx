@@ -18,9 +18,9 @@ import {
   type Dispatch, type ReactNode, type SetStateAction,
 } from 'react'
 import {
-  api, deviceName, draftFromLookup, editFromDraft, emptyDraft, withReadIsbn,
+  api, deviceName, draftFromLookup, editFromDraft, emptyDraft, titleSearchOn, withReadIsbn,
   type Capture, type CataloguedBook, type Draft, type LookupResponse,
-  type QueueMatch,
+  type QueueMatch, type TitleSuggestion,
 } from '../lib/api'
 import { emptyCascade, walkedAway, type Cascade } from '../lib/cascade'
 import { putDownCapture, putDownOnPageHide, type HeldCapture } from '../lib/leaveCapture'
@@ -43,6 +43,16 @@ export type Origin = 'capture' | 'queue' | 'library' | 'scan' | 'move'
 export interface Evidence {
   readonly coverText: string
   readonly note: string
+  /** What looking the cover's title up found, to be offered and never applied. */
+  readonly suggestion: TitleSuggestion | null
+}
+
+/** A book with no capture behind it, or none read yet. */
+export const NO_EVIDENCE: Evidence = { coverText: '', note: '', suggestion: null }
+
+/** What a capture's photographs produced, as the review screen quotes it. */
+export function evidenceOf(capture: Capture): Evidence {
+  return { coverText: capture.cover_text, note: capture.note, suggestion: titleSearchOn(capture) }
 }
 
 export interface BookInHand extends ShelfState {
@@ -179,6 +189,12 @@ export interface BookInHand extends ShelfState {
   readonly applyLookup: (result: LookupResponse, isbnSource: string) => void
   /** What a reading produced when no catalogue answered: the ISBN and nothing else. */
   readonly applyReading: (capture: Capture) => void
+  /**
+   * Put the title and author read off the cover into an empty form, as a
+   * starting point for the person checking them. Not sent to the queue as
+   * something they said: it reaches the record only when they confirm it.
+   */
+  readonly fillFromCover: (read: TitleSuggestion['read']) => void
 }
 
 export type PhotoUploads = BookUploads<Awaited<ReturnType<typeof api.addPhoto>>>
@@ -203,7 +219,7 @@ export function BookInHandProvider({ children }: { children: ReactNode }) {
   const [draft, setDraft] = useState<Draft>(emptyDraft)
   const [lookup, setLookup] = useState<LookupResponse | null>(null)
   const [identified, setIdentified] = useState(false)
-  const [evidence, setEvidence] = useState<Evidence>({ coverText: '', note: '' })
+  const [evidence, setEvidence] = useState<Evidence>(NO_EVIDENCE)
   const [coverImage, setCoverImage] = useState('')
 
   const [captureId, setCaptureId] = useState<number | null>(null)
@@ -351,6 +367,15 @@ export function BookInHandProvider({ children }: { children: ReactNode }) {
     setDraft((current) => withReadIsbn(current, capture))
   }, [])
 
+  const fillFromCover = useCallback((read: TitleSuggestion['read']) => {
+    const filled = { title: read.title, authors: read.author }
+    // The baseline moves with the form, so the autosave sees nothing a person
+    // said; typing over either field afterwards is sent as usual.
+    const onServer = captureOnServerRef.current
+    if (onServer && !onServer.title) captureOnServerRef.current = { ...onServer, ...filled }
+    setDraft((current) => (current.title ? current : { ...current, ...filled }))
+  }, [])
+
   /**
    * Put down whatever book is on screen: release its capture lock, bump the review
    * session so a relookup still in flight for it cannot land once it has been
@@ -373,7 +398,7 @@ export function BookInHandProvider({ children }: { children: ReactNode }) {
     uploadsRef.current = null
     setDraft(emptyDraft)
     setLookup(null)
-    setEvidence({ coverText: '', note: '' })
+    setEvidence(NO_EVIDENCE)
     setIdentified(false)
     setShots({})
     setThumbs({})
@@ -441,6 +466,7 @@ export function BookInHandProvider({ children }: { children: ReactNode }) {
         clearBookInHand,
         applyLookup,
         applyReading,
+        fillFromCover,
       }}
     >
       {children}

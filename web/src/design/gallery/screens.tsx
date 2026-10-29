@@ -1308,11 +1308,10 @@ function ReviewNone(go: Go) {
     >
       <Shots {...detailSlots(go)} act size="big" />
 
-      <Card weight="quiet" kind="Nothing came back" title="Fill it in from the book">
+      <Card weight="quiet" kind="Not found" title="Fill it in from the book">
         <p>
-          No catalogue answered for this one. Nothing has been filled in for you:
-          what the cover photograph reads is underneath, as evidence rather than
-          as an answer.
+          No catalogue we asked has ISBN 9781873982273. Type the title and author
+          off the book.
         </p>
       </Card>
 
@@ -3841,7 +3840,7 @@ export const SCREENS: Screen[] = [
   { id: 'review', name: 'Check the details', group: 'Cataloguing', render: Review },
   {
     id: 'reviewnone',
-    name: 'Nothing came back',
+    name: 'Nothing found',
     group: 'Cataloguing',
     render: ReviewNone,
   },

@@ -24,7 +24,7 @@ import { QueuedAlready } from '../components/QueuedAlready'
 import { Viewfinder, type Hand } from '../design/Camera'
 import { Button } from '../design/Controls'
 import type { Shot } from '../design/Shots'
-import { useBookInHand } from '../app/bookInHand'
+import { evidenceOf, useBookInHand } from '../app/bookInHand'
 import { useCameraSession } from '../app/cameraSession'
 import { useSummary } from '../app/summary'
 import { useErrorBanner } from '../app/errorBanner'
@@ -221,7 +221,7 @@ export function CaptureScreen() {
         // review either way. The note is carried there, as evidence, the
         // same as for a book opened from the queue.
         setReadNothing(capture.status === 'failed')
-        setEvidence({ coverText: capture.cover_text, note: capture.note })
+        setEvidence(evidenceOf(capture))
         if (capture.status === 'failed') {
           /*
            * Keep what the reading did get: a barcode that decoded against a

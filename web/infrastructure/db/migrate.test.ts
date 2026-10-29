@@ -265,6 +265,7 @@ describe('a database that already has these tables', () => {
         'books.edited_at', 'books.scan_note', 'books.claimed_by',
         'books.claimed_at', 'books.processed_at',
         'books.current_area_id', 'books.read_attempts',
+        'books.title_search_json',
       ])
     /*
      * The columns later migrations dropped, in the order the baseline declared

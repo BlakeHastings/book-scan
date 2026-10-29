@@ -136,6 +136,15 @@ export const books = pgTable('books', {
    * it a third time.
    */
   readAttempts: integer('read_attempts').notNull().default(0),
+  /**
+   * What an Open Library title search said about the title and author read off
+   * the front cover, as JSON: what was read and asked, and the book that
+   * answered, or null. Written by the worker only when no ISBN identified the
+   * book, and only ever a suggestion: nothing here reaches `title` or the
+   * book's state until a person says it is the book. Empty when nothing was
+   * asked.
+   */
+  titleSearchJson: text('title_search_json').notNull().default(''),
 
   /**
    * Where this book is, as an area: a projection of `book_placement` and not a

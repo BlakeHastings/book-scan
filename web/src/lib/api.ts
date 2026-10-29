@@ -1032,6 +1032,12 @@ export interface Capture {
   analysed: string
   /** What the background worker read. Nobody but the worker writes this. */
   draft_json: string
+  /**
+   * What the worker found when it looked the cover's title up, as a
+   * `TitleSuggestion` in JSON; empty when it asked nothing. A suggestion, never
+   * an identification.
+   */
+  title_search_json?: string
   /** What a person stated while it sat in the queue. The worker never writes it. */
   edit_json: string
   edited_by: string
@@ -2001,6 +2007,24 @@ function parseJson<T>(raw: string): T | null {
   } catch {
     return null
   }
+}
+
+/**
+ * What looking the cover's title up found: the title and author read off it,
+ * and the book a catalogue offered for them, or null when none fitted.
+ */
+export interface TitleSuggestion {
+  read: { title: string; author: string }
+  match: LookupResponse | null
+}
+
+/** The worker's title search for a capture, or null when it made none. */
+export function titleSearchOn(capture: Pick<Capture, 'title_search_json'>): TitleSuggestion | null {
+  const found = parseJson<Omit<TitleSuggestion, 'match'> & { match: Omit<LookupResponse, 'duplicateOf'> | null }>(
+    capture.title_search_json ?? '',
+  )
+  if (!found?.read?.title) return null
+  return { read: found.read, match: found.match ? { ...found.match, duplicateOf: null } : null }
 }
 
 /** What the background worker made of a capture's photographs. */

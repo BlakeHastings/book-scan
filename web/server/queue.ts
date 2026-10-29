@@ -19,7 +19,8 @@
 import type { Db } from './driver'
 import { ReadingTimedOut } from './deadline'
 import { identify } from './identify'
-import { lookupIsbn, type LookupOptions, type LookupResult } from './lookup'
+import { lookupIsbn, searchTitle, type LookupOptions, type LookupResult } from './lookup'
+import { SuggestFromCoverHandler, type TitleSuggestion } from '../application/lookup/queries/suggest-from-cover'
 import {
   deriveCapture, hashFront, hashQueuedFronts,
   type DerivableCapture, type HashOutcome, type HashSweep,
@@ -83,7 +84,7 @@ const QUEUE_ROW = `
     ELSE 'done'
   END AS status,
   isbn13, isbn10, isbn_source, title_guess, cover_text, analysed,
-  draft_json, edit_json, edited_by, edited_at,
+  draft_json, title_search_json, edit_json, edited_by, edited_at,
   scan_note AS note, claimed_by, claimed_at,
   CASE WHEN "state" IN (${QUEUED_SQL}) THEN NULL ELSE id END AS book_id,
   scanned_at AS created_at, processed_at`
@@ -907,6 +908,23 @@ export class CaptureQueue implements QueueReadModel {
     return true
   }
 
+  /**
+   * The cover's title and author looked up, as a suggestion. A catalogue that
+   * fails is the same as one that found nothing: the reading still settles,
+   * and the person at review still has what was read.
+   */
+  private async suggestFromCover(lines: readonly string[]): Promise<TitleSuggestion | null> {
+    const handler = new SuggestFromCoverHandler({
+      search: (title, author) => searchTitle(title, this.lookupOptions, author),
+    })
+    try {
+      return await handler.handle({ lines })
+    } catch (error) {
+      console.warn('[queue] the title search failed:', (error as Error).message)
+      return null
+    }
+  }
+
   private async process(capture: CaptureRow): Promise<void> {
     const analysed = new Set(capture.analysed.split(',').filter(Boolean))
     /**
@@ -967,6 +985,8 @@ export class CaptureQueue implements QueueReadModel {
       let coverLines = capture.cover_text.split(String.fromCharCode(10)).filter(Boolean)
       let isbnSource = capture.isbn_source
       let titleGuess = capture.title_guess
+      let titleSearch = capture.title_search_json
+      let coverRead = false
       const notes: string[] = []
 
       for (const slot of todo) {
@@ -984,6 +1004,7 @@ export class CaptureQueue implements QueueReadModel {
         if (wantTitle && read.coverLines.length) {
           coverLines = read.coverLines
           titleGuess = read.titleGuess
+          coverRead = true
         }
         if (lookup?.found) continue
 
@@ -1018,6 +1039,16 @@ export class CaptureQueue implements QueueReadModel {
           }
         }
         notes.push(...read.notes.filter((n) => !notes.includes(n)))
+      }
+
+      // Asked only of a cover read on this pass, so a spine arriving later does
+      // not search the same words again, and dropped once an ISBN has named the
+      // book, since a suggestion beside an identification only contradicts it.
+      if (lookup?.found) {
+        titleSearch = ''
+      } else if (coverRead) {
+        const suggestion = await this.suggestFromCover(coverLines)
+        titleSearch = suggestion ? JSON.stringify(suggestion) : ''
       }
 
       if (!isbn13 && !lookup?.found) {
@@ -1061,6 +1092,7 @@ export class CaptureQueue implements QueueReadModel {
            "state" = @status, isbn13 = @isbn13, isbn10 = @isbn10,
            isbn_source = @source, title_guess = @titleGuess,
            cover_text = @coverText, analysed = @analysed,
+           title_search_json = @titleSearch,
            draft_json = @draft, scan_note = @note, processed_at = @now,
            read_attempts = 0
          WHERE id = @id AND "state" IN (${QUEUED_SQL})`,
@@ -1074,6 +1106,7 @@ export class CaptureQueue implements QueueReadModel {
           // the cover and only ever that. A title somebody stated is a different
           // kind of value and is already durable in `edit_json`.
           titleGuess,
+          titleSearch,
           coverText: coverLines.join(String.fromCharCode(10)),
           analysed: [...analysed].join(','),
           // The worker's own channel. Written whatever a person has said,

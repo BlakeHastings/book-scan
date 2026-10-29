@@ -12,7 +12,7 @@
  * draws it.
  */
 
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { api } from '../lib/api'
 import { BookDetail } from '../components/BookDetail'
 import { CaptureReview } from '../components/CaptureReview'
@@ -45,7 +45,7 @@ export function ReviewScreen() {
     draft, lookup, thumbs, crops, saving, relookupBusy, relookupError,
     evidence, bookId, captureId, origin, notice, placement, placementStale, coverImage,
     checkedOutAt, misfile, catalogued, setCatalogued, setDraft, setRelookupError,
-    setActiveSlot,
+    setActiveSlot, applyLookup, fillFromCover,
   } = book
 
   const derivedFiling = filingName(draft.authors.split(',')[0]?.trim() ?? '')
@@ -82,6 +82,20 @@ export function ReviewScreen() {
     return () => { cancelled = true }
   }, [bookId, captureId, setCatalogued])
 
+  /*
+   * A cover whose title found nothing in the catalogue still had its title and
+   * author read, so the form starts from them rather than empty. Once per
+   * capture, so a person who clears the title is not given it back.
+   */
+  const suggestion = evidence.suggestion
+  const filledFor = useRef<number | null>(null)
+  useEffect(() => {
+    if (bookId !== null || captureId === null || filledFor.current === captureId) return
+    if (!suggestion || suggestion.match || draft.title || lookup?.found) return
+    filledFor.current = captureId
+    fillFromCover(suggestion.read)
+  }, [bookId, captureId, suggestion, draft.title, lookup, fillFromCover])
+
   /* Both screens take the design system's paper, not the app's own dark page. */
   useEffect(() => {
     document.body.classList.add('wf-page')
@@ -117,6 +131,11 @@ export function ReviewScreen() {
            and never poured into it. */
         coverText={evidence.coverText}
         captureNote={evidence.note}
+        suggestion={suggestion}
+        /* A person's yes, so it is applied as any lookup is, and the autosave
+           sends it as what they said. */
+        onAcceptSuggestion={(match) => applyLookup(match, '')}
+        onRejectSuggestion={() => { if (suggestion) fillFromCover(suggestion.read) }}
         notice={notice}
         error={error}
         onDismissError={() => setError('')}

@@ -46,3 +46,13 @@ export interface CatalogueLookup {
   /** Answers `found: false` for a number nobody holds rather than throwing. */
   lookup(isbn: string): Promise<CatalogueRecord>
 }
+
+/**
+ * The catalogues asked by title, for a book whose ISBN nobody could read. The
+ * one implementation is `searchTitle` in `server/lookup.ts`, which asks Open
+ * Library alone. `author` is empty when none was read.
+ */
+export interface CatalogueTitleSearch {
+  /** Answers `found: false` for a title nobody holds rather than throwing. */
+  search(title: string, author: string): Promise<CatalogueRecord>
+}

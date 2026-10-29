@@ -12,7 +12,7 @@ import type { Db } from './driver'
 import { CaptureQueue, editsOn, READINGS_THAT_MAY_DIE } from './queue'
 import { couldBeReadAgain } from '../shared/captureFailure'
 import { identify } from './identify'
-import { lookupIsbn } from './lookup'
+import { lookupIsbn, searchTitle } from './lookup'
 import type { LookupResult } from './lookup'
 import { Store } from './store'
 import { DrizzleAuthorRepository } from '../infrastructure/authorship/author-repository'
@@ -68,6 +68,8 @@ beforeEach(async () => {
   vi.mocked(identify).mockReset()
   vi.mocked(lookupIsbn).mockReset()
   vi.mocked(lookupIsbn).mockResolvedValue(nothingFound())
+  vi.mocked(searchTitle).mockReset()
+  vi.mocked(searchTitle).mockResolvedValue(nothingFound())
 
   db = await openTestDatabase()
   store = new Store(db, new DrizzleAuthorRepository(db))
@@ -1134,5 +1136,97 @@ describe('picking the queue up again', () => {
     held.release()
     await reading
     expect(running.reading, 'a queue that has finished still claims a book').toBeNull()
+  })
+})
+
+/**
+ * A book with no barcode is named by the words on its cover (#680). The search
+ * is stubbed, as the ISBN lookup is above; what is under test is that the
+ * worker asks it, keeps what it said as a suggestion, and identifies nothing.
+ */
+describe('a cover with a title and no ISBN', () => {
+  /** A front cover the reader made a title and an author of, and no number. */
+  function readCover(lines: string[]) {
+    return { ...readNothing(), coverLines: lines, titleGuess: lines[0] ?? '' }
+  }
+
+  function suggestionOn(row: { title_search_json: string }) {
+    return JSON.parse(row.title_search_json || 'null') as
+      { read: { title: string; author: string }; match: LookupResult | null } | null
+  }
+
+  const middlemarch = () => ({
+    ...found('9780141439549', 'Middlemarch', ['George Eliot']),
+    source: 'Open Library search',
+  })
+
+  it('gets the catalogue\'s book as a candidate, asked by the title and author read', async () => {
+    const running = new CaptureQueue(db, () => Buffer.from('a photograph'))
+    vi.mocked(identify).mockResolvedValue(readCover(['Middlemarch', 'George Eliot', 'ANOVEL']))
+    vi.mocked(searchTitle).mockResolvedValue(middlemarch())
+
+    const capture = await running.attach(null, 'front', 'f.jpg')
+    await running.drain()
+
+    expect(vi.mocked(searchTitle)).toHaveBeenCalledWith('Middlemarch', expect.anything(), 'George Eliot')
+    const suggestion = suggestionOn((await running.get(capture.id))!)
+    expect(suggestion?.read).toEqual({ title: 'Middlemarch', author: 'George Eliot' })
+    expect(suggestion?.match).toMatchObject({ found: true, title: 'Middlemarch', authors: ['George Eliot'] })
+    // A title search answers a work, not the copy in hand: no edition's number is offered.
+    expect(suggestion?.match?.isbn13).toBe('')
+  })
+
+  it('identifies nothing by it: the book still waits for a person', async () => {
+    const running = new CaptureQueue(db, () => Buffer.from('a photograph'))
+    vi.mocked(identify).mockResolvedValue(readCover(['Middlemarch', 'George Eliot']))
+    vi.mocked(searchTitle).mockResolvedValue(middlemarch())
+
+    const capture = await running.attach(null, 'front', 'f.jpg')
+    await running.drain()
+
+    const row = (await running.get(capture.id))!
+    expect(row.status).toBe('failed')
+    expect(row.draft_json).toBe('')
+    expect(row.isbn13).toBe('')
+  })
+
+  it('keeps what was read, and no candidate, when the answer is a different book', async () => {
+    const running = new CaptureQueue(db, () => Buffer.from('a photograph'))
+    vi.mocked(identify).mockResolvedValue(readCover(['Dune Messiah', 'Frank Herbert']))
+    vi.mocked(searchTitle).mockResolvedValue(found(DUNE, 'Dune', ['Frank Herbert']))
+
+    const capture = await running.attach(null, 'front', 'f.jpg')
+    await running.drain()
+
+    expect(suggestionOn((await running.get(capture.id))!))
+      .toEqual({ read: { title: 'Dune Messiah', author: 'Frank Herbert' }, match: null })
+  })
+
+  it('does not search when a barcode has named the book', async () => {
+    const running = new CaptureQueue(db, () => Buffer.from('a photograph'))
+    vi.mocked(identify).mockImplementation(async (_image, options) => (
+      options?.wantTitle ? readCover(['Dune', 'Frank Herbert']) : readBarcode(DUNE)
+    ))
+    vi.mocked(lookupIsbn).mockResolvedValue(found(DUNE, 'Dune', ['Frank Herbert']))
+
+    const capture = await running.attach(null, 'back', 'b.jpg')
+    await running.attach(capture.id, 'front', 'f.jpg')
+    await running.drain()
+
+    expect(vi.mocked(searchTitle)).not.toHaveBeenCalled()
+    expect((await running.get(capture.id))!.title_search_json).toBe('')
+  })
+
+  it('still settles the reading when the search itself fails', async () => {
+    const running = new CaptureQueue(db, () => Buffer.from('a photograph'))
+    vi.mocked(identify).mockResolvedValue(readCover(['Middlemarch', 'George Eliot']))
+    vi.mocked(searchTitle).mockRejectedValue(new Error('Open Library is down'))
+
+    const capture = await running.attach(null, 'front', 'f.jpg')
+    await running.drain()
+
+    const row = (await running.get(capture.id))!
+    expect(row.status).toBe('failed')
+    expect(row.cover_text).toBe('Middlemarch\nGeorge Eliot')
   })
 })

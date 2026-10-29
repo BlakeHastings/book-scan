@@ -16,7 +16,7 @@ import { filingName } from '../../shared/shelving'
 import type { Slot } from '../lib/scanner'
 import type { LibraryReturnAnchor } from '../components/ShelfView'
 import type { QueueReturnAnchor } from '../components/QueuePane'
-import { useBookInHand, type Origin } from './bookInHand'
+import { evidenceOf, NO_EVIDENCE, useBookInHand, type Origin } from './bookInHand'
 import { useErrorBanner } from './errorBanner'
 import { useNavigation } from './navigation'
 import { useBrowsing } from './browsing'
@@ -93,7 +93,7 @@ export function useOpenBook(): OpenBook {
       book.setCaptureId(null)
       book.setLookup(null)
       // A catalogued book has no capture behind it to quote.
-      book.setEvidence({ coverText: '', note: '' })
+      book.setEvidence(NO_EVIDENCE)
       book.setIdentified(Boolean(found.isbn13))
       book.setThumbs({
         front: found.front_image ? `/api/covers/${found.front_image}` : undefined,
@@ -145,7 +145,7 @@ export function useOpenBook(): OpenBook {
     book.captureOnServerRef.current = loaded
     // What the photographs produced, carried through for reference. Not
     // laid over the draft; see the state's own comment.
-    book.setEvidence({ coverText: capture.cover_text, note: capture.note })
+    book.setEvidence(evidenceOf(capture))
     book.setThumbs({
       front: capture.front_image ? `/api/covers/${capture.front_image}` : undefined,
       back: capture.back_image ? `/api/covers/${capture.back_image}` : undefined,

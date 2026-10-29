@@ -204,9 +204,12 @@ export async function startCatalogueStub(): Promise<CatalogueStub> {
     // Open Library: title search, the fallback when no ISBN can be read.
     if (url.pathname === '/search.json') {
       const title = (url.searchParams.get('title') ?? '').toLowerCase()
+      // Narrowed by author the way Open Library narrows it, when one is asked.
+      const author = (url.searchParams.get('author') ?? '').toLowerCase()
       // Silenced by title too: "no source answers for this book" must mean
       // the book, not just the ISBN route.
-      const named = ALL_STUB_BOOKS.find((b) => b.title.toLowerCase() === title)
+      const named = ALL_STUB_BOOKS.find((b) => b.title.toLowerCase() === title
+        && (!author || b.authors.some((name) => name.toLowerCase() === author)))
       const book = named && look(named.isbn13)
       json({
         docs: book

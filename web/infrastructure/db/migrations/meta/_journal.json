@@ -260,6 +260,13 @@
       "when": 1793289973759,
       "tag": "0036_a_reading_that_dies_is_not_retried_forever",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1793297123913,
+      "tag": "0037_a_cover_title_is_looked_up",
+      "breakpoints": true
     }
   ]
 }
