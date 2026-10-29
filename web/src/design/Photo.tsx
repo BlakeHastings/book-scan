@@ -36,8 +36,8 @@ export function Photo({
       decoding="async"
       sizes={picked.sizes}
       srcSet={picked.srcSet}
-      src={picked.src}
       className={className}
+      src={picked.src}
       alt={alt}
       draggable={false}
     />

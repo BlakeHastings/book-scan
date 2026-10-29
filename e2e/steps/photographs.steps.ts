@@ -57,7 +57,8 @@ Then('it should be open over the whole screen', async ({ page }) => {
   await expect(picture).toHaveAttribute('src', /\?w=\d+$/)
   const box = (await picture.boundingBox())!
   const screen = page.viewportSize()!
-  expect(box.width).toBeGreaterThan(screen.width * 0.6)
+  // Filling the screen one way or the other, whatever shape the photograph is.
+  expect(Math.max(box.width / screen.width, box.height / screen.height)).toBeGreaterThan(0.5)
 })
 
 When('I press {string} on it', async ({ page }, name: string) => {

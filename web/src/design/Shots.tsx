@@ -247,22 +247,33 @@ function Rail({ shots, deck, act, size, on, full }: {
  */
 function useWhole() {
   const [at, setAt] = useState<number | null>(null)
+  /*
+   * Whether the entry is still there to take off. Not read from
+   * `history.state`, which `history.back()` changes only once the traversal
+   * has run: two ways out pressed in one tap would each take one off, and the
+   * second would leave the app.
+   */
+  const pushed = useRef(false)
 
   const open = useCallback((index: number) => {
-    window.history.pushState({ bookscanWhole: true }, '')
+    if (!pushed.current) window.history.pushState({ bookscanWhole: true }, '')
+    pushed.current = true
     setAt(index)
   }, [])
 
   const leave = useCallback(() => {
     setAt(null)
-    if ((window.history.state as { bookscanWhole?: boolean } | null)?.bookscanWhole) {
-      window.history.back()
-    }
+    if (!pushed.current) return
+    pushed.current = false
+    window.history.back()
   }, [])
 
   useEffect(() => {
     if (at === null) return
-    const back = () => setAt(null)
+    const back = () => {
+      pushed.current = false
+      setAt(null)
+    }
     window.addEventListener('popstate', back)
     return () => window.removeEventListener('popstate', back)
   }, [at])
