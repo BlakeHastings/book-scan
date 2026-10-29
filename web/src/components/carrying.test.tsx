@@ -1,7 +1,7 @@
 /**
  * Guards against `ShelveView` being hand-forked for the carry flow: both the
  * scan and carry journeys must call the one component, and it must draw the
- * same four things in the same order.
+ * same three things in the same order.
  */
 
 import { readFileSync, readdirSync } from 'node:fs'
@@ -59,11 +59,10 @@ describe('a carried book is placed by the screen a new book is placed by', () =>
     }
   })
 
-  // These are the gallery's own class names, not a separate list to keep in
-  // step: `design.test.tsx` checks the same strings, so a change to one is
-  // caught in both.
-  it('draws the same four things in the same order, once', () => {
-    const marks = ['wf-instruction', 'wf-gap', 'wf-shelf__inhand', 'wf-btn--primary']
+  // The gallery's own class names. The gallery also draws the book in hand
+  // under the shelf; the app leaves it out, because the header already names it.
+  it('draws the same three things in the same order, once', () => {
+    const marks = ['wf-instruction', 'wf-gap', 'wf-btn--primary']
 
     const markup = renderToStaticMarkup(
       <ShelveView

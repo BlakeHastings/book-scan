@@ -29,7 +29,7 @@ Feature: Putting a book on a shelf that is already full
 
     When I review what it found
     And I confirm the details and go to shelve it
-    Then the placement should read "1A: between Rendezvous with Rama (Clarke, Arthur C.) and The Dispossessed (Le Guin, Ursula K.)"
+    Then the placement should read "Shelf 1A, between Clarke and Le Guin"
     And the shelf drawing should be labelled "1A"
 
     And the first answer should read "No room, move one along"

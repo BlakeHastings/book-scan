@@ -45,13 +45,18 @@ export function PlacementCard({
   placement,
   pending,
   saved,
+  instruction = true,
 }: {
   placement: PlacementResponse | null
   pending: boolean
   saved: boolean
+  /** Off where the screen says where it goes in its own words. */
+  instruction?: boolean
 }) {
+  // Placement is asked for only once there is a title and a fiction or
+  // non-fiction tag; an author is not needed.
   if (!placement) {
-    return <Nothing said="Placement appears once there is a title and author." />
+    return <Nothing said="Where it goes appears once it has a title and is marked fiction or non-fiction." />
   }
 
   const { predecessor, successor } = placement
@@ -59,7 +64,7 @@ export function PlacementCard({
 
   return (
     <div className={pending ? 'placement--stale' : ''}>
-      <Instruction>{placement.instruction}</Instruction>
+      {instruction && <Instruction>{placement.instruction}</Instruction>}
       <Said>{saved ? `${range} · saved` : range}</Said>
 
       {(predecessor || successor) && (

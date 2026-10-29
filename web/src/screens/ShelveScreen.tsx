@@ -23,7 +23,7 @@ import { Phone } from '../design/Phone'
 import { ShelveView } from '../components/ShelveView'
 import { Trouble } from '../components/RoomFrame'
 import { PlacementView } from '../components/ShelfStrip'
-import { rangeOfSlug } from '../../domain/tagging/genre'
+import { genreOfRange, rangeOfSlug } from '../../domain/tagging/genre'
 import { filingName } from '../../shared/shelving'
 import { api, type AtAPlace, type PlacementResponse } from '../lib/api'
 import { useBookActions } from '../app/bookActions'
@@ -58,8 +58,8 @@ export function ShelveScreen() {
   const { error } = useErrorBanner()
   const { leaveFor, landing } = useLeaving()
   const {
-    draft, bookId, saving, placement, placementStale, refreshPlacement,
-    cascade, setCascade,
+    draft, setDraft, bookId, saving, placement, placementStale, refreshPlacement,
+    cascade, setCascade, catalogued,
   } = useBookInHand()
   const { save } = useBookActions()
 
@@ -86,6 +86,12 @@ export function ShelveScreen() {
     : null
 
   usePaper()
+
+  // A screen of its own: arriving from the bottom of review must not leave the
+  // sentence about where the book goes scrolled up under the header.
+  useEffect(() => {
+    window.scrollTo({ top: 0 })
+  }, [shelved])
 
   const title = draft.title || 'this book'
 
@@ -220,6 +226,10 @@ export function ShelveScreen() {
           onRefresh={refreshPlacement}
           byHand={bookId !== null}
           wanted={wanted}
+          onGenre={(range) => setDraft((current) => ({
+            ...current, genre: genreOfRange(range), classificationSource: 'manual',
+          }))}
+          otherCopy={catalogued?.id ?? null}
         />
       </Phone>
     </div>

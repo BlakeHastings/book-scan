@@ -1,10 +1,11 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from 'react'
 import { api, type AtAPlace, type FixtureDto, type Move, type PlacementResponse } from '../lib/api'
 import {
-  asking, confirm, depth, pushCarry, pushFrame, repropose,
+  asking, confirm, pushCarry, pushFrame, repropose,
   started, whereYouAre, type Cascade, type Proposal,
 } from '../lib/cascade'
 import { PlacementView, ShelfStrip } from './ShelfStrip'
+import { whereItGoes } from '../lib/whereWords'
 import { Trouble } from './RoomFrame'
 import { Card, Instruction, Said } from '../design/Card'
 import { Button } from '../design/Controls'
@@ -58,6 +59,13 @@ interface Props {
    * book somewhere else; null when no rule claims it or nobody has asked.
    */
   wanted?: AtAPlace | null
+  /**
+   * Answers the one question a book with no genre needs before it has a
+   * shelf. Without it the screen can only send somebody back to say.
+   */
+  onGenre?: (range: ShelfRange) => void
+  /** The catalogued book this one is a second copy of, when it is one. */
+  otherCopy?: number | null
 }
 
 /**
@@ -78,7 +86,7 @@ interface Props {
 export function ShelveView({
   placement, stale, range, title, saving, onShelved, onBack,
   backSaid = 'Back to book details', cascade, setCascade, onRefresh, byHand = false,
-  wanted = null,
+  wanted = null, onGenre, otherCopy = null,
 }: Props) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -117,7 +125,7 @@ export function ShelveView({
   const overflowFrom = async (areaId: number | null, kind: 'shelf' | 'area') => {
     if (busy || range === null) return
     if (areaId === null) {
-      setError('That plank does not exist yet, so there is nothing on it to move along.')
+      setError('That shelf does not exist yet, so there is nothing on it to move along.')
       return
     }
     setBusy(true)
@@ -139,7 +147,7 @@ export function ShelveView({
       }
 
       if (!plan.step) {
-        setError('Nothing on this plank can move along, so there is no gap to open.')
+        setError('Nothing on this shelf can move along, so there is no gap to open.')
         return
       }
 
@@ -216,7 +224,7 @@ export function ShelveView({
   const redraw = async (fromAreaId: number, kind: 'shelf' | 'area'): Promise<Proposal> => {
     if (range === null) throw new Error('Nothing files this book, so there is no shelf to redraw.')
     const plan = await api.planOverflow(range, fromAreaId, kind, placement?.sortKey)
-    if (!plan.step) throw new Error('There is nothing left on that plank to move along.')
+    if (!plan.step) throw new Error('There is nothing left on that shelf to move along.')
     return {
       id: plan.step.id,
       title: plan.step.title || 'the last book',
@@ -253,11 +261,16 @@ export function ShelveView({
             </Said>
           )}
         </div>
-      ) : (
-        <div className="wf-bleed">
-          <PlacementView placement={placement} pending={busy || stale} inHand={title} />
+      ) : placement && range !== null ? (
+        // The sentence sits outside the bleed so it keeps the page's margins;
+        // only the drawn shelf runs edge to edge.
+        <div className={busy || stale ? 'placement--stale' : ''}>
+          {!nowhere && <Instruction>{whereItGoes(placement, title, otherCopy)}</Instruction>}
+          <div className="wf-bleed">
+            <PlacementView placement={placement} pending={false} instruction={false} />
+          </div>
         </div>
-      )}
+      ) : null}
 
       <MovesSoFar cascade={cascade} />
 
@@ -309,33 +322,39 @@ export function ShelveView({
                   {busy ? '...' : `No, ${pending.proposal.to} is full too`}
                 </Button>
               </div>
-
-              <Said>
-                {depth(cascade) > 1
-                  ? `Yes moves ${pending.proposal.title} to ${pending.proposal.to}, writes ` +
-                    'it down, and asks about the book under it, which is still in your ' +
-                    `hand. No takes the last book off ${pending.proposal.to} instead and ` +
-                    'goes one deeper again.'
-                  : `Nothing has moved on the bookcase yet. Yes makes this move and ` +
-                    `writes it down; no takes the last book off ${pending.proposal.to} as ` +
-                    'well and asks about the plank after that. The chain can run as far ' +
-                    'as it needs to, and every book on it is asked about again on the ' +
-                    'way back.'}
-              </Said>
             </>
+          ) : range === null ? (
+            onGenre ? (
+              // Every rule starts from fiction or non-fiction, so this is the
+              // one thing a book needs before it has a shelf. Asked here, where
+              // somebody is standing with it, rather than two screens back.
+              <>
+                <p>
+                  Is <strong>{title}</strong> fiction or non-fiction?
+                </p>
+                <div className="wf-answers">
+                  <Button tone="primary" block off={saving || busy} onPress={() => onGenre('fiction')}>
+                    Fiction
+                  </Button>
+                  <Button tone="primary" block off={saving || busy} onPress={() => onGenre('nonfiction')}>
+                    Non-fiction
+                  </Button>
+                </div>
+                {choosing && <Said>Or choose a shelf for it below.</Said>}
+              </>
+            ) : (
+              <p>
+                Nothing says whether <strong>{title}</strong> is fiction or
+                non-fiction, so there is no shelf to put it on. Go back and say
+                which it is{choosing ? ', or choose a shelf for it below' : ''}.
+              </p>
+            )
           ) : (
             <>
               <p>
-                {range === null ? (
-                  <>
-                    Nothing says whether <strong>{title}</strong> is fiction or
-                    non-fiction, so no rule claims it and there is no shelf to put
-                    it on. Go back and say which it is
-                    {choosing ? ', or choose a shelf for it below' : ''}.
-                  </>
-                ) : nowhere ? (
-                  // A different absence from the sentence above: this book has
-                  // a range, but no rule says where the range itself begins.
+                {nowhere ? (
+                  // A different absence from a book with no genre: this book
+                  // has a range, but no rule says where the range itself begins.
                   <>
                     Nothing says where {range === 'fiction' ? 'fiction' : 'non-fiction'}
                     {' '}begins, so there is nowhere
@@ -376,7 +395,7 @@ export function ShelveView({
                   {busy
                     ? '...'
                     : atEndOfShelf
-                      ? 'No room, put it on the next area'
+                      ? 'No room, put it on the next shelf'
                       : started(cascade) ? 'Still no room' : 'No room, move one along'}
                 </Button>
                 <Button
@@ -388,23 +407,14 @@ export function ShelveView({
                 </Button>
               </div>
 
-              <Said>
-                {range === null
-                  ? 'Every rule asks about a tag, so a book carrying none matches ' +
-                    'nothing. Saying which it is settles where it goes.'
-                  : nowhere
-                  ? 'Where a range begins is whatever your rules say, and no rule ' +
-                    'says this one. Nothing has been changed and nothing is lost: ' +
-                    'the book is where you are holding it and the run fills back in ' +
-                    'as soon as a rule points it at a piece of furniture.'
-                  : atEndOfShelf
-                  ? `Nothing on ${shelfLabel || 'this area'} goes after this book, so ` +
-                    'it is the one that moves. Everything already on the bookcase ' +
-                    'stays where it is.'
-                  : `Each time you say there is no room, you are shown one more book ` +
-                    `coming off the end of ${shelfLabel || 'the bookcase'}, and nothing ` +
-                    'moves until you say you have moved it.'}
-              </Said>
+              {nowhere && (
+                <Said>
+                  Where a range begins is whatever your rules say, and no rule
+                  says this one. Nothing has been changed and nothing is lost:
+                  the book is where you are holding it and the run fills back in
+                  as soon as a rule points it at a piece of furniture.
+                </Said>
+              )}
             </>
           )}
         </Card>
