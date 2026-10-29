@@ -89,6 +89,12 @@ export const REGISTERED: Registered[] = [
    *   fused (dinov2 + text + hash)         top-1 87.5%  top-4 98.8%  confident wrong 0.0%
    *   fused, similarity off (text + hash)  top-1 93.8%  top-4 96.3%  confident wrong 0.0%
    *
+   * and again after the review's title guard and the two contained-title
+   * families the set now carries (84 + 12 photographs):
+   *
+   *   fused (dinov2 + text + hash)         top-1 85.7%  top-4 98.8%  confident wrong 0.0%
+   *   fused, similarity off (text + hash)  top-1 94.0%  top-4 96.4%  confident wrong 0.0%
+   *
    * The bar is `BAR` in `application/books/queries/match-cover.ts`, the one the
    * scan route ships, chosen on seed 7. On these synthetic covers DINOv2 cannot
    * read and pulls the fused top-1 below the words alone; on real covers the

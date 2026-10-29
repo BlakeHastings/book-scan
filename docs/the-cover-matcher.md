@@ -665,8 +665,11 @@ first, and either
 - **its title is printed**: at least 0.8 of it, 0.05 ahead, and the picture
   has it among the ten it ranks.
 
-With the model off, the second clause alone, without the picture. The hash
-never opens a book. The response carries the server's `confident` id, and the
+With the model off, the second clause alone, without the picture. Since the
+review, either way in also needs the title and the words in its type to
+explain each other (`BAR.explains`, see
+[A title contained in a sibling's](#a-title-contained-in-a-siblings-and-the-guard-for-it)).
+The hash never opens a book. The response carries the server's `confident` id, and the
 client opens that rather than judging the hash itself.
 
 ### How the bar was chosen, on seed 7
@@ -692,6 +695,12 @@ volume for the lead to stop on. At 0.4 the test for that shape fails
 (`infrastructure/books/cover-match.test.ts`).
 
 ### The measurements
+
+These are the rule as first built, before the review's title guard and before
+the synthetic sets carried contained-title families. The guard's own before
+and after are in
+[A title contained in a sibling's](#a-title-contained-in-a-siblings-and-the-guard-for-it),
+and it halves the confident rate on real covers.
 
 Seed 7, the tuning set (`npm run eval:covers -- --seed 7`):
 
@@ -730,8 +739,8 @@ Side of Paradise*.
 
 - **On real covers the fusion beats every strategy in it**: 93.5% top-1
   against DINOv2's 88.5%, 98.2% top-4 against 94.4%, and it opens a book
-  unasked on one photograph in four, with no wrong book, where the hash opened
-  one wrong book and no right one.
+  unasked on one photograph in four (one in eight with the title guard), with
+  no wrong book, where the hash opened one wrong book and no right one.
 - **On synthetic covers it is below the words alone** (74.0% against 90.0% on
   seed 1), because DINOv2 cannot read and these covers differ only in their
   words. The confident rate is lower for the same reason: the picture is asked
@@ -742,20 +751,100 @@ Side of Paradise*.
   It is kept because the issue asks for it and because it costs nothing at the
   bar; dropping it is a one-line follow-up the table would support.
 
-### What it does not catch
+### A title contained in a sibling's, and the guard for it
 
-**A title contained in a sibling's.** A reading of an uncatalogued *Dune
-Messiah* holds all of *Dune* (`word_similarity` 1.0), so with *Dune* catalogued
-and *Dune Messiah* not, the printed-title clause opens *Dune* whenever the
-picture has it in its ten, which for one series' design it will. No set here
-has that shape (the synthetic series are "Series: Title", and the real set has
-none), so it is unmeasured rather than measured safe. Telling it apart needs
-the reading's own title line, which Paddle has and the handler is not given;
-that is the next thing to try, with its own row.
+**The shape.** A photograph of an uncatalogued *Dune Messiah* holds all of
+*Dune* (`word_similarity` 1.0). As first built, the printed-title clause
+opened *Dune* for it whenever the picture had *Dune* in its ten, and for one
+series' design it will. The other direction fails too: a held *The Winter
+Empire* opened a catalogued *The Winter Empire Unbound* on seed 1 through the
+agreement clause, once the set had that shape in it (below).
+
+**The guard** (`titleExplains` in `web/shared/cover-words.ts`, `BAR.explains`
+in the handler). Either way in, the reading and the candidate's title must
+explain each other at **0.75** or better, once the first author's name is set
+aside. That means the smaller of:
+
+- the share of the title's words that were read anywhere on the cover, and
+- the share of the words printed **in the title's type** that the title holds.
+
+The title's type comes from Paddle's line boxes, which now travel with the
+reading (`IdentifyResult.paddleLines`). The line holding the most of the title
+picks the size, and every line at least 0.8 of its height counts, so a title
+broken over two lines is one region and a tagline in small type is left out.
+Without line boxes, the whole reading is used, which asks more often. Words are
+compared the way `pg_trgm` counts trigrams: half of them shared makes the same
+word, so "DARKNES5" is "darkness" and "messiah" is not "dune".
+
+So a *Dune Messiah* cover explains *Dune* at 0.5, and the reverse also gives
+0.5, so neither opens. A cover of *Dune* with "WINNER OF THE HUGO AWARD" in
+small type above the title still opens *Dune*. With both volumes catalogued,
+*Dune Messiah*'s cover opens *Dune Messiah*, and *Dune*'s cover asks, with
+*Dune* first: the two score close on the words. The tests are in
+`infrastructure/books/cover-match.test.ts`. Before the guard, the first of
+them failed with `expected 1 to be null`.
+
+**The set measures it now.** `coverSet` adds two contained-title families per
+seed, by default from a random stream of their own, so every other book and
+photograph of a seed is unchanged. Each family is "The Adjective Noun" and
+"The Adjective Noun Sequel", in one design and by one author. One family
+catalogues the short title and holds up the long one; the other does the
+reverse. Two families is little power: before the guard, seed 1 showed the
+shape once, and seed 7 not at all.
+
+**What it cost**, the fused rows before and after the guard on the same sets
+(the synthetic sets now including the families):
+
+| set | fused | top-1 | top-4 | confident right | confident wrong |
+| --- | --- | --- | --- | --- | --- |
+| seed 7 | before the guard | 80.3% | 98.7% | 40.2% | 0.0% |
+| seed 7 | after | 79.9% | 98.7% | 32.4% | 0.0% |
+| seed 1 | before the guard | 74.3% | 95.1% | 32.4% | **0.3%** (*The Winter Empire* opened *The Winter Empire Unbound*) |
+| seed 1 | after | 74.3% | 95.1% | 29.2% | 0.0% |
+| real covers | before the guard | 93.5% | 98.2% | 24.1% | 0.0% |
+| real covers | after | 93.5% | 98.2% | **11.9%** | 0.0% |
+| model off, real | before / after | 55.9% | 60.3% | 17.8% / 10.8% | 0.0% |
+
+The shortlist does not move. The bar fires half as often on real covers: real
+covers carry series names, quotes and publishers' lines in type as large as
+the title, and OCR misses words of the title, and either one now makes the
+scanner ask. That is the safe direction, and it is what was chosen: one book in
+eight still opens unasked, none wrongly, and the right book is in the four
+shown 98.2% of the time.
+
+Seed 7 after the guard, every row:
+
+| matcher                             | photos | top-1 | top-4 | confident right | confident wrong       |
+|-------------------------------------|--------|-------|-------|-----------------|-----------------------|
+| hash (today)                        | 304+32 | 7.6%  | 15.5% | 0.0%            | 0.0% (0 uncatalogued) |
+| embedding (dinov2-small)            | 304+32 | 24.7% | 51.3% | 0.0%            | 0.0% (0 uncatalogued) |
+| cover text (paddle, pg_trgm)        | 304+32 | 92.4% | 98.7% | 51.2%           | 0.0% (0 uncatalogued) |
+| fused (dinov2 + text + hash)        | 304+32 | 79.9% | 98.7% | 32.4%           | 0.0% (0 uncatalogued) |
+| fused, similarity off (text + hash) | 304+32 | 92.1% | 98.4% | 43.5%           | 0.0% (0 uncatalogued) |
+
+Seed 1 after the guard, every row:
+
+| matcher                             | photos | top-1 | top-4 | confident right | confident wrong       |
+|-------------------------------------|--------|-------|-------|-----------------|-----------------------|
+| hash (today)                        | 304+32 | 3.0%  | 13.2% | 0.0%            | 0.0% (0 uncatalogued) |
+| embedding (dinov2-small)            | 304+32 | 23.0% | 44.4% | 0.0%            | 0.0% (0 uncatalogued) |
+| cover text (paddle, pg_trgm)        | 304+32 | 90.1% | 94.4% | 47.9%           | 0.0% (0 uncatalogued) |
+| fused (dinov2 + text + hash)        | 304+32 | 74.3% | 95.1% | 29.2%           | 0.0% (0 uncatalogued) |
+| fused, similarity off (text + hash) | 304+32 | 88.2% | 94.1% | 43.8%           | 0.0% (0 uncatalogued) |
+
+Note that the cover-text row's own bar does not carry the guard, so it would
+still open *Dune* for *Dune Messiah*. Nothing ships that bar.
+
+**What is still open.** The 0.75 came from the review, not from seed 7: seed 7
+opened nothing wrong with or without the guard. Where the lost real-cover
+openings go (a title word OCR missed, or a large line that is not the title) is
+not yet broken down. That breakdown is how to win some of them back without
+reopening the shape. Two families per seed is also too few to say how often the
+shape opens wrongly: a family-only run with many more of them would.
 
 ## What this does not settle
 
-- A sibling whose title contains the catalogued one's; see [What it does not catch](#what-it-does-not-catch).
+- How often a contained-title sibling opens the wrong book, beyond the two families per seed; and winning back the real-cover openings the title guard costs. See [A title contained in a sibling's](#a-title-contained-in-a-siblings-and-the-guard-for-it).
 - Photograph against photograph. The set compares photographs to catalogue
   artwork only. The app also holds the owner's own photograph of each front
   (`front_hash`), and an embedding of that is likely to match better than the
