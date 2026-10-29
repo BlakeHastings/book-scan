@@ -15,6 +15,7 @@ import type { CoverMatcher } from './matcher'
 import { CLIP_B32, DINOV2_SMALL, type Encoder } from './models'
 import type { SetOptions } from './synthetic'
 import { coverTextMatcher } from './text-matcher'
+import { fusedMatcher } from './fused-matcher'
 
 /** Small enough to generate inside one test file's budget, large enough that one photograph is under two points. */
 export const CI_SET: SetOptions = { seed: 1, books: 40, photosPerBook: 2, absent: 10, severity: 1 }
@@ -79,6 +80,29 @@ export const REGISTERED: Registered[] = [
    */
   {
     matcher: coverTextMatcher({ title: 0.8, margin: 0.05 }),
+    database: true,
+    floor: { top1: 0.87, top4: 0.9, confidentWrong: ONE_PHOTO_OF_CI_SET },
+  },
+  /*
+   * Recorded on 2026-10-29, the same way (#669):
+   *
+   *   fused (dinov2 + text + hash)         top-1 78.8%  top-4 97.5%  confident wrong 0.0%
+   *   fused, similarity off (text + hash)  top-1 93.8%  top-4 96.3%  confident wrong 0.0%
+   *
+   * The bar is `BAR` in `application/books/queries/match-cover.ts`, the one the
+   * scan route ships, chosen on seed 7. On these synthetic covers DINOv2 cannot
+   * read and drags the fused top-1 below the words alone; on real covers it is
+   * the other way round, which `docs/the-cover-matcher.md` shows. The second
+   * row is the app with `[covers] similarity is off`.
+   */
+  {
+    matcher: fusedMatcher({ pictures: true }),
+    encoder: DINOV2_SMALL,
+    database: true,
+    floor: { top1: 0.72, top4: 0.91, confidentWrong: ONE_PHOTO_OF_CI_SET },
+  },
+  {
+    matcher: fusedMatcher({ pictures: false }),
     database: true,
     floor: { top1: 0.87, top4: 0.9, confidentWrong: ONE_PHOTO_OF_CI_SET },
   },
