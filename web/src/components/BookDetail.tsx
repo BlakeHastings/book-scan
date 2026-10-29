@@ -350,10 +350,10 @@ export function BookDetail({
         {editing ? (
           <>
             {/* Photographs first: whether they came out is the first thing
-                anyone wants to know. Nothing presses back to the camera from
-                here, since neither entry point is holding the book in the
-                frame the camera left. */}
-            <Shots {...slots} size="big" />
+                anyone wants to know. Pressing one opens it whole rather than
+                going back to the camera, since neither entry point is holding
+                the book in the frame the camera left. */}
+            <Shots {...slots} size="big" full />
 
             {/* The ISBN leads the fields, since it decides what every other
                 field says, and the way to correct it is a camera rather than
