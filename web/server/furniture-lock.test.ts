@@ -25,7 +25,7 @@ import { addAreaTo, addFixture, dropArea } from './furniture'
 import { createApp, type BookScanApp } from './index'
 import { signedIn } from './testauth'
 import { removeScratchRoot, scratchRoot } from './scratchdir'
-import { FURNITURE_LOCK, rangeLock } from '../application/locks'
+import { FURNITURE_LOCK, boundaryLocks, rangeLock } from '../application/locks'
 import { FICTION_SLUG, NON_FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 import { plankAt, type PlankAt } from '../shared/layout'
 import type { ShelfRange } from '../shared/shelving'
@@ -267,9 +267,16 @@ describe('an act plans from the room the furniture writer left', () => {
     expect(queued.answer.plan.from).toBe(8)
   })
 
+  /*
+   * The holder takes the area away the way `DELETE /api/areas/:id` does, and
+   * since #661 that holds the range as well as the furniture, so the holder
+   * names both: `dropArea` inside a transaction holding the furniture alone
+   * would be taking the range out of order.
+   */
   it('removing a boundary somebody has just taken off the furniture finds it already gone', async () => {
     const boundary = await fictionBoundary()
-    const queued = await whileTheFurnitureIsHeld(
+    const queued = await whileHeld(
+      boundaryLocks('fiction'),
       'fiction',
       () => shelves.remove(boundary, { theAreaGoes: true }),
       (tx) => dropArea(tx, boundary, new Date().toISOString()),
@@ -364,6 +371,30 @@ describe('deleting an area over HTTP waits for whoever holds its range', () => {
 
     expect(queued.ranAlongside, 'it queued for a range it does not stand in').toBe(true)
     expect(queued.answer.status, JSON.stringify(queued.answer.body)).toBe(200)
+  })
+
+  /*
+   * The range is learned before the locks are taken, so somebody holding the
+   * furniture can move the area into a run in between. The delete must not
+   * then write that run under locks that never named it.
+   */
+  it('refuses an area the furniture moved into a run while it waited', async () => {
+    await db.run('UPDATE fixture SET position = position + 1')
+    const piece = await addFixture(db, { position: 1, name: 'By the door' })
+    if (!piece.ok) throw new Error(piece.error)
+    for (const startsAt of ['', 'm']) {
+      const added = await addAreaTo(db, piece.fixture.id, { startsAt })
+      if (!added.ok) throw new Error(added.error)
+    }
+    const [, second] = await areasOnBookcase(1)
+
+    // Bookcase 1 to 3, between the fiction run's piece (now 2) and non-fiction's (now 5).
+    const queued = await whileTheFurnitureIsHeld('fiction', () => deleteArea(second!), (tx) =>
+      tx.run('UPDATE fixture SET position = 3 WHERE id = ?', [piece.fixture.id]))
+
+    expect(queued.ranAlongside).toBe(false)
+    expect(queued.answer.status, JSON.stringify(queued.answer.body)).toBe(409)
+    expect(await areasOnBookcase(3)).toContain(second)
   })
 })
 

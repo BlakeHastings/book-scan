@@ -639,6 +639,20 @@ export async function boundariesOf(db: Db, range: ShelfRange): Promise<Separator
   return boundariesFrom(range, await runAreasOf(db, range))
 }
 
+/**
+ * The ranges whose run this area stands in: one, or none for a plank no run
+ * reaches, such as a piece standing before the first run. The plank a run
+ * opens on counts, unlike `boundariesOf`, because taking it away hands the
+ * anchor to the plank behind it, which is that run's first boundary.
+ */
+export async function rangesStandingOn(db: Db, areaId: number): Promise<ShelfRange[]> {
+  const found: ShelfRange[] = []
+  for (const { range } of GENRE_RANGES) {
+    if ((await runAreasOf(db, range)).some((area) => area.id === areaId)) found.push(range)
+  }
+  return found
+}
+
 /** The plank of a run standing at this address, or null when none does. */
 export function areaAt(run: readonly RunArea[], where: PlankAt): RunArea | null {
   return run.find((area) =>
