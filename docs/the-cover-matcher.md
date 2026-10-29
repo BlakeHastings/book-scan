@@ -12,7 +12,11 @@ that day.
 
 ---
 
-## Where it stands today
+## Where it stood before the fusion
+
+Since #669 the scan route asks the fused matcher instead; see
+[Fusion, as built](#fusion-as-built). What follows is the baseline the harness
+still measures as `hash (today)`.
 
 `POST /api/books/scan` reads a barcode first. When none decodes, it hashes the
 centre 70% of the frame (`web/server/imagehash.ts`: a 64-bit DCT hash, `p1`
@@ -244,6 +248,7 @@ bar, both rows in the table.
 | `embedding-matcher.ts`, `models.ts`, `encode.ts` | An encoder's row: in-memory cosine, weights pinned by revision and SHA-256 and cached in `~/.cache/bookscan/models`. `encode.ts` prepares and embeds an image, and the app embeds through it too (below) |
 | `text-matcher.ts`, `catalogue-database.ts` | Cover text (#667): PaddleOCR, then the app's own query handler over a real Postgres the runner provides. See [Cover text, as built](#cover-text-as-built) |
 | `real-covers.ts` | The optional local mode's Open Library download |
+| `fused-matcher.ts` | The fused matcher (#669): `MatchCoverHandler`, the query the scan route asks, over the harness's picture and hash and the app's own text handler |
 | `registry.ts` | The matchers scored, the floor each is held to, and `CI_SET` |
 | `floors.test.ts` | The CI check |
 
@@ -316,8 +321,8 @@ at query and in the floors:
   `[covers] similarity is off` and nothing else changes.
 - **`NearestCoversHandler`** embeds a photograph and asks Postgres for the
   nearest catalogued books, one entry per book, through the partial HNSW index
-  migration 0034 builds for 384 dimensions. Nothing calls it from a route yet;
-  fusing it into `/api/books/scan` is the next step of #658.
+  migration 0034 builds for 384 dimensions. `/api/books/scan` asks it through
+  the fused matcher (#669); see [Fusion, as built](#fusion-as-built).
 
 ## The measurements
 
@@ -626,9 +631,131 @@ photographs that carry it, and its misreadings ("Qul1", "Quln", "Qail") are
 the photograph's blur and angle, not a glyph. Nothing in the generator
 changed.
 
+## Fusion, as built
+
+#669, measured 2026-10-29 on the same machine. `POST /api/books/scan` asks
+`MatchCoverHandler` (`web/application/books/queries/match-cover.ts`) whenever
+no ISBN was read.
+
+**What runs.** The scan's first pass is zxing and then Paddle, and nothing
+slower (`identify(..., { barcodeEffort: 'fast', paddleOnly: true })`). An ISBN
+Paddle reads still short-circuits everything, check digit and all. Otherwise
+Paddle's reading goes to the handler, which asks three strategies at once:
+
+1. **The picture**: `NearestCoversHandler`, the ten nearest catalogued covers
+   by DINOv2 cosine. Null while the model is loading or when it could not be
+   (`[covers] similarity is off`).
+2. **The words**: `MatchCoverTextHandler` on the reading identify already
+   made. Not read a second time.
+3. **The hash**: today's, but only inside its `similar` band (16 bits), ten
+   deep.
+
+They are fused by **reciprocal rank fusion, k = 60**. The words take part with
+their own four, and only books scoring at least 0.1: the text handler answers
+its nearest titles whatever the reading, so in a small catalogue every book is
+somewhere on its list, and that tail outvoted the one book whose title is
+printed. The shortlist is the fused four.
+
+**The bar.** One book is opened without asking only when the words rank it
+first, and either
+
+- **the picture agrees**: the image model ranks it first too, at least 0.6 of
+  its title is printed (`word_similarity`), and the words put it 0.1 ahead of
+  their second; or
+- **its title is printed**: at least 0.8 of it, 0.05 ahead, and the picture
+  has it among the ten it ranks.
+
+With the model off, the second clause alone, without the picture. The hash
+never opens a book. The response carries the server's `confident` id, and the
+client opens that rather than judging the hash itself.
+
+### How the bar was chosen, on seed 7
+
+Every photograph's evidence from all three strategies was dumped once and the
+rule searched offline, on seed 7 only (150 catalogued, 330 photographs):
+
+| choice | seed 7 |
+| --- | --- |
+| hash in the fusion: all within 24 bits / within 16 / none | top-1 65.0% / 70.7% / 70.3% |
+| agreement with any share of the title, text lead 0.05 | 1 wrong: *The Machine Cycle: The Silent Orchard* (uncatalogued) opened *The Silent Island* |
+| the same, lead 0.08 / 0.1 | 0 wrong / 0 wrong |
+| printed title 0.7, no picture condition | 1 wrong (a series sibling) on seed 1, 0 on seed 7; 0.8 is #667's bar |
+| picture must have it in its top 4 / top 10 / not asked | 27.6% / 40.0% / 40.0% confident right, 0 wrong each |
+| the words' share of the fusion: ten deep / four deep with score >= 0.1 | fused top-1 75.0% / 79.7% |
+
+The share of the title in the agreement clause is not seed 7's choice: seed 7
+opened nothing wrong at any share once the lead was 0.1. It is 0.6 because of
+#664's sibling, which no synthetic set has: a reading of *The Warlord of Mars*
+by Edgar Rice Burroughs holds 0.48 of *The Gods of Mars* and 0.42 of *A
+Princess of Mars*, and a catalogue holding only one of them has no second
+volume for the lead to stop on. At 0.4 the test for that shape fails
+(`infrastructure/books/cover-match.test.ts`).
+
+### The measurements
+
+Seed 7, the tuning set (`npm run eval:covers -- --seed 7`):
+
+| matcher                             | photos | top-1 | top-4 | confident right | confident wrong       | prepare | per photo |
+|-------------------------------------|--------|-------|-------|-----------------|-----------------------|---------|-----------|
+| hash (today)                        | 300+30 | 7.7%  | 15.7% | 0.0%            | 0.0% (0 uncatalogued) | 0.7s    | 6ms       |
+| embedding (dinov2-small)            | 300+30 | 24.3% | 51.0% | 0.0%            | 0.0% (0 uncatalogued) | 16.5s   | 110ms     |
+| cover text (paddle, pg_trgm)        | 300+30 | 92.3% | 98.7% | 50.9%           | 0.0% (0 uncatalogued) | 3.6s    | 115ms     |
+| fused (dinov2 + text + hash)        | 300+30 | 80.3% | 98.7% | 40.0%           | 0.0% (0 uncatalogued) | 20.2s   | 234ms     |
+| fused, similarity off (text + hash) | 300+30 | 92.0% | 98.3% | 50.9%           | 0.0% (0 uncatalogued) | 4.2s    | 132ms     |
+
+Seed 1, reported (`npm run eval:covers`):
+
+| matcher                             | photos | top-1 | top-4 | confident right | confident wrong       | prepare | per photo |
+|-------------------------------------|--------|-------|-------|-----------------|-----------------------|---------|-----------|
+| hash (today)                        | 300+30 | 3.0%  | 13.3% | 0.0%            | 0.0% (0 uncatalogued) | 0.7s    | 6ms       |
+| embedding (dinov2-small)            | 300+30 | 23.3% | 44.0% | 0.0%            | 0.0% (0 uncatalogued) | 16.3s   | 108ms     |
+| cover text (paddle, pg_trgm)        | 300+30 | 90.0% | 94.3% | 48.5%           | 0.0% (0 uncatalogued) | 3.5s    | 115ms     |
+| fused (dinov2 + text + hash)        | 300+30 | 74.0% | 95.0% | 32.7%           | 0.0% (0 uncatalogued) | 20.4s   | 238ms     |
+| fused, similarity off (text + hash) | 300+30 | 88.7% | 94.0% | 48.5%           | 0.0% (0 uncatalogued) | 4.2s    | 120ms     |
+
+Real covers, locally (`--real 200`, 170 catalogued, 30 not):
+
+| matcher                             | photos | top-1 | top-4 | confident right | confident wrong       | prepare | per photo |
+|-------------------------------------|--------|-------|-------|-----------------|-----------------------|---------|-----------|
+| hash (today)                        | 340+30 | 8.2%  | 12.6% | 0.0%            | 0.3% (0 uncatalogued) | 0.5s    | 6ms       |
+| embedding (dinov2-small)            | 340+30 | 88.5% | 94.4% | 4.6%            | 0.0% (0 uncatalogued) | 18.1s   | 110ms     |
+| cover text (paddle, pg_trgm)        | 340+30 | 58.2% | 65.0% | 17.8%           | 0.0% (0 uncatalogued) | 4.0s    | 145ms     |
+| fused (dinov2 + text + hash)        | 340+30 | 93.5% | 98.2% | 24.1%           | 0.0% (0 uncatalogued) | 23.0s   | 273ms     |
+| fused, similarity off (text + hash) | 340+30 | 55.9% | 60.3% | 17.8%           | 0.0% (0 uncatalogued) | 4.3s    | 154ms     |
+
+The hash's one confident mistake on real covers: *Women in Love* opened *This
+Side of Paradise*.
+
+**What the numbers say.**
+
+- **On real covers the fusion beats every strategy in it**: 93.5% top-1
+  against DINOv2's 88.5%, 98.2% top-4 against 94.4%, and it opens a book
+  unasked on one photograph in four, with no wrong book, where the hash opened
+  one wrong book and no right one.
+- **On synthetic covers it is below the words alone** (74.0% against 90.0% on
+  seed 1), because DINOv2 cannot read and these covers differ only in their
+  words. The confident rate is lower for the same reason: the picture is asked
+  to agree and on these covers it mostly cannot. The real set is the arbiter,
+  as #664 found.
+- **With the model off it is the words, slightly worse.** The hash inside 16
+  bits costs a point or three of top-1 against the words alone, on every set.
+  It is kept because the issue asks for it and because it costs nothing at the
+  bar; dropping it is a one-line follow-up the table would support.
+
+### What it does not catch
+
+**A title contained in a sibling's.** A reading of an uncatalogued *Dune
+Messiah* holds all of *Dune* (`word_similarity` 1.0), so with *Dune* catalogued
+and *Dune Messiah* not, the printed-title clause opens *Dune* whenever the
+picture has it in its ten, which for one series' design it will. No set here
+has that shape (the synthetic series are "Series: Title", and the real set has
+none), so it is unmeasured rather than measured safe. Telling it apart needs
+the reading's own title line, which Paddle has and the handler is not given;
+that is the next thing to try, with its own row.
+
 ## What this does not settle
 
-- The bar. See above.
+- A sibling whose title contains the catalogued one's; see [What it does not catch](#what-it-does-not-catch).
 - Photograph against photograph. The set compares photographs to catalogue
   artwork only. The app also holds the owner's own photograph of each front
   (`front_hash`), and an embedding of that is likely to match better than the
