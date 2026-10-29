@@ -126,8 +126,11 @@ Two preprocessing decisions, both measured on the tuning seed:
 
 **Recommendation: DINOv2 ViT-S/14 (`onnx-community/dinov2-small`), fp32,
 384 dimensions, Apache-2.0.** Smallest of the candidates, instance-level by
-design, licence clean, and the best row in the table. The int8 export (24 MB)
-is worth measuring before shipping if the image size matters.
+design, licence clean, and the best row on real covers (90% top-1 against
+CLIP's 81%). It is the worst row on the synthetic set, and why that is, and
+what it means for the bar, is in [What the numbers say](#what-the-numbers-say).
+The int8 export (24 MB) is worth measuring before shipping if the image size
+matters.
 
 ### 3. Vectors in Postgres: pgvector, and no index yet
 
@@ -286,4 +289,156 @@ behaves the same offline and on CI, where only the hash row runs.
 
 ## The measurements
 
-MEASUREMENTS
+All on one Linux x64 machine, CPU only, 2026-10-28.
+
+### The synthetic set, default size (`npm run eval:covers`)
+
+150 catalogued books, 300 photographs of them, 30 photographs of books not in
+the catalogue, seed 1, severity 1. The set took 27 s to make; the whole run
+238 s.
+
+| matcher                  | photos | top-1 | top-4 | confident right | confident wrong       | prepare | per photo |
+|--------------------------|--------|-------|-------|-----------------|-----------------------|---------|-----------|
+| hash (today)             | 300+30 | 3.0%  | 13.3% | 0.0%            | 0.0% (0 uncatalogued) | 0.8s    | 7ms       |
+| embedding (dinov2-small) | 300+30 | 23.3% | 44.0% | 0.0%            | 0.0% (0 uncatalogued) | 28.5s   | 336ms     |
+| embedding (clip-b32)     | 300+30 | 91.0% | 98.7% | 49.1%           | 0.0% (0 uncatalogued) | 20.7s   | 147ms     |
+
+Bars: hash, exactly one candidate within 8 of 64 bits (`confidentPick`);
+DINOv2, best cosine at least 0.85 and 0.08 ahead of the second; CLIP, best
+cosine at least 0.75 and 0.10 ahead of the second.
+
+### The CI set (`npm run eval:covers -- --ci`, what `floors.test.ts` scores)
+
+40 catalogued, 80 + 10 photographs, made in 8 s.
+
+| matcher                  | photos | top-1 | top-4 | confident right | confident wrong       | prepare | per photo |
+|--------------------------|--------|-------|-------|-----------------|-----------------------|---------|-----------|
+| hash (today)             | 80+10  | 6.3%  | 16.3% | 0.0%            | 0.0% (0 uncatalogued) | 0.2s    | 7ms       |
+| embedding (dinov2-small) | 80+10  | 40.0% | 80.0% | 0.0%            | 0.0% (0 uncatalogued) | 9.7s    | 334ms     |
+| embedding (clip-b32)     | 80+10  | 90.0% | 97.5% | 38.9%           | 0.0% (0 uncatalogued) | 5.4s    | 127ms     |
+
+### The hash, by how carefully the photograph is taken
+
+Same 150 books, hash only, `--severity`:
+
+| severity | top-1 | top-4 |
+| --- | --- | --- |
+| 0 (square, centred, clean) | 24.7% | 44.3% |
+| 0.25 | 18.7% | 38.0% |
+| 0.5 | 11.7% | 28.0% |
+| 1 (default) | 3.0% | 13.3% |
+
+Even a perfectly square photograph only gets the hash to one in four. That is
+the framing, not the hash being broken: the catalogue's cover fills its image
+and the book in a photograph does not, so the centre 70% of each is a different
+region at a different scale. The "wrong book first about one lookup in ten" in
+`server/index.ts` was measured photograph against photograph (`front_hash`, the
+owner's own shot at save time), which this set does not model; against
+publisher artwork, which is what `cover_hash` holds and what a fresh catalogue
+mostly has, the hash is close to chance. It is never confidently wrong here
+because it is never confident: nothing lands within 8 bits.
+
+### Two decisions measured on the tuning seed (7), not the reported one
+
+| preprocessing | DINOv2 top-1 / top-4 | CLIP top-1 / top-4 |
+| --- | --- | --- |
+| squash whole image to 224 | 22.9% / 50.4% | **93.3% / 98.8%** |
+| model card: resize, centre crop 224 | 28.3% / 56.3% | 87.9% / 95.8% |
+
+Squash is kept for both, for one rule across encoders. The crop's gain for
+DINOv2 here is worth a row on real covers before the embedding ships, since
+that is the encoder recommended below.
+
+The bars came from the same seed. CLIP at cosine 0.75 and margin 0.10 cleared
+134 of 270 photographs there and opened no wrong book; the closest a wrong
+first answer came was 0.816 cosine, or a 0.093 lead. DINOv2's wrong answers
+reached 0.80 and a 0.06 lead while its right ones rarely did better, so no bar
+separates them and its bar is set where it is never confident.
+
+### Real covers, locally (`npm run eval:covers -- --real 200`)
+
+200 covers from Open Library's subject listings (ten subjects, twenty each),
+160 catalogued and photographed twice, 40 held up but not catalogued, the same
+transforms at severity 1. Not committed, not in CI. The downloads took most of
+the 138 s the set took to make; the whole run 302 s.
+
+| matcher                  | photos | top-1 | top-4 | confident right | confident wrong       | prepare | per photo |
+|--------------------------|--------|-------|-------|-----------------|-----------------------|---------|-----------|
+| hash (today)             | 320+40 | 7.8%  | 14.4% | 0.3%            | 0.0% (0 uncatalogued) | 0.6s    | 7ms       |
+| embedding (dinov2-small) | 320+40 | 90.0% | 96.3% | 3.9%            | 0.0% (0 uncatalogued) | 33.5s   | 249ms     |
+| embedding (clip-b32)     | 320+40 | 80.9% | 86.9% | 38.3%           | 0.3% (1 uncatalogued) | 12.6s   | 69ms      |
+
+CLIP's one confident mistake: a photograph of *The warlord of Mars* (#3 in Burroughs' Barsoom series),
+not catalogued, opened *A Princess of Mars*, its series sibling, unasked. That
+is exactly the failure #658 warns about.
+
+One limit of this mode: the photograph is made from the very file the
+catalogue holds. A real shelf has a different printing, edition or wear from
+whatever artwork Open Library has, so these numbers are an upper bound on the
+match itself, not a prediction.
+
+### What the numbers say
+
+**The two encoders swap places between the sets, and both results are real.**
+On the synthetic covers CLIP finds the book 91% of the time and DINOv2 23%; on
+real covers DINOv2 finds it 90% of the time and CLIP 81%. The synthetic covers
+are plain fields and shapes with large type, so the only thing that tells two
+of them apart is the words, and CLIP, trained on web images with their
+captions, learned to read; DINOv2, trained on images alone, sees type as
+texture. Real covers carry artwork, which is what DINOv2 is built to recognise
+and what its paper measures (Table 9, above). So:
+
+- **The synthetic set over-rewards reading text.** It stays the CI check,
+  because it is what can be generated, but it should not pick the encoder by
+  itself. Richer artwork in the generator (photographic textures, illustrated
+  scenes) is a reasonable follow-up; the real-cover mode is the arbiter until
+  then.
+- **Reading the words is a separate strategy, and #658 already plans it.**
+  OCR'd cover text matched with trigrams covers what DINOv2 cannot see, and
+  does it as evidence (the title is printed there) rather than as a likeness.
+  CLIP's lead on the synthetic set is a preview of what the text matcher
+  should add.
+
+**Recommendation: DINOv2 ViT-S/14 (`onnx-community/dinov2-small`,
+`onnx/model.onnx` at revision `8b1f705`), fp32, 384 dimensions, Apache-2.0,
+88.5 MB, about 250 to 340 ms a photograph on this CPU, as the image embedding;
+and the cover-text matcher next, to be fused with it.** CLIP stays registered
+because it is the best reader of the two and the fusion step should measure
+whether a second embedding earns its 89 MB and 70 to 150 ms.
+
+**Neither bar is ready to ship.** DINOv2's bar, set on synthetic seed 7 where
+nothing separated right from wrong, is so strict that on real covers it opens
+only 4% of books unasked (and none wrongly). CLIP's, set on the same seed,
+opened a series sibling on real covers. The bar has to be calibrated on real
+covers (the local mode) and on fusion, not on the synthetic set, and a rule
+that needs two independent signals to agree is the likeliest to keep a
+series sibling out.
+
+**The hash should not open a book on its own once anything else exists**, and
+whether it earns a place in the fusion is the fusion step's measurement. On
+real covers it is at 7.8% top-1 against publisher artwork.
+
+### How long the harness takes
+
+- `floors.test.ts` on CI (hash only, encoders not cached): the set is made in
+  about 8 s and the hash scores it in under a second.
+- The same file with both encoders cached: 51 s, of which DINOv2 is 24 s and
+  CLIP 12 s.
+- `npm run eval:covers`: 238 s for 150 books and three matchers.
+- `--real 200`: 302 s the first time, most of it downloads.
+
+---
+
+## What this does not settle
+
+- The bar. See above.
+- Photograph against photograph. The set compares photographs to catalogue
+  artwork only. The app also holds the owner's own photograph of each front
+  (`front_hash`), and an embedding of that is likely to match better than the
+  artwork does; the backfill step can measure it once there are embeddings to
+  compare.
+- SigLIP and SigLIP 2, which are Apache-2.0 and read text like CLIP; the int8
+  DINOv2 export; DINOv2 with registers. Each is one entry in `models.ts` and a
+  row in the table.
+- ORB with homography verification as a re-ranker, deferred until the fused
+  table shows what is left.
