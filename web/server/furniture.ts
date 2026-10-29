@@ -34,7 +34,9 @@ import {
   type OrderingStrategy, type SortStrategy,
 } from '../domain/placement/strategies'
 import { DrizzlePlacementLedger } from '../infrastructure/placement/ledger-repository'
-import { furnitureIn, retireOrRemove, ruleForRange } from '../infrastructure/shelving/areas'
+import {
+  furnitureIn, rangesStandingOn, retireOrRemove, ruleForRange,
+} from '../infrastructure/shelving/areas'
 import { DrizzleTagRepository } from '../infrastructure/tagging/tag-repository'
 import {
   anyArea, areaOnAFace, areasOnFaces, booksNaming, collectionId, collectionStrategy,
@@ -49,7 +51,7 @@ import { tagCounts } from '../infrastructure/books/tag-counts'
 import { recordWhatTheRoomMoved, whereEveryRunPutsThem, type RoomAnswer } from './what-moved'
 
 import { refuse, type Refused } from './refusal'
-import { FURNITURE_LOCK } from '../application/locks'
+import { FURNITURE_LOCK, rangeLock } from '../application/locks'
 import {
   CLAIMS_NOTHING, holdsSaid as phraseFor, ruleSaid, type SaidLine,
 } from '../domain/placement/phrasing'
@@ -1419,9 +1421,26 @@ export type RemovedArea = { ok: true; plan: AreaRemovalPlan } | Refused
  * differs from where the book already is. Pinned, checked out and withdrawn
  * books get none, and nobody has carried anything: what has changed is which
  * area the rules say the books are in.
+ *
+ * Taking an area away rewrites the boundaries of the run it stands in, so this
+ * holds that run's range and then the furniture from its first read, which is
+ * `boundaryLocks` (#611, #661). The range is learned before the transaction
+ * opens, because a lock is named before anything is read under it, and asked
+ * again once both are held: if the furniture changed in between and put the
+ * area in a run this did not lock, it refuses rather than writing that run
+ * unguarded. A plank no run stands on takes the furniture alone, since no
+ * range's boundaries change. Called from `RemoveSeparatorHandler`, which already
+ * holds the same names, the transaction is a savepoint re-taking them.
  */
 export async function dropArea(db: Db, id: number, now: string): Promise<RemovedArea> {
+  const ranges = await rangesStandingOn(db, id)
   return db.tx(async (tx) => {
+    const standing = await rangesStandingOn(tx, id)
+    if (standing.some((range) => !ranges.includes(range))) {
+      return refuse(409, 'The furniture changed while this area was being removed. '
+        + 'Nothing has been changed; try again.')
+    }
+
     const planned = await planAreaRemoval(tx, id)
     if (!planned.ok) return planned
 
@@ -1466,5 +1485,5 @@ export async function dropArea(db: Db, id: number, now: string): Promise<Removed
     }
 
     return { ok: true as const, plan: planned.plan }
-  }, { serialiseOn: FURNITURE_LOCK })
+  }, { serialiseOn: [...ranges.map(rangeLock), FURNITURE_LOCK] })
 }
