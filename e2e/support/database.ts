@@ -371,6 +371,24 @@ export class Catalogue {
     return row!.n
   }
 
+  /**
+   * Every photograph row a book holds, by kind and oldest first. Counted from
+   * `capture` rather than read off `current_photograph`, which shows one per
+   * kind and so hides a photograph written twice. The catalogue's own artwork
+   * is left out: it is downloaded, not taken.
+   */
+  async photographKinds(bookIds: readonly number[]): Promise<Map<number, string[]>> {
+    const rows = await this.all<{ book_id: number; kind: string }>(
+      `SELECT book_id, kind FROM capture
+        WHERE book_id = ANY($1) AND kind <> 'catalogue'
+        ORDER BY taken_at ASC, id ASC`,
+      [bookIds],
+    )
+    const kinds = new Map<number, string[]>(bookIds.map((id) => [id, []]))
+    for (const row of rows) kinds.get(row.book_id)?.push(row.kind)
+    return kinds
+  }
+
   async captureCount(): Promise<number> {
     // CAST for the same reason as `photographCount`. Counted over the queue,
     // not over `books`: a book that has been shelved has left the queue

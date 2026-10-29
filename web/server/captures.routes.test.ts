@@ -213,6 +213,36 @@ describe('saving a photographed book', () => {
   })
 })
 
+describe('saving a book the camera already sent to the queue', () => {
+  it('writes each photograph once, however many times a client sends it', async () => {
+    const { body: first } = await post('/api/captures', {
+      image: notAPhotograph('back'), slot: 'back', captureId: null,
+    })
+    const captureId = Number(first.capture.id)
+    await post('/api/captures', { image: notAPhotograph('front'), slot: 'front', captureId })
+
+    // What a client built before the fix sends: every photograph again, beside the capture.
+    const id = await aBook({
+      captureId,
+      images: { back: notAPhotograph('back'), front: notAPhotograph('front') },
+    })
+
+    expect((await capturesOf(id)).map((one) => one.kind).sort()).toEqual(['back', 'front'])
+  })
+
+  it('still takes a photograph for a slot the capture has nothing in', async () => {
+    const { body: first } = await post('/api/captures', {
+      image: notAPhotograph('back'), slot: 'back', captureId: null,
+    })
+    const id = await aBook({
+      captureId: Number(first.capture.id),
+      images: { edge: notAPhotograph('edge') },
+    })
+
+    expect((await capturesOf(id)).map((one) => one.kind).sort()).toEqual(['back', 'spine'])
+  })
+})
+
 describe('what the detector decided, carried onto the row', () => {
   it('separates looking and declining from never having looked', async () => {
     /*
