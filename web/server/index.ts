@@ -1627,9 +1627,12 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     }
 
     // Photos arrive as data URLs and are written beside the database rather
-    // than into it. Anything uploaded here wins over the capture's copy.
+    // than into it. Only into a slot the capture has nothing in: a client that
+    // sends what it already sent to the capture would otherwise write each
+    // photograph a second time, under a new name.
     const images = (body.images ?? {}) as Record<string, unknown>
     for (const slot of ['front', 'back', 'edge'] as const) {
+      if (capture?.[`${slot}_image`]) continue
       const buffer = decodeDataUrl(String(images[slot] ?? ''))
       if (!buffer) continue
       const name = saveImage(buffer, draft.isbn13 ?? '', slot)

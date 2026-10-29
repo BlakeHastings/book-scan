@@ -24,6 +24,7 @@ import {
 } from '../lib/api'
 import { emptyCascade, walkedAway, type Cascade } from '../lib/cascade'
 import { putDownCapture, putDownOnPageHide, type HeldCapture } from '../lib/leaveCapture'
+import { BookUploads } from '../lib/photoUploads'
 import type { Slot } from '../lib/scanner'
 import { useErrorBanner } from './errorBanner'
 import { useNavigation } from './navigation'
@@ -163,12 +164,24 @@ export interface BookInHand extends ShelfState {
    */
   readonly captureOnServerRef: React.MutableRefObject<Draft | null>
 
+  /**
+   * The photographs of the book in hand that are on their way to the queue, made
+   * on the first photograph and dropped with the book. A photograph still
+   * travelling when the book is put down answers to this, not to whatever book
+   * is in hand by the time it lands.
+   */
+  readonly photographsOnTheirWay: () => PhotoUploads
+  /** Whether `uploads` still belongs to the book in hand. */
+  readonly stillHolding: (uploads: PhotoUploads) => boolean
+
   readonly endReviewSession: () => void
   readonly clearBookInHand: () => void
   readonly applyLookup: (result: LookupResponse, isbnSource: string) => void
   /** What a reading produced when no catalogue answered: the ISBN and nothing else. */
   readonly applyReading: (capture: Capture) => void
 }
+
+export type PhotoUploads = BookUploads<Awaited<ReturnType<typeof api.addPhoto>>>
 
 const Context = createContext<BookInHand | null>(null)
 
@@ -178,6 +191,7 @@ export function BookInHandProvider({ children }: { children: ReactNode }) {
 
   const reviewSessionRef = useRef(0)
   const captureOnServerRef = useRef<Draft | null>(null)
+  const uploadsRef = useRef<PhotoUploads | null>(null)
 
   const [shots, setShots] = useState<Partial<Record<Slot, string>>>({})
   const [thumbs, setThumbs] = useState<Partial<Record<Slot, string>>>({})
@@ -295,6 +309,13 @@ export function BookInHandProvider({ children }: { children: ReactNode }) {
    * that stops expecting a relookup's answer to still be welcome, so there is only
    * one list to keep complete.
    */
+  const photographsOnTheirWay = (): PhotoUploads => {
+    uploadsRef.current ??= new BookUploads(captureIdRef.current, api.addPhoto)
+    return uploadsRef.current
+  }
+
+  const stillHolding = (uploads: PhotoUploads) => uploadsRef.current === uploads
+
   const endReviewSession = () => {
     reviewSessionRef.current += 1
     setRelookupBusy(false)
@@ -349,6 +370,7 @@ export function BookInHandProvider({ children }: { children: ReactNode }) {
     const held = heldCapture()
     if (held) void putDownCapture(held)
     captureOnServerRef.current = null
+    uploadsRef.current = null
     setDraft(emptyDraft)
     setLookup(null)
     setEvidence({ coverText: '', note: '' })
@@ -413,6 +435,8 @@ export function BookInHandProvider({ children }: { children: ReactNode }) {
         relookupError, setRelookupError,
         reviewSessionRef,
         captureOnServerRef,
+        photographsOnTheirWay,
+        stillHolding,
         endReviewSession,
         clearBookInHand,
         applyLookup,

@@ -116,7 +116,10 @@ export function useBookActions(): BookActions {
     try {
       const result = bookId
         ? await api.updateAndShelve(bookId, draft, shelvedAt)
-        : await api.saveBook(draft, shots, captureId ?? undefined)
+        // A capture already holds every photograph that reached the server, and
+        // the save carries them across from it. Sending them again would write
+        // each one a second time, under a new name.
+        : await api.saveBook(draft, captureId === null ? shots : {}, captureId ?? undefined)
       setCounts(result.counts)
       // Only the insert path reports queue counts; an edit does not touch it.
       if ('queue' in result) setQueueCounts(result.queue as QueueCounts)

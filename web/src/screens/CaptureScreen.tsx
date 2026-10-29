@@ -9,7 +9,7 @@
  * front of it.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   cameraFactsText, currentOrigin, lensName, rememberTorch,
   SLOT_CROP, SLOT_GUIDE, SLOTS, SLOT_LABEL, SLOT_SHORT,
@@ -17,7 +17,8 @@ import {
 } from '../lib/scanner'
 import { captureSteadiest, describeBurst } from '../lib/steady'
 import { rememberHand, rememberedHand } from '../lib/hand'
-import { api, type LookupResponse, type QueueMatch } from '../lib/api'
+import { api, Refusal, type LookupResponse, type QueueMatch } from '../lib/api'
+import { worthAskingAgain } from '../lib/photoUploads'
 import { canShelve } from '../components/QueuePane'
 import { QueuedAlready } from '../components/QueuedAlready'
 import { Viewfinder, type Hand } from '../design/Camera'
@@ -30,6 +31,21 @@ import { useErrorBanner } from '../app/errorBanner'
 import { useLeaving } from '../app/leaving'
 import { useNavigation } from '../app/navigation'
 import { useOpenBook } from '../app/openBook'
+
+/**
+ * What to say when a photograph did not reach the server: which one, that it
+ * is not kept, and what to do. A refusal the server put into words says why;
+ * a bare status from whatever stands in front of the server says nothing a
+ * person can use, so it is not repeated.
+ */
+function didNotArrive(slot: string, caught: unknown): string {
+  const said = caught instanceof Refusal && !worthAskingAgain(caught) && !/^\d{3}\b/.test(caught.message)
+    ? ` The server said: ${caught.message}`
+    : worthAskingAgain(caught)
+      ? ' The connection or the server dropped it, even after trying again.'
+      : ''
+  return `The ${slot.toLowerCase()} did not reach the server, so it is not kept.${said} Take it again.`
+}
 
 /** Next slot with no photo in it, so the shutter advances by itself. */
 function nextEmpty(shots: Partial<Record<Slot, string>>, from: Slot): Slot {
@@ -47,12 +63,16 @@ export function CaptureScreen() {
   const camera = useCameraSession()
 
   const [hand, setHand] = useState<Hand>(rememberedHand)
+  /** The queue read every photograph of this capture and found no ISBN on any of them. */
+  const [readNothing, setReadNothing] = useState(false)
+  /** What was said about a photograph that did not arrive, by slot, so taking it again can take it back. */
+  const undelivered = useRef<Partial<Record<Slot, string>>>({})
 
   const {
     draft, shots, thumbs, status, activeSlot, identified, captureId, saving,
     duplicates, duplicatesTurnedDown, catalogued,
     setShots, setThumbs, setCrops, setExamined, setStatus, setActiveSlot,
-    setCaptureId, setDuplicates, setDuplicatesTurnedDown, setCatalogued,
+    setCaptureId, setDuplicates, setDuplicatesTurnedDown, setCatalogued, setEvidence,
     applyLookup, applyReading, clearBookInHand,
   } = book
 
@@ -96,30 +116,65 @@ export function CaptureScreen() {
       crop: SLOT_CROP[slot],
     })
     if (!full) {
-      setError('The camera has not produced a frame yet. Give it a moment.')
+      // Pressed before the stream has drawn anything, which a quick thumb on
+      // a camera that has only just started does. Nothing was lost.
+      camera.setToast('The camera is still starting. Try again in a moment.')
       return
     }
     setBurstNote(describeBurst(scores, chosen, elapsedMs))
+
+    // Taken with the frame in hand: "Next book" pressed while this photograph
+    // travels puts this book down, and the answer must still land on this one.
+    const uploads = book.photographsOnTheirWay()
+
+    // Each of these only replaces what this photograph put there, so a slot
+    // retaken, or a book put down, in the meantime is left alone.
+    let shown = full
+    const ours = (current: Partial<Record<Slot, string>>) =>
+      current[slot] === full || current[slot] === shown
+    const without = (current: Partial<Record<Slot, string>>) =>
+      (ours(current) ? { ...current, [slot]: undefined } : current)
 
     setThumbs((current) => ({ ...current, [slot]: full }))
     // A fresh photo invalidates any existing crop, since a stale crop beside
     // a new photo is worse than none.
     setCrops((current) => ({ ...current, [slot]: undefined }))
     setExamined((current) => current.filter((seen) => seen !== slot))
-    void thumbnail(full).then((small) =>
-      setThumbs((current) => ({ ...current, [slot]: small })),
-    )
+    void thumbnail(full).then((small) => {
+      setThumbs((current) => (ours(current) ? { ...current, [slot]: small } : current))
+      shown = small
+    })
     setStatus((current) => ({ ...current, [slot]: 'busy' }))
     setShots((current) => ({ ...current, [slot]: full }))
     setActiveSlot((current) => nextEmpty({ ...shots, [slot]: full }, current))
 
     try {
-      const { capture, counts: queued } = await api.addPhoto(full, slot, captureId)
-      setCaptureId(capture.id)
+      const { capture, counts: queued } = await uploads.add(full, slot, captureId)
       setQueueCounts(queued)
+      if (!book.stillHolding(uploads)) return
+      setCaptureId(capture.id)
+      const said = undelivered.current[slot]
+      if (said) {
+        delete undelivered.current[slot]
+        setError((current) => (current === said ? '' : current))
+      }
     } catch (caught) {
-      setStatus((current) => ({ ...current, [slot]: 'none' }))
-      setError((caught as Error).message)
+      if (!book.stillHolding(uploads)) {
+        setError(
+          `A ${SLOT_LABEL[slot].toLowerCase()} photograph of the last book did not reach `
+          + 'the server, so that book is missing it. Find it in the queue to take it again.',
+        )
+        return
+      }
+      // The server never kept it, so the screen must not look as though it
+      // did: the slot is empty again and next in line.
+      setShots(without)
+      setThumbs(without)
+      setStatus((current) => (current[slot] === 'busy' ? { ...current, [slot]: undefined } : current))
+      setActiveSlot(slot)
+      const said = didNotArrive(SLOT_LABEL[slot], caught)
+      undelivered.current[slot] = said
+      setError(said)
     }
   }
 
@@ -131,6 +186,7 @@ export function CaptureScreen() {
     if (captureId === null) return
 
     let cancelled = false
+    setReadNothing(false)
     const tick = async () => {
       try {
         const {
@@ -159,8 +215,14 @@ export function CaptureScreen() {
         if (capture.status === 'ready' && capture.draft_json) {
           const looked = JSON.parse(capture.draft_json) as LookupResponse
           if (looked.found && !identified) applyLookup(looked, capture.isbn_source)
-        } else if (capture.status === 'failed') {
-          if (capture.note) setError(capture.note)
+        }
+        // Not an error on this screen: a back with no barcode, or a cover with
+        // no ISBN printed on it, is ordinary, and the book is finished at
+        // review either way. The note is carried there, as evidence, the
+        // same as for a book opened from the queue.
+        setReadNothing(capture.status === 'failed')
+        setEvidence({ coverText: capture.cover_text, note: capture.note })
+        if (capture.status === 'failed') {
           /*
            * Keep what the reading did get: a barcode that decoded against a
            * catalogue with no match is `failed`, but the digits still belong
@@ -179,7 +241,7 @@ export function CaptureScreen() {
     return () => { cancelled = true; clearInterval(timer) }
   }, [
     captureId, identified, applyLookup, applyReading,
-    setDuplicates, setCatalogued, setStatus, setError,
+    setDuplicates, setCatalogued, setStatus, setEvidence,
   ])
 
   /**
@@ -232,6 +294,8 @@ export function CaptureScreen() {
   /** Move on: the photos are already with the queue, so this only clears the camera. */
   const nextBook = () => {
     if (shotCount === 0 && !captureId) return
+    // Whatever went wrong was about the book being put down.
+    setError('')
     returnToOrigin()
   }
 
@@ -484,6 +548,10 @@ export function CaptureScreen() {
         ) : shotCount === 0 && !captureId ? (
           <p className="wf-view__found wf-view__found--empty">
             Nothing in hand. First shot starts a new book.
+          </p>
+        ) : readNothing && !busy ? (
+          <p className="wf-view__found wf-view__found--empty" role="status">
+            No ISBN read yet. The photographs are kept; finish the details at review.
           </p>
         ) : undefined}
         also={{
