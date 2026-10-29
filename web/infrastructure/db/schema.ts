@@ -188,6 +188,17 @@ export const books = pgTable('books', {
    * exists for: without it, drawing one area scans the catalogue.
    */
   index('idx_books_current_area').on(table.currentAreaId, table.sortKey),
+  /**
+   * The titles nearest the words read off a cover photograph:
+   * `ORDER BY title <-> text LIMIT n` in
+   * `infrastructure/books/cover-text-read-model.ts` walks this rather than
+   * comparing the text with every title. GiST rather than GIN, because only
+   * GiST answers a nearest-first ordering, and a nearest-first list loses
+   * nothing a threshold would: `%` and `%>` at pg_trgm's 0.6 left the right
+   * book out of 45% of readings of real covers. The `pg_trgm` extension is
+   * created by migration 0035, the one that made this.
+   */
+  index('idx_books_title_trgm').using('gist', sql`${table.title} gist_trgm_ops`),
 ])
 
 
@@ -371,6 +382,10 @@ export const authorAlias = pgTable('author_alias', {
   // "Every name this person publishes under" walks from the author, which the
   // primary key cannot serve.
   index('idx_author_alias_author').on(table.authorId),
+  // The same for the name printed on a cover, which is how a photograph that
+  // shows only the author's name still finds that author's books. See
+  // `idx_books_title_trgm`.
+  index('idx_author_alias_display_name_trgm').using('gist', sql`${table.displayName} gist_trgm_ops`),
 ])
 
 /**

@@ -246,6 +246,13 @@
       "when": 1793236878503,
       "tag": "0034_a_cover_is_embedded_by_dinov2",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1793239129088,
+      "tag": "0035_the_words_on_a_cover_find_the_book",
+      "breakpoints": true
     }
   ]
 }

@@ -160,8 +160,8 @@ const has = (name, lines, fragment) => {
   )
   has(
     'a migration that creates an extension the contract never mentions',
-    factProblems({ ...good, migrations: `${good.migrations}\nCREATE EXTENSION IF NOT EXISTS pg_trgm;` }),
-    'creates the extension pg_trgm, and the contract does not tell a deployer to provide it',
+    factProblems({ ...good, migrations: `${good.migrations}\nCREATE EXTENSION IF NOT EXISTS postgis;` }),
+    'creates the extension postgis, and the contract does not tell a deployer to provide it',
   )
   has(
     'a contract that still asks for an extension nothing creates',
