@@ -11,7 +11,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import {
-  cameraFactsText, currentOrigin, lensName, rememberTorch,
+  cameraAlreadyAllowed, cameraFactsText, currentOrigin, lensName, rememberTorch,
   SLOT_CROP, SLOT_GUIDE, SLOTS, SLOT_LABEL, SLOT_SHORT,
   thumbnail, type Slot,
 } from '../lib/scanner'
@@ -19,12 +19,13 @@ import { captureSteadiest, describeBurst } from '../lib/steady'
 import { rememberHand, rememberedHand } from '../lib/hand'
 import { api, Refusal, type LookupResponse, type QueueMatch } from '../lib/api'
 import { worthAskingAgain } from '../lib/photoUploads'
+import { lastBookLine, lastBookSettled, looksLike } from '../lib/lastBook'
 import { canShelve } from '../components/QueuePane'
-import { QueuedAlready } from '../components/QueuedAlready'
+import { QueuedNotice } from '../components/QueuedNotice'
 import { Viewfinder, type Hand } from '../design/Camera'
 import { Button } from '../design/Controls'
 import type { Shot } from '../design/Shots'
-import { evidenceOf, useBookInHand } from '../app/bookInHand'
+import { evidenceOf, useBookInHand, type PhotoUploads } from '../app/bookInHand'
 import { useCameraSession } from '../app/cameraSession'
 import { useSummary } from '../app/summary'
 import { useErrorBanner } from '../app/errorBanner'
@@ -47,6 +48,19 @@ function didNotArrive(slot: string, caught: unknown): string {
   return `The ${slot.toLowerCase()} did not reach the server, so it is not kept.${said} Take it again.`
 }
 
+/**
+ * The book put down by "New book", asked about while the next one is
+ * photographed. Its capture id is not known until its first photograph has
+ * answered, so the uploads are kept to ask.
+ */
+interface LastBook {
+  readonly captureId: number | null
+  readonly uploads: PhotoUploads | null
+}
+
+/** How often the last book is asked about. Slower than the book in hand: it is a glance, not a gate. */
+const LAST_BOOK_EVERY_MS = 2000
+
 /** Next slot with no photo in it, so the shutter advances by itself. */
 function nextEmpty(shots: Partial<Record<Slot, string>>, from: Slot): Slot {
   const order = [...SLOTS.slice(SLOTS.indexOf(from) + 1), ...SLOTS]
@@ -67,10 +81,14 @@ export function CaptureScreen() {
   const [readNothing, setReadNothing] = useState(false)
   /** What was said about a photograph that did not arrive, by slot, so taking it again can take it back. */
   const undelivered = useRef<Partial<Record<Slot, string>>>({})
+  /** Asking the browser whether the camera may open without a tap, so the button is not drawn meanwhile. */
+  const [askingToStart, setAskingToStart] = useState(true)
+  const [lastBook, setLastBook] = useState<LastBook | null>(null)
+  const [lastLine, setLastLine] = useState('')
 
   const {
     draft, shots, thumbs, status, activeSlot, identified, captureId, saving,
-    duplicates, duplicatesTurnedDown, catalogued,
+    duplicates, duplicatesTurnedDown, catalogued, evidence,
     setShots, setThumbs, setCrops, setExamined, setStatus, setActiveSlot,
     setCaptureId, setDuplicates, setDuplicatesTurnedDown, setCatalogued, setEvidence,
     applyLookup, applyReading, clearBookInHand,
@@ -88,13 +106,41 @@ export function CaptureScreen() {
     (match) => !duplicatesTurnedDown.includes(match.capture.id),
   )
   const shotCount = SLOTS.filter((slot) => shots[slot]).length
-  const busy = SLOTS.some((slot) => status[slot] === 'busy')
+  const sending = SLOTS.some((slot) => status[slot] === 'sending')
+  const reading = SLOTS.some((slot) => status[slot] === 'reading')
 
   // The camera view is a fixed overlay, so the document behind it must not
   // scroll or iOS will rubber-band the whole page under the controls.
   useEffect(() => {
     document.body.classList.add('body--locked')
     return () => document.body.classList.remove('body--locked')
+  }, [])
+
+  /*
+   * Open the camera without a tap where the browser has already said yes, so
+   * coming back for the next book lands on a picture rather than a button. A
+   * browser that would ask, or cannot say, gets the button, since a prompt
+   * wants a tap behind it.
+   *
+   * Every way off this screen stops the camera itself, but one opened after
+   * leaving would have nobody to stop it, so that case is caught here.
+   */
+  useEffect(() => {
+    let left = false
+    if (cameraOn) {
+      setAskingToStart(false)
+      return
+    }
+    void cameraAlreadyAllowed().then(async (allowed) => {
+      if (left) return
+      if (allowed) {
+        await startCamera()
+        if (left) stopCamera()
+      }
+      if (!left) setAskingToStart(false)
+    })
+    return () => { left = true }
+    // Once per arrival on the camera: a camera stopped while here was stopped on purpose.
   }, [])
 
   /**
@@ -144,7 +190,7 @@ export function CaptureScreen() {
       setThumbs((current) => (ours(current) ? { ...current, [slot]: small } : current))
       shown = small
     })
-    setStatus((current) => ({ ...current, [slot]: 'busy' }))
+    setStatus((current) => ({ ...current, [slot]: 'sending' }))
     setShots((current) => ({ ...current, [slot]: full }))
     setActiveSlot((current) => nextEmpty({ ...shots, [slot]: full }, current))
 
@@ -153,6 +199,8 @@ export function CaptureScreen() {
       setQueueCounts(queued)
       if (!book.stillHolding(uploads)) return
       setCaptureId(capture.id)
+      // Arrived: from here the queue has it, and nothing waits on the reading.
+      setStatus((current) => (current[slot] === 'sending' ? { ...current, [slot]: 'reading' } : current))
       const said = undelivered.current[slot]
       if (said) {
         delete undelivered.current[slot]
@@ -170,7 +218,7 @@ export function CaptureScreen() {
       // did: the slot is empty again and next in line.
       setShots(without)
       setThumbs(without)
-      setStatus((current) => (current[slot] === 'busy' ? { ...current, [slot]: undefined } : current))
+      setStatus((current) => (current[slot] === 'sending' ? { ...current, [slot]: undefined } : current))
       setActiveSlot(slot)
       const said = didNotArrive(SLOT_LABEL[slot], caught)
       undelivered.current[slot] = said
@@ -206,7 +254,8 @@ export function CaptureScreen() {
         setStatus((current) => {
           const next = { ...current }
           for (const slot of SLOTS) {
-            if (!read.has(slot)) continue
+            // A slot taken again is on its way, and what was read is the old photograph.
+            if (!read.has(slot) || next[slot] === 'sending') continue
             next[slot] = capture.isbn13 && slot === 'back' ? 'found' : 'kept'
           }
           return next
@@ -253,10 +302,7 @@ export function CaptureScreen() {
    * capture, the claim fails and nothing here is lost.
    */
   const openQueuedInstead = async (match: QueueMatch) => {
-    if (!canShelve(match.capture)) {
-      camera.setToast('Still reading its photographs. Give it a moment and open it from the queue.')
-      return
-    }
+    if (!canShelve(match.capture)) return
 
     const mine = captureId
     try {
@@ -294,19 +340,57 @@ export function CaptureScreen() {
   /** Move on: the photos are already with the queue, so this only clears the camera. */
   const nextBook = () => {
     if (shotCount === 0 && !captureId) return
+    // Taken before the book is put down, which is what forgets it.
+    setLastBook({ captureId, uploads: shotCount > 0 ? book.photographsOnTheirWay() : null })
+    setLastLine(identified && draft.title ? `Last book: ${draft.title}, found` : '')
     // Whatever went wrong was about the book being put down.
     setError('')
     returnToOrigin()
   }
 
+  /*
+   * What became of the book put down last, said in a line while the next is
+   * photographed, so somebody going quickly need not open the queue to know
+   * the last one was read. Asked until there is nothing more to wait for.
+   */
+  useEffect(() => {
+    if (!lastBook) return
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const ask = async () => {
+      const id = lastBook.captureId ?? lastBook.uploads?.captureId ?? null
+      let line = lastBookLine(null)
+      let settled = false
+      if (id !== null) {
+        try {
+          const { capture } = await api.getCapture(id)
+          line = lastBookLine(capture)
+          settled = lastBookSettled(capture)
+        } catch {
+          // Asked again on the next turn; a glance is not worth an error.
+          line = ''
+        }
+      }
+      if (cancelled) return
+      if (line) setLastLine(line)
+      if (!settled) timer = setTimeout(() => void ask(), LAST_BOOK_EVERY_MS)
+    }
+    void ask()
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
+  }, [lastBook])
+
   /**
-   * What the queue has made of each photograph. Only the two facts the
-   * photograph itself cannot show: that it is still being read, and that
-   * the ISBN came off it. Whether a photograph exists is already visible in
+   * What the queue has made of each photograph. Only the facts the
+   * photograph itself cannot show: that it has not reached the server yet,
+   * that it is still being read, and that the ISBN came off it. Whether a photograph exists is already visible in
    * the thumbnail.
    */
   const noteOn = (slot: Slot): string | undefined => {
-    if (status[slot] === 'busy') return 'reading'
+    if (status[slot] === 'sending') return 'sending'
+    if (status[slot] === 'reading') return 'reading'
     if (status[slot] === 'found') return 'ISBN found'
     return undefined
   }
@@ -330,6 +414,27 @@ export function CaptureScreen() {
    * below already place it. No `--slot` either: that modifier is a shape,
    * and this element brings its own.
    */
+  /** A title the cover's search turned up, asked rather than told: nothing has confirmed it. */
+  const guessed = identified ? '' : looksLike(evidence.suggestion)
+
+  /** The one line about the book in hand. */
+  const said = identified ? (
+    <p className="wf-view__found">
+      <strong>{draft.title}</strong>
+      {draft.authors ? ` · ${draft.authors}` : ''}
+    </p>
+  ) : shotCount === 0 && !captureId ? (
+    <p className="wf-view__found wf-view__found--empty">
+      Nothing in hand. First shot starts a new book.
+    </p>
+  ) : guessed ? (
+    <p className="wf-view__found" role="status">{guessed}</p>
+  ) : readNothing && !sending && !reading ? (
+    <p className="wf-view__found wf-view__found--empty" role="status">
+      No ISBN read yet. The photographs are kept; finish the details at review.
+    </p>
+  ) : undefined
+
   const frame = SLOT_GUIDE[activeSlot]
   const guide = cameraOn && (
     <div
@@ -392,34 +497,32 @@ export function CaptureScreen() {
                 nothing once it has faded. */}
             {toast && <div className="cam__toast">{toast}</div>}
 
-            {/* A finding, not a gate: the photograph is already taken and
-                accepted, and whether there are two copies is not something
-                a camera can decide. */}
-            <QueuedAlready
-              matches={queueDuplicates}
-              className="queued--incam"
-              note={
-                'Open it to go and finish it, which drops what was just photographed. '
-                + 'Carry on if this is a second copy.'
-              }
-              onOpen={(match) => void openQueuedInstead(match)}
-              onDismiss={keepDespiteQueue}
-              dismissLabel="Different book, keep what I just took"
-              disabled={saving}
-            />
+            {(queueDuplicates.length > 0 || catalogued) && (
+              <div className="cam__findings">
+                {/*
+                  A line rather than a panel, with no way past it: two copies
+                  of one book can genuinely happen, and the decision belongs at
+                  the shelving step, not here.
+                */}
+                {catalogued && (
+                  <p className="cam__catalogued" role="status">
+                    <strong>Already catalogued</strong>
+                    {` as #${catalogued.id} (${catalogued.title})`}
+                    {catalogued.location ? ` at ${catalogued.location}` : ''}
+                    . Saving it adds a second copy.
+                  </p>
+                )}
 
-            {/*
-              A line rather than a panel, with no way past it: two copies of
-              one book can genuinely happen, and the decision belongs at the
-              shelving step, not here.
-            */}
-            {catalogued && (
-              <p className="cam__catalogued" role="status">
-                <strong>Already catalogued</strong>
-                {` as #${catalogued.id} (${catalogued.title})`}
-                {catalogued.location ? ` at ${catalogued.location}` : ''}
-                . Saving it adds a second copy.
-              </p>
+                {/* A finding, not a gate: the photograph is already taken and
+                    accepted, and whether there are two copies is not something
+                    a camera can decide. */}
+                <QueuedNotice
+                  matches={queueDuplicates}
+                  onSame={(match) => void openQueuedInstead(match)}
+                  onAnother={keepDespiteQueue}
+                  disabled={saving}
+                />
+              </div>
             )}
           </>
         }
@@ -437,7 +540,11 @@ export function CaptureScreen() {
                 <p className="wf-view__idle-said">
                   Back cover first, for the barcode. Then the front, then the spine.
                 </p>
-                <Button tone="primary" onPress={() => startCamera()}>Start camera</Button>
+                {/* Drawn only once the browser has said it would ask, so a
+                    camera about to open by itself does not flash a button. */}
+                {!askingToStart && (
+                  <Button tone="primary" onPress={() => startCamera()}>Start camera</Button>
+                )}
                 {/* Camera permission and the dev certificate exception are
                     scoped to whichever origin is loaded, so a second device
                     needs to know which one it is on now. */}
@@ -540,27 +647,34 @@ export function CaptureScreen() {
           camera's near cluster is three controls tall, and only the bar
           component knows how tall its own controls are.
         */
-        said={identified ? (
-          <p className="wf-view__found">
-            <strong>{draft.title}</strong>
-            {draft.authors ? ` · ${draft.authors}` : ''}
-          </p>
-        ) : shotCount === 0 && !captureId ? (
-          <p className="wf-view__found wf-view__found--empty">
-            Nothing in hand. First shot starts a new book.
-          </p>
-        ) : readNothing && !busy ? (
-          <p className="wf-view__found wf-view__found--empty" role="status">
-            No ISBN read yet. The photographs are kept; finish the details at review.
-          </p>
+        said={(lastLine || said) ? (
+          <>
+            {lastLine && (
+              <p className="cam__last" role="status">{lastLine}</p>
+            )}
+            {said}
+          </>
         ) : undefined}
         also={{
-          word: shotCount > 0 ? `Next book ${shotCount}/3` : 'Next book',
+          /* Dots for the three photographs rather than a count, which read
+             as "book 3 of 3". */
+          word: (
+            <>
+              New book
+              <span className="cam__dots" aria-hidden="true">
+                {SLOTS.map((slot) => (
+                  <span key={slot} className={shots[slot] ? 'cam__dot cam__dot--taken' : 'cam__dot'} />
+                ))}
+              </span>
+            </>
+          ),
           onPress: nextBook,
           off: shotCount === 0,
         }}
-        done={busy ? 'Reading the photographs' : 'Done with this book'}
-        doneOff={busy || (!identified && shotCount === 0 && !draft.title)}
+        /* Waits for the photographs to arrive and never for them to be read:
+           review takes the reading over when it lands. */
+        done={sending ? 'Sending the photographs' : 'Done with this book'}
+        doneOff={sending || (!identified && shotCount === 0 && !draft.title)}
         onDone={() => { stopCamera(); setRoute('review') }}
         onShutter={() => void shoot()}
         shutterOff={!cameraOn}

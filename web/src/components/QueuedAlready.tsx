@@ -1,4 +1,5 @@
-import { captureName, type QueueMatch } from '../lib/api'
+import { captureName, deviceName, type QueueMatch } from '../lib/api'
+import { deviceWord } from './QueuePane'
 import { shotsOf } from '../lib/queuePhoto'
 import { Card, Said } from '../design/Card'
 import { Button } from '../design/Controls'
@@ -80,12 +81,10 @@ export function QueuedAlready({
                 name={name.text}
                 guessed={name.guessed}
                 // Lets the person tell whether they are picking up their own
-                // work or somebody else's half-finished job.
-                sub={capture.claimed_by
-                  ? `${capture.claimed_by} has it open`
-                  : capture.edited_at
-                    ? `looked at by ${capture.edited_by || 'someone'}`
-                    : 'nobody has been near it yet'}
+                // work or somebody else's half-finished job, in words: the
+                // queue's only name for a phone is a random device id.
+                sub={deviceWord(capture, deviceName())
+                  || (capture.edited_at ? 'somebody has looked at it' : 'nobody has been near it yet')}
                 shots={shotsOf(capture)}
                 state={confidence
                   ? `${confidence.label}${confidence.percent != null ? ` · ${confidence.percent}%` : ''}`

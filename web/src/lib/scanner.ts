@@ -224,6 +224,22 @@ export function preferredLens(lenses: Lens[]): string {
 }
 
 /**
+ * Whether this browser has already been told yes for the camera, so opening it
+ * will not put a prompt in front of anybody. Only a stored `granted` counts: a
+ * browser that cannot answer the question, or answers `prompt`, is left to the
+ * tap that asks.
+ */
+export async function cameraAlreadyAllowed(): Promise<boolean> {
+  try {
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) return false
+    const status = await navigator.permissions?.query?.({ name: 'camera' as PermissionName })
+    return status?.state === 'granted'
+  } catch {
+    return false
+  }
+}
+
+/**
  * Ask for the back camera at the highest resolution Safari will give us.
  * These are hints, so an older phone degrades rather than failing.
  */

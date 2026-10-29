@@ -13,7 +13,6 @@
  */
 
 import { useEffect, useRef } from 'react'
-import { api } from '../lib/api'
 import { BookDetail } from '../components/BookDetail'
 import { CaptureReview } from '../components/CaptureReview'
 import { Where } from '../design/Book'
@@ -29,6 +28,7 @@ import { useLeaving } from '../app/leaving'
 import { useNavigation } from '../app/navigation'
 import { useOpenBook } from '../app/openBook'
 import { useTagging } from '../app/tagging'
+import { useStillReading } from '../app/stillReading'
 
 export function ReviewScreen() {
   const { setRoute } = useNavigation()
@@ -44,7 +44,7 @@ export function ReviewScreen() {
   const {
     draft, lookup, thumbs, crops, saving, relookupBusy, relookupError,
     evidence, bookId, captureId, origin, notice, placement, placementStale, coverImage,
-    checkedOutAt, misfile, catalogued, setCatalogued, setDraft, setRelookupError,
+    checkedOutAt, misfile, catalogued, setDraft, setRelookupError,
     setActiveSlot, applyLookup, fillFromCover,
   } = book
 
@@ -58,29 +58,13 @@ export function ReviewScreen() {
    */
   const tagging = useTagging(bookId ?? captureId)
 
-  /**
-   * Ask whether this capture's ISBN is already on a shelf.
-   *
-   * The camera fills this in from its own poll, so a book carried straight
-   * from the shutter arrives with the answer. A capture opened from the
-   * queue does not, since the row it was handed cannot carry this: the
-   * catalogue moves underneath it.
-   *
-   * Only for a capture: a book already in the catalogue is the book, and
-   * telling somebody their own book is already catalogued is nonsense.
+  /*
+   * Whether this capture's ISBN is already on a shelf, asked again here
+   * because the catalogue moves under a capture opened from the queue; and,
+   * for a book the camera handed over before its photographs were read, what
+   * the reading finds once it lands.
    */
-  useEffect(() => {
-    if (bookId !== null || captureId === null) return
-    let cancelled = false
-    void api.getCapture(captureId)
-      .then(({ catalogued: onAShelf }) => {
-        if (!cancelled) setCatalogued(onAShelf)
-      })
-      // Swallowed on purpose: a finding beside a form somebody is filling
-      // in is not worth an error banner over it.
-      .catch(() => {})
-    return () => { cancelled = true }
-  }, [bookId, captureId, setCatalogued])
+  const stillReading = useStillReading()
 
   /*
    * A cover whose title found nothing in the catalogue still had its title and
@@ -136,7 +120,9 @@ export function ReviewScreen() {
            sends it as what they said. */
         onAcceptSuggestion={(match) => applyLookup(match, '')}
         onRejectSuggestion={() => { if (suggestion) fillFromCover(suggestion.read) }}
-        notice={notice}
+        notice={stillReading
+          ? 'Still reading the photographs. What they show fills in here when it is done.'
+          : notice}
         error={error}
         onDismissError={() => setError('')}
         onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))}

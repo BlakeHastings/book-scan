@@ -30,7 +30,12 @@ import { useErrorBanner } from './errorBanner'
 import { useNavigation } from './navigation'
 import { useShelfState, type ShelfState } from './shelfState'
 
-export type SlotStatus = 'empty' | 'busy' | 'found' | 'none' | 'kept'
+/**
+ * `sending` is a photograph the server has not answered for yet, and nothing may
+ * leave the camera while one is; `reading` is one it holds and has not finished
+ * reading, which nothing has to wait for.
+ */
+export type SlotStatus = 'empty' | 'sending' | 'reading' | 'found' | 'none' | 'kept'
 
 /**
  * How the book on screen came to be there, which decides only where the way out
