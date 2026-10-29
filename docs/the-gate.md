@@ -419,7 +419,7 @@ file asserts that with no public origin none of the seven is mounted.
 
 **`/api` does not accept a bearer token, and `/mcp` does not accept a cookie.**
 Both are asserted in `web/server/mcp/connector.routes.test.ts`. The first keeps
-this change from widening who can reach the seventy-eight; the second is what
+this change from widening who can reach the routes under `/api`; the second is what
 stops a page on another site driving tools with somebody's cookie.
 
 Every answer at those doors says `Cache-Control: no-store`, which RFC 6749
