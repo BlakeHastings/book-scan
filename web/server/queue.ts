@@ -59,6 +59,14 @@ const QUEUED_SQL = QUEUED_STATES.map((state) => `'${state}'`).join(', ')
 const SWEEP_MS = 5_000
 
 /**
+ * How many readings of one capture may die with the process before it is
+ * failed instead of read again. One is a restart that happened mid-reading,
+ * which says nothing about the photographs. Two in a row is a photograph that
+ * takes the server down, and reading it on every start is a crash loop (#673).
+ */
+export const READINGS_THAT_MAY_DIE = 2
+
+/**
  * The row a caller of this class gets, assembled from the book underneath. Four
  * columns are renamed on the way out: `status` is derived from the state, `note`
  * is `scan_note` (because `books.notes` is already a person's note about a
@@ -602,7 +610,7 @@ export class CaptureQueue implements QueueReadModel {
     const result = await this.db.run(
       `UPDATE books
           SET "state" = '${STATE_OF_QUEUE_STATUS.pending}',
-              analysed = '', scan_note = '', processed_at = NULL
+              analysed = '', scan_note = '', processed_at = NULL, read_attempts = 0
         WHERE id = @id AND "state" IN (${QUEUED_SQL})`,
       { id },
     )
@@ -939,6 +947,20 @@ export class CaptureQueue implements QueueReadModel {
         return
       }
 
+      // Written down before anything is read, because a reading that takes the
+      // process with it writes nothing afterwards.
+      const started = await this.db.get<{ read_attempts: number }>(
+        `UPDATE books SET read_attempts = read_attempts + 1
+          WHERE id = ? AND "state" IN (${QUEUED_SQL})
+          RETURNING read_attempts`,
+        [capture.id],
+      )
+      if (!started) return
+      if (started.read_attempts > READINGS_THAT_MAY_DIE) {
+        await this.giveUpOn(capture.id, new Set([...analysed, ...todo]))
+        return
+      }
+
       let isbn13 = capture.isbn13
       let lookup = capture.draft_json
         ? (JSON.parse(capture.draft_json) as Awaited<ReturnType<typeof lookupIsbn>>)
@@ -1040,7 +1062,8 @@ export class CaptureQueue implements QueueReadModel {
            "state" = @status, isbn13 = @isbn13, isbn10 = @isbn10,
            isbn_source = @source, title_guess = @titleGuess,
            cover_text = @coverText, analysed = @analysed,
-           draft_json = @draft, scan_note = @note, processed_at = @now
+           draft_json = @draft, scan_note = @note, processed_at = @now,
+           read_attempts = 0
          WHERE id = @id AND "state" IN (${QUEUED_SQL})`,
         {
           id: capture.id,
@@ -1107,7 +1130,7 @@ export class CaptureQueue implements QueueReadModel {
         // must not resurrect a scan somebody discarded while it was running.
         `UPDATE books
             SET "state" = '${STATE_OF_QUEUE_STATUS.failed}',
-                analysed = ?, scan_note = ?, processed_at = ?
+                analysed = ?, scan_note = ?, processed_at = ?, read_attempts = 0
           WHERE id = ? AND "state" IN (${QUEUED_SQL})`,
         [
           [...analysed].join(','),
@@ -1125,6 +1148,33 @@ export class CaptureQueue implements QueueReadModel {
         ],
       )
     }
+  }
+
+  /**
+   * Fail a capture whose readings keep dying with the process, without reading
+   * it. Its photographs are marked read, so a photograph arriving later does
+   * not offer them to the reader again; "read it again" is a person's choice,
+   * and `readAgain` starts the count over.
+   */
+  private async giveUpOn(id: number, analysed: Set<string>): Promise<void> {
+    console.warn(
+      `[queue] capture ${id}: the server stopped while reading it ${READINGS_THAT_MAY_DIE} times; `
+      + 'failing it instead of reading it again',
+    )
+    await this.db.run(
+      `UPDATE books
+          SET "state" = '${STATE_OF_QUEUE_STATUS.failed}',
+              analysed = ?, scan_note = ?, processed_at = ?, read_attempts = 0
+        WHERE id = ? AND "state" IN (${QUEUED_SQL})`,
+      [
+        [...analysed].join(','),
+        `${PROCESSING_ERROR_NOTE} the server stopped while reading them, `
+          + `${READINGS_THAT_MAY_DIE} times in a row, most likely for want of memory. `
+          + 'They are not read again on their own. Read them again, or retake them.',
+        new Date().toISOString(),
+        id,
+      ],
+    )
   }
 
   /**

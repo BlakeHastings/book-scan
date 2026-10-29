@@ -128,6 +128,14 @@ export const books = pgTable('books', {
   claimedBy: text('claimed_by').default(''),
   claimedAt: text('claimed_at'),
   processedAt: text('processed_at'),
+  /**
+   * Readings of this book's photographs that started and have not settled.
+   * Raised before each reading and cleared by every ending the process lives
+   * to write, so a count left standing is a process that died mid-reading,
+   * usually killed for memory. `CaptureQueue` fails the book rather than read
+   * it a third time.
+   */
+  readAttempts: integer('read_attempts').notNull().default(0),
 
   /**
    * Where this book is, as an area: a projection of `book_placement` and not a

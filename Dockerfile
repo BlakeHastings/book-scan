@@ -59,6 +59,15 @@ LABEL org.bookscan.contract="/app/deploy/contract.json"
 # them. If a future dependency does need a library, this is where it goes.
 ENV NODE_ENV=production
 
+# glibc's malloc raises its mmap threshold each time a large block is freed, so
+# the large native buffers Paddle, onnxruntime and sharp allocate per photograph
+# end up on the heap, where freeing them does not return them to the system.
+# Pinning both thresholds at 1 MiB gives them back. Measured with
+# `npm run measure:reading -- --soak 5`: RSS between readings settled at about
+# 0.95 GB instead of 1.8, for readings about 15% slower.
+ENV MALLOC_MMAP_THRESHOLD_=1048576
+ENV MALLOC_TRIM_THRESHOLD_=1048576
+
 WORKDIR /app/web
 
 # `dist-server/` must stay a sibling of `dist/` one directory below `web/`:

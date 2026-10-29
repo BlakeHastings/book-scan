@@ -20,6 +20,7 @@
     "rebuild-projection": "tsx scripts/rebuild-projection.ts",
     "enable-user": "tsx scripts/enable-user.ts",
     "eval:covers": "tsx scripts/cover-matchers.ts",
+    "measure:reading": "tsx scripts/reading-memory.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
