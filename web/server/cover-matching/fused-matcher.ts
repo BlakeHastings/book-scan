@@ -106,7 +106,7 @@ export function fusedMatcher({ pictures }: { pictures: boolean }): CoverMatcher 
 
       return async (photo) => {
         const read = await paddleOcr(photo)
-        const answer = await handler.handle({ photo, reading: read?.text ?? '' })
+        const answer = await handler.handle({ photo, reading: read?.text ?? '', lines: read?.lines })
         const id = (bookId: number) => harnessId.get(bookId) ?? String(bookId)
         return {
           candidates: answer.candidates.map((candidate) => ({ id: id(candidate.id), score: candidate.fused })),

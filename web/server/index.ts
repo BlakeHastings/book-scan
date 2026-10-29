@@ -3181,7 +3181,7 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     })
 
     if (!read.isbn13) {
-      const match = await matchCover.handle({ photo: buffer, reading: read.text })
+      const match = await matchCover.handle({ photo: buffer, reading: read.text, lines: read.paddleLines })
       const candidates = await describeMatches(match.candidates)
 
       /*

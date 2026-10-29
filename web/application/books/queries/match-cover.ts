@@ -1,4 +1,5 @@
 import { SIMILAR_LIMIT } from '../../../shared/confidence'
+import { titleExplains, type ReadingLine } from '../../../shared/cover-words'
 import type { CoverHashes, CoverPictures, CoverWords, HashMatch, PictureMatch, WordsMatch } from '../read-models'
 
 /**
@@ -56,6 +57,15 @@ export const BAR = {
    * the image model off, the words alone.
    */
   printedTitle: { titlePrinted: 0.8, lead: 0.05, pictureWithin: DEPTH },
+  /**
+   * Either way in, the title and what is printed in its type must explain
+   * each other this well (`titleExplains`): at least three words in four of
+   * the title read, and three in four of the words in the title's type found
+   * in the title. A held "Dune Messiah" explains "Dune" at 0.5, and so does a
+   * held "Dune" against a catalogued "Dune Messiah", so neither opens; that is
+   * #669's review, which `word_similarity` alone could not see.
+   */
+  explains: 0.75,
 } as const
 
 export interface MatchCover {
@@ -63,6 +73,11 @@ export interface MatchCover {
   photo: Uint8Array
   /** What OCR already read off this photograph. Never read again here. */
   reading: string
+  /**
+   * The same reading by line, with each line's height, when the reader gives
+   * them; they let a title in large type be told from a tagline in small.
+   */
+  lines?: readonly ReadingLine[]
 }
 
 /** One book on the shortlist, with what each strategy said about it. */
@@ -91,6 +106,8 @@ interface Evidence {
   pictures: readonly PictureMatch[] | null
   words: readonly WordsMatch[]
   hashes: readonly HashMatch[]
+  reading: string
+  lines: readonly ReadingLine[] | undefined
 }
 
 /** Each strategy's list, best first, as rank-fused scores by book. */
@@ -126,7 +143,8 @@ export function clearsBar(id: number, evidence: Evidence): boolean {
   const printed = first.titlePrinted >= BAR.printedTitle.titlePrinted
     && lead >= BAR.printedTitle.lead
     && (pictures === null || (pictureRank >= 0 && pictureRank < BAR.printedTitle.pictureWithin))
-  return agreement || printed
+  return (agreement || printed)
+    && titleExplains(evidence.reading, evidence.lines, first.title, first.author) >= BAR.explains
 }
 
 /**
@@ -158,7 +176,7 @@ export class MatchCoverHandler {
       this.words.near(query.reading, DEPTH),
       this.hashes.near(query.photo, SIMILAR_LIMIT, DEPTH),
     ])
-    const evidence: Evidence = { pictures, words, hashes }
+    const evidence: Evidence = { pictures, words, hashes, reading: query.reading, lines: query.lines }
 
     const telling = words.filter((entry) => entry.score >= WORDS.score).slice(0, WORDS.depth)
     const ranked = [...fuse([pictures ?? [], telling, hashes]).entries()]

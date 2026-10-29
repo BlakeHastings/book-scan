@@ -119,6 +119,81 @@ describe('a sibling with no other volume on the shelf', () => {
   })
 })
 
+/**
+ * A reading as Paddle answers it: the text, and each line with the height of
+ * its box, so a title in large type can be told from a tagline in small.
+ */
+function cover(...lines: [string, number][]) {
+  return {
+    reading: lines.map(([text]) => text).join('\n'),
+    lines: lines.map(([text, height]) => ({ text, height })),
+  }
+}
+
+const DUNE_MESSIAH_COVER = cover(['NEW YORK TIMES BESTSELLER', 14], ['Dune Messiah', 42], ['Frank Herbert', 28], ['A NOVEL', 14])
+const DUNE_COVER = cover(['NEW YORK TIMES BESTSELLER', 14], ['Dune', 42], ['Frank Herbert', 28], ['A NOVEL', 14])
+
+describe('a title that sits inside a sibling\'s ("Dune" and "Dune Messiah")', () => {
+  /** One series design, so the picture puts the catalogued volume first whichever is held. */
+  async function shelfOf(...titles: string[]): Promise<void> {
+    db = await openTestDatabase()
+    for (const title of Object.keys(ids)) delete ids[title]
+    for (const title of titles) await shelve(title, 'Frank Herbert')
+    await shelve('Perdido Street Station', 'China Miéville')
+    await shelve('The Left Hand of Darkness', 'Ursula K. Le Guin')
+  }
+
+  it('does not open "Dune" for a photograph of an uncatalogued "Dune Messiah"', async () => {
+    await shelfOf('Dune')
+    const answer = await matcher(pictures([['Dune', 0.94], ['Perdido Street Station', 0.4]]))
+      .handle({ photo: PHOTO, ...DUNE_MESSIAH_COVER })
+    expect(titleOf(answer.candidates[0]!.id)).toBe('Dune')
+    expect(answer.confident).toBeNull()
+  })
+
+  it('does not open "Dune" for it with the image model off either', async () => {
+    await shelfOf('Dune')
+    const answer = await matcher(pictures(null)).handle({ photo: PHOTO, ...DUNE_MESSIAH_COVER })
+    expect(answer.confident).toBeNull()
+  })
+
+  it('does not open "Dune" when OCR breaks the title over two lines', async () => {
+    await shelfOf('Dune')
+    const answer = await matcher(pictures([['Dune', 0.94]]))
+      .handle({ photo: PHOTO, ...cover(['DUNE', 44], ['MESSIAH', 44], ['FRANK HERBERT', 26]) })
+    expect(answer.confident).toBeNull()
+  })
+
+  it('does not open "Dune Messiah" for a photograph of an uncatalogued "Dune"', async () => {
+    await shelfOf('Dune Messiah')
+    const answer = await matcher(pictures([['Dune Messiah', 0.94], ['Perdido Street Station', 0.4]]))
+      .handle({ photo: PHOTO, ...DUNE_COVER })
+    expect(titleOf(answer.candidates[0]!.id)).toBe('Dune Messiah')
+    expect(answer.confident).toBeNull()
+  })
+
+  it('with both catalogued, opens "Dune Messiah" for its cover and asks about "Dune", with "Dune" first', async () => {
+    await shelfOf('Dune', 'Dune Messiah')
+    const messiah = await matcher(pictures([['Dune Messiah', 0.94], ['Dune', 0.9]]))
+      .handle({ photo: PHOTO, ...DUNE_MESSIAH_COVER })
+    expect(titleOf(messiah.confident)).toBe('Dune Messiah')
+
+    // On a "Dune" cover the two volumes score close together on the words,
+    // and the bar does not open on a close call: it asks, which is the safe
+    // way to be unsure. Nothing else differs between these two photographs.
+    const dune = await matcher(pictures([['Dune', 0.94], ['Dune Messiah', 0.9]])).handle({ photo: PHOTO, ...DUNE_COVER })
+    expect(dune.confident).toBeNull()
+    expect(titleOf(dune.candidates[0]!.id)).toBe('Dune')
+  })
+
+  it('still opens a book whose cover carries a tagline in small type', async () => {
+    await shelfOf('Dune')
+    const answer = await matcher(pictures([['Dune', 0.94]]))
+      .handle({ photo: PHOTO, ...cover(['WINNER OF THE HUGO AWARD', 14], ['Dune', 42], ['Frank Herbert', 28]) })
+    expect(titleOf(answer.confident)).toBe('Dune')
+  })
+})
+
 describe('when it opens a book', () => {
   it('opens the book when the picture and its printed title agree', async () => {
     const answer = await matcher(pictures(BARSOOM_PICTURE))

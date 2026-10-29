@@ -211,6 +211,9 @@ export interface CoverPictures {
 /** A book as the words read off a photograph find it, scored by `coverTextScore`. */
 export interface WordsMatch {
   id: number
+  title: string
+  /** The first credit's name as printed, or ''. */
+  author: string
   /** 0 to 1, what the text ranks by. */
   score: number
   /** 0 to 1: how much of the title is printed on the cover as one stretch. */

@@ -55,6 +55,15 @@ export interface SetOptions {
   severity?: number
   /** Books photographed that are not in the catalogue, one photograph each. */
   absent: number
+  /**
+   * Contained-title families added on top (#669): a series whose first title
+   * sits inside the second ("Dune" and "Dune Messiah"), one volume
+   * catalogued and the other only held up. They alternate which volume is
+   * catalogued, so the shelf holds the short title against a photograph of
+   * the long one, and the long title against a photograph of the short one.
+   * Defaults to 2; 0 gives the set as it was before #669.
+   */
+  contained?: number
 }
 
 export type Random = () => number
@@ -472,6 +481,40 @@ export async function photographed(
   return { catalogue, queries }
 }
 
+/** The second half a later volume adds to a first volume's whole title. */
+const SEQUELS = ['Rising', 'Returns', 'Reborn', 'Messiah', 'Awakening', 'Unbound']
+
+/**
+ * Families whose first title is contained in the second, every one of them
+ * a series sibling no other check here can see: the words of the short title
+ * are all printed on the long one's cover, and both share one design and one
+ * author. From a random stream of their own, so adding them leaves every
+ * other book and photograph of a seed exactly as it was.
+ */
+async function containedFamilies(options: SetOptions, taken: ReadonlySet<string>): Promise<CoverSet> {
+  const random = seeded(options.seed * 7919 + 17)
+  const catalogue: CatalogueBook[] = []
+  const queries: Query[] = []
+  for (let family = 0; family < (options.contained ?? 2); family += 1) {
+    let first = ''
+    do first = `The ${pick(random, ADJECTIVES)} ${pick(random, NOUNS)}`
+    while (taken.has(first))
+    const second = `${first} ${pick(random, SEQUELS)}`
+    const look = design(random)
+    const author = `${pick(random, FIRST)} ${pick(random, LAST)}`
+    const [shelved, held] = family % 2 === 0 ? [first, second] : [second, first]
+    const id = `c${family}`
+    const shelvedCover = await renderCover({ title: shelved, author, look })
+    catalogue.push({ id, title: shelved, author, cover: shelvedCover })
+    for (let n = 0; n < options.photosPerBook; n += 1) {
+      queries.push({ photo: await photograph(shelvedCover, random, options.severity), truth: id, book: shelved })
+    }
+    const heldCover = await renderCover({ title: held, author, look })
+    queries.push({ photo: await photograph(heldCover, random, options.severity), truth: null, book: held })
+  }
+  return { catalogue, queries }
+}
+
 /** The whole synthetic set: invented books, their covers, and photographs of them. */
 export async function coverSet(options: SetOptions): Promise<CoverSet> {
   const random = seeded(options.seed)
@@ -479,5 +522,7 @@ export async function coverSet(options: SetOptions): Promise<CoverSet> {
   for (const book of inventBooks(random, options.books + options.absent)) {
     books.push({ title: book.title, author: book.author, cover: await renderCover(book) })
   }
-  return photographed(books, options, random)
+  const set = await photographed(books, options, random)
+  const families = await containedFamilies(options, new Set(books.map((book) => book.title)))
+  return { catalogue: [...set.catalogue, ...families.catalogue], queries: [...set.queries, ...families.queries] }
 }

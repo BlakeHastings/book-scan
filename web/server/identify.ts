@@ -95,6 +95,12 @@ export interface IdentifyResult {
    */
   isbnCandidates: string[]
   text: string
+  /**
+   * Paddle's reading by line, with each line's box height; absent when Paddle
+   * did not run. What the cover matcher tells a title in large type from a
+   * tagline in small by (#669).
+   */
+  paddleLines?: { text: string, height: number }[]
   notes: string[]
 }
 
@@ -1060,6 +1066,7 @@ async function identifyNow(
   const fromPaddle = await (paddlePass ?? paddleOcr(input))
   if (fromPaddle) {
     absorb(result, fromPaddle, options)
+    result.paddleLines = fromPaddle.lines.map(({ text, height }) => ({ text, height }))
     if (harvest(result, [fromPaddle])) {
       noteReading(result)
       return result

@@ -1,20 +1,7 @@
+import { foldReading, tellsAnything } from '../../../shared/cover-words'
 import type { CoverTextMatch, CoverTextReadModel } from '../read-models'
 
-/**
- * Words that say nothing about which book a cover is: on most covers, in most
- * titles, and what OCR reads most reliably of all.
- */
-const UNTELLING = new Set([
-  'the', 'and', 'for', 'with', 'from', 'into', 'that', 'this', 'its', 'are', 'was', 'not', 'but',
-])
-
-/**
- * The shortest word that counts as evidence. OCR breaks large type and
- * artwork into single letters and fragments ("O", "Mir", "Qu"), and a reading
- * made of nothing else names no book, however many titles share its
- * trigrams.
- */
-const SHORTEST_TELLING_WORD = 4
+export { foldReading, tellsAnything }
 
 /**
  * How many nearest titles, and nearest names, are scored. Ten lost nothing on
@@ -22,22 +9,6 @@ const SHORTEST_TELLING_WORD = 4
  * collection a hundred times that size, where more titles crowd a reading.
  */
 const CANDIDATES = 50
-
-/** Lower case, no accents, letters and digits only: "MIÉVILLE," reads as "mieville". */
-export function foldReading(read: string): string {
-  return read
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .replace(/ø/g, 'o')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
-}
-
-/** Whether a folded reading holds any word worth finding a book by. */
-export function tellsAnything(folded: string): boolean {
-  return folded.split(' ').some((word) => word.length >= SHORTEST_TELLING_WORD && !UNTELLING.has(word))
-}
 
 /**
  * One number to rank by: the mean of how alike the title is to the reading
