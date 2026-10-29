@@ -30,6 +30,7 @@ import {
   withPhotographs, withPhotographsOf, type PhotographFields,
 } from './photographs'
 import { resolveIsbnPair } from '../shared/isbn'
+import { CLAIM_LEASE_MS } from '../shared/claimLease'
 import { bookLock } from '../application/locks'
 import type { GenreSlug } from '../domain/tagging/genre'
 import {
@@ -179,8 +180,6 @@ export type EditOutcome =
   | { ok: false; reason: 'done' }
   | { ok: false; reason: 'claimed'; heldBy: string }
 
-/** How long a claim holds before someone else may take the capture. */
-const CLAIM_LEASE_MS = 5 * 60 * 1000
 
 /**
  * Where a capture's derived pictures are read and written. `orphaned` is for a

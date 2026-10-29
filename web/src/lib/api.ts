@@ -1324,9 +1324,16 @@ export const api = {
   /**
    * `reading` is the capture id the background pass has in its hands, null when
    * it is not reading anything, and absent from an older server.
+   * `catalogued` is keyed by capture id and names only the captures whose ISBN
+   * the shelves already hold; absent from an older server.
    */
   listCaptures: () =>
-    request<{ captures: Capture[]; counts: QueueCounts; reading?: number | null }>(
+    request<{
+      captures: Capture[]
+      counts: QueueCounts
+      reading?: number | null
+      catalogued?: Record<number, CataloguedBook>
+    }>(
       '/api/captures',
     ),
 

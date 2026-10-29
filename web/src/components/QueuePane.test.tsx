@@ -5,12 +5,13 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type { ReactElement } from 'react'
 import {
-  canShelve, deviceOn, photoCount, queueSaid, QueueRow, readableAgain, SHOWING,
+  canShelve, deviceWord, photoCount, photosWord, queueSaid, QueueRow, readableAgain, SHOWING,
   showsCaptures, showsUnplaced, stateWord, UnplacedRow, whatItNeeds,
   type RowGesture, type Which,
 } from './QueuePane'
 import { shotsOf } from '../lib/queuePhoto'
 import type { Capture, CaptureStatus, FiledBookRow } from '../lib/api'
+import { CLAIM_LEASE_MS } from '../../shared/claimLease'
 
 /** This screen's own source, for the two rules that are about what is not on it. */
 const PANE = readFileSync(
@@ -199,7 +200,7 @@ describe('what a row says', () => {
 
   it('marks that name as a guess, in words and not only in styling', () => {
     const html = renderToStaticMarkup(row({ title_guess: 'S0NG 0F SOLOMQN' }).tree)
-    expect(html).toContain('OCR guess')
+    expect(html).toContain('Guessed')
     expect(html).toContain('wf-queued__name--guess')
   })
 
@@ -207,7 +208,7 @@ describe('what a row says', () => {
     const stated = { edit_json: JSON.stringify({ title: 'Song of Solomon' }) }
     const html = renderToStaticMarkup(row(stated).tree)
     expect(html).toContain('Song of Solomon')
-    expect(html).not.toContain('OCR guess')
+    expect(html).not.toContain('Guessed')
     expect(html).not.toContain('wf-queued__name--guess')
   })
 
@@ -251,7 +252,7 @@ describe('what a failed row says is wrong', () => {
 
   it('says the state separately, in the words the filter uses', () => {
     expect(stateWord(capture({ id: 3, status: 'pending' }), 3)).toBe('Reading photos')
-    expect(stateWord(capture({ status: 'ready' }))).toBe('Identified')
+    expect(stateWord(capture({ status: 'ready' }))).toBe('Ready')
     expect(stateWord(capture({ status: 'done' }))).toBe('Shelved')
     expect(stateWord(capture({ status: 'failed' }))).toBe('Stuck')
   })
@@ -369,30 +370,73 @@ describe('the pills on a row', () => {
   const said = (over: Partial<Capture>) => renderToStaticMarkup(row(over).tree)
 
   it('wears the state as a pill rather than as a line under the title', () => {
-    expect(said({ status: 'ready' })).toContain('<span class="wf-tag">Identified</span>')
+    expect(said({ status: 'ready' })).toContain('<span class="wf-tag">Ready</span>')
     expect(said({ status: 'pending' })).toContain('Reading photos')
   })
 
-  it('names the device that has it, with no words round the name', () => {
-    const html = said({ claimed_by: 'device-8f21' })
-    expect(html).toContain('<span class="wf-tag">device-8f21</span>')
-    expect(html).not.toContain('with device-8f21')
-    expect(html).not.toContain('checked by')
-    expect(html).not.toContain('worked on')
-  })
-
-  it('falls back to whoever last worked on it, and never draws two', () => {
-    expect(deviceOn(capture({ claimed_by: 'device-a', edited_by: 'device-b' })))
-      .toBe('device-a')
-    expect(deviceOn(capture({ edited_by: 'device-b' }))).toBe('device-b')
-    expect(deviceOn(capture())).toBe('')
-    expect((said({ claimed_by: 'device-a', edited_by: 'device-b' })
-      .match(/class="wf-tag"/g) ?? []).length).toBe(2)
+  it('never prints a device id, even on a book somebody has claimed', () => {
+    const html = said({ claimed_by: 'device-8f21', edited_by: 'device-xem1' })
+    expect(html).not.toContain('device-8f21')
+    expect(html).not.toContain('device-xem1')
   })
 
   it('says nothing about a device nobody has touched', () => {
     expect((said({}).match(/class="wf-tag"/g) ?? []).length).toBe(1)
   })
+
+  it('says how many photographs a partial scan has, and nothing on a whole one', () => {
+    expect(photosWord(capture({ front_image: '', edge_image: '' }))).toBe('1 of 3 photos')
+    expect(photosWord(capture({ edge_image: '' }))).toBe('2 of 3 photos')
+    expect(photosWord(capture())).toBe('')
+    expect(said({ front_image: '', edge_image: '' }))
+      .toContain('<span class="wf-tag">1 of 3 photos</span>')
+    expect(said({})).not.toContain('of 3 photos')
+  })
+})
+
+describe('which phone a row says has it', () => {
+  const NOW = Date.parse('2026-10-29T12:00:00Z')
+  const ago = (ms: number) => new Date(NOW - ms).toISOString()
+
+  it('says nothing when only this phone is working the queue', () => {
+    expect(deviceWord(capture({ claimed_by: 'me', claimed_at: ago(1000) }), 'me', NOW)).toBe('')
+    expect(deviceWord(capture({ edited_by: 'me' }), 'me', NOW)).toBe('')
+  })
+
+  it('says nothing about a phone that only edited a book once', () => {
+    expect(deviceWord(capture({ edited_by: 'device-xem1' }), 'me', NOW)).toBe('')
+  })
+
+  it('says nothing about a claim nobody has renewed within the lease', () => {
+    const stale = capture({ claimed_by: 'device-xem1', claimed_at: ago(CLAIM_LEASE_MS + 1000) })
+    expect(deviceWord(stale, 'me', NOW)).toBe('')
+  })
+
+  it('names another phone working a book right now, in words', () => {
+    const live = capture({ claimed_by: 'device-xem1', claimed_at: ago(60_000) })
+    expect(deviceWord(live, 'me', NOW)).toBe('Open on another phone')
+  })
+
+  it('draws the word on the row, and only when it is given one', () => {
+    const one = capture()
+    const tree = QueueRow({
+      capture: one, held: false, reading: null, device: 'Open on another phone',
+      onOpen: () => {}, onUndo: () => {}, gesture, registerRow: () => {},
+    }) as ReactElement
+    expect(renderToStaticMarkup(tree)).toContain('<span class="wf-tag">Open on another phone</span>')
+  })
+})
+
+describe('the filter and the rows', () => {
+  it('use one word for a book ready to shelve', () => {
+    expect(PANE).toContain("{ value: 'ready', word: counted(STATE_LABEL.ready")
+    expect(stateWord(capture({ status: 'ready' }))).toBe('Ready')
+    expect(PANE).not.toContain("'Identified'")
+  })
+})
+
+describe('what a row leaves off', () => {
+  const said = (over: Partial<Capture>) => renderToStaticMarkup(row(over).tree)
 
   it('never prints what OCR read off the cover', () => {
     const html = said({ cover_text: 'ORWELL\nNINETEEN EIGHTY-FOUR\nPENGUIN' })

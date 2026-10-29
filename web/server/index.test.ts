@@ -2223,6 +2223,28 @@ describe('a capture of a book already on a shelf', () => {
     expect(await cataloguedFor(mine)).toBeNull()
   })
 
+  it('names the shelved book on the listing too, against each capture that repeats it', async () => {
+    // The queue list reads only the listing, so a second copy has to be said
+    // there or the list cannot say "you already have this".
+    const { id: shelved } = await shelvedDune()
+    const first = await queuedWith(DUNE)
+    const second = await queuedWith(DUNE)
+    const unread = await queuedWith('')
+
+    const { body } = await call('/api/captures')
+    const named = body.catalogued as Record<string, unknown>
+    const book = { id: shelved, title: 'Dune', location: '1A' }
+    expect(named[first]).toEqual(book)
+    expect(named[second]).toEqual(book)
+    expect(named[unread]).toBeUndefined()
+    expect(named[shelved]).toBeUndefined()
+  })
+
+  it('names nothing on the listing when the shelves hold nothing under that ISBN', async () => {
+    await queuedWith(DUNE)
+    expect((await call('/api/captures')).body.catalogued).toEqual({})
+  })
+
   it('answers the same when the lookup did work, and writes nothing either way', async () => {
     // Kept here so a fix to the failing case cannot be a swap of one working
     // case for another. Asking is still a read: neither row moves.

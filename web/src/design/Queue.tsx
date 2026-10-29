@@ -1,9 +1,10 @@
 /**
  * One book waiting to be filed, drawn once for the wireframe and for the app.
- * A row is a book and three pills, never a sentence about the book: what it
+ * A row is a book and its pills, never a sentence about the book: what it
  * needs (only where something is wrong, via `FAILURE_LABEL` so Home's counts
  * cannot disagree), the state it is in (always, the same word the filter
- * above the list uses), and the device holding it. Every pill carries its
+ * above the list uses), how many photographs it has where some are missing,
+ * and which other phone has it open. Every pill carries its
  * word; `design.test.tsx` checks that a pill is never colour alone.
  *
  * `Shots` in `mode="book"` is the book page's own drawing, passed
@@ -25,6 +26,7 @@ export function Queued({
   shots,
   state,
   wants,
+  photos,
   device,
 }: {
   /** What this book is called: a title, or the number it was given. */
@@ -39,7 +41,9 @@ export function Queued({
   state: string
   /** What it needs from a person, where anything is wrong with it. */
   wants?: string
-  /** The device holding it. The name, with no words around it. */
+  /** How many of its photographs there are, where some are missing: "1 of 3 photos". */
+  photos?: string
+  /** Which other phone has it open, in words. Never a device id. */
   device?: string
 }) {
   return (
@@ -48,12 +52,13 @@ export function Queued({
       <span className="wf-queued__text">
         <span className={`wf-queued__name${guessed ? ' wf-queued__name--guess' : ''}`}>
           <span className="wf-queued__title">{name}</span>
-          {guessed && <span className="wf-queued__guess">OCR guess</span>}
+          {guessed && <span className="wf-queued__guess">Guessed</span>}
         </span>
         {sub && <span className="wf-queued__sub">{sub}</span>}
         <Tags>
           <Tag>{state}</Tag>
           {wants && <Tag tone="wants">{wants}</Tag>}
+          {photos && <Tag>{photos}</Tag>}
           {device && <Tag>{device}</Tag>}
         </Tags>
       </span>

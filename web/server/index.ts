@@ -28,7 +28,7 @@ import { warmPaddle } from './paddle'
 import { downloadCover, openLibraryCover, upgradeGoogleCover } from './covers'
 import { coverHash, distance } from './imagehash'
 import { cropPhotos } from './crop'
-import { CaptureQueue, type CaptureEdit, type CaptureRow } from './queue'
+import { CaptureQueue, type CaptureEdit, type CaptureRow, type DuplicateBook } from './queue'
 import { Shelves, type Planks, type ShelvedBook } from './shelves'
 import { plankLabels, tagsRulesName, type Plank, type RunPlanks } from '../infrastructure/shelving/areas'
 import { toNeighbour } from '../infrastructure/books/shelf-reads'
@@ -1174,8 +1174,28 @@ export function createApp(options: CreateAppOptions): BookScanApp {
     const captures = await listQueue.handle()
     const counts = await countQueue.handle()
     if (startBackgroundWork && counts.pending > 0) queue.wake()
-    res.json({ captures, counts, reading: queue.reading })
+    res.json({ captures, counts, reading: queue.reading, catalogued: await cataloguedIn(captures) })
   }))
+
+  /**
+   * The shelved book each queued capture repeats, keyed by capture id, and only
+   * for those that repeat one. One question per ISBN rather than per row, since a
+   * book scanned twice is exactly what this is here to point out. A shelved
+   * capture is left out: it is the catalogued book, not a second copy of it.
+   */
+  async function cataloguedIn(
+    captures: { id: number; isbn13: string; status: string }[],
+  ): Promise<Record<number, DuplicateBook>> {
+    const found = new Map<string, Promise<DuplicateBook | null>>()
+    const named: Record<number, DuplicateBook> = {}
+    for (const capture of captures) {
+      if (!capture.isbn13 || capture.status === 'done') continue
+      if (!found.has(capture.isbn13)) found.set(capture.isbn13, queue.cataloguedAs(capture.isbn13))
+      const book = await found.get(capture.isbn13)!
+      if (book && book.id !== capture.id) named[capture.id] = book
+    }
+    return named
+  }
 
   app.post('/api/captures/:id/claim', asyncRoute(async (req, res) => {
     const id = idIn(req.params.id, res, 'No such capture.')

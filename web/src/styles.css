@@ -381,6 +381,42 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
    rid of before the worker finishes with it. */
 .queue__open[aria-disabled='true'] { opacity: 0.55; }
 
+/* A choice about one scan, joined to the bottom of its card so it reads as that
+   book's and not the next one's. Inside the sliding layer, so it goes with the
+   row when it is swiped. */
+.queue__row--aside .wf-qrow {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  box-shadow: none;
+}
+.queue__aside {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2);
+  border: 1px solid var(--line);
+  border-top: 0;
+  border-radius: 0 0 var(--r-lg) var(--r-lg);
+  background: var(--paper-sunk);
+}
+.queue__aside-said { flex: 1 1 100%; font-size: var(--size-small); color: var(--ink); }
+.queue__aside-choices { display: flex; flex-wrap: wrap; gap: var(--s2); }
+
+/* Several scans of one book, kept together so they read as one book with a
+   choice to make rather than as several books. */
+.queue__same {
+  display: grid;
+  gap: var(--s2);
+  padding: var(--s2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  background: var(--sun-wash);
+}
+.queue__same-have,
+.queue__same-said { margin: 0; font-size: var(--size-small); color: var(--ink); }
+.queue__same-have { font-weight: 600; }
+
 /* A discard that has not happened. Nothing has been sent while this is on
    screen; see discardWindow.ts. */
 .queue__undo {
