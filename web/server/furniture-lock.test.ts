@@ -13,13 +13,18 @@
  * is known and is #604's to decide.
  */
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import type { AddressInfo } from 'node:net'
+import type { Server } from 'node:http'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeTestDatabase, keepThisCatalogue, openTestDatabase } from './testdb'
 import { testBooks } from './testbooks'
 import { lockKey, type Db } from './driver'
 import { Shelves } from './shelves'
 import { applyRunMove } from './relocate-run'
-import { dropArea } from './furniture'
+import { addAreaTo, addFixture, dropArea } from './furniture'
+import { createApp, type BookScanApp } from './index'
+import { signedIn } from './testauth'
+import { removeScratchRoot, scratchRoot } from './scratchdir'
 import { FURNITURE_LOCK, rangeLock } from '../application/locks'
 import { FICTION_SLUG, NON_FICTION_SLUG } from '../domain/tagging/catalogue-claims'
 import { plankAt, type PlankAt } from '../shared/layout'
@@ -105,6 +110,19 @@ async function whileTheFurnitureIsHeld<T>(
   act: () => Promise<T>,
   meanwhile: (tx: Db) => Promise<unknown> = async () => {},
 ): Promise<Queued<T>> {
+  return whileHeld([FURNITURE_LOCK], range, act, meanwhile)
+}
+
+/**
+ * The same, holding any of the names: `ranAlongside` is false as soon as the
+ * act is queued for one of them.
+ */
+async function whileHeld<T>(
+  names: readonly string[],
+  range: ShelfRange,
+  act: () => Promise<T>,
+  meanwhile: (tx: Db) => Promise<unknown> = async () => {},
+): Promise<Queued<T>> {
   await warmTheConnections()
 
   let release = () => {}
@@ -116,7 +134,7 @@ async function whileTheFurnitureIsHeld<T>(
     await meanwhile(tx)
     holding()
     await held
-  }, { serialiseOn: FURNITURE_LOCK })
+  }, { serialiseOn: names })
   await inside
 
   let finished = false
@@ -130,7 +148,7 @@ async function whileTheFurnitureIsHeld<T>(
       if (Date.now() > deadline) {
         throw new Error(
           `Neither happened within ${NEITHER_FACT_YET_MS / 1000}s: the act has not ` +
-          'finished, and nothing in this database is waiting for the furniture lock. ' +
+          `finished, and nothing in this database is waiting for ${names.join(' or ')}. ` +
           'Something other than that lock is holding it up.',
         )
       }
@@ -138,7 +156,8 @@ async function whileTheFurnitureIsHeld<T>(
         ranAlongside = true
         break
       }
-      const waiting = (await lockersOf(FURNITURE_LOCK)).filter((one) => !one.granted)
+      const waiting = (await Promise.all(names.map(lockersOf)))
+        .flat().filter((one) => !one.granted)
       if (waiting.length) {
         heldTheRange = (await lockersOf(rangeLock(range)))
           .some((one) => one.granted && one.pid === waiting[0]!.pid)
@@ -258,6 +277,93 @@ describe('an act plans from the room the furniture writer left', () => {
 
     expect(queued.ranAlongside).toBe(false)
     expect(queued.answer).toEqual({ ok: true, removed: null })
+  })
+})
+
+/**
+ * `DELETE /api/areas/:id` is the furniture screen's door to the same removal
+ * `RemoveSeparatorHandler` makes, and it reached `dropArea` holding the
+ * furniture alone, so a save filing into that run could read the room halfway
+ * through the change (#661). Driven over HTTP, because the route is the door.
+ */
+describe('deleting an area over HTTP waits for whoever holds its range', () => {
+  let server: Server
+  let app: BookScanApp
+  let baseUrl = ''
+  let cookie = ''
+  let scratch = ''
+
+  beforeEach(async () => {
+    scratch = scratchRoot('furniture-lock')
+    cookie = (await signedIn(db)).cookie
+    app = createApp({ db, coverDir: scratch, startBackgroundWork: false })
+    server = app.listen(0)
+    await new Promise<void>((resolve) => server.once('listening', resolve))
+    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  })
+
+  afterEach(async () => {
+    await app.settled()
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()))
+    })
+    removeScratchRoot(scratch)
+  })
+
+  const deleteArea = async (id: number) => {
+    const response = await fetch(`${baseUrl}/api/areas/${id}`, {
+      method: 'DELETE',
+      headers: { cookie },
+    })
+    return { status: response.status, body: await response.json() as unknown }
+  }
+
+  /** The areas on the piece at this number, in the order they hang. */
+  const areasOnBookcase = async (position: number): Promise<number[]> =>
+    (await db.all<{ id: number }>(
+      `SELECT a.id FROM area a JOIN fixture f ON f.id = a.fixture_id
+        WHERE f.position = ? AND a.position >= 0 ORDER BY a.position`,
+      [position],
+    )).map((row) => Number(row.id))
+
+  it('a boundary of the fiction run', async () => {
+    const [, boundary] = await areasOnBookcase(1)
+    const queued = await whileHeld([rangeLock('fiction')], 'fiction', () => deleteArea(boundary!))
+
+    expect(queued.ranAlongside, 'it wrote the fiction run while somebody else held it').toBe(false)
+    expect(queued.answer.status, JSON.stringify(queued.answer.body)).toBe(200)
+  })
+
+  it('the plank the fiction run opens on', async () => {
+    const [opening] = await areasOnBookcase(1)
+    const queued = await whileHeld([rangeLock('fiction')], 'fiction', () => deleteArea(opening!))
+
+    expect(queued.ranAlongside, 'it wrote the fiction run while somebody else held it').toBe(false)
+    expect(queued.answer.status, JSON.stringify(queued.answer.body)).toBe(200)
+  })
+
+  /*
+   * A piece standing before the first run belongs to no range, so its areas
+   * are no run's boundaries and nothing a save reads changes. It takes the
+   * furniture alone, as it always did, and does not queue behind a save in
+   * either range.
+   */
+  it('an area no run stands on takes no range', async () => {
+    await db.run('UPDATE fixture SET position = position + 1')
+    const piece = await addFixture(db, { position: 1, name: 'By the door' })
+    if (!piece.ok) throw new Error(piece.error)
+    for (const startsAt of ['', 'm']) {
+      const added = await addAreaTo(db, piece.fixture.id, { startsAt })
+      if (!added.ok) throw new Error(added.error)
+    }
+    const [, second] = await areasOnBookcase(1)
+
+    const queued = await whileHeld(
+      [rangeLock('fiction'), rangeLock('nonfiction')], 'fiction', () => deleteArea(second!),
+    )
+
+    expect(queued.ranAlongside, 'it queued for a range it does not stand in').toBe(true)
+    expect(queued.answer.status, JSON.stringify(queued.answer.body)).toBe(200)
   })
 })
 
